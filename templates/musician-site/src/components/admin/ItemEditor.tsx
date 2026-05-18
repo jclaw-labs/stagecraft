@@ -97,6 +97,7 @@ export function ItemEditor({ def, item, onChange, referenceOptions = {} }: ItemE
 }
 
 function FieldRenderer({
+  def,
   field,
   item,
   referenceOptions,
@@ -300,35 +301,29 @@ function FieldRenderer({
       );
     }
     case "puckContent":
-      // PR 6 lands the embedded template editor. Until then we link out
-      // to the existing per-page Puck route, which only works for the
-      // Pages collection — for other collections the link is a no-op
-      // placeholder.
+      // Generic per-field puckContent editor (ADR-009 PR 6). One
+      // route per (collection, item, fieldId) tuple so the link works
+      // for every collection — Pages and otherwise. Singletons use
+      // the same route; their itemSlug is the literal `_singleton`.
       return (
         <Field
           label={field.key}
-          description="Edit the body in Puck. Embedded editor lands in PR 6."
+          description="Edit this body in the visual editor."
         >
-          {item.slug && item.slug !== "_singleton" ? (
-            <Link
-              href={`/admin/pages/${item.slug}`}
-              style={{
-                display: "inline-block",
-                padding: "var(--space-2) var(--space-4)",
-                background: "var(--color-surface-raised)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--color-text)",
-                textDecoration: "none",
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              Edit body in Puck →
-            </Link>
-          ) : (
-            <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-              The puckContent editor isn&apos;t wired up for this collection yet.
-            </p>
-          )}
+          <Link
+            href={`/admin/collections/${def.slug}/items/${item.slug}/body/${field.id}`}
+            style={{
+              display: "inline-block",
+              padding: "var(--space-2) var(--space-4)",
+              background: "var(--color-surface-raised)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--color-text)",
+              textDecoration: "none",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            Edit {field.key} in Puck →
+          </Link>
         </Field>
       );
     default: {
