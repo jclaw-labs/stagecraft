@@ -30,6 +30,10 @@ export default async function DetailTemplateEditorPage({
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
   if (!def) notFound();
 
+  // Singletons don't have detail pages — there's only one item, no
+  // `<detailUrlPrefix>/<slug>` URL to render. Route 404s.
+  if (def.isSingleton) notFound();
+
   return (
     <TemplateEditorClient
       collectionSlug={parsed.data}

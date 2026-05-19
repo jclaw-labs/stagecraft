@@ -11,10 +11,15 @@
 
 import { Puck, type Data } from "@measured/puck";
 import "@measured/puck/puck.css";
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
+import {
+  PuckBackLink,
+  PuckLabelPill,
+  PuckSaveStatusPill,
+  type PuckEditorSaveStatus,
+} from "@/components/admin/PuckEditorChrome";
 import { templatePuckConfig } from "@/lib/collections/template/puck-config";
 
 import type { Item } from "@/lib/collections";
@@ -28,8 +33,6 @@ type Props = {
   initialItem: Item;
   email: string;
 };
-
-type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export function BodyEditorClient({
   collectionSlug,
@@ -48,7 +51,7 @@ export function BodyEditorClient({
     return { content: [], root: { props: {} } };
   }, [initialItem, fieldId]);
 
-  const [status, setStatus] = useState<SaveStatus>("idle");
+  const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onPublish = useCallback(
@@ -102,17 +105,11 @@ export function BodyEditorClient({
       overrides={{
         headerActions: ({ children }) => (
           <>
-            <Link
-              href={`/admin/collections/${collectionSlug}/items/${itemSlug}`}
-              style={backLinkStyle}
-              title="Back to item editor"
-            >
+            <PuckBackLink href={`/admin/collections/${collectionSlug}/items/${itemSlug}`}>
               ← {pluralName}
-            </Link>
-            <span style={pillStyle} title="Editing field">
-              {fieldKey}
-            </span>
-            <SaveStatusPill status={status} errorMessage={errorMessage} />
+            </PuckBackLink>
+            <PuckLabelPill title="Editing field">{fieldKey}</PuckLabelPill>
+            <PuckSaveStatusPill status={status} errorMessage={errorMessage} />
             {children}
             <AdminAccountButton email={email} />
           </>
@@ -121,65 +118,3 @@ export function BodyEditorClient({
     />
   );
 }
-
-function SaveStatusPill({
-  status,
-  errorMessage,
-}: {
-  status: SaveStatus;
-  errorMessage: string | null;
-}) {
-  switch (status) {
-    case "idle":
-      return null;
-    case "saving":
-      return <span style={statusPillStyle}>Saving…</span>;
-    case "saved":
-      return (
-        <span style={statusPillStyle} title={errorMessage ?? undefined}>
-          {errorMessage ? "Saved (warning)" : "Saved"}
-        </span>
-      );
-    case "error":
-      return (
-        <span
-          style={{ ...statusPillStyle, color: "var(--color-text-error)" }}
-          role="alert"
-          title={errorMessage ?? undefined}
-        >
-          Save failed
-        </span>
-      );
-  }
-}
-
-const backLinkStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-1)",
-  padding: "var(--space-1) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  textDecoration: "none",
-};
-
-const pillStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-  fontFamily: "var(--font-mono)",
-};
-
-const statusPillStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "var(--space-1) var(--space-2)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  background: "var(--color-surface-raised)",
-  color: "var(--color-text-muted)",
-  borderRadius: "var(--radius-sm)",
-};

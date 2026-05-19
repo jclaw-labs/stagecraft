@@ -15,11 +15,16 @@
 
 import { Puck, type Data } from "@measured/puck";
 import "@measured/puck/puck.css";
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { buildEditorPuckConfig } from "@/components/admin/buildEditorPuckConfig";
+import {
+  PuckBackLink,
+  PuckLabelPill,
+  PuckSaveStatusPill,
+  type PuckEditorSaveStatus,
+} from "@/components/admin/PuckEditorChrome";
 
 import type { CollectionDef } from "@/lib/collections";
 
@@ -32,8 +37,6 @@ type Props = {
   email: string;
 };
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
-
 export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props) {
   const initialData = useMemo<Data>(() => {
     const stored = kind === "item" ? def.itemTemplate : def.detailTemplate;
@@ -45,7 +48,7 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
 
   const config = useMemo(() => buildEditorPuckConfig(def), [def]);
 
-  const [status, setStatus] = useState<SaveStatus>("idle");
+  const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onPublish = useCallback(
@@ -95,17 +98,13 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
       overrides={{
         headerActions: ({ children }) => (
           <>
-            <Link
-              href={`/admin/collections/${collectionSlug}`}
-              style={backLinkStyle}
-              title="Back to collection"
-            >
+            <PuckBackLink href={`/admin/collections/${collectionSlug}`}>
               ← {def.pluralName}
-            </Link>
-            <span style={pillStyle} title="Template kind">
+            </PuckBackLink>
+            <PuckLabelPill title="Template kind">
               {kind === "item" ? "Item template" : "Detail template"}
-            </span>
-            <SaveStatusPill status={status} errorMessage={errorMessage} />
+            </PuckLabelPill>
+            <PuckSaveStatusPill status={status} errorMessage={errorMessage} />
             {children}
             <AdminAccountButton email={email} />
           </>
@@ -114,65 +113,3 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
     />
   );
 }
-
-function SaveStatusPill({
-  status,
-  errorMessage,
-}: {
-  status: SaveStatus;
-  errorMessage: string | null;
-}) {
-  switch (status) {
-    case "idle":
-      return null;
-    case "saving":
-      return <span style={statusPillStyle}>Saving…</span>;
-    case "saved":
-      return (
-        <span style={statusPillStyle} title={errorMessage ?? undefined}>
-          {errorMessage ? "Saved (warning)" : "Saved"}
-        </span>
-      );
-    case "error":
-      return (
-        <span
-          style={{ ...statusPillStyle, color: "var(--color-text-error)" }}
-          role="alert"
-          title={errorMessage ?? undefined}
-        >
-          Save failed
-        </span>
-      );
-  }
-}
-
-const backLinkStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-1)",
-  padding: "var(--space-1) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  textDecoration: "none",
-};
-
-const pillStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-  fontFamily: "var(--font-mono)",
-};
-
-const statusPillStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "var(--space-1) var(--space-2)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  background: "var(--color-surface-raised)",
-  color: "var(--color-text-muted)",
-  borderRadius: "var(--radius-sm)",
-};

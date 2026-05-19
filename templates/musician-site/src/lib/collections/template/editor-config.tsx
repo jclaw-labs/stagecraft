@@ -18,7 +18,7 @@
  * to bind against when authoring a single item's body.
  */
 
-import type { Bindable, CollectionDef, FieldDef, FieldType } from "../schema";
+import type { CollectionDef, FieldDef, FieldType } from "../schema";
 
 import { STRING_VALUED_FIELD_TYPES } from "./binding";
 
@@ -52,15 +52,6 @@ export function compatibleFields(
   const allowed =
     kind === "string" ? STRING_BINDABLE_FIELD_TYPES : IMAGE_BINDABLE_FIELD_TYPES;
   return fields.filter((f) => allowed.has(f.type));
-}
-
-/**
- * Default Bindable<T> value when adding a brand-new prop instance.
- * Starts in literal mode so the editor isn't immediately constrained
- * to a specific field choice.
- */
-export function defaultBindable<T>(literal: T): Bindable<T> {
-  return { kind: "literal", value: literal };
 }
 
 /**

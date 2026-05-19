@@ -4,7 +4,6 @@ import {
   BINDABLE_SLOTS,
   RICH_FIELDS,
   compatibleFields,
-  defaultBindable,
   getCollectionContextForEditor,
 } from "./editor-config";
 import type { CollectionDef } from "../schema";
@@ -42,13 +41,6 @@ describe("compatibleFields", () => {
   it("image slot accepts only image fields", () => {
     const got = compatibleFields("image", def().fields).map((f) => f.key);
     expect(got).toEqual(["image"]);
-  });
-});
-
-describe("defaultBindable", () => {
-  it("starts in literal mode with the provided value", () => {
-    const b = defaultBindable("Hello");
-    expect(b).toEqual({ kind: "literal", value: "Hello" });
   });
 });
 

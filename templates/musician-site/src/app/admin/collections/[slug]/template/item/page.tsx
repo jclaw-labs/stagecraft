@@ -24,6 +24,11 @@ export default async function ItemTemplateEditorPage({
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
   if (!def) notFound();
 
+  // Singletons render through their single item's puckContent body —
+  // there's no Collection block to iterate them, so an itemTemplate
+  // is dead code. The route 404s to keep the editor surface honest.
+  if (def.isSingleton) notFound();
+
   return (
     <TemplateEditorClient
       collectionSlug={parsed.data}
