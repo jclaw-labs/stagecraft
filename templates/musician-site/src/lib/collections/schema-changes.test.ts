@@ -560,4 +560,85 @@ describe("validateSchemaChange — item validation under the new schema", () => 
     const items = [tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris")];
     expect(validateSchemaChange(oldDef, newDef, items).ok).toBe(true);
   });
+
+  it("surfaces structural AND constraint issues in a single response", () => {
+    // The artist did two bad things at once: tried to rename a
+    // systemLocked field AND removed a select option in use. The
+    // report surfaces both — the old gate hid the second behind
+    // the first.
+    const oldDef: CollectionDef = {
+      ...tourDatesDef(),
+      fields: tourDatesDef().fields.map((f) =>
+        f.id === "f_venue" && f.type === "text"
+          ? { ...f, systemLocked: true }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) => {
+        if (f.id === "f_venue" && f.type === "text") return { ...f, key: "renamed" };
+        if (f.id === "f_status" && f.type === "select") {
+          return { ...f, options: f.options.filter((o) => o.value !== "on_sale") };
+        }
+        return f;
+      }) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    const kinds = new Set(report.issues.map((i) => i.kind));
+    expect(kinds.has("system-locked-renamed")).toBe(true);
+    expect(kinds.has("item-invalid-under-new-schema")).toBe(true);
+  });
+
+  it("deduplicates whole-item issues for fields that have a structural issue", () => {
+    // A blocked retype shouldn't ALSO surface as "item value doesn't
+    // match new type" for every item with that field — same root
+    // cause, the structural issue is enough.
+    const oldDef: CollectionDef = {
+      ...tourDatesDef(),
+      fields: tourDatesDef().fields.map((f) =>
+        f.id === "f_venue" && f.type === "text"
+          ? { ...f, systemLocked: true }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text"
+          ? { ...f, type: "number" as const, required: true }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [
+      tourDateItem("a", "2026-07-15", "X", "Paris"),
+      tourDateItem("b", "2026-07-16", "Y", "Lyon"),
+    ];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    // The structural "system-locked-retyped" + "type-transition-blocked"
+    // fire; the whole-item validator finds f_venue value-type mismatches
+    // on both items but those are dedup'd.
+    const wholeItemIssuesForVenue = report.issues.filter(
+      (i) => i.kind === "item-invalid-under-new-schema" && i.path.startsWith("values.f_venue"),
+    );
+    expect(wholeItemIssuesForVenue).toHaveLength(0);
+  });
+
+  it("includes migratedItems in the report (so the route doesn't recompute)", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text" ? { ...f, type: "longText" as const } : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris")];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    expect(report.migratedItems).toHaveLength(1);
+    expect(report.migratedItems[0].values.f_venue).toEqual({
+      type: "longText",
+      value: "La Cigale",
+    });
+  });
 });

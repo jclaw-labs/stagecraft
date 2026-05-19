@@ -30,7 +30,6 @@ import {
   describeIssue,
   describeWarning,
   listItemsInOrder,
-  migrateItemValues,
   readCollectionDef,
   slugSchema,
   validateSchemaChange,
@@ -93,14 +92,11 @@ export async function PUT(request: Request, ctx: Ctx) {
     });
   }
 
-  // Lossless type transitions: rewrite affected item values so the
-  // value's `type` discriminator matches the new field's type, then
-  // write items + def + publish them together. Without this, on-disk
-  // values keep the old discriminator and the next read fails the
-  // dynamic Zod schema (the validator above runs the same parse on
-  // the migrated view, so reaching here means the migrated items
-  // will parse).
-  const migratedItems = migrateItemValues(oldDef, newDef, items);
+  // Lossless type transitions: the validator already computed the
+  // rewritten items (and verified they parse against the new def's
+  // dynamic Zod). Read them off the report rather than recomputing,
+  // so there's a single source of truth for what the save will do.
+  const migratedItems = report.migratedItems;
 
   await writeCollectionDef(parsedSlug.data, newDef);
   for (const item of migratedItems) {

@@ -141,6 +141,17 @@ export type SchemaChangeReport = {
   issues: SchemaChangeIssue[];
   /** Non-blocking warnings — the UI surfaces them and asks for confirm. */
   warnings: SchemaChangeWarning[];
+  /**
+   * Items whose values need to be rewritten on disk so the value's
+   * `type` discriminator matches the new field's type (lossless type
+   * transitions per ADR §11). The route writes these as part of the
+   * save and includes them in the same publish commit as the def.
+   *
+   * Computed unconditionally — even when `ok` is false — so callers
+   * can preview the planned rewrite. The route only acts on it when
+   * `ok` is true.
+   */
+  migratedItems: Item[];
 };
 
 /**
@@ -262,37 +273,59 @@ export function validateSchemaChange(
   // delegates the check to the same code that will reject reads after
   // the save, eliminating the gap.
   //
-  // Lossless type transitions are applied *hypothetically* first
-  // (`migrateItemValues` returns a fresh item list with rewritten
-  // values) so a `text → longText` save isn't flagged here when the
-  // route would in fact migrate. Bugs in the transformer surface as
-  // issues too — the validator is the last word, and "the new schema
-  // would reject this item" is always blocking.
-  if (issues.length === 0) {
-    const migrated = migrateItemValues(oldDef, newDef, items);
-    const migratedBySlug = new Map(migrated.map((m) => [m.slug, m]));
-    const fileSchema = buildItemFileSchema(newDef.fields);
-    for (const item of items) {
-      const view = migratedBySlug.get(item.slug) ?? item;
-      const parsed = fileSchema.safeParse({
-        id: view.id,
-        createdAt: view.createdAt,
-        updatedAt: view.updatedAt,
-        values: view.values,
+  // Lossless type transitions are applied first (`migrateItemValues`
+  // returns the rewritten items) so a `text → longText` save isn't
+  // flagged here when the route would in fact migrate. The migrated
+  // items also flow through to the report — the route uses them
+  // directly to avoid recomputing the plan.
+  //
+  // Always runs (no `issues.length === 0` gate). Surfacing multiple
+  // problem categories in a single response saves the artist from a
+  // fix-one-find-another stutter. To avoid pile-up when a field has
+  // a structural issue *and* its items would naturally fail the new
+  // schema (e.g. a blocked retype + value-shape mismatch), the
+  // whole-item issues are deduplicated per field: any path under a
+  // field that already has a structural issue is suppressed.
+  const migratedItems = migrateItemValues(oldDef, newDef, items);
+  const migratedBySlug = new Map(migratedItems.map((m) => [m.slug, m]));
+  const fileSchema = buildItemFileSchema(newDef.fields);
+  const fieldsWithStructuralIssues = new Set(
+    issues.flatMap((i) => ("fieldId" in i && i.fieldId ? [i.fieldId] : [])),
+  );
+  for (const item of items) {
+    const view = migratedBySlug.get(item.slug) ?? item;
+    const parsed = fileSchema.safeParse({
+      id: view.id,
+      createdAt: view.createdAt,
+      updatedAt: view.updatedAt,
+      values: view.values,
+    });
+    if (parsed.success) continue;
+    for (const zodIssue of parsed.error.issues) {
+      // Zod's path for an item-values error is ["values", fieldId, ...].
+      // Skip issues whose field is already covered by a structural
+      // issue above — those would be downstream noise from the same
+      // root cause.
+      const fieldId =
+        zodIssue.path[0] === "values" && typeof zodIssue.path[1] === "string"
+          ? zodIssue.path[1]
+          : undefined;
+      if (fieldId && fieldsWithStructuralIssues.has(fieldId)) continue;
+      issues.push({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: item.slug,
+        path: zodIssue.path.join("."),
+        message: zodIssue.message,
       });
-      if (parsed.success) continue;
-      for (const zodIssue of parsed.error.issues) {
-        issues.push({
-          kind: "item-invalid-under-new-schema",
-          itemSlug: item.slug,
-          path: zodIssue.path.join("."),
-          message: zodIssue.message,
-        });
-      }
     }
   }
 
-  return { ok: issues.length === 0, issues, warnings };
+  return {
+    ok: issues.length === 0,
+    issues,
+    warnings,
+    migratedItems,
+  };
 }
 
 function checkDuplicates(fields: ReadonlyArray<FieldDef>, issues: SchemaChangeIssue[]): void {
