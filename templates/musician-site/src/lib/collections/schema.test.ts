@@ -6,6 +6,7 @@ import {
   collectionDefSchema,
   fieldDefSchema,
   fieldValueSchema,
+  filterSchema,
   findField,
   generateFieldId,
   generateItemId,
@@ -744,5 +745,102 @@ describe("ID generators", () => {
   it("returns a different id each call", () => {
     expect(generateFieldId()).not.toBe(generateFieldId());
     expect(generateItemId()).not.toBe(generateItemId());
+  });
+});
+
+describe("filterSchema (ADR §5.1)", () => {
+  it("accepts an `all`-of-clauses filter with literal values", () => {
+    const filter = {
+      all: [
+        {
+          field: "fld_status",
+          op: "in" as const,
+          values: [{ kind: "literal" as const, value: "on_sale" }],
+        },
+      ],
+    };
+    expect(() => filterSchema.parse(filter)).not.toThrow();
+  });
+
+  it("accepts an `any`-of-clauses filter", () => {
+    const filter = {
+      any: [
+        { field: "fld_status", op: "equals" as const, value: { kind: "literal" as const, value: "on_sale" } },
+        { field: "fld_status", op: "equals" as const, value: { kind: "literal" as const, value: "free" } },
+      ],
+    };
+    expect(() => filterSchema.parse(filter)).not.toThrow();
+  });
+
+  it("accepts a currentItem-shaped value", () => {
+    const filter = {
+      all: [
+        {
+          field: "fld_tour",
+          op: "equals" as const,
+          value: { kind: "currentItemField" as const, fieldId: "fld_tour" },
+        },
+      ],
+    };
+    expect(() => filterSchema.parse(filter)).not.toThrow();
+  });
+
+  it("accepts the excludeCurrentItem shorthand", () => {
+    const filter = { all: [{ excludeCurrentItem: true as const }] };
+    expect(() => filterSchema.parse(filter)).not.toThrow();
+  });
+
+  it("accepts every comparison operator", () => {
+    const ops = ["equals", "notEquals", "gt", "gte", "lt", "lte", "contains"] as const;
+    for (const op of ops) {
+      const filter = {
+        all: [{ field: "fld_x", op, value: { kind: "literal" as const, value: 1 } }],
+      };
+      expect(() => filterSchema.parse(filter), `op=${op}`).not.toThrow();
+    }
+  });
+
+  it("accepts the in/notIn array-valued operators", () => {
+    for (const op of ["in", "notIn"] as const) {
+      const filter = {
+        all: [
+          {
+            field: "fld_x",
+            op,
+            values: [{ kind: "literal" as const, value: "a" }],
+          },
+        ],
+      };
+      expect(() => filterSchema.parse(filter), `op=${op}`).not.toThrow();
+    }
+  });
+
+  it("accepts the isEmpty / isNotEmpty operators (no value)", () => {
+    for (const op of ["isEmpty", "isNotEmpty"] as const) {
+      const filter = { all: [{ field: "fld_x", op }] };
+      expect(() => filterSchema.parse(filter), `op=${op}`).not.toThrow();
+    }
+  });
+
+  it("rejects an unknown FilterValue kind", () => {
+    const filter = {
+      all: [
+        {
+          field: "fld_x",
+          op: "equals",
+          value: { kind: "magic", value: 1 },
+        },
+      ],
+    };
+    expect(() => filterSchema.parse(filter)).toThrow();
+  });
+
+  it("rejects an unknown operator", () => {
+    const filter = {
+      all: [
+        { field: "fld_x", op: "soundsLike", value: { kind: "literal", value: "x" } },
+      ],
+    };
+    expect(() => filterSchema.parse(filter)).toThrow();
   });
 });

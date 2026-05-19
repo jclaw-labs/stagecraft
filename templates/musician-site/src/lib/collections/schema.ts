@@ -731,3 +731,92 @@ export const orderFileSchema = z.array(slugSchema);
 export type Bindable<T> =
   | { kind: "literal"; value: T }
   | { kind: "binding"; fieldId: FieldId };
+
+// ---------------------------------------------------------------------------
+// 7. Collection-block filters (ADR-009 §5.1)
+//
+// The filter shape stored on a Collection block — `TourDatesView`,
+// `ReleasesView`, etc. — that decides which items the block renders.
+// Three-arm `FilterValue` discriminator so a real `FieldId` named
+// `_id` can't collide with a `currentItem`-shaped sentinel:
+//
+//   - `{ kind: "literal", value }`               — plain comparison
+//   - `{ kind: "currentItemId" }`                — `currentItem.id`
+//   - `{ kind: "currentItemField", fieldId }`    — `currentItem.values[fieldId]`
+//
+// `currentItem` is the item the surrounding template is rendering for
+// (a Page, a tour-date detail page, …). The renderer threads it
+// through every block; resolution lives in the walker (PR 7b).
+// ---------------------------------------------------------------------------
+
+const filterValueSchema: z.ZodType<FilterValue> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("literal"), value: z.unknown() }),
+  z.object({ kind: z.literal("currentItemId") }),
+  z.object({ kind: z.literal("currentItemField"), fieldId: fieldIdSchema }),
+]);
+
+const filterClauseSchema: z.ZodType<FilterClause> = z.union([
+  z.object({
+    field: fieldIdSchema,
+    op: z.union([z.literal("equals"), z.literal("notEquals")]),
+    value: filterValueSchema,
+  }),
+  z.object({
+    field: fieldIdSchema,
+    op: z.union([z.literal("in"), z.literal("notIn")]),
+    values: z.array(filterValueSchema),
+  }),
+  z.object({
+    field: fieldIdSchema,
+    op: z.union([z.literal("isEmpty"), z.literal("isNotEmpty")]),
+  }),
+  z.object({
+    field: fieldIdSchema,
+    op: z.union([z.literal("gt"), z.literal("gte"), z.literal("lt"), z.literal("lte")]),
+    value: filterValueSchema,
+  }),
+  z.object({
+    field: fieldIdSchema,
+    op: z.literal("contains"),
+    value: filterValueSchema,
+  }),
+  z.object({ excludeCurrentItem: z.literal(true) }),
+]);
+
+export const filterSchema: z.ZodType<Filter> = z.union([
+  z.object({ all: z.array(filterClauseSchema) }),
+  z.object({ any: z.array(filterClauseSchema) }),
+]);
+
+/**
+ * A value substituted into a filter clause at resolution time. The
+ * three-arm discriminator avoids the `_id`-named-FieldId collision
+ * the single-arm shape (`field: "_id"` sentinel) would have.
+ */
+export type FilterValue =
+  | { kind: "literal"; value: unknown }
+  | { kind: "currentItemId" }
+  | { kind: "currentItemField"; fieldId: FieldId };
+
+/**
+ * One comparison clause inside a `Filter`. `excludeCurrentItem` is a
+ * shorthand for "exclude the item whose template is rendering this
+ * block" — common on detail pages ("More posts by me").
+ */
+export type FilterClause =
+  | { field: FieldId; op: "equals" | "notEquals"; value: FilterValue }
+  | { field: FieldId; op: "in" | "notIn"; values: FilterValue[] }
+  | { field: FieldId; op: "isEmpty" | "isNotEmpty" }
+  | { field: FieldId; op: "gt" | "gte" | "lt" | "lte"; value: FilterValue }
+  | { field: FieldId; op: "contains"; value: FilterValue }
+  | { excludeCurrentItem: true };
+
+/**
+ * A Collection block's filter expression. `all` means AND across
+ * clauses; `any` means OR. Nested groupings aren't supported in v1;
+ * the artist can compose them by stacking multiple Collection blocks
+ * with different filters.
+ */
+export type Filter =
+  | { all: FilterClause[] }
+  | { any: FilterClause[] };
