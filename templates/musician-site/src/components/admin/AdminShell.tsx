@@ -12,7 +12,12 @@ import { AdminAccountButton } from "./AdminAccountButton";
  * the whole viewport so Puck owns the chrome).
  */
 
-export type AdminSection = "pages" | "settings" | "navigation" | "appearance";
+export type AdminSection =
+  | "pages"
+  | "settings"
+  | "navigation"
+  | "appearance"
+  | "collections";
 
 type Item = {
   href: string;
@@ -26,6 +31,7 @@ const ITEMS: Item[] = [
   { href: "/admin/settings", label: "Site Settings", section: "settings", description: "Artist name, social links, contact, copyright." },
   { href: "/admin/navigation", label: "Header & Navigation", section: "navigation", description: "Wordmark, header style, and which pages appear in the nav." },
   { href: "/admin/appearance", label: "Appearance", section: "appearance", description: "Colors and typography." },
+  { href: "/admin/collections", label: "Collections", section: "collections", description: "Edit any collection's items directly (advanced)." },
 ];
 
 const shellStyle: CSSProperties = {

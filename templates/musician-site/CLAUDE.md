@@ -52,6 +52,8 @@ src/
       pages/                GET list, POST create
       pages/[slug]/         DELETE
       save-config/          POST: site-config | header-config | appearance
+      collections/[slug]/items/             PR 4 — generic CRUD
+      collections/[slug]/items/[itemSlug]/  for any collection
   components/
     Image.tsx               Public <picture> renderer for ImageMetadata
     Header.tsx              Public site header (artist name + nav)

@@ -308,6 +308,219 @@ export function ColorField({
 }
 
 /**
+ * Multi-line text input. Used by `longText` fields in the generic
+ * item editor (ADR-009 PR 4).
+ */
+export function TextareaField({
+  label,
+  description,
+  value,
+  onChange,
+  placeholder,
+  rows = 4,
+  isRequired,
+}: {
+  label: string;
+  description?: ReactNode;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  rows?: number;
+  isRequired?: boolean;
+}) {
+  const id = useFieldId(label);
+  return (
+    <Field label={label} description={description} htmlFor={id}>
+      <textarea
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        rows={rows}
+        required={isRequired}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...inputStyle, fontFamily: "var(--font-body)", resize: "vertical" }}
+      />
+    </Field>
+  );
+}
+
+/**
+ * ISO 8601 date input (YYYY-MM-DD). For datetime fields the
+ * `includeTime` flag widens to YYYY-MM-DDTHH:MM. The browser's native
+ * date input handles the picker UI.
+ */
+export function DateField({
+  label,
+  description,
+  value,
+  onChange,
+  includeTime = false,
+  isRequired,
+}: {
+  label: string;
+  description?: ReactNode;
+  value: string;
+  onChange: (next: string) => void;
+  includeTime?: boolean;
+  isRequired?: boolean;
+}) {
+  const id = useFieldId(label);
+  return (
+    <Field label={label} description={description} htmlFor={id}>
+      <input
+        id={id}
+        type={includeTime ? "datetime-local" : "date"}
+        value={value}
+        required={isRequired}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      />
+    </Field>
+  );
+}
+
+/**
+ * Multi-select picker. Renders the option list as labelled checkboxes
+ * — simpler and more accessible than HTML's native multi-select. The
+ * editor (PR 5) will use a richer picker once the schema editor lets
+ * artists add their own option sets, but for now the basic UX is fine.
+ */
+export function MultiSelectField<T extends string>({
+  label,
+  description,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  description?: ReactNode;
+  value: T[];
+  options: ReadonlyArray<{ value: T; label: string }>;
+  onChange: (next: T[]) => void;
+}) {
+  return (
+    <Field label={label} description={description}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+        {options.map((opt) => {
+          const checked = value.includes(opt.value);
+          return (
+            <label
+              key={opt.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => {
+                  if (e.target.checked) onChange([...value, opt.value]);
+                  else onChange(value.filter((v) => v !== opt.value));
+                }}
+              />
+              {opt.label}
+            </label>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Multi-line reference picker. Each row stores one itemId from a
+ * target collection; rows can be reordered. The component takes the
+ * available items as `options` — the editor fetches them upfront
+ * since collections are file-based (no async lookup mid-edit).
+ */
+export function MultiCollectionRefField({
+  label,
+  description,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  description?: ReactNode;
+  value: string[];
+  options: ReadonlyArray<{ id: string; label: string }>;
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <Field label={label} description={description}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+        {value.map((itemId, i) => (
+          <div key={`${itemId}-${i}`} style={{ display: "flex", gap: "var(--space-2)" }}>
+            <select
+              value={itemId}
+              onChange={(e) => onChange(value.map((v, j) => (j === i ? e.target.value : v)))}
+              style={{ ...inputStyle, flex: 1 }}
+            >
+              {options.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onChange(value.filter((_, j) => j !== i))}
+              style={removeButtonStyle}
+              aria-label={`Remove ${itemId}`}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {options.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => onChange([...value, options[0].id])}
+            style={addButtonStyle}
+          >
+            + Add reference
+          </button>
+        ) : (
+          <p style={fieldDescriptionStyle}>No items in the target collection yet.</p>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+const removeButtonStyle: CSSProperties = {
+  width: "2rem",
+  background: "transparent",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--color-text-muted)",
+  cursor: "pointer",
+};
+
+const addButtonStyle: CSSProperties = {
+  alignSelf: "flex-start",
+  background: "transparent",
+  border: "1px dashed var(--color-border-strong)",
+  borderRadius: "var(--radius-sm)",
+  padding: "var(--space-1) var(--space-3)",
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+  cursor: "pointer",
+};
+
+/**
+ * Hook-style id generator so labels stably bind to their inputs across
+ * re-renders. Plain `useId()` would work but we're avoiding hooks in
+ * this file for SSR cleanliness — derive from the label instead.
+ */
+function useFieldId(label: string): string {
+  return `field-${label.replace(/\s+/g, "-").toLowerCase()}`;
+}
+
+/**
  * A titled group of related fields — used to split the Settings and
  * Appearance panels into scannable sub-sections (Colors, Body, Headings, …).
  */

@@ -1,0 +1,146 @@
+/**
+ * Client wrapper for the "new item" flow.
+ *
+ * Adds a slug input above the field editor — the slug becomes the
+ * item's filename. We auto-suggest from the `slugSourceFieldId` when
+ * present (PR 4 doesn't ship a full slugify utility yet, so this is
+ * a naive lowercase-and-hyphenate; the schema editor PR will tighten
+ * it).
+ */
+
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+import { ItemEditor, type ReferenceOptions } from "@/components/admin/ItemEditor";
+import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
+import { TextField } from "@/components/admin/form";
+
+import type { CollectionDef, Item } from "@/lib/collections";
+
+export function NewItemClient({
+  def,
+  draft: initialDraft,
+  referenceOptions,
+  collectionSlug,
+}: {
+  def: CollectionDef;
+  draft: Item;
+  referenceOptions: ReferenceOptions;
+  collectionSlug: string;
+}) {
+  const router = useRouter();
+  const [draft, setDraft] = useState<Item>(initialDraft);
+  const [slugInput, setSlugInput] = useState("");
+  const [status, setStatus] = useState<SaveStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const suggestedSlug = suggestSlug(draft, def.slugSourceFieldId);
+  const slug = slugInput || suggestedSlug;
+
+  const save = async () => {
+    if (!slug) {
+      setErrorMessage("Slug is required");
+      setStatus("error");
+      return;
+    }
+    setStatus("saving");
+    setErrorMessage(null);
+    try {
+      const res = await fetch(`/api/collections/${collectionSlug}/items`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug, values: draft.values }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { ok: true; item: Item; publishWarning?: string }
+        | {
+            ok: false;
+            error?: string;
+            issues?: Array<{ path: string; message: string }>;
+          }
+        | null;
+      if (!res.ok || !body || !body.ok) {
+        // The route returns structured `issues` on a 400 from
+        // per-collection Zod validation. Surface each path/message
+        // pair so the artist can see which field failed and why,
+        // instead of a single opaque "Validation failed" string.
+        const issueMessages =
+          body && "issues" in body && Array.isArray(body.issues) && body.issues.length > 0
+            ? body.issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ")
+            : "";
+        const message =
+          issueMessages ||
+          (body && "error" in body && body.error) ||
+          `Save failed (HTTP ${res.status})`;
+        setErrorMessage(message);
+        setStatus("error");
+        return;
+      }
+      setStatus("saved");
+      router.push(`/admin/collections/${collectionSlug}/items/${body.item.slug}`);
+    } catch (cause) {
+      setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
+      setStatus("error");
+    }
+  };
+
+  return (
+    <main
+      style={{
+        maxWidth: "var(--max-width-content)",
+        margin: "var(--space-8) auto",
+        padding: "0 var(--space-4)",
+      }}
+    >
+      <h1
+        style={{
+          fontSize: "var(--font-size-2xl)",
+          fontWeight: "var(--font-weight-bold)" as unknown as number,
+          margin: 0,
+          marginBottom: "var(--space-6)",
+        }}
+      >
+        New {def.singularName}
+      </h1>
+      <TextField
+        label="Slug"
+        description="URL-safe id. Auto-suggested from the title field when blank."
+        isRequired
+        value={slugInput}
+        placeholder={suggestedSlug || `new-${def.singularName.replace(/\s+/g, "-")}`}
+        onChange={setSlugInput}
+      />
+      <ItemEditor
+        def={def}
+        item={draft}
+        onChange={setDraft}
+        referenceOptions={referenceOptions}
+      />
+      <SaveBar
+        isDirty={Boolean(slug || JSON.stringify(draft.values) !== "{}")}
+        status={status}
+        errorMessage={errorMessage ?? ""}
+        onSave={save}
+      />
+    </main>
+  );
+}
+
+/**
+ * Derive a slug from the draft's slug-source field. Naive
+ * slugification: lowercase, ASCII-ish, hyphens for whitespace. Good
+ * enough for the v1 flow; PR 5 / 7 can tighten if needed.
+ */
+function suggestSlug(item: Item, slugSourceFieldId: string | null): string {
+  if (!slugSourceFieldId) return "";
+  const v = item.values[slugSourceFieldId];
+  if (!v || !("value" in v) || typeof v.value !== "string") return "";
+  return v.value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 64);
+}
