@@ -474,6 +474,12 @@ export const releasesCollectionDef: CollectionDef = {
       options: selectOptionsFrom(RELEASE_TYPES, RELEASE_TYPE_LABELS),
     },
     {
+      // Optional — supports the "I'm planning a 2027 release but
+      // haven't picked a date yet" workflow. Items without a
+      // releaseDate sort to the end of the list (per the
+      // `defaultSort` below + the store's null-sort-to-end rule),
+      // which is what artists expect: dated releases on top,
+      // pending below.
       id: RELEASES_FIELD_IDS.releaseDate,
       key: "releaseDate",
       type: "date",
@@ -601,6 +607,22 @@ const STORE_ITEM_KIND_LABELS: Record<(typeof STORE_ITEM_KINDS)[number], string> 
   ticket: "Ticket",
 };
 
+// The common ISO 4217 currency codes most artists need. Constrained
+// to a select (rather than free-text) so the public renderer can
+// safely format prices and so the same currency renders consistently
+// across items — the free-text alternative produced "USD" / "$" /
+// "usd" inconsistencies on the same site. Artists with a less-
+// common currency extend the option set via the schema editor.
+const STORE_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
+const STORE_CURRENCY_LABELS: Record<(typeof STORE_CURRENCIES)[number], string> = {
+  USD: "USD — US Dollar",
+  EUR: "EUR — Euro",
+  GBP: "GBP — British Pound",
+  CAD: "CAD — Canadian Dollar",
+  AUD: "AUD — Australian Dollar",
+  JPY: "JPY — Japanese Yen",
+};
+
 export const STORE_ITEMS_FIELD_IDS = {
   title: "fld_store_items_title",
   image: "fld_store_items_image",
@@ -646,13 +668,15 @@ export const storeItemsCollectionDef: CollectionDef = {
       min: 0,
     },
     {
-      // Free-text so artists can use any ISO currency code or a
-      // freeform shorthand (€, $). v1 accepts; future renderer work
-      // can map known codes to symbols.
+      // Select over the common ISO 4217 codes so the public
+      // renderer can format prices consistently. An artist with a
+      // less-common currency extends the option set via the schema
+      // editor.
       id: STORE_ITEMS_FIELD_IDS.currency,
       key: "currency",
-      type: "text",
+      type: "select",
       required: true,
+      options: selectOptionsFrom(STORE_CURRENCIES, STORE_CURRENCY_LABELS),
     },
     {
       id: STORE_ITEMS_FIELD_IDS.description,
@@ -726,10 +750,15 @@ export const photosCollectionDef: CollectionDef = {
     },
   ],
   // Caption is the natural label, but it's optional and longText —
-  // fall back to a slug derived from the image's contentSlug at
-  // create time (handled by the new-item flow). The schema editor
-  // surfaces this as "(none)" meaning "use whatever slug the editor
-  // picks."
+  // hard to slugify cleanly. Today the artist types the slug
+  // manually in the new-item flow, which is rough UX for a
+  // gallery's worth of uploads.
+  //
+  // FOLLOW-UP: derive a default slug from the uploaded image's
+  // `contentSlug` (or a date-based fallback like
+  // `photo-2026-07-15-001`). Out of scope for the seed PR; lives
+  // in the new-item flow alongside the upload pipeline. Tracked in
+  // ADR §"Schema editor follow-ups."
   slugSourceFieldId: null,
   detailUrlPrefix: null,
   defaultSort: { mode: "manual" },
@@ -802,6 +831,11 @@ export const videosCollectionDef: CollectionDef = {
       required: false,
     },
     {
+      // Optional. Items without a publishedAt sort to the end per
+      // the `defaultSort` below — same pattern as
+      // `releases.releaseDate`. The artist can author videos
+      // without setting a date yet; once set, they bubble to the
+      // top.
       id: VIDEOS_FIELD_IDS.publishedAt,
       key: "publishedAt",
       type: "date",

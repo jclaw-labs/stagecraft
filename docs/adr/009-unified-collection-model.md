@@ -1267,6 +1267,18 @@ calls layered on top of an already-correct foundation.
   signal that N item files were just rewritten on disk.
   *Trigger:* a UI/UX pass.
 
+- **Smarter default slug for photo (and other image-heavy) items.**
+  `photosCollectionDef` ships with `slugSourceFieldId: null` because
+  no scalar field gives a clean default — caption is optional, and
+  the image's `ImageMetadata.alt` isn't a `FieldId`. Today the
+  artist types a slug for every photo they upload, which is rough
+  UX for a gallery's worth of items. Two fixes worth considering:
+  derive from the uploaded image's `contentSlug`, or default to a
+  date-based pattern (`photo-2026-07-15-001`). The new-item flow
+  is the right home; the seed PR doesn't try to solve this.
+  *Trigger:* first artist support case where the slugging UX gets
+  in the way of bulk photo uploads.
+
 ### What we built now to avoid pain later
 
 Three additions cost almost nothing today but would be expensive to
