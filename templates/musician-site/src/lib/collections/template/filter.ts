@@ -108,7 +108,6 @@ function matchesClause(item: Item, clause: FilterClause, currentItem: Item): boo
             : false;
       }
     }
-    // eslint-disable-next-line no-fallthrough -- the inner switch above is exhaustive.
     default: {
       const _exhaustive: never = clause;
       void _exhaustive;
@@ -139,18 +138,27 @@ function scalarValueAt(item: Item, fieldId: string): unknown {
     case "select":
     case "date":
     case "number":
-      return v.value;
     case "boolean":
-      return v.value;
     case "multiSelect":
-      return v.value;
     case "multiCollectionRef":
       return v.value;
     case "collectionRef":
       return v.value.itemId;
-    // richText, image, file, puckContent — not scalar-comparable.
-    default:
+    case "richText":
+    case "image":
+    case "file":
+    case "puckContent":
+      // Not scalar-comparable — the filter hides items keyed on these.
       return undefined;
+    default: {
+      // Exhaustiveness check — TS errors here if a new FieldType is
+      // added to the discriminated union without a matching case
+      // above. Forces the contributor to decide what filtering
+      // semantics the new type should have.
+      const _exhaustive: never = v;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 

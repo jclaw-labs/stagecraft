@@ -204,6 +204,51 @@ describe("applyFilter — currentItem", () => {
     // on_sale: paris, berlin. Exclude paris (current). Leaves berlin.
     expect(applyFilter(ITEMS, filter, CURRENT).map((i) => i.slug)).toEqual(["berlin"]);
   });
+
+  it("collectionRef field equals currentItemId — the canonical 'children of parent' pattern", () => {
+    // ADR §5.1's worked example: tracks where belongsToAlbum equals
+    // currentItem.id. Resolver pulls v.value.itemId out of the
+    // collectionRef value, FilterValue resolves to currentItem.id,
+    // equality holds for tracks belonging to this album.
+    const ALBUM_ID = "item_album_2026";
+    const tracks: Item[] = [
+      {
+        id: "item_t1",
+        slug: "track-1",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: { f_album: { type: "collectionRef", value: { itemId: ALBUM_ID } } },
+      },
+      {
+        id: "item_t2",
+        slug: "track-2",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: { f_album: { type: "collectionRef", value: { itemId: "item_other_album" } } },
+      },
+      {
+        id: "item_t3",
+        slug: "track-3",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: { f_album: { type: "collectionRef", value: { itemId: ALBUM_ID } } },
+      },
+    ];
+    const album: Item = {
+      id: ALBUM_ID,
+      slug: "the-album",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: { f_title: { type: "text", value: "The Album" } },
+    };
+    const filter: Filter = {
+      all: [{ field: "f_album", op: "equals", value: { kind: "currentItemId" } }],
+    };
+    expect(applyFilter(tracks, filter, album).map((i) => i.slug).sort()).toEqual([
+      "track-1",
+      "track-3",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------

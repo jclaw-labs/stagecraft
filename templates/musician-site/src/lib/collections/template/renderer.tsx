@@ -60,10 +60,26 @@ export function TemplateRenderer({
   registry = PRIMITIVE_BLOCKS,
 }: TemplateRendererProps): ReactNode {
   if (!template) return null;
-  const resolved = resolveTemplate(template, item, registry, currentItem ?? item);
+  const resolved = resolveTemplate(template, item, { registry, currentItem });
   const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
   return <Render config={config ?? buildTemplatePuckConfig()} data={resolved} />;
 }
+
+/**
+ * Options bag for `resolveTemplate`. Optional: each field has a
+ * sensible default. PR 7c adds `loadedItems` here for Collection
+ * blocks that iterate over other collections.
+ */
+export type ResolveTemplateOptions = {
+  /** Block dispatch registry. Defaults to `PRIMITIVE_BLOCKS`. */
+  registry?: Readonly<Record<string, BlockEntry>>;
+  /**
+   * The surrounding template's item. Defaults to `item`. Inner walks
+   * (Collection blocks iterating in PR 7c) pass it explicitly so the
+   * outer-item context persists through iteration.
+   */
+  currentItem?: Item;
+};
 
 /**
  * Walk a template top-down and produce a new template whose block
@@ -74,9 +90,10 @@ export function TemplateRenderer({
 export function resolveTemplate(
   template: Template,
   item: Item,
-  registry: Readonly<Record<string, BlockEntry>> = PRIMITIVE_BLOCKS,
-  currentItem: Item = item,
+  options: ResolveTemplateOptions = {},
 ): Template {
+  const registry = options.registry ?? PRIMITIVE_BLOCKS;
+  const currentItem = options.currentItem ?? item;
   const ctx = {
     item,
     currentItem,
