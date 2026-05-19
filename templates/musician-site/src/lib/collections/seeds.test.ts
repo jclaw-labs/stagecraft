@@ -12,10 +12,15 @@ import {
   appearanceCollectionDef,
   headerCollectionDef,
   pagesCollectionDef,
+  photosCollectionDef,
+  postsCollectionDef,
   PREBAKED_COLLECTIONS,
+  releasesCollectionDef,
   siteCollectionDef,
+  storeItemsCollectionDef,
   tourDatesCollectionDef,
   TOUR_DATES_FIELD_IDS,
+  videosCollectionDef,
 } from "./seeds";
 
 describe("prebaked CollectionDefs", () => {
@@ -25,13 +30,29 @@ describe("prebaked CollectionDefs", () => {
     ["header", headerCollectionDef],
     ["appearance", appearanceCollectionDef],
     ["tour-dates", tourDatesCollectionDef],
+    ["releases", releasesCollectionDef],
+    ["posts", postsCollectionDef],
+    ["store-items", storeItemsCollectionDef],
+    ["photos", photosCollectionDef],
+    ["videos", videosCollectionDef],
   ])("%s parses against collectionDefSchema", (_slug, def) => {
     expect(() => collectionDefSchema.parse(def)).not.toThrow();
   });
 
-  it("the registry exposes all five", () => {
+  it("the registry exposes all ten", () => {
     expect(Object.keys(PREBAKED_COLLECTIONS).sort()).toEqual(
-      ["appearance", "header", "pages", "site", "tour-dates"].sort(),
+      [
+        "appearance",
+        "header",
+        "pages",
+        "photos",
+        "posts",
+        "releases",
+        "site",
+        "store-items",
+        "tour-dates",
+        "videos",
+      ].sort(),
     );
   });
 
@@ -99,5 +120,35 @@ describe("prebaked CollectionDefs", () => {
     expect(date?.systemLocked).toBe(true);
     expect(venue?.systemLocked).toBe(true);
     expect(ticketUrl?.systemLocked ?? false).toBe(false);
+  });
+
+  it("releases / posts have public detail pages; store-items / photos / videos don't", () => {
+    expect(releasesCollectionDef.detailUrlPrefix).toBe("/releases");
+    expect(postsCollectionDef.detailUrlPrefix).toBe("/news");
+    expect(storeItemsCollectionDef.detailUrlPrefix).toBeNull();
+    expect(photosCollectionDef.detailUrlPrefix).toBeNull();
+    expect(videosCollectionDef.detailUrlPrefix).toBeNull();
+  });
+
+  it("the new prebaked collections don't conflict on detailUrlPrefix", () => {
+    const prefixes = Object.values(PREBAKED_COLLECTIONS)
+      .map((d) => d.detailUrlPrefix)
+      .filter((p): p is string => p !== null);
+    // Each non-null prefix is unique. This catches the case where
+    // two prebaked collections accidentally claim the same URL.
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
+  it("every prebaked collection has its required core fields systemLocked", () => {
+    // Spot-check: each non-singleton collection has at least one
+    // systemLocked field. The schema editor's guardrails depend on
+    // this for the routing / renderer invariants.
+    const nonSingletonDefs = Object.values(PREBAKED_COLLECTIONS).filter(
+      (d) => !d.isSingleton,
+    );
+    for (const def of nonSingletonDefs) {
+      const locked = def.fields.filter((f) => f.systemLocked);
+      expect(locked.length, `${def.slug}: no systemLocked fields`).toBeGreaterThan(0);
+    }
   });
 });

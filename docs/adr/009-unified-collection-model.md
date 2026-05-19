@@ -938,7 +938,21 @@ Eight PRs, each independently reviewable and (where possible) mergeable:
      `kind: "item" | "detail"` parameter on `buildEditorPuckConfig`
      to gate Collection-block registration per §4.3 cycle safety.
 8. **Prebaked collections: releases, posts, store items, photos, videos.**
-   Each adds a `_collection.json` and seed items. Small PRs at this point.
+   Each adds a `_collection.json` to `PREBAKED_COLLECTIONS`. Shipped
+   together as one PR — each def is small enough that a per-PR split
+   would just be ceremony. Routing characteristics:
+   - **releases** — detailUrlPrefix `/releases`, sort desc by
+     releaseDate. Body is `puckContent` for tracklist / liner notes /
+     embedded streaming links.
+   - **posts** — detailUrlPrefix `/news`, sort desc by publishedAt.
+     Body is `puckContent` for the post itself.
+   - **store-items** — no detail pages; `externalUrl` is the canonical
+     destination. Renders as image + title + price linking out.
+   - **photos** — no detail pages, manual sort. Items render inline
+     in a `PhotosView` Collection block.
+   - **videos** — no detail pages, sort desc by publishedAt. Items
+     render inline in a `VideosView` block (`embedUrl` field carries
+     the YouTube/Vimeo URL or upload path).
 
 PRs 1–2 are foundation with no UI; 3–7 each ship a usable slice; 8 is
 breadth on the same foundation.
@@ -1252,6 +1266,18 @@ calls layered on top of an already-correct foundation.
   doesn't render it. An artist saving a type transition has no
   signal that N item files were just rewritten on disk.
   *Trigger:* a UI/UX pass.
+
+- **Smarter default slug for photo (and other image-heavy) items.**
+  `photosCollectionDef` ships with `slugSourceFieldId: null` because
+  no scalar field gives a clean default — caption is optional, and
+  the image's `ImageMetadata.alt` isn't a `FieldId`. Today the
+  artist types a slug for every photo they upload, which is rough
+  UX for a gallery's worth of items. Two fixes worth considering:
+  derive from the uploaded image's `contentSlug`, or default to a
+  date-based pattern (`photo-2026-07-15-001`). The new-item flow
+  is the right home; the seed PR doesn't try to solve this.
+  *Trigger:* first artist support case where the slugging UX gets
+  in the way of bulk photo uploads.
 
 ### What we built now to avoid pain later
 
