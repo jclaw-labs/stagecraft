@@ -159,7 +159,10 @@ function FieldRenderer({
       return (
         <NumberField
           label={field.key}
-          value={current?.type === "number" ? current.value : 0}
+          // Default to the field's `min` if set — defaulting to 0 when
+          // `min > 0` makes every new item's first save fail validation
+          // with a generic "value must be ≥ min" message.
+          value={current?.type === "number" ? current.value : field.min ?? 0}
           min={field.min}
           max={field.max}
           step={field.step}
@@ -380,7 +383,9 @@ function defaultValueFor(field: FieldDef): FieldValue | undefined {
         ? { type: "richText", value: { type: "doc", content: [] } }
         : undefined;
     case "number":
-      return field.required ? { type: "number", value: 0 } : undefined;
+      // Default to `min` when set, otherwise 0 — see the NumberField
+      // case in FieldRenderer for the rationale.
+      return field.required ? { type: "number", value: field.min ?? 0 } : undefined;
     case "date":
     case "url":
     case "email":

@@ -233,6 +233,42 @@ describe("PUT /api/collections/[slug]/items/[itemSlug]", () => {
       ctx("pages", TEST_SLUG),
     );
     expect(res.status).toBe(400);
+    const body = await res.json();
+    // Structured issues — not a single opaque error string.
+    expect(Array.isArray(body.issues)).toBe(true);
+    expect(body.issues.length).toBeGreaterThan(0);
+    expect(body.issues[0]).toMatchObject({ path: expect.any(String), message: expect.any(String) });
+  });
+
+  it("returns 404 when the item to update doesn't exist (PUT is update-only)", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    // No item created — PUT against the empty collection should 404,
+    // not silently create. Without this, a sibling POST in another
+    // tab could race the PUT and clobber the freshly-created item.
+    const res = await PUT_ITEM(
+      jsonReq("PUT", { values: VALID_VALUES }),
+      ctx("pages", "never-created"),
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST validation error shape", () => {
+  it("returns structured issues, not a flat string", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    // Missing the required title field.
+    const res = await POST(
+      jsonReq("POST", {
+        slug: TEST_SLUG,
+        values: { [PAGES_FIELD_IDS.body]: { type: "puckContent", value: { content: [], root: { props: {} } } } },
+      }),
+      ctx("pages"),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Validation failed");
+    expect(Array.isArray(body.issues)).toBe(true);
+    expect(body.issues.length).toBeGreaterThan(0);
   });
 });
 

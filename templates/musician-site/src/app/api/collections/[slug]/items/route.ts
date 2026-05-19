@@ -18,16 +18,21 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
+  createItem,
   generateItemId,
+  ItemExistsError,
   listItemsInOrder,
   readCollectionDef,
+  readItem,
   slugSchema,
   type Item,
 } from "@/lib/collections";
 import { PublishError, publish } from "@/lib/publish";
 
-function err(status: number, error: string) {
-  return NextResponse.json({ ok: false, error }, { status });
+import { zodIssuesToStructured } from "./[itemSlug]/issue-format";
+
+function err(status: number, error: string, extra?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error, ...extra }, { status });
 }
 
 type Ctx = { params: Promise<{ slug: string }> };
@@ -91,23 +96,23 @@ export async function POST(request: Request, ctx: Ctx) {
 
   // Build the per-collection schema and validate the incoming values.
   const fileSchema = buildItemFileSchema(def.fields);
-  let validated: { id: string; createdAt: string; updatedAt: string; values: Item["values"] };
-  try {
-    const now = new Date().toISOString();
-    validated = fileSchema.parse({
-      id: generateItemId(),
-      createdAt: now,
-      updatedAt: now,
-      values: valuesPart ?? {},
+  const now = new Date().toISOString();
+  const parseResult = fileSchema.safeParse({
+    id: generateItemId(),
+    createdAt: now,
+    updatedAt: now,
+    values: valuesPart ?? {},
+  });
+  if (!parseResult.success) {
+    return err(400, "Validation failed", {
+      issues: zodIssuesToStructured(parseResult.error.issues),
     });
-  } catch (cause) {
-    return err(400, `Validation failed: ${String(cause)}`);
   }
+  const validated = parseResult.data;
 
   const draft: Item = { ...validated, slug: parsedItemSlug.data };
   // createItem 409s on collision; check first so we return a clean
   // status code rather than letting the error bubble.
-  const { readItem, ItemExistsError, createItem } = await import("@/lib/collections");
   const existing = await readItem(parsedSlug.data, parsedItemSlug.data, def);
   if (existing) return err(409, new ItemExistsError(parsedSlug.data, parsedItemSlug.data).message);
   await createItem(parsedSlug.data, parsedItemSlug.data, draft, def);

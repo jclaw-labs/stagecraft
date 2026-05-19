@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
-  generateItemId,
+  deleteItem,
   itemSlugSchema,
   readCollectionDef,
   readItem,
@@ -22,17 +22,17 @@ import {
   writeItem,
   type Item,
 } from "@/lib/collections";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
 import { PublishError, publish } from "@/lib/publish";
 
-function err(status: number, error: string) {
-  return NextResponse.json({ ok: false, error }, { status });
+import { zodIssuesToStructured } from "./issue-format";
+
+function err(status: number, error: string, extra?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, error, ...extra }, { status });
 }
 
 type Ctx = { params: Promise<{ slug: string; itemSlug: string }> };
 
 export async function GET(_request: Request, ctx: Ctx) {
-  void __resetBootstrapCacheForTests; // silence unused import in non-test paths
   const session = await getSession();
   if (!session) return err(401, "unauthorized");
 
@@ -73,6 +73,13 @@ export async function PUT(request: Request, ctx: Ctx) {
   const def = await readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
+  // PUT is update-only — creation lives on POST. Without this guard, a
+  // PUT to a slug that doesn't exist would silently create a fresh
+  // item with a brand-new id, racing any concurrent POST to the same
+  // slug from another tab.
+  const existing = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
+  if (!existing) return err(404, "Item not found");
+
   // Build the per-collection Zod schema from `def.fields` and run the
   // incoming item through it. This is where required-field / option /
   // mime-filter validation actually happens — the publish layer only
@@ -81,19 +88,19 @@ export async function PUT(request: Request, ctx: Ctx) {
   const valuesShape = body && typeof body === "object" && "values" in body
     ? (body as { values: unknown }).values
     : undefined;
-  const existing = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
 
-  let validated: { id: string; createdAt: string; updatedAt: string; values: Item["values"] };
-  try {
-    validated = fileSchema.parse({
-      id: existing?.id ?? generateItemId(),
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      values: valuesShape,
+  const parseResult = fileSchema.safeParse({
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+    values: valuesShape,
+  });
+  if (!parseResult.success) {
+    return err(400, "Validation failed", {
+      issues: zodIssuesToStructured(parseResult.error.issues),
     });
-  } catch (cause) {
-    return err(400, `Validation failed: ${String(cause)}`);
   }
+  const validated = parseResult.data;
 
   const draft: Item = { ...validated, slug: parsedItemSlug.data };
   await writeItem(parsedCollectionSlug.data, parsedItemSlug.data, draft, def);
@@ -157,7 +164,6 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   const existing = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!existing) return err(404, "Item not found");
 
-  const { deleteItem } = await import("@/lib/collections");
   await deleteItem(parsedCollectionSlug.data, parsedItemSlug.data);
 
   try {

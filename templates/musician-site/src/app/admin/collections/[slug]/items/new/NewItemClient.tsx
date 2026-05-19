@@ -55,11 +55,25 @@ export function NewItemClient({
       });
       const body = (await res.json().catch(() => null)) as
         | { ok: true; item: Item; publishWarning?: string }
-        | { ok: false; error?: string }
+        | {
+            ok: false;
+            error?: string;
+            issues?: Array<{ path: string; message: string }>;
+          }
         | null;
       if (!res.ok || !body || !body.ok) {
+        // The route returns structured `issues` on a 400 from
+        // per-collection Zod validation. Surface each path/message
+        // pair so the artist can see which field failed and why,
+        // instead of a single opaque "Validation failed" string.
+        const issueMessages =
+          body && "issues" in body && Array.isArray(body.issues) && body.issues.length > 0
+            ? body.issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ")
+            : "";
         const message =
-          (body && "error" in body && body.error) || `Save failed (HTTP ${res.status})`;
+          issueMessages ||
+          (body && "error" in body && body.error) ||
+          `Save failed (HTTP ${res.status})`;
         setErrorMessage(message);
         setStatus("error");
         return;
