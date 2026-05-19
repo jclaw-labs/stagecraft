@@ -5,10 +5,10 @@
  *   /admin/collections/<slug>/template/detail  → detailTemplate
  *
  * Mounts Puck with the binding-aware editor config and persists the
- * resulting `Data` to the corresponding template slot on the
- * `CollectionDef` via `PUT /api/collections/<slug>/schema`. The schema
- * route accepts the full def; we round-trip the def with one template
- * field updated.
+ * resulting `Data` via `PUT /api/collections/<slug>/template/<kind>`.
+ * The per-template route reads the rest of the def from disk and
+ * applies only the chosen template slot — that keeps a concurrent
+ * schema change in another tab from being silently rolled back.
  */
 
 "use client";
@@ -55,25 +55,37 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
     async (data: Data) => {
       setStatus("saving");
       setErrorMessage(null);
-      const nextDef: CollectionDef = {
-        ...def,
-        ...(kind === "item"
-          ? { itemTemplate: data as CollectionDef["itemTemplate"] }
-          : { detailTemplate: data as CollectionDef["detailTemplate"] }),
-      };
+      // The dedicated per-template route writes ONLY the chosen slot,
+      // reading the rest of the def from disk. The previous flow
+      // round-tripped the full CollectionDef through /schema, which
+      // silently rolled back any concurrent schema-editor save with
+      // this editor's mount-time `fields` snapshot.
       try {
-        const res = await fetch(`/api/collections/${collectionSlug}/schema`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(nextDef),
-        });
+        const res = await fetch(
+          `/api/collections/${collectionSlug}/template/${kind}`,
+          {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ data }),
+          },
+        );
         const body = (await res.json().catch(() => null)) as
           | { ok: true; publishWarning?: string }
-          | { ok: false; error?: string }
+          | { ok: false; error?: string; issues?: Array<{ message: string }> }
           | null;
         if (!res.ok || !body || !body.ok) {
+          // 409s carry a structured `issues` array — surface each
+          // message so the artist sees what specifically blocked the
+          // save (a binding to a removed field, a wrong-typed field,
+          // etc.).
+          const issueMessages =
+            body && "issues" in body && Array.isArray(body.issues)
+              ? body.issues.map((i) => i.message).join("; ")
+              : "";
           const message =
-            (body && "error" in body && body.error) || `Save failed (HTTP ${res.status})`;
+            issueMessages ||
+            (body && "error" in body && body.error) ||
+            `Save failed (HTTP ${res.status})`;
           setStatus("error");
           setErrorMessage(message);
           return;
@@ -87,7 +99,7 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
         setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       }
     },
-    [collectionSlug, def, kind],
+    [collectionSlug, kind],
   );
 
   return (

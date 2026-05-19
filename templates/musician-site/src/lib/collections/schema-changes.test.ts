@@ -642,3 +642,114 @@ describe("validateSchemaChange — item validation under the new schema", () => 
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Template-reference validation
+// ---------------------------------------------------------------------------
+
+describe("validateSchemaChange — template references", () => {
+  function defWithTemplate(
+    template: { content: unknown[]; root?: object },
+  ): CollectionDef {
+    return {
+      ...tourDatesDef(),
+      itemTemplate: template as unknown as CollectionDef["itemTemplate"],
+    };
+  }
+
+  it("blocks a save when a template binds to a field that doesn't exist", () => {
+    const def = defWithTemplate({
+      content: [
+        {
+          type: "Text",
+          props: { content: { kind: "binding", fieldId: "f_nope" } },
+        },
+      ],
+    });
+    const report = validateSchemaChange(def, def, []);
+    expect(report.ok).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "template-references-missing-field",
+        fieldId: "f_nope",
+        blockName: "Text",
+        propName: "content",
+      }),
+    );
+  });
+
+  it("blocks a save when a string-slot binds to an image field", () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      fields: [
+        ...tourDatesDef().fields,
+        { id: "f_photo", key: "photo", type: "image", required: false },
+      ],
+      itemTemplate: {
+        content: [
+          {
+            type: "Text",
+            props: { content: { kind: "binding", fieldId: "f_photo" } },
+          },
+        ],
+      } as unknown as CollectionDef["itemTemplate"],
+    };
+    const report = validateSchemaChange(def, def, []);
+    expect(report.ok).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "template-binding-type-mismatch",
+        fieldId: "f_photo",
+        expectedKind: "string",
+        actualType: "image",
+      }),
+    );
+  });
+
+  it("recurses into slot children", () => {
+    const def = defWithTemplate({
+      content: [
+        {
+          type: "Section",
+          props: {
+            children: [
+              {
+                type: "Text",
+                props: { content: { kind: "binding", fieldId: "f_nope" } },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(validateSchemaChange(def, def, []).ok).toBe(false);
+  });
+
+  it("warns when a field referenced by templates is removed", () => {
+    const oldDef = defWithTemplate({
+      content: [
+        {
+          type: "Text",
+          props: { content: { kind: "binding", fieldId: "f_venue" } },
+        },
+      ],
+    });
+    // Remove the bound field and clear the binding so the blocking
+    // issue doesn't fire — the warning still surfaces from the OLD
+    // bindings.
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.filter((f) => f.id !== "f_venue"),
+      slugSourceFieldId: null,
+      itemTemplate: { content: [] } as unknown as CollectionDef["itemTemplate"],
+    };
+    const report = validateSchemaChange(oldDef, newDef, []);
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({
+        kind: "field-removed-with-template-bindings",
+        fieldId: "f_venue",
+        bindingCount: 1,
+      }),
+    );
+  });
+});
