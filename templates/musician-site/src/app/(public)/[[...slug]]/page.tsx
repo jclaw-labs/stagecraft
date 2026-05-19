@@ -64,6 +64,12 @@ export default async function CatchAllPage({ params }: Props) {
     await Promise.all(allSlugs.map((s) => readCollectionDef(s)))
   ).filter((d): d is CollectionDef => d !== null);
 
+  // TRANSITIONAL: page slugs come from the legacy store
+  // (`src/content/pages/`), not the collection store. When Pages
+  // migrate to `src/content/collections/pages/items/` (per ADR-009
+  // §13 / shipping-plan PR 3), this should pull slugs from the
+  // pages collection instead — and the `itemUrl.collectionSlug !==
+  // "pages"` gate below needs to invert in the same commit.
   const summaries = await listPageSummaries();
   const conflicts = validateCollectionRouting(
     allDefs,
