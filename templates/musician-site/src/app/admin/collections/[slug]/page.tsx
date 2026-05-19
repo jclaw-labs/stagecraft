@@ -68,20 +68,37 @@ export default async function CollectionView({ params }: { params: Promise<Param
               {items.length} item{items.length === 1 ? "" : "s"}
             </p>
           </div>
-          <Link
-            href={`/admin/collections/${parsed.data}/items/new`}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-action)",
-              color: "var(--color-action-fg)",
-              borderRadius: "var(--radius-sm)",
-              textDecoration: "none",
-              fontWeight: "var(--font-weight-semibold)" as unknown as number,
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            + New {def.singularName}
-          </Link>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <Link
+              href={`/admin/collections/${parsed.data}/schema`}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-surface-raised)",
+                color: "var(--color-text)",
+                borderRadius: "var(--radius-sm)",
+                textDecoration: "none",
+                fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                fontSize: "var(--font-size-sm)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              Edit schema
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/items/new`}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-action)",
+                color: "var(--color-action-fg)",
+                borderRadius: "var(--radius-sm)",
+                textDecoration: "none",
+                fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              + New {def.singularName}
+            </Link>
+          </div>
         </header>
 
         {items.length === 0 ? (
