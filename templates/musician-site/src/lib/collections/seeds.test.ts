@@ -89,7 +89,7 @@ describe("prebaked CollectionDefs", () => {
     expect(def.defaultSort).toEqual({
       mode: "fieldSort",
       fieldId: TOUR_DATES_FIELD_IDS.date,
-      direction: "asc",
+      direction: "desc",
     });
     // Required core fields are systemLocked so the renderer can rely
     // on them; nice-to-have fields are editable.

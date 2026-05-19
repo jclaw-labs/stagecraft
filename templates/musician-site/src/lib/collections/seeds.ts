@@ -361,6 +361,11 @@ export const tourDatesCollectionDef: CollectionDef = {
   singularName: "tour date",
   pluralName: "tour dates",
   fields: [
+    // Stored as naked-local datetime (`2026-07-15T20:00`) — no
+    // timezone. The artist enters venue-local time; the renderer
+    // displays it as-is. International tours where the artist
+    // crosses time zones will need a `timezone` field added through
+    // the schema editor; v1 keeps the seed simple.
     {
       id: TOUR_DATES_FIELD_IDS.date,
       key: "date",
@@ -410,7 +415,11 @@ export const tourDatesCollectionDef: CollectionDef = {
   ],
   slugSourceFieldId: TOUR_DATES_FIELD_IDS.venue,
   detailUrlPrefix: "/shows",
-  defaultSort: { mode: "fieldSort", fieldId: TOUR_DATES_FIELD_IDS.date, direction: "asc" },
+  // `desc` so the admin list view shows the most-recent / upcoming
+  // dates first. Public Collection blocks re-sort independently via
+  // their own `sort` prop (typically filtered to date >= now() and
+  // sorted ascending so "next show" is at the top).
+  defaultSort: { mode: "fieldSort", fieldId: TOUR_DATES_FIELD_IDS.date, direction: "desc" },
   itemTemplate: null,
   detailTemplate: null,
   listTemplate: null,

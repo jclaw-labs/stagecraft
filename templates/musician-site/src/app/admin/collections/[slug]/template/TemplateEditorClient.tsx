@@ -46,7 +46,7 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
     return { content: [], root: { props: {} } };
   }, [def, kind]);
 
-  const config = useMemo(() => buildEditorPuckConfig(def, kind), [def, kind]);
+  const config = useMemo(() => buildEditorPuckConfig(def), [def]);
 
   const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

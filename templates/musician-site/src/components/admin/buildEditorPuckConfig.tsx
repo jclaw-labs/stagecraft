@@ -154,27 +154,7 @@ const placeholderStyle: React.CSSProperties = {
 // Config builder
 // ---------------------------------------------------------------------------
 
-/**
- * Which template surface this config powers.
- *
- * - `"item"` — itemTemplate editor. Primitive blocks only. ADR §4.3
- *   cycle-safety rule: itemTemplates render inside Collection blocks,
- *   so allowing Collection blocks here would let an itemTemplate
- *   embed Collection blocks that re-render itemTemplates …
- * - `"detail"` — detailTemplate editor. Primitive blocks + (in PR 7b)
- *   one Collection block per existing collection.
- *
- * Today (PR 7a) the two kinds produce identical configs — the
- * parameter exists so PR 7b can branch on it to register Collection
- * blocks only on detail without restructuring this function.
- */
-export type EditorPuckConfigKind = "item" | "detail";
-
-export function buildEditorPuckConfig(
-  def: CollectionDef,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  kind: EditorPuckConfigKind = "item",
-): Config {
+export function buildEditorPuckConfig(def: CollectionDef): Config {
   const ctx = getCollectionContextForEditor(def);
 
   const Text: Config["components"][string] = {
