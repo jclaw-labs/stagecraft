@@ -33,6 +33,12 @@ import {
   type FieldValue,
   type Item,
 } from "./schema";
+import {
+  BINDABLE_SLOTS,
+  RICH_FIELDS,
+  type BindableSlotKind,
+} from "./template/editor-config";
+import { STRING_VALUED_FIELD_TYPES } from "./template/binding";
 
 // ---------------------------------------------------------------------------
 // Allowed type transitions (ADR §11)
@@ -130,10 +136,42 @@ export type SchemaChangeIssue =
       path: string;
       /** Zod's own message — terse but precise. */
       message: string;
+    }
+  | {
+      /**
+       * A template binds (via `Bindable.binding` or a raw-fieldId prop
+       * like `RichTextRender.field`) to a fieldId that doesn't exist
+       * in the new def. Renderer silently hides at runtime — surfacing
+       * here so the artist can't save the broken state.
+       */
+      kind: "template-references-missing-field";
+      fieldId: string;
+      blockName: string;
+      propName: string;
+    }
+  | {
+      /**
+       * A template binds to a field whose type isn't compatible with
+       * the slot's expected kind (e.g. a Text block bound to an image
+       * field).
+       */
+      kind: "template-binding-type-mismatch";
+      fieldId: string;
+      fieldKey: string;
+      blockName: string;
+      propName: string;
+      expectedKind: BindableSlotKind | FieldType;
+      actualType: FieldType;
     };
 
 export type SchemaChangeWarning =
-  | { kind: "field-removed-with-data"; fieldId: string; fieldKey: string; affectedItemCount: number };
+  | { kind: "field-removed-with-data"; fieldId: string; fieldKey: string; affectedItemCount: number }
+  | {
+      kind: "field-removed-with-template-bindings";
+      fieldId: string;
+      fieldKey: string;
+      bindingCount: number;
+    };
 
 export type SchemaChangeReport = {
   ok: boolean;
@@ -260,6 +298,60 @@ export function validateSchemaChange(
         });
       }
     }
+  }
+
+  // Template-reference validation. Templates in the *new* def reference
+  // fields by id. After a field is removed or retyped, those references
+  // can dangle — the renderer (PR 2) silently resolves them to
+  // undefined → blocks hide. Surface the dangling references so the
+  // artist can't save the broken state.
+  const newBindings = collectTemplateBindings(newDef);
+  for (const binding of newBindings) {
+    const targetField = newFieldsById.get(binding.fieldId);
+    if (!targetField) {
+      issues.push({
+        kind: "template-references-missing-field",
+        fieldId: binding.fieldId,
+        blockName: binding.blockName,
+        propName: binding.propName,
+      });
+      continue;
+    }
+    if (!isFieldCompatibleWithSlot(targetField, binding.expectedKind)) {
+      issues.push({
+        kind: "template-binding-type-mismatch",
+        fieldId: binding.fieldId,
+        fieldKey: targetField.key,
+        blockName: binding.blockName,
+        propName: binding.propName,
+        expectedKind: binding.expectedKind,
+        actualType: targetField.type,
+      });
+    }
+  }
+  // Companion warning: a field that *had* template bindings in the old
+  // def is gone in the new one. The blocking issue above already fires
+  // when the new def's templates still reference the missing field;
+  // this surfaces the impact per-field for visibility.
+  const oldBindings = collectTemplateBindings(oldDef);
+  const removedBindingCounts = new Map<string, number>();
+  for (const binding of oldBindings) {
+    if (newFieldsById.has(binding.fieldId)) continue;
+    removedBindingCounts.set(
+      binding.fieldId,
+      (removedBindingCounts.get(binding.fieldId) ?? 0) + 1,
+    );
+  }
+  const oldFieldsById = new Map(oldDef.fields.map((f) => [f.id, f]));
+  for (const [fieldId, count] of removedBindingCounts) {
+    const oldField = oldFieldsById.get(fieldId);
+    if (!oldField) continue;
+    warnings.push({
+      kind: "field-removed-with-template-bindings",
+      fieldId,
+      fieldKey: oldField.key,
+      bindingCount: count,
+    });
   }
 
   // Whole-item validation against the new dynamic Zod schema.
@@ -451,6 +543,104 @@ function transformValueForTransition(
 }
 
 // ---------------------------------------------------------------------------
+// Template-binding walker
+//
+// Templates are stored as `puckDataLooseSchema` — `{ content: unknown[] }`
+// — so we can't lean on a strongly typed walk. The walker recognises:
+//
+//   - Block props named in `BINDABLE_SLOTS` carrying `{ kind: "binding",
+//     fieldId }` — the artist authored a binding via the editor's
+//     literal/binding toggle.
+//   - Block props named in `RICH_FIELDS` carrying a raw field id string
+//     — RichTextRender's `field` prop, and any future "embed-this-field"
+//     block.
+//
+// Slot fields (Section.children / Stack.children) hold `BlockInstance[]`
+// inline on the parent's props, so the walker recurses into any array
+// it finds.
+// ---------------------------------------------------------------------------
+
+type TemplateBinding = {
+  fieldId: string;
+  expectedKind: BindableSlotKind | FieldType;
+  blockName: string;
+  propName: string;
+};
+
+function collectTemplateBindings(def: CollectionDef): TemplateBinding[] {
+  const bindings: TemplateBinding[] = [];
+  for (const template of [def.itemTemplate, def.detailTemplate, def.listTemplate]) {
+    if (!template || typeof template !== "object") continue;
+    const content = (template as { content?: unknown }).content;
+    if (Array.isArray(content)) walkBlocks(content, bindings);
+  }
+  return bindings;
+}
+
+function walkBlocks(blocks: unknown[], out: TemplateBinding[]): void {
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    const blockName = (block as { type?: unknown }).type;
+    const props = (block as { props?: unknown }).props;
+    if (typeof blockName !== "string" || !props || typeof props !== "object") continue;
+    const propsObj = props as Record<string, unknown>;
+
+    // Bindable<T> slots.
+    const slotsForBlock = BINDABLE_SLOTS[blockName];
+    if (slotsForBlock) {
+      for (const [propName, meta] of Object.entries(slotsForBlock)) {
+        const value = propsObj[propName];
+        if (
+          value !== null &&
+          typeof value === "object" &&
+          (value as { kind?: unknown }).kind === "binding" &&
+          typeof (value as { fieldId?: unknown }).fieldId === "string"
+        ) {
+          out.push({
+            fieldId: (value as { fieldId: string }).fieldId,
+            expectedKind: meta.slotKind,
+            blockName,
+            propName,
+          });
+        }
+      }
+    }
+
+    // Raw-fieldId props (RichTextRender.field today).
+    const richForBlock = RICH_FIELDS[blockName];
+    if (richForBlock) {
+      for (const [propName, meta] of Object.entries(richForBlock)) {
+        const value = propsObj[propName];
+        if (typeof value === "string" && value !== "") {
+          out.push({
+            fieldId: value,
+            expectedKind: meta.fieldType,
+            blockName,
+            propName,
+          });
+        }
+      }
+    }
+
+    // Recurse into any array-valued prop (slot children).
+    for (const value of Object.values(propsObj)) {
+      if (Array.isArray(value)) walkBlocks(value, out);
+    }
+  }
+}
+
+function isFieldCompatibleWithSlot(
+  field: FieldDef,
+  expected: BindableSlotKind | FieldType,
+): boolean {
+  if (expected === "string") {
+    return (STRING_VALUED_FIELD_TYPES as ReadonlyArray<FieldType>).includes(field.type);
+  }
+  if (expected === "image") return field.type === "image";
+  return field.type === expected;
+}
+
+// ---------------------------------------------------------------------------
 // Human-readable issue/warning messages — used by both the UI and the
 // API route (the API route surfaces these in error responses so the
 // editor can show them inline).
@@ -476,6 +666,10 @@ export function describeIssue(issue: SchemaChangeIssue): string {
       return `Two fields share name "${issue.fieldKey}". Field names must be unique within a collection.`;
     case "item-invalid-under-new-schema":
       return `Item "${issue.itemSlug}" would fail the new schema at ${issue.path || "(values)"}: ${issue.message}. Fix the item first, then retry this change.`;
+    case "template-references-missing-field":
+      return `A ${issue.blockName} block's "${issue.propName}" prop is bound to a field that no longer exists (id ${issue.fieldId}). Remove the block or pick a different field.`;
+    case "template-binding-type-mismatch":
+      return `A ${issue.blockName} block's "${issue.propName}" prop expects a ${issue.expectedKind}-valued field, but "${issue.fieldKey}" is type ${issue.actualType}. Pick a compatible field or change the field's type.`;
     default: {
       // Exhaustiveness check — TS errors here if a new issue kind is
       // added to the union without a matching case above. Don't
@@ -492,8 +686,10 @@ export function describeWarning(warning: SchemaChangeWarning): string {
   switch (warning.kind) {
     case "field-removed-with-data":
       return `"${warning.fieldKey}" has values on ${warning.affectedItemCount} item${warning.affectedItemCount === 1 ? "" : "s"}. Removing it deletes those values.`;
+    case "field-removed-with-template-bindings":
+      return `"${warning.fieldKey}" is bound in ${warning.bindingCount} template block${warning.bindingCount === 1 ? "" : "s"}. Those blocks will render nothing once the field is gone.`;
     default: {
-      const _exhaustive: never = warning.kind;
+      const _exhaustive: never = warning;
       void _exhaustive;
       return "Unknown warning";
     }

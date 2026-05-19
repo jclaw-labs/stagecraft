@@ -828,6 +828,18 @@ The schema editor enforces:
 - **Reorder fields**: free; affects display order in the item editor and
   in the default item template only.
 
+The schema-editor surface and the template editors save through two
+different routes:
+
+- `PUT /api/collections/<slug>/schema` writes the full `CollectionDef`
+  (identity, fields, routing, sort). Used by the schema editor.
+- `PUT /api/collections/<slug>/template/<kind>` writes only the chosen
+  template slot (`itemTemplate` / `detailTemplate` / `listTemplate`)
+  by reading the rest of the def from disk first. Used by the
+  template editors. The split keeps a concurrent schema change in
+  another tab from being silently rolled back when the template
+  editor saves with its mount-time `fields` snapshot.
+
 ### 12. Publish flow
 
 The existing `publish.ts` is extended with new target kinds — collection
