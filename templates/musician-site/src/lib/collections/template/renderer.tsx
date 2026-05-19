@@ -38,10 +38,17 @@ export type TemplateRendererProps = {
   /** The item's collection. Reserved for future Collection-block use. */
   collection: CollectionDef;
   /**
-   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. PR 7 will supply
-   * an extended registry that adds Collection blocks for detail /
-   * list templates; itemTemplate consumers should stay on the
-   * Primitive-only default to preserve the §4.3 cycle-safety rule.
+   * The surrounding template's item — defaults to `item`. Collection
+   * blocks iterate other collections' items but their filters
+   * reference the outer (current) item; the inner walks pass this
+   * through unchanged. See `ResolveContext` for the full rationale.
+   */
+  currentItem?: Item;
+  /**
+   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. PR 7b supplies an
+   * extended registry that adds Collection blocks for detail / list
+   * templates; itemTemplate consumers stay on the Primitive-only
+   * default to preserve the §4.3 cycle-safety rule.
    */
   registry?: Readonly<Record<string, BlockEntry>>;
 };
@@ -49,10 +56,11 @@ export type TemplateRendererProps = {
 export function TemplateRenderer({
   template,
   item,
+  currentItem,
   registry = PRIMITIVE_BLOCKS,
 }: TemplateRendererProps): ReactNode {
   if (!template) return null;
-  const resolved = resolveTemplate(template, item, registry);
+  const resolved = resolveTemplate(template, item, registry, currentItem ?? item);
   const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
   return <Render config={config ?? buildTemplatePuckConfig()} data={resolved} />;
 }
@@ -67,8 +75,14 @@ export function resolveTemplate(
   template: Template,
   item: Item,
   registry: Readonly<Record<string, BlockEntry>> = PRIMITIVE_BLOCKS,
+  currentItem: Item = item,
 ): Template {
-  const ctx = { item, recurse: (block: BlockInstance) => resolveBlock(block, item, registry, ctx.recurse) };
+  const ctx = {
+    item,
+    currentItem,
+    recurse: (block: BlockInstance) =>
+      resolveBlock(block, item, currentItem, registry, ctx.recurse),
+  };
   return {
     ...template,
     content: (template.content ?? []).map(ctx.recurse) as Template["content"],
@@ -79,6 +93,7 @@ export function resolveTemplate(
 function resolveBlock(
   block: BlockInstance,
   item: Item,
+  currentItem: Item,
   registry: Readonly<Record<string, BlockEntry>>,
   recurse: (b: BlockInstance) => BlockInstance,
 ): BlockInstance {
@@ -87,6 +102,6 @@ function resolveBlock(
     // Unknown block — leave as-is. Puck's <Render> will skip it.
     return block;
   }
-  const resolved = entry.resolveProps(block.props, { item, recurse });
+  const resolved = entry.resolveProps(block.props, { item, currentItem, recurse });
   return { type: block.type, props: resolved as Record<string, unknown> };
 }
