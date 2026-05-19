@@ -1121,6 +1121,110 @@ end up debating "is now the right time" without a reference point.
   *Trigger:* would require a meaningful product case to justify the
   rebuild.
 
+### Schema editor follow-ups
+
+The schema editor (PR 5) ships with the core validation and migration
+guarantees in place. The following refinements were considered during
+review and explicitly deferred. Each one is real, but none changes the
+data-integrity contract — they're polish, performance, and product
+calls layered on top of an already-correct foundation.
+
+- **Atomic write for schema saves.** The route writes
+  `_collection.json` then loops `writeItem(...)` for each migrated
+  item. A mid-loop throw (disk full, FS race, unforeseen validator
+  regression) leaves a half-migrated collection on disk. The publish
+  call is skipped in that case, so the broker copy stays consistent,
+  but the local disk is in a mixed state. Proper fix is a stage +
+  atomic-rename pattern (or a transactional GitHub commit before any
+  local write).
+  *Trigger:* first incident where a save fails mid-loop in the wild,
+  OR the first collection large enough that the failure window
+  matters (>50 migrated items per save).
+
+- **`field-removed-with-data` warning timing language.** The warning
+  currently says "removing it deletes those values." In practice
+  values are dropped on next *write* of each item (Zod strips
+  unknown keys), not the moment the field is removed. Worth
+  rewording when the editor surfaces N-affected counts in the UI.
+  *Trigger:* a product pass on schema-editor copy.
+
+- **Differentiated `item-invalid-under-new-schema` issue kinds.** One
+  kind currently covers "missing required field," "value violates
+  tightened constraint," "option no longer in allowed set," etc.
+  Each merits a tailored message and possibly its own remediation
+  link ("Fill in the new field on N items" vs "Edit the items that
+  reference this removed option").
+  *Trigger:* the first time an artist support case turns on
+  unclear copy from this generic kind.
+
+- **No-op fast path for item reads on save.** `validateSchemaChange`
+  calls `listItemsInOrder` unconditionally. A pure-rename or
+  `singularName` tweak doesn't touch items; the read is wasted. Add
+  a fast-path that computes the diff first and skips the items read
+  when no field-removed / type-changed / option-removed /
+  required-changed / new-required-added is present.
+  *Trigger:* any collection grows past ~100 items, or schema-editor
+  save latency becomes user-noticeable. Same trigger as the
+  "Counting affected items" entry above.
+
+- **`TypeSelector` filtering to compatible types.** The SchemaEditor's
+  type dropdown shows every FieldType for unlocked fields. Picking
+  an incompatible type (e.g. `text → image`) is silently accepted
+  client-side, then 409s server-side. Filtering to
+  `canTransition(field.type, *)` matches what will save and saves a
+  round-trip.
+  *Trigger:* a UI/UX pass on the schema editor.
+
+- **`collectionRef.targetCollection` dropdown.** Currently a freeform
+  `<TextField>`. Typos save with a slug-shaped value that doesn't
+  resolve at render time. Replace with a `<SelectField>` populated
+  server-side from `listCollectionSlugs()`.
+  *Trigger:* a UI/UX pass, or the first artist support case caused
+  by a typo'd target.
+
+- **`changeFieldType` preserving field-specific config.** Switching
+  from `select` to anything that isn't `select` / `multiSelect`
+  drops the field's `options`. Switching back gives a single
+  "Default" option. Same shape for `text.maxLength`,
+  `number.{min,max,step}`, `multiCollectionRef.targetCollection`.
+  A cleaner design stashes the previous-shape config in a non-
+  persisted scratch field on the FieldDef, restored if the artist
+  switches back to a compatible type within the same editing
+  session.
+  *Trigger:* the first artist support case caused by losing options
+  while exploring type choices.
+
+- **Replace native `confirm()` dialogs.** SchemaEditor uses
+  `window.confirm(...)` for destructive operations (remove field,
+  remove option in use). Native confirms can't be styled, break
+  test automation, and look cheap relative to the rest of the
+  admin UI.
+  *Trigger:* a UI/UX pass.
+
+- **Behavioral tests for the SchemaEditor component.** Today's tests
+  assert that markup contains certain strings. None exercise the
+  onChange callbacks, the remove-field flow, type changes, or the
+  OptionsEditor add/remove. The component would have to break in a
+  markup-level way for tests to catch it.
+  *Trigger:* the first regression in SchemaEditor that gets to
+  production. The structural tests have non-zero value; this is
+  defense in depth.
+
+- **Optimistic concurrency on `_collection.json` saves.** The schema
+  route does read → validate → write. Two simultaneous requests
+  from two tabs can both pass validation against the same `oldDef`
+  and the later one overwrites the former. Real fix is a revision
+  stamp on the def file + an `If-Match`-shaped header on the PUT.
+  Same shape as the "Concurrent editing" entry above, scoped to
+  schemas specifically.
+  *Trigger:* same — the first incident.
+
+- **Surface migrated-item count in the schema editor UI.** The route
+  returns `migratedItemCount` in the success response; the editor
+  doesn't render it. An artist saving a type transition has no
+  signal that N item files were just rewritten on disk.
+  *Trigger:* a UI/UX pass.
+
 ### What we built now to avoid pain later
 
 Three additions cost almost nothing today but would be expensive to
