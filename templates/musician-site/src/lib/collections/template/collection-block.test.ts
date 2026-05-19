@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   blockNameForCollection,
+  findCollectionBlockSources,
   resolveCollectionBlockProps,
   type CollectionBlockRawProps,
 } from "./collection-block";
+import type { Template } from "./types";
 import type { CollectionDef, Item } from "../schema";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
@@ -144,5 +146,65 @@ describe("resolveCollectionBlockProps", () => {
       const out = resolveCollectionBlockProps(raw, ctxWithItems(ITEMS));
       expect(out.items).toHaveLength(ITEMS.length);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findCollectionBlockSources
+// ---------------------------------------------------------------------------
+
+describe("findCollectionBlockSources", () => {
+  function template(content: unknown[]): Template {
+    return { content, root: { props: {} } } as Template;
+  }
+
+  it("returns [] for null / empty templates", () => {
+    expect(findCollectionBlockSources(null)).toEqual([]);
+    expect(findCollectionBlockSources(template([]))).toEqual([]);
+  });
+
+  it("picks up sourceCollection from a top-level Collection block", () => {
+    const t = template([
+      { type: "TourDatesView", props: { sourceCollection: "tour-dates" } },
+    ]);
+    expect(findCollectionBlockSources(t)).toEqual(["tour-dates"]);
+  });
+
+  it("deduplicates multiple blocks targeting the same collection", () => {
+    const t = template([
+      { type: "TourDatesView", props: { sourceCollection: "tour-dates", limit: 3 } },
+      { type: "TourDatesView", props: { sourceCollection: "tour-dates", limit: 5 } },
+    ]);
+    expect(findCollectionBlockSources(t)).toEqual(["tour-dates"]);
+  });
+
+  it("recurses into slot children (Section, Stack)", () => {
+    const t = template([
+      {
+        type: "Section",
+        props: {
+          children: [
+            { type: "TourDatesView", props: { sourceCollection: "tour-dates" } },
+            {
+              type: "Stack",
+              props: {
+                children: [
+                  { type: "ReleasesView", props: { sourceCollection: "releases" } },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    expect(findCollectionBlockSources(t)).toEqual(["releases", "tour-dates"]);
+  });
+
+  it("ignores blocks with no `sourceCollection` prop", () => {
+    const t = template([
+      { type: "Text", props: { content: { kind: "literal", value: "Hello" } } },
+      { type: "Image", props: { src: { kind: "literal", value: null } } },
+    ]);
+    expect(findCollectionBlockSources(t)).toEqual([]);
   });
 });
