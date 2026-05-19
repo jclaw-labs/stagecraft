@@ -37,7 +37,16 @@ import type {
   FieldType,
   SelectOption,
 } from "@/lib/collections";
-import { generateFieldId } from "@/lib/collections";
+
+/**
+ * Client-side field-id generator. Mirrors `generateFieldId` from
+ * `@/lib/collections/schema` but uses the browser's Web Crypto so
+ * importing this client module doesn't transitively pull `node:crypto`
+ * (and the `store.ts` → `fs-helpers.ts` chain) into the bundle.
+ */
+function newFieldId(): string {
+  return `fld_${crypto.randomUUID()}`;
+}
 
 // ---------------------------------------------------------------------------
 // Field-type metadata
@@ -739,7 +748,7 @@ function makeDefaultField(type: FieldType, existingFields: ReadonlyArray<FieldDe
     key = `${baseKey}_${i}`;
     i += 1;
   }
-  const id = generateFieldId();
+  const id = newFieldId();
   switch (type) {
     case "text":
       return { id, key, type: "text", required: false };
