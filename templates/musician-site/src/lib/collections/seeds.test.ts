@@ -14,6 +14,8 @@ import {
   pagesCollectionDef,
   PREBAKED_COLLECTIONS,
   siteCollectionDef,
+  tourDatesCollectionDef,
+  TOUR_DATES_FIELD_IDS,
 } from "./seeds";
 
 describe("prebaked CollectionDefs", () => {
@@ -22,13 +24,14 @@ describe("prebaked CollectionDefs", () => {
     ["site", siteCollectionDef],
     ["header", headerCollectionDef],
     ["appearance", appearanceCollectionDef],
+    ["tour-dates", tourDatesCollectionDef],
   ])("%s parses against collectionDefSchema", (_slug, def) => {
     expect(() => collectionDefSchema.parse(def)).not.toThrow();
   });
 
-  it("the registry exposes all four", () => {
+  it("the registry exposes all five", () => {
     expect(Object.keys(PREBAKED_COLLECTIONS).sort()).toEqual(
-      ["appearance", "header", "pages", "site"].sort(),
+      ["appearance", "header", "pages", "site", "tour-dates"].sort(),
     );
   });
 
@@ -75,5 +78,26 @@ describe("prebaked CollectionDefs", () => {
     expect(fields.find((f) => f.key === "bodyFont")).toBeDefined();
     expect(fields.find((f) => f.key === "headingMode")).toBeDefined();
     expect(fields.find((f) => f.key === "headingFont")).toBeDefined();
+  });
+
+  it("tour-dates has the expected core fields and routing config", () => {
+    const def = tourDatesCollectionDef;
+    expect(def.slug).toBe("tour-dates");
+    expect(def.isSingleton).toBe(false);
+    expect(def.detailUrlPrefix).toBe("/shows");
+    expect(def.slugSourceFieldId).toBe(TOUR_DATES_FIELD_IDS.venue);
+    expect(def.defaultSort).toEqual({
+      mode: "fieldSort",
+      fieldId: TOUR_DATES_FIELD_IDS.date,
+      direction: "desc",
+    });
+    // Required core fields are systemLocked so the renderer can rely
+    // on them; nice-to-have fields are editable.
+    const date = def.fields.find((f) => f.id === TOUR_DATES_FIELD_IDS.date);
+    const venue = def.fields.find((f) => f.id === TOUR_DATES_FIELD_IDS.venue);
+    const ticketUrl = def.fields.find((f) => f.id === TOUR_DATES_FIELD_IDS.ticketUrl);
+    expect(date?.systemLocked).toBe(true);
+    expect(venue?.systemLocked).toBe(true);
+    expect(ticketUrl?.systemLocked ?? false).toBe(false);
   });
 });

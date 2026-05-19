@@ -334,6 +334,99 @@ export const appearanceCollectionDef: CollectionDef = {
 };
 
 // ---------------------------------------------------------------------------
+// Tour Dates collection — first non-pages collection (ADR-009 PR 7)
+// ---------------------------------------------------------------------------
+
+const TOUR_DATE_STATUSES = ["on_sale", "sold_out", "cancelled", "free"] as const;
+const TOUR_DATE_STATUS_LABELS: Record<(typeof TOUR_DATE_STATUSES)[number], string> = {
+  on_sale: "On sale",
+  sold_out: "Sold out",
+  cancelled: "Cancelled",
+  free: "Free",
+};
+
+export const TOUR_DATES_FIELD_IDS = {
+  date: "fld_tour_dates_date",
+  venue: "fld_tour_dates_venue",
+  city: "fld_tour_dates_city",
+  country: "fld_tour_dates_country",
+  status: "fld_tour_dates_status",
+  ticketUrl: "fld_tour_dates_ticketUrl",
+  notes: "fld_tour_dates_notes",
+} as const;
+
+export const tourDatesCollectionDef: CollectionDef = {
+  schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
+  slug: "tour-dates",
+  singularName: "tour date",
+  pluralName: "tour dates",
+  fields: [
+    // Stored as naked-local datetime (`2026-07-15T20:00`) — no
+    // timezone. The artist enters venue-local time; the renderer
+    // displays it as-is. International tours where the artist
+    // crosses time zones will need a `timezone` field added through
+    // the schema editor; v1 keeps the seed simple.
+    {
+      id: TOUR_DATES_FIELD_IDS.date,
+      key: "date",
+      type: "date",
+      required: true,
+      includeTime: true,
+      systemLocked: true,
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.venue,
+      key: "venue",
+      type: "text",
+      required: true,
+      systemLocked: true,
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.city,
+      key: "city",
+      type: "text",
+      required: true,
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.country,
+      key: "country",
+      type: "text",
+      required: false,
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.status,
+      key: "status",
+      type: "select",
+      required: true,
+      options: selectOptionsFrom(TOUR_DATE_STATUSES, TOUR_DATE_STATUS_LABELS),
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.ticketUrl,
+      key: "ticketUrl",
+      type: "url",
+      required: false,
+    },
+    {
+      id: TOUR_DATES_FIELD_IDS.notes,
+      key: "notes",
+      type: "longText",
+      required: false,
+    },
+  ],
+  slugSourceFieldId: TOUR_DATES_FIELD_IDS.venue,
+  detailUrlPrefix: "/shows",
+  // `desc` so the admin list view shows the most-recent / upcoming
+  // dates first. Public Collection blocks re-sort independently via
+  // their own `sort` prop (typically filtered to date >= now() and
+  // sorted ascending so "next show" is at the top).
+  defaultSort: { mode: "fieldSort", fieldId: TOUR_DATES_FIELD_IDS.date, direction: "desc" },
+  itemTemplate: null,
+  detailTemplate: null,
+  listTemplate: null,
+  isSingleton: false,
+};
+
+// ---------------------------------------------------------------------------
 // Combined registry — what content.ts wraps and what PR 3's migration
 // helper writes to disk.
 // ---------------------------------------------------------------------------
@@ -343,4 +436,5 @@ export const PREBAKED_COLLECTIONS: Readonly<Record<string, CollectionDef>> = Obj
   site: siteCollectionDef,
   header: headerCollectionDef,
   appearance: appearanceCollectionDef,
+  "tour-dates": tourDatesCollectionDef,
 });
