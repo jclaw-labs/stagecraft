@@ -66,9 +66,21 @@ export function TemplateRenderer({
 }
 
 /**
+ * Items + defs that Collection blocks can iterate. Keyed by
+ * collection slug — the renderer pre-loads these server-side so the
+ * walker stays sync. Each entry pairs the source collection's def
+ * (for itemTemplate lookup + field metadata) with its current items
+ * (already validated and ordered as `listItemsInOrder` returns).
+ */
+export type LoadedCollections = Readonly<
+  Record<string, { def: CollectionDef; items: ReadonlyArray<Item> }>
+>;
+
+/**
  * Options bag for `resolveTemplate`. Optional: each field has a
- * sensible default. PR 7c adds `loadedItems` here for Collection
- * blocks that iterate over other collections.
+ * sensible default. PR 7c adds `loadedCollections` for Collection
+ * blocks that iterate over other collections; the renderer pre-
+ * loads them so the walker stays pure / sync.
  */
 export type ResolveTemplateOptions = {
   /** Block dispatch registry. Defaults to `PRIMITIVE_BLOCKS`. */
@@ -79,6 +91,13 @@ export type ResolveTemplateOptions = {
    * outer-item context persists through iteration.
    */
   currentItem?: Item;
+  /**
+   * Items + defs Collection blocks may iterate. Keys are collection
+   * slugs; the renderer pre-loads only the collections the template
+   * actually references. Empty / missing means no Collection blocks
+   * will find their source — they'll render nothing.
+   */
+  loadedCollections?: LoadedCollections;
 };
 
 /**
@@ -94,11 +113,13 @@ export function resolveTemplate(
 ): Template {
   const registry = options.registry ?? PRIMITIVE_BLOCKS;
   const currentItem = options.currentItem ?? item;
+  const loadedCollections = options.loadedCollections ?? {};
   const ctx = {
     item,
     currentItem,
+    loadedCollections,
     recurse: (block: BlockInstance) =>
-      resolveBlock(block, item, currentItem, registry, ctx.recurse),
+      resolveBlock(block, item, currentItem, loadedCollections, registry, ctx.recurse),
   };
   return {
     ...template,
@@ -111,6 +132,7 @@ function resolveBlock(
   block: BlockInstance,
   item: Item,
   currentItem: Item,
+  loadedCollections: LoadedCollections,
   registry: Readonly<Record<string, BlockEntry>>,
   recurse: (b: BlockInstance) => BlockInstance,
 ): BlockInstance {
@@ -119,6 +141,11 @@ function resolveBlock(
     // Unknown block — leave as-is. Puck's <Render> will skip it.
     return block;
   }
-  const resolved = entry.resolveProps(block.props, { item, currentItem, recurse });
+  const resolved = entry.resolveProps(block.props, {
+    item,
+    currentItem,
+    loadedCollections,
+    recurse,
+  });
   return { type: block.type, props: resolved as Record<string, unknown> };
 }

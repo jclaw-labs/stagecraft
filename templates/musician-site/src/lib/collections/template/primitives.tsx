@@ -37,7 +37,7 @@ import {
 } from "./binding";
 import { renderTiptap } from "./tiptap-render";
 import type { BlockInstance } from "./types";
-import type { Bindable, FieldId, Item, TiptapJSON } from "../schema";
+import type { Bindable, CollectionDef, FieldId, Item, TiptapJSON } from "../schema";
 
 // ---------------------------------------------------------------------------
 // Block-registry types
@@ -63,6 +63,15 @@ import type { Bindable, FieldId, Item, TiptapJSON } from "../schema";
 export type ResolveContext = {
   item: Item;
   currentItem: Item;
+  /**
+   * Pre-loaded items + defs for any Collection blocks the template
+   * embeds. Keyed by collection slug. Empty for primitive-only
+   * templates; the renderer fills this only when the template
+   * references Collection blocks.
+   */
+  loadedCollections: Readonly<
+    Record<string, { def: CollectionDef; items: ReadonlyArray<Item> }>
+  >;
   recurse: (block: BlockInstance) => BlockInstance;
 };
 
