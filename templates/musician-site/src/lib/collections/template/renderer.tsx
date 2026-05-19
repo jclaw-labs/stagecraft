@@ -38,10 +38,17 @@ export type TemplateRendererProps = {
   /** The item's collection. Reserved for future Collection-block use. */
   collection: CollectionDef;
   /**
-   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. PR 7 will supply
-   * an extended registry that adds Collection blocks for detail /
-   * list templates; itemTemplate consumers should stay on the
-   * Primitive-only default to preserve the §4.3 cycle-safety rule.
+   * The surrounding template's item — defaults to `item`. Collection
+   * blocks iterate other collections' items but their filters
+   * reference the outer (current) item; the inner walks pass this
+   * through unchanged. See `ResolveContext` for the full rationale.
+   */
+  currentItem?: Item;
+  /**
+   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. PR 7b supplies an
+   * extended registry that adds Collection blocks for detail / list
+   * templates; itemTemplate consumers stay on the Primitive-only
+   * default to preserve the §4.3 cycle-safety rule.
    */
   registry?: Readonly<Record<string, BlockEntry>>;
 };
@@ -49,13 +56,30 @@ export type TemplateRendererProps = {
 export function TemplateRenderer({
   template,
   item,
+  currentItem,
   registry = PRIMITIVE_BLOCKS,
 }: TemplateRendererProps): ReactNode {
   if (!template) return null;
-  const resolved = resolveTemplate(template, item, registry);
+  const resolved = resolveTemplate(template, item, { registry, currentItem });
   const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
   return <Render config={config ?? buildTemplatePuckConfig()} data={resolved} />;
 }
+
+/**
+ * Options bag for `resolveTemplate`. Optional: each field has a
+ * sensible default. PR 7c adds `loadedItems` here for Collection
+ * blocks that iterate over other collections.
+ */
+export type ResolveTemplateOptions = {
+  /** Block dispatch registry. Defaults to `PRIMITIVE_BLOCKS`. */
+  registry?: Readonly<Record<string, BlockEntry>>;
+  /**
+   * The surrounding template's item. Defaults to `item`. Inner walks
+   * (Collection blocks iterating in PR 7c) pass it explicitly so the
+   * outer-item context persists through iteration.
+   */
+  currentItem?: Item;
+};
 
 /**
  * Walk a template top-down and produce a new template whose block
@@ -66,9 +90,16 @@ export function TemplateRenderer({
 export function resolveTemplate(
   template: Template,
   item: Item,
-  registry: Readonly<Record<string, BlockEntry>> = PRIMITIVE_BLOCKS,
+  options: ResolveTemplateOptions = {},
 ): Template {
-  const ctx = { item, recurse: (block: BlockInstance) => resolveBlock(block, item, registry, ctx.recurse) };
+  const registry = options.registry ?? PRIMITIVE_BLOCKS;
+  const currentItem = options.currentItem ?? item;
+  const ctx = {
+    item,
+    currentItem,
+    recurse: (block: BlockInstance) =>
+      resolveBlock(block, item, currentItem, registry, ctx.recurse),
+  };
   return {
     ...template,
     content: (template.content ?? []).map(ctx.recurse) as Template["content"],
@@ -79,6 +110,7 @@ export function resolveTemplate(
 function resolveBlock(
   block: BlockInstance,
   item: Item,
+  currentItem: Item,
   registry: Readonly<Record<string, BlockEntry>>,
   recurse: (b: BlockInstance) => BlockInstance,
 ): BlockInstance {
@@ -87,6 +119,6 @@ function resolveBlock(
     // Unknown block — leave as-is. Puck's <Render> will skip it.
     return block;
   }
-  const resolved = entry.resolveProps(block.props, { item, recurse });
+  const resolved = entry.resolveProps(block.props, { item, currentItem, recurse });
   return { type: block.type, props: resolved as Record<string, unknown> };
 }

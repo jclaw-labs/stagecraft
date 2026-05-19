@@ -48,9 +48,21 @@ import type { Bindable, FieldId, Item, TiptapJSON } from "../schema";
  * `recurse` callback resolves a nested block — used by layout
  * primitives whose `children` slot stores `BlockInstance[]` inline on
  * the parent's props.
+ *
+ * `item` is the item the binding-resolution closure targets — changes
+ * as nested templates iterate (a Collection block resolves its
+ * children against each iterated item). `currentItem` is the item
+ * the *surrounding* template is rendering — stays the same all the
+ * way down so Collection-block filters can reference it (ADR §5.1's
+ * `currentItemId` / `currentItemField` FilterValue arms).
+ *
+ * For non-Collection-block walks the two are equal. The distinction
+ * only matters once a Collection block iterates; PR 7b's render
+ * passes the outer `currentItem` through unchanged.
  */
 export type ResolveContext = {
   item: Item;
+  currentItem: Item;
   recurse: (block: BlockInstance) => BlockInstance;
 };
 
