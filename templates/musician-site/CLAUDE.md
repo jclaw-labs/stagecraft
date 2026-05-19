@@ -174,30 +174,37 @@ is selected.
 
 ## Collections (ADR-009)
 
-The template is moving to a unified **Collection** abstraction where
-pages, singletons, tour dates, releases, posts, store items, photos, and
-videos are all instances of the same type. Each Collection owns its
-schema, items, and Puck-edited templates. Full design in
-`docs/adr/009-unified-collection-model.md`.
+Every editable surface — pages, singletons, tour dates, releases,
+posts, store items, photos, videos — is an instance of the unified
+**Collection** abstraction. Each Collection owns its schema, items,
+and Puck-edited templates. Full design in
+`docs/adr/009-unified-collection-model.md`; the eight-PR shipping plan
+is at §15.
 
-Shipping order (per ADR-009 §15):
+The full ADR-009 stack landed; storage is collection-backed for every
+surface. The legacy `src/lib/content.ts` shim translates the
+collection store back into the `PageData` / `SiteConfig` / `HeaderConfig`
+shapes the public renderer + the legacy Pages admin consume — those
+two consumers haven't been rewritten to read `Item` directly. New
+admin work goes through the generic collection routes
+(`/admin/collections/<slug>`); the `/admin/pages` editor is kept as
+canonical because of its drag-and-drop / nav-toggle UX.
 
-1. **Foundation** *(current PR)* — types, dynamic Zod builder, item
-   store, runtime-narrowing accessors, publish target kinds. Lives at
-   `src/lib/collections/`. No UI; no public renderer changes; nothing
-   currently consumes it.
-2. Item template renderer + data binding primitives.
-3. Pages migration (Pages becomes a Collection).
-4. Generic item editor.
-5. Schema editor UI.
-6. Template Puck editors (item + detail).
-7. First non-pages collection (tour dates) end-to-end.
-8. Prebaked collections (releases, posts, store items, photos, videos).
+**Client-bundle discipline.** `schema.ts` imports `node:crypto` for
+`generateFieldId` / `generateItemId`; `store.ts` imports `node:fs`.
+Client components that need types or runtime helpers from those files
+import via sibling submodules that have no node imports:
 
-Until PR 3 lands, pages and singletons keep their existing storage
-(`src/content/pages/`, `src/content/config/`) and existing code paths
-(`content.ts`, `site-config-types.ts`). The new `collections/` module is
-parallel — empty on disk by default and unreachable from any UI.
+- `lib/collections/filter-schema.ts` — `filterSchema` + Filter types
+- `lib/collections/field-classification.ts` — `SLUG_SOURCE_COMPATIBLE_TYPES`,
+  `SORTABLE_FIELD_TYPES`
+- `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
+
+When you need a value (not just a type) from `schema.ts` in a
+`"use client"` file and there's no client-safe submodule yet, either
+(a) inline a tiny local helper, as `SchemaEditor.tsx:newFieldId` does,
+or (b) split the value out into a new node-import-free file alongside
+the three above.
 
 ## Design tokens
 

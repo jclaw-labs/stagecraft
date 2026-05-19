@@ -47,6 +47,10 @@ import type {
   FieldValue,
   Item,
 } from "@/lib/collections";
+// Direct from the puck-content-value submodule (no node:crypto
+// pull-in via schema.ts). Same client-bundle discipline as
+// `filter-schema.ts`.
+import { puckContentValue } from "@/lib/collections/puck-content-value";
 
 export type ReferenceOptions = Record<
   string /* targetCollectionSlug */,
@@ -366,7 +370,7 @@ function defaultValueFor(field: FieldDef): FieldValue | undefined {
     case "multiCollectionRef":
       return { type: "multiCollectionRef", value: [] };
     case "puckContent":
-      return { type: "puckContent", value: { content: [], root: { props: {} } } as never };
+      return puckContentValue({ content: [], root: { props: {} } });
     // Required scalar types get an empty value so the dynamic Zod
     // schema can fall back to the right error message; optional ones
     // are simply absent from the initial draft.

@@ -37,6 +37,13 @@ import type {
   FieldType,
   SelectOption,
 } from "@/lib/collections";
+// Direct from the field-classification submodule — node-import-free
+// so this client component doesn't drag schema.ts's node:crypto into
+// the browser bundle.
+import {
+  SLUG_SOURCE_COMPATIBLE_TYPES,
+  SORTABLE_FIELD_TYPES,
+} from "@/lib/collections/field-classification";
 
 /**
  * Client-side field-id generator. Mirrors `generateFieldId` from
@@ -77,17 +84,12 @@ const FIELD_TYPE_OPTIONS: ReadonlyArray<{ value: FieldType; label: string }> = [
 ];
 
 /**
- * Field types that count as "slug source"-compatible — match the set
- * checked by `collectionDefSchema.superRefine`. Keeping the list here
- * keeps the picker in sync with what the Zod schema accepts.
+ * Slug-source-compatible types come from the schema module so this
+ * dropdown can't drift from `collectionDefSchema`'s superRefine
+ * check. Before consolidation the editor's local list omitted
+ * `date` and `number`, which the Zod accepts — the dropdown silently
+ * hid valid options.
  */
-const SLUG_SOURCE_TYPES: ReadonlySet<FieldType> = new Set<FieldType>([
-  "text",
-  "longText",
-  "select",
-  "url",
-  "email",
-]);
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -145,7 +147,7 @@ export function SchemaEditor({
   const slugSourceOptions = [
     { label: "(none — items use a slug they pick themselves)", value: "" },
     ...def.fields
-      .filter((f) => SLUG_SOURCE_TYPES.has(f.type))
+      .filter((f) => SLUG_SOURCE_COMPATIBLE_TYPES.has(f.type))
       .map((f) => ({ label: f.key, value: f.id })),
   ];
 
@@ -571,11 +573,7 @@ function DefaultSortEditor({
   onChange: (next: CollectionDef) => void;
 }) {
   const mode = def.defaultSort?.mode ?? "alphabetic";
-  const sortableFields = def.fields.filter((f) =>
-    ["text", "longText", "date", "url", "email", "color", "select", "number", "boolean"].includes(
-      f.type,
-    ),
-  );
+  const sortableFields = def.fields.filter((f) => SORTABLE_FIELD_TYPES.has(f.type));
   return (
     <>
       <SelectField

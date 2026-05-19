@@ -1,5 +1,6 @@
 import { Render } from "@measured/puck";
 import "@measured/puck/puck.css";
+import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -14,6 +15,7 @@ import {
   slugSchema,
   validateCollectionRouting,
   type CollectionDef,
+  type Item,
 } from "@/lib/collections";
 import {
   buildCollectionBlockRegistry,
@@ -23,8 +25,10 @@ import { loadCollectionsForTemplate } from "@/lib/collections/template/load-coll
 import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
 import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
 import { resolveTemplate } from "@/lib/collections/template/renderer";
+import type { Template } from "@/lib/collections/template/types";
 import {
   extractPageRootProps,
+  listPageSlugs,
   listPageSummaries,
   readHeaderConfig,
   readPageOrNull,
@@ -34,6 +38,36 @@ import {
 import { pageSlugSchema } from "@/lib/site-config-types";
 import { puckConfig } from "@/puck/config";
 
+// ---------------------------------------------------------------------------
+// Per-request caches
+//
+// The catch-all + generateMetadata both walk the collection registry
+// (slugs + defs) and read the site / header singletons. React.cache()
+// dedupes those reads within a single request lifecycle — both
+// `generateMetadata` (which runs first) and the page render share the
+// same cached call results. Module-level memoisation would be wrong
+// here because the on-disk state can change between requests (the
+// admin writes definitions / items; tests reset state). React.cache()
+// is request-scoped: stale data can't leak across requests.
+// ---------------------------------------------------------------------------
+
+const cachedListCollectionSlugs = cache(listCollectionSlugs);
+const cachedReadCollectionDef = cache(readCollectionDef);
+const cachedReadSiteConfig = cache(readSiteConfig);
+const cachedReadHeaderConfig = cache(readHeaderConfig);
+const cachedListPageSummaries = cache(listPageSummaries);
+
+/**
+ * Load every collection's def in parallel, filter out nulls, and
+ * sort deterministically. Cached per-request so successive callers
+ * see the same array without re-reading.
+ */
+const cachedAllDefs = cache(async (): Promise<CollectionDef[]> => {
+  const slugs = await cachedListCollectionSlugs();
+  const defs = await Promise.all(slugs.map((s) => cachedReadCollectionDef(s)));
+  return defs.filter((d): d is CollectionDef => d !== null);
+});
+
 type Props = {
   params: Promise<{ slug?: string[] }>;
 };
@@ -41,40 +75,35 @@ type Props = {
 /**
  * Catch-all renderer for every public URL.
  *
- *   /             → splash page (if marked) → /home → first page
- *   /<slug>       → src/content/pages/<slug>.json
+ * Dispatch (ADR-009 §8):
  *
- * Unknown slugs render the framework 404 page. Splash pages take over `/`
- * and skip the Header + Footer (the splash is supposed to fill the viewport).
- *
- * Site-wide config (artist name + nav) feeds the Header; per-page root
- * props (isFooterHidden, isSplashPage) control the chrome around the body.
+ *   1. `validateCollectionRouting` runs first — catches a Page slug
+ *      shadowing a collection prefix or two collections claiming
+ *      the same prefix. Both can corrupt the public site silently
+ *      if allowed.
+ *   2. `resolveCollectionItemUrl` matches the URL against every
+ *      collection's `detailUrlPrefix` (longest-prefix-first). A
+ *      non-Pages match renders the collection's `detailTemplate`.
+ *   3. Pages fall through to the legacy `readPageOrNull` flow,
+ *      which renders via the page-specific `puckConfig` (root
+ *      props + `puckContent` body). Pages don't have a
+ *      `detailTemplate` — the page body IS the page, with no
+ *      surrounding template — so the legacy flow stays canonical
+ *      for Pages until the legacy Pages editor migrates to the
+ *      collections surface.
  */
 export default async function CatchAllPage({ params }: Props) {
   const { slug: segments } = await params;
 
-  // Step 1: try to dispatch to a non-Pages collection's detail page.
-  // Multi-segment URLs like `/shows/paris-2026` go to tour-dates; the
-  // existing Pages flow handles the rest. `validateCollectionRouting`
-  // runs first to catch a Page slug shadowing a collection prefix or
-  // two collections claiming the same prefix — both can corrupt the
-  // public site silently if allowed.
-  const allSlugs = await listCollectionSlugs();
-  const allDefs = (
-    await Promise.all(allSlugs.map((s) => readCollectionDef(s)))
-  ).filter((d): d is CollectionDef => d !== null);
+  const allDefs = await cachedAllDefs();
 
-  // TRANSITIONAL: page slugs come from the legacy store
-  // (`src/content/pages/`), not the collection store. When Pages
-  // migrate to `src/content/collections/pages/items/` (per ADR-009
-  // §13 / shipping-plan PR 3), this should pull slugs from the
-  // pages collection instead — and the `itemUrl.collectionSlug !==
-  // "pages"` gate below needs to invert in the same commit.
-  const summaries = await listPageSummaries();
-  const conflicts = validateCollectionRouting(
-    allDefs,
-    summaries.map((s) => s.slug),
-  );
+  // Routing-conflict check. Only the page slug list is needed here
+  // (the conflict check doesn't care about titles or body content),
+  // so we read slugs only instead of the heavier `listPageSummaries`
+  // which loads every page's `puckContent` body just to extract the
+  // title.
+  const pageSlugs = await listPageSlugs();
+  const conflicts = validateCollectionRouting(allDefs, pageSlugs);
   if (conflicts.length > 0) {
     // A configuration error in the artist's repo. Fail loudly with a
     // structured message; falling through to 404 would hide the real
@@ -87,7 +116,12 @@ export default async function CatchAllPage({ params }: Props) {
   const segs = segments ?? [];
   const itemUrl = resolveCollectionItemUrl(segs, allDefs);
   if (itemUrl && itemUrl.collectionSlug !== "pages") {
-    // Detail page for a non-Pages collection.
+    // Non-Pages detail page. Pages have their own canonical
+    // rendering path below — the resolver returns a `pages`
+    // collectionSlug for Page URLs too, but we skip it here so the
+    // existing `puckConfig`-based render flow applies. The legacy/
+    // collection-detail split for Pages lives until the legacy
+    // Pages editor migrates to the collections surface.
     return await renderCollectionItemDetail({
       collectionSlug: itemUrl.collectionSlug,
       itemSlug: itemUrl.itemSlug,
@@ -95,8 +129,14 @@ export default async function CatchAllPage({ params }: Props) {
     });
   }
 
-  // Step 2: Pages flow. Either the root URL, or a 1-segment URL that
-  // resolves to a Page slug.
+  return await renderPage({ segs });
+}
+
+// ---------------------------------------------------------------------------
+// Pages rendering (legacy puckConfig flow — still canonical for Pages)
+// ---------------------------------------------------------------------------
+
+async function renderPage({ segs }: { segs: string[] }) {
   let requestedSlug: string;
   if (segs.length === 0) {
     const root = await resolveRootPageSlug();
@@ -111,21 +151,17 @@ export default async function CatchAllPage({ params }: Props) {
     notFound();
   }
 
-  const [pageData, site, header] = await Promise.all([
+  const [pageData, site, header, summaries] = await Promise.all([
     readPageOrNull(requestedSlug),
-    readSiteConfig(),
-    readHeaderConfig(),
+    cachedReadSiteConfig(),
+    cachedReadHeaderConfig(),
+    cachedListPageSummaries(),
   ]);
 
   if (!pageData) notFound();
 
   const rootProps = extractPageRootProps(pageData);
   const pageTitleBySlug = new Map(summaries.map((s) => [s.slug, s.title]));
-
-  // Visible nav = pages list filtered down by visibility + splash. The
-  // Pages list order (canonical `site.pageOrder` first, then alphabetical
-  // for new pages) IS the nav order; the eye-icon toggle on each row
-  // drives `isHiddenFromNav`.
   const navItems = summaries
     .filter((s) => !s.isSplashPage && !s.isHiddenFromNav)
     .map((s) => s.slug);
@@ -137,33 +173,23 @@ export default async function CatchAllPage({ params }: Props) {
   const hideHeader = rootProps.isSplashPage;
 
   return (
-    <>
-      {hideHeader ? null : (
-        <Header
-          artistName={site.artistName}
-          header={header}
-          navItems={navItems}
-          pageTitleBySlug={pageTitleBySlug}
-        />
-      )}
-      <main>
-        <Render config={puckConfig} data={pageData} />
-      </main>
-      {hideFooter ? null : <Footer site={site} />}
-    </>
+    <PublicPageChrome
+      site={site}
+      header={header}
+      navItems={navItems}
+      pageTitleBySlug={pageTitleBySlug}
+      hideHeader={hideHeader}
+      hideFooter={hideFooter}
+    >
+      <Render config={puckConfig} data={pageData} />
+    </PublicPageChrome>
   );
 }
 
-/**
- * Render one item's detail page. Resolves the item, walks the
- * collection's detailTemplate against it (pre-loading any
- * Collection blocks the template references), and emits the
- * resolved Puck tree wrapped in the standard site chrome.
- *
- * If the collection's `detailTemplate` is null, falls back to a
- * minimal "every scalar field as plain text" rendering — keeps
- * the URL usable before the artist authors a template.
- */
+// ---------------------------------------------------------------------------
+// Collection-item detail rendering
+// ---------------------------------------------------------------------------
+
 async function renderCollectionItemDetail({
   collectionSlug,
   itemSlug,
@@ -183,9 +209,9 @@ async function renderCollectionItemDetail({
   if (!item) notFound();
 
   const [site, header, summaries] = await Promise.all([
-    readSiteConfig(),
-    readHeaderConfig(),
-    listPageSummaries(),
+    cachedReadSiteConfig(),
+    cachedReadHeaderConfig(),
+    cachedListPageSummaries(),
   ]);
   const pageTitleBySlug = new Map(summaries.map((s) => [s.slug, s.title]));
   const navItems = summaries
@@ -193,17 +219,55 @@ async function renderCollectionItemDetail({
     .map((s) => s.slug);
 
   return (
+    <PublicPageChrome
+      site={site}
+      header={header}
+      navItems={navItems}
+      pageTitleBySlug={pageTitleBySlug}
+      hideHeader={false}
+      hideFooter={site.isFooterHidden}
+    >
+      <CollectionItemBody def={def} item={item} allDefs={allDefs} />
+    </PublicPageChrome>
+  );
+}
+
+/**
+ * Shared public-page chrome: Header (unless hidden), `<main>`, the
+ * supplied body, Footer (unless hidden). Both the Pages flow and the
+ * collection-item-detail flow render through this so the
+ * `site.isFooterHidden` toggle stays consistent across detail page
+ * types.
+ */
+function PublicPageChrome({
+  site,
+  header,
+  navItems,
+  pageTitleBySlug,
+  hideHeader,
+  hideFooter,
+  children,
+}: {
+  site: Awaited<ReturnType<typeof readSiteConfig>>;
+  header: Awaited<ReturnType<typeof readHeaderConfig>>;
+  navItems: string[];
+  pageTitleBySlug: Map<string, string>;
+  hideHeader: boolean;
+  hideFooter: boolean;
+  children: React.ReactNode;
+}) {
+  return (
     <>
-      <Header
-        artistName={site.artistName}
-        header={header}
-        navItems={navItems}
-        pageTitleBySlug={pageTitleBySlug}
-      />
-      <main>
-        <CollectionItemBody def={def} item={item} allDefs={allDefs} />
-      </main>
-      {site.isFooterHidden ? null : <Footer site={site} />}
+      {hideHeader ? null : (
+        <Header
+          artistName={site.artistName}
+          header={header}
+          navItems={navItems}
+          pageTitleBySlug={pageTitleBySlug}
+        />
+      )}
+      <main>{children}</main>
+      {hideFooter ? null : <Footer site={site} />}
     </>
   );
 }
@@ -214,9 +278,9 @@ async function renderCollectionItemDetail({
  * sources before walking.
  *
  * Takes `allDefs` from the catch-all rather than re-reading every
- * `_collection.json` here — the catch-all already loaded them for
- * routing-conflict detection. Passing them through saves one round
- * of disk reads per detail request.
+ * definition. When `detailTemplate` is null, falls back to a
+ * minimal "every scalar field as plain text" rendering wrapped in
+ * a `Section` primitive so token discipline survives.
  */
 async function CollectionItemBody({
   def,
@@ -224,18 +288,19 @@ async function CollectionItemBody({
   allDefs,
 }: {
   def: CollectionDef;
-  item: import("@/lib/collections").Item;
+  item: Item;
   allDefs: CollectionDef[];
 }) {
-  const template = def.detailTemplate as import(
-    "@/lib/collections/template/types"
-  ).Template | null;
+  const template = def.detailTemplate as Template | null;
   if (!template) {
-    // No detail template configured — fall back to a minimal
-    // "every scalar field as plain text" rendering. Lets the URL
-    // be useful before the artist authors a real template.
     return (
-      <article style={{ maxWidth: "var(--max-width-content)", margin: "var(--space-8) auto", padding: "0 var(--space-4)" }}>
+      <article
+        style={{
+          maxWidth: "var(--max-width-content)",
+          margin: "var(--space-8) auto",
+          padding: "0 var(--space-4)",
+        }}
+      >
         <h1>{item.slug}</h1>
         <DefaultItemFieldsList item={item} def={def} />
       </article>
@@ -256,15 +321,18 @@ async function CollectionItemBody({
     loadedCollections: loaded,
   });
 
-  // Build the Puck config from the extended registry so <Render>
-  // can dispatch Collection blocks alongside primitives.
   return <Render config={buildTemplatePuckConfig(registry)} data={resolved} />;
 }
+
+// ---------------------------------------------------------------------------
+// Per-page metadata
+// ---------------------------------------------------------------------------
 
 /**
  * Per-page metadata (document title + meta description). Reads from site
  * config + the page's own root.title so each route surfaces a meaningful
- * tab name.
+ * tab name. Cached reads via the module-level cache wrappers above
+ * share results with the page render in the same request.
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug: segments } = await params;
@@ -275,7 +343,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!slug) return { title: "Site" };
 
   const [site, pageData] = await Promise.all([
-    readSiteConfig(),
+    cachedReadSiteConfig(),
     readPageOrNull(slug),
   ]);
 

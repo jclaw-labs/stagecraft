@@ -502,15 +502,15 @@ export const CURRENT_COLLECTION_SCHEMA_VERSION = 1;
  * `_collection.json` validation — the slug-derivation function
  * (PR 4 territory) would have no string to work with.
  */
-const SLUG_SOURCE_COMPATIBLE_TYPES = new Set<FieldType>([
-  "text",
-  "longText",
-  "select",
-  "url",
-  "email",
-  "date",
-  "number",
-]);
+// Field-type classification sets live in `./field-classification.ts`
+// so client components can import them without dragging `node:crypto`
+// (this file's `generateFieldId` dependency) into the browser bundle.
+// Imported here so the validator below can consult them, and re-
+// exported for source-compat with callers that consumed them from
+// the schema module before the split.
+import { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES } from "./field-classification";
+
+export { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES };
 
 export const collectionDefSchema = z
   .object({
