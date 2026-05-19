@@ -11,12 +11,17 @@ import {
   readCollectionDef,
   readItem,
   resolveCollectionItemUrl,
+  slugSchema,
   validateCollectionRouting,
   type CollectionDef,
 } from "@/lib/collections";
-import { buildCollectionBlockRegistry } from "@/lib/collections/template/collection-block";
+import {
+  buildCollectionBlockRegistry,
+  DefaultItemFieldsList,
+} from "@/lib/collections/template/collection-block";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
 import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
+import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
 import { resolveTemplate } from "@/lib/collections/template/renderer";
 import {
   extractPageRootProps,
@@ -59,6 +64,12 @@ export default async function CatchAllPage({ params }: Props) {
     await Promise.all(allSlugs.map((s) => readCollectionDef(s)))
   ).filter((d): d is CollectionDef => d !== null);
 
+  // TRANSITIONAL: page slugs come from the legacy store
+  // (`src/content/pages/`), not the collection store. When Pages
+  // migrate to `src/content/collections/pages/items/` (per ADR-009
+  // §13 / shipping-plan PR 3), this should pull slugs from the
+  // pages collection instead — and the `itemUrl.collectionSlug !==
+  // "pages"` gate below needs to invert in the same commit.
   const summaries = await listPageSummaries();
   const conflicts = validateCollectionRouting(
     allDefs,
@@ -164,6 +175,10 @@ async function renderCollectionItemDetail({
 }) {
   const def = allDefs.find((d) => d.slug === collectionSlug);
   if (!def) notFound();
+  // Validate the slug shape before the store does — store.ts's
+  // `itemSlugSchema.parse` throws on invalid slugs, which would bubble
+  // as a 500. A malformed URL is a 404, not an internal error.
+  if (!slugSchema.safeParse(itemSlug).success) notFound();
   const item = await readItem(collectionSlug, itemSlug, def);
   if (!item) notFound();
 
@@ -186,7 +201,7 @@ async function renderCollectionItemDetail({
         pageTitleBySlug={pageTitleBySlug}
       />
       <main>
-        <CollectionItemBody def={def} item={item} />
+        <CollectionItemBody def={def} item={item} allDefs={allDefs} />
       </main>
       {site.isFooterHidden ? null : <Footer site={site} />}
     </>
@@ -197,13 +212,20 @@ async function renderCollectionItemDetail({
  * Inner render component for a collection item's detail body.
  * Async because it pre-loads the template's Collection-block
  * sources before walking.
+ *
+ * Takes `allDefs` from the catch-all rather than re-reading every
+ * `_collection.json` here — the catch-all already loaded them for
+ * routing-conflict detection. Passing them through saves one round
+ * of disk reads per detail request.
  */
 async function CollectionItemBody({
   def,
   item,
+  allDefs,
 }: {
   def: CollectionDef;
   item: import("@/lib/collections").Item;
+  allDefs: CollectionDef[];
 }) {
   const template = def.detailTemplate as import(
     "@/lib/collections/template/types"
@@ -215,19 +237,7 @@ async function CollectionItemBody({
     return (
       <article style={{ maxWidth: "var(--max-width-content)", margin: "var(--space-8) auto", padding: "0 var(--space-4)" }}>
         <h1>{item.slug}</h1>
-        {def.fields.map((field) => {
-          const value = item.values[field.id];
-          if (!value || !("value" in value)) return null;
-          const display = typeof value.value === "string" || typeof value.value === "number"
-            ? String(value.value)
-            : null;
-          if (display === null) return null;
-          return (
-            <p key={field.id} style={{ margin: "var(--space-2) 0" }}>
-              <strong>{field.key}:</strong> {display}
-            </p>
-          );
-        })}
+        <DefaultItemFieldsList item={item} def={def} />
       </article>
     );
   }
@@ -236,8 +246,7 @@ async function CollectionItemBody({
   // entry per known collection. The dispatcher's render is the same
   // `CollectionBlockRender` component regardless of slug; the slug
   // shows up as the block's `type`.
-  const allSlugs = await listCollectionSlugs();
-  const collectionRegistry = buildCollectionBlockRegistry(allSlugs);
+  const collectionRegistry = buildCollectionBlockRegistry(allDefs.map((d) => d.slug));
   const registry = { ...PRIMITIVE_BLOCKS, ...collectionRegistry };
 
   const loaded = await loadCollectionsForTemplate(template);
@@ -249,9 +258,6 @@ async function CollectionItemBody({
 
   // Build the Puck config from the extended registry so <Render>
   // can dispatch Collection blocks alongside primitives.
-  const { buildTemplatePuckConfig } = await import(
-    "@/lib/collections/template/puck-config"
-  );
   return <Render config={buildTemplatePuckConfig(registry)} data={resolved} />;
 }
 

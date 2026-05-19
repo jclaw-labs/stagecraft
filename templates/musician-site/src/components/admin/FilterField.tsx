@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 // Import direct from the filter-schema submodule. `@/lib/collections`
@@ -32,18 +32,38 @@ export type FilterFieldProps = {
   onChange: (next: Filter | null) => void;
 };
 
+function stringifyFilter(value: Filter | null): string {
+  return value ? JSON.stringify(value, null, 2) : "";
+}
+
 export function FilterField({ value, onChange }: FilterFieldProps) {
   // Local text state so the artist can type partial JSON without
   // the parent's filter being repeatedly cleared. Re-parse on every
   // change and only call onChange when the parse succeeds (or the
   // input is empty).
-  const [text, setText] = useState(() => (value ? JSON.stringify(value, null, 2) : ""));
+  const [text, setText] = useState(() => stringifyFilter(value));
   const [error, setError] = useState<string | null>(null);
+  // Tracks whether the most recent `value` change came from our own
+  // onChange (in which case the textarea is already up to date and
+  // syncing would clobber the artist's formatting). Otherwise the
+  // value changed from outside (undo/redo, programmatic reset) and
+  // we should resync the textarea.
+  const ownChangeRef = useRef(false);
+
+  useEffect(() => {
+    if (ownChangeRef.current) {
+      ownChangeRef.current = false;
+      return;
+    }
+    setText(stringifyFilter(value));
+    setError(null);
+  }, [value]);
 
   function handleChange(next: string) {
     setText(next);
     const trimmed = next.trim();
     if (trimmed === "") {
+      ownChangeRef.current = true;
       onChange(null);
       setError(null);
       return;
@@ -61,6 +81,7 @@ export function FilterField({ value, onChange }: FilterFieldProps) {
       return;
     }
     setError(null);
+    ownChangeRef.current = true;
     onChange(result.data);
   }
 

@@ -37,10 +37,10 @@ import {
   ORDER_FILE_NAME,
   SINGLETON_ITEM_SLUG,
   type CollectionDef,
-  type FieldValue,
   type Item,
   type ItemFile,
 } from "./schema";
+import { scalarSortKey } from "./sort-key";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -303,31 +303,6 @@ function sortByField(
     const cmp = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
     return direction === "asc" ? cmp : -cmp;
   });
-}
-
-/**
- * Extract a sortable scalar from a `FieldValue` for `fieldSort`. Only
- * the value types where sorting is meaningful are supported; others
- * (image, file, puckContent, multiSelect, richText, collectionRef)
- * return null and sort to the end.
- */
-function scalarSortKey(value: FieldValue | undefined): string | number | null {
-  if (value === undefined) return null;
-  switch (value.type) {
-    case "text":
-    case "longText":
-    case "date":
-    case "url":
-    case "email":
-    case "color":
-    case "select":
-    case "number":
-      return value.value;
-    case "boolean":
-      return value.value ? 1 : 0;
-    default:
-      return null;
-  }
 }
 
 // ---------------------------------------------------------------------------

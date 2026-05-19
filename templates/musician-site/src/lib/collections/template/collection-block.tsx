@@ -27,10 +27,11 @@ import { Render } from "@measured/puck";
 
 import { applyFilter } from "./filter";
 import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
-import { buildTemplatePuckConfig } from "./puck-config";
+import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
 import type { Template } from "./types";
 import type { Filter, FieldId, CollectionDef, Item } from "../schema";
+import { compareItemsByField, scalarSortKey } from "../sort-key";
 
 // ---------------------------------------------------------------------------
 // On-disk props (what the Puck JSON stores)
@@ -119,45 +120,6 @@ export function resolveCollectionBlockProps(
   };
 }
 
-/**
- * Lexicographic / numeric compare on a single field. Mirrors
- * `store.ts`'s `sortByField` so the in-template sort and the
- * collection's `defaultSort` rank items the same way.
- */
-function compareItemsByField(
-  a: Item,
-  b: Item,
-  fieldId: FieldId,
-  direction: "asc" | "desc",
-): number {
-  const av = scalarSortKey(a.values[fieldId]);
-  const bv = scalarSortKey(b.values[fieldId]);
-  if (av === null && bv === null) return a.slug.localeCompare(b.slug);
-  if (av === null) return 1;
-  if (bv === null) return -1;
-  const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-  return direction === "asc" ? cmp : -cmp;
-}
-
-function scalarSortKey(value: Item["values"][string] | undefined): string | number | null {
-  if (value === undefined) return null;
-  switch (value.type) {
-    case "text":
-    case "longText":
-    case "date":
-    case "url":
-    case "email":
-    case "color":
-    case "select":
-    case "number":
-      return value.value;
-    case "boolean":
-      return value.value ? 1 : 0;
-    default:
-      return null;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Render component
 // ---------------------------------------------------------------------------
@@ -218,7 +180,9 @@ function CollectionBlockItem({
     registry: PRIMITIVE_BLOCKS,
     currentItem,
   });
-  return <Render config={buildTemplatePuckConfig()} data={resolved} />;
+  // Use the cached PRIMITIVE_BLOCKS-only config so this doesn't rebuild
+  // once per iterated item.
+  return <Render config={templatePuckConfig} data={resolved} />;
 }
 
 /**
@@ -236,7 +200,27 @@ function DefaultItemRender({
 }): ReactNode {
   return (
     <article style={{ marginBottom: "var(--space-4)" }}>
-      {sourceDef.fields.map((field) => {
+      <DefaultItemFieldsList item={item} def={sourceDef} />
+    </article>
+  );
+}
+
+/**
+ * The inner "every scalar field as plain text" body — shared
+ * between the in-block iteration fallback and the detail-page
+ * no-template fallback. Each call site wraps it with its own
+ * outer chrome (heading, page-level spacing, etc.).
+ */
+export function DefaultItemFieldsList({
+  item,
+  def,
+}: {
+  item: Item;
+  def: CollectionDef;
+}): ReactNode {
+  return (
+    <>
+      {def.fields.map((field) => {
         const value = item.values[field.id];
         if (value === undefined) return null;
         const display = scalarSortKey(value);
@@ -247,7 +231,7 @@ function DefaultItemRender({
           </p>
         );
       })}
-    </article>
+    </>
   );
 }
 
