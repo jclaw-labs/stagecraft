@@ -154,7 +154,31 @@ const placeholderStyle: React.CSSProperties = {
 // Config builder
 // ---------------------------------------------------------------------------
 
-export function buildEditorPuckConfig(def: CollectionDef): Config {
+/**
+ * Which template surface the config powers.
+ *
+ * Detail templates can embed Collection blocks (one per existing
+ * collection, registered dynamically). Item templates cannot, per
+ * ADR §4.3 cycle safety — itemTemplates render inside Collection
+ * blocks, so allowing them here would let an itemTemplate embed
+ * Collection blocks that re-render itemTemplates …
+ */
+export type EditorPuckConfigKind = "item" | "detail";
+
+/**
+ * Optional per-collection extras the detail-template config wants:
+ * one Puck `ComponentConfig` per known collection (the "Collection
+ * block" surface). Caller pre-loads these server-side from
+ * `listCollectionSlugs()` and constructs them via
+ * `buildCollectionBlock` (sibling module).
+ */
+export type ExtraBlocks = Readonly<Record<string, Config["components"][string]>>;
+
+export function buildEditorPuckConfig(
+  def: CollectionDef,
+  options: { kind?: EditorPuckConfigKind; extraBlocks?: ExtraBlocks } = {},
+): Config {
+  const { kind = "item", extraBlocks } = options;
   const ctx = getCollectionContextForEditor(def);
 
   const Text: Config["components"][string] = {
@@ -366,8 +390,23 @@ export function buildEditorPuckConfig(def: CollectionDef): Config {
     ),
   };
 
-  return {
-    components: { Section, Stack, Text, Image, Button, Link, RichTextRender },
-    root: { fields: {} },
+  // Primitive blocks ship in every editor config; Collection blocks
+  // only on detail templates (per ADR §4.3 cycle safety). Callers
+  // pass `extraBlocks` for detail; we ignore it for item.
+  const components: Config["components"] = {
+    Section,
+    Stack,
+    Text,
+    Image,
+    Button,
+    Link,
+    RichTextRender,
   };
+  if (kind === "detail" && extraBlocks) {
+    for (const [name, config] of Object.entries(extraBlocks)) {
+      components[name] = config;
+    }
+  }
+
+  return { components, root: { fields: {} } };
 }
