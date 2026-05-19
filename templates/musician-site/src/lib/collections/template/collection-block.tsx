@@ -200,7 +200,27 @@ function DefaultItemRender({
 }): ReactNode {
   return (
     <article style={{ marginBottom: "var(--space-4)" }}>
-      {sourceDef.fields.map((field) => {
+      <DefaultItemFieldsList item={item} def={sourceDef} />
+    </article>
+  );
+}
+
+/**
+ * The inner "every scalar field as plain text" body — shared
+ * between the in-block iteration fallback and the detail-page
+ * no-template fallback. Each call site wraps it with its own
+ * outer chrome (heading, page-level spacing, etc.).
+ */
+export function DefaultItemFieldsList({
+  item,
+  def,
+}: {
+  item: Item;
+  def: CollectionDef;
+}): ReactNode {
+  return (
+    <>
+      {def.fields.map((field) => {
         const value = item.values[field.id];
         if (value === undefined) return null;
         const display = scalarSortKey(value);
@@ -211,7 +231,7 @@ function DefaultItemRender({
           </p>
         );
       })}
-    </article>
+    </>
   );
 }
 
