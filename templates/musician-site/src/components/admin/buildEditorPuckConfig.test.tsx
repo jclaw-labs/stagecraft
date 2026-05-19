@@ -1,8 +1,23 @@
+import type { Config } from "@measured/puck";
 import { describe, expect, it } from "vitest";
 
 import { buildEditorPuckConfig } from "./buildEditorPuckConfig";
 
 import type { CollectionDef } from "@/lib/collections";
+
+/**
+ * Puck's `Config["components"][name].fields` is optional. Every block
+ * the builder produces sets it, so the test asserts that and narrows.
+ */
+function fieldsOf(
+  config: Config,
+  name: string,
+): Record<string, { type: string }> {
+  const block = config.components[name];
+  if (!block) throw new Error(`Missing block "${name}" in config`);
+  if (!block.fields) throw new Error(`Block "${name}" has no fields`);
+  return block.fields as Record<string, { type: string }>;
+}
 
 function def(): CollectionDef {
   return {
@@ -36,20 +51,17 @@ describe("buildEditorPuckConfig", () => {
 
   it("Text.content is a custom field (BindableStringPicker)", () => {
     const config = buildEditorPuckConfig(def());
-    const text = config.components.Text;
-    const content = text.fields.content;
-    expect(content.type).toBe("custom");
+    expect(fieldsOf(config, "Text").content.type).toBe("custom");
   });
 
   it("Section.children is a slot field for Puck native drag-and-drop", () => {
     const config = buildEditorPuckConfig(def());
-    const section = config.components.Section;
-    expect(section.fields.children.type).toBe("slot");
+    expect(fieldsOf(config, "Section").children.type).toBe("slot");
   });
 
   it("RichTextRender.field is a custom field with the collection's richText fields", () => {
     const config = buildEditorPuckConfig(def());
-    expect(config.components.RichTextRender.fields.field.type).toBe("custom");
+    expect(fieldsOf(config, "RichTextRender").field.type).toBe("custom");
   });
 
   it("defaultProps for Text wraps the literal in a Bindable", () => {
