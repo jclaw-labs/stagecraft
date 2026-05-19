@@ -25,7 +25,14 @@
  *   - Reorder: free.
  */
 
-import type { CollectionDef, FieldDef, FieldType, Item } from "./schema";
+import {
+  buildItemFileSchema,
+  type CollectionDef,
+  type FieldDef,
+  type FieldType,
+  type FieldValue,
+  type Item,
+} from "./schema";
 
 // ---------------------------------------------------------------------------
 // Allowed type transitions (ADR §11)
@@ -109,7 +116,21 @@ export type SchemaChangeIssue =
       missingItemCount: number;
     }
   | { kind: "duplicate-field-id"; fieldId: string }
-  | { kind: "duplicate-field-key"; fieldKey: string };
+  | { kind: "duplicate-field-key"; fieldKey: string }
+  | {
+      /**
+       * The new dynamic Zod schema rejected an existing item's values.
+       * Fires for every constraint tightening that current data
+       * violates — option removed, maxLength tightened, new required
+       * field added while items exist, includeTime toggled off, etc.
+       */
+      kind: "item-invalid-under-new-schema";
+      itemSlug: string;
+      /** Dot-separated zod path inside the item's values map. */
+      path: string;
+      /** Zod's own message — terse but precise. */
+      message: string;
+    };
 
 export type SchemaChangeWarning =
   | { kind: "field-removed-with-data"; fieldId: string; fieldKey: string; affectedItemCount: number };
@@ -138,7 +159,6 @@ export function validateSchemaChange(
   const issues: SchemaChangeIssue[] = [];
   const warnings: SchemaChangeWarning[] = [];
 
-  const oldFieldsById = new Map(oldDef.fields.map((f) => [f.id, f]));
   const newFieldsById = new Map(newDef.fields.map((f) => [f.id, f]));
 
   // Duplicate-id / duplicate-key checks. The Zod schema catches these
@@ -231,13 +251,44 @@ export function validateSchemaChange(
     }
   }
 
-  // Brand-new fields (in the new def but not the old) — no checks
-  // needed, "add field" is always safe.
-  for (const [id] of newFieldsById) {
-    if (!oldFieldsById.has(id)) {
-      // Future hook: warn if a brand-new field is required AND the
-      // collection has items. Today we accept it — required-field
-      // validation kicks in only on the next write of each item.
+  // Whole-item validation against the new dynamic Zod schema.
+  //
+  // This is the catch-all for every flavour of "constraint tightening
+  // that current data violates": option removed, maxLength tightened,
+  // new required field added while items exist, includeTime toggled,
+  // multiSelect minItems raised, etc. The structural rule loops above
+  // can't enumerate them all because Zod owns the per-field rules —
+  // running every item through `buildItemFileSchema(newDef.fields)`
+  // delegates the check to the same code that will reject reads after
+  // the save, eliminating the gap.
+  //
+  // Lossless type transitions are applied *hypothetically* first
+  // (`migrateItemValues` returns a fresh item list with rewritten
+  // values) so a `text → longText` save isn't flagged here when the
+  // route would in fact migrate. Bugs in the transformer surface as
+  // issues too — the validator is the last word, and "the new schema
+  // would reject this item" is always blocking.
+  if (issues.length === 0) {
+    const migrated = migrateItemValues(oldDef, newDef, items);
+    const migratedBySlug = new Map(migrated.map((m) => [m.slug, m]));
+    const fileSchema = buildItemFileSchema(newDef.fields);
+    for (const item of items) {
+      const view = migratedBySlug.get(item.slug) ?? item;
+      const parsed = fileSchema.safeParse({
+        id: view.id,
+        createdAt: view.createdAt,
+        updatedAt: view.updatedAt,
+        values: view.values,
+      });
+      if (parsed.success) continue;
+      for (const zodIssue of parsed.error.issues) {
+        issues.push({
+          kind: "item-invalid-under-new-schema",
+          itemSlug: item.slug,
+          path: zodIssue.path.join("."),
+          message: zodIssue.message,
+        });
+      }
     }
   }
 
@@ -257,6 +308,113 @@ function checkDuplicates(fields: ReadonlyArray<FieldDef>, issues: SchemaChangeIs
     }
     seenKeys.add(field.key);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Item-value migration for lossless type transitions
+//
+// `validateSchemaChange` accepts text↔longText, text→url/email/color,
+// and select↔multiSelect (per ADR §11). But on-disk item values
+// carry a `type` discriminator that has to match the new
+// `FieldDef.type`, or the per-collection dynamic Zod rejects the
+// next read. `migrateItemValues` walks the items and rewrites
+// affected values' `type` (and, for select↔multiSelect, the value
+// shape too).
+//
+// Returns only items that actually changed. The schema route writes
+// these back to disk before responding, and includes them in the
+// same publish call as the def, so a deploy lands the new types and
+// the new item shapes together.
+// ---------------------------------------------------------------------------
+
+const STRING_DISCRIMINATOR_ONLY: ReadonlySet<FieldType> = new Set([
+  "text",
+  "longText",
+  "url",
+  "email",
+  "color",
+]);
+
+/**
+ * For every lossless type transition between `oldDef` and `newDef`,
+ * rewrite the affected items' values so the value's `type`
+ * discriminator matches the new field's type. Returns only items
+ * that actually changed; unchanged items are not in the result.
+ *
+ * Lossy transitions never reach here — `validateSchemaChange` blocks
+ * them. If the route calls this without validating first, unsupported
+ * transitions return the input value unchanged (and the next read
+ * will fail Zod parse — which is what `validateSchemaChange` exists
+ * to prevent).
+ */
+export function migrateItemValues(
+  oldDef: CollectionDef,
+  newDef: CollectionDef,
+  items: ReadonlyArray<Item>,
+): Item[] {
+  const oldFieldsById = new Map(oldDef.fields.map((f) => [f.id, f]));
+  const transitions: Array<{ fieldId: string; from: FieldType; to: FieldType }> = [];
+  for (const newField of newDef.fields) {
+    const oldField = oldFieldsById.get(newField.id);
+    if (!oldField || oldField.type === newField.type) continue;
+    transitions.push({ fieldId: newField.id, from: oldField.type, to: newField.type });
+  }
+  if (transitions.length === 0) return [];
+
+  const out: Item[] = [];
+  for (const item of items) {
+    let changed = false;
+    const nextValues: Item["values"] = { ...item.values };
+    for (const { fieldId, from, to } of transitions) {
+      const value = nextValues[fieldId];
+      if (value === undefined) continue;
+      const next = transformValueForTransition(value, from, to);
+      if (next === undefined) {
+        // The transition dropped the value entirely (e.g. multiSelect
+        // → select against an empty array — no scalar to land on).
+        delete nextValues[fieldId];
+        changed = true;
+      } else if (next !== value) {
+        nextValues[fieldId] = next;
+        changed = true;
+      }
+    }
+    if (changed) out.push({ ...item, values: nextValues });
+  }
+  return out;
+}
+
+/**
+ * Rewrite one value to match a new field type. Returns the value
+ * unchanged for unsupported transitions (they should never reach
+ * here — blocked at validation time). Returns `undefined` to signal
+ * "delete this entry from the item's values map" — used when
+ * reducing multiSelect → select against an empty array.
+ */
+function transformValueForTransition(
+  value: FieldValue,
+  from: FieldType,
+  to: FieldType,
+): FieldValue | undefined {
+  // Text-family ↔ text-family: same shape, just relabel.
+  if (STRING_DISCRIMINATOR_ONLY.has(from) && STRING_DISCRIMINATOR_ONLY.has(to)) {
+    const v = (value as { value: unknown }).value;
+    if (typeof v !== "string") return value;
+    return { type: to, value: v } as FieldValue;
+  }
+  // select → multiSelect: wrap scalar in singleton array.
+  if (from === "select" && to === "multiSelect") {
+    const scalar = (value as { type: "select"; value: string }).value;
+    return { type: "multiSelect", value: [scalar] };
+  }
+  // multiSelect → select: take first array entry, drop entirely on empty.
+  if (from === "multiSelect" && to === "select") {
+    const arr = (value as { type: "multiSelect"; value: string[] }).value;
+    if (!Array.isArray(arr) || arr.length === 0) return undefined;
+    return { type: "select", value: arr[0] };
+  }
+  // Anything else — should have been blocked at validation time.
+  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +441,17 @@ export function describeIssue(issue: SchemaChangeIssue): string {
       return `Two fields share id "${issue.fieldId}". Field ids must be unique within a collection.`;
     case "duplicate-field-key":
       return `Two fields share name "${issue.fieldKey}". Field names must be unique within a collection.`;
+    case "item-invalid-under-new-schema":
+      return `Item "${issue.itemSlug}" would fail the new schema at ${issue.path || "(values)"}: ${issue.message}. Fix the item first, then retry this change.`;
+    default: {
+      // Exhaustiveness check — TS errors here if a new issue kind is
+      // added to the union without a matching case above. Don't
+      // delete this; it's the only guardrail against silently
+      // returning `undefined` from the function.
+      const _exhaustive: never = issue;
+      void _exhaustive;
+      return "Unknown issue";
+    }
   }
 }
 
@@ -290,5 +459,10 @@ export function describeWarning(warning: SchemaChangeWarning): string {
   switch (warning.kind) {
     case "field-removed-with-data":
       return `"${warning.fieldKey}" has values on ${warning.affectedItemCount} item${warning.affectedItemCount === 1 ? "" : "s"}. Removing it deletes those values.`;
+    default: {
+      const _exhaustive: never = warning.kind;
+      void _exhaustive;
+      return "Unknown warning";
+    }
   }
 }

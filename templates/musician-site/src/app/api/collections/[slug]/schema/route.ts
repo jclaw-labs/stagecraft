@@ -30,10 +30,13 @@ import {
   describeIssue,
   describeWarning,
   listItemsInOrder,
+  migrateItemValues,
   readCollectionDef,
   slugSchema,
   validateSchemaChange,
   writeCollectionDef,
+  writeItem,
+  type Item,
 } from "@/lib/collections";
 import { PublishError, publish } from "@/lib/publish";
 
@@ -90,7 +93,24 @@ export async function PUT(request: Request, ctx: Ctx) {
     });
   }
 
+  // Lossless type transitions: rewrite affected item values so the
+  // value's `type` discriminator matches the new field's type, then
+  // write items + def + publish them together. Without this, on-disk
+  // values keep the old discriminator and the next read fails the
+  // dynamic Zod schema (the validator above runs the same parse on
+  // the migrated view, so reaching here means the migrated items
+  // will parse).
+  const migratedItems = migrateItemValues(oldDef, newDef, items);
+
   await writeCollectionDef(parsedSlug.data, newDef);
+  for (const item of migratedItems) {
+    await writeItem(parsedSlug.data, item.slug, item, newDef);
+  }
+
+  // Serialise warnings once — both success branches return the same
+  // shape, and `describeWarning` is pure but cheap to call twice was
+  // still pointless duplication.
+  const warningsOut = report.warnings.map((w) => ({ ...w, message: describeWarning(w) }));
 
   try {
     const result = await publish({
@@ -100,16 +120,31 @@ export async function PUT(request: Request, ctx: Ctx) {
           collectionSlug: parsedSlug.data,
           data: newDef,
         },
+        ...migratedItems.map((item: Item) => ({
+          kind: "collection-item" as const,
+          collectionSlug: parsedSlug.data,
+          itemSlug: item.slug,
+          data: {
+            id: item.id,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            values: item.values,
+          },
+        })),
       ],
       authorEmail: session.email,
-      commitSubject: `Update ${parsedSlug.data} schema`,
+      commitSubject:
+        migratedItems.length === 0
+          ? `Update ${parsedSlug.data} schema`
+          : `Update ${parsedSlug.data} schema (+ migrate ${migratedItems.length} item${migratedItems.length === 1 ? "" : "s"})`,
     });
     return NextResponse.json({
       ok: true,
       def: newDef,
       mode: result.mode,
       commitSha: result.commitSha,
-      warnings: report.warnings.map((w) => ({ ...w, message: describeWarning(w) })),
+      migratedItemCount: migratedItems.length,
+      warnings: warningsOut,
     });
   } catch (cause) {
     if (cause instanceof PublishError) {
@@ -119,7 +154,8 @@ export async function PUT(request: Request, ctx: Ctx) {
         mode: "local",
         commitSha: null,
         publishWarning: cause.message,
-        warnings: report.warnings.map((w) => ({ ...w, message: describeWarning(w) })),
+        migratedItemCount: migratedItems.length,
+        warnings: warningsOut,
       });
     }
     throw cause;

@@ -22,7 +22,7 @@ import {
   PAGES_FIELD_IDS,
   PREBAKED_COLLECTIONS,
 } from "@/lib/collections/seeds";
-import { readCollectionDef, writeCollectionDef } from "@/lib/collections";
+import { readCollectionDef, readItem, writeCollectionDef } from "@/lib/collections";
 import { __resetBootstrapCacheForTests } from "@/lib/content";
 
 let TMP_CONTENT_DIR: string;
@@ -254,5 +254,159 @@ describe("PUT /api/collections/[slug]/schema", () => {
       fieldId: "f_subtitle",
       affectedItemCount: 1,
     });
+  });
+
+  it("migrates item values on lossless type transition; readItem succeeds afterward", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    publishMock.mockResolvedValue({ commitSha: "abc", mode: "github" });
+
+    // Add an optional text field, create an item with a value, flip
+    // the field's type to longText. The on-disk value's `type`
+    // discriminator must end up as "longText" so the next readItem
+    // parses against the new schema.
+    const pagesDef = await readCollectionDef("pages");
+    if (!pagesDef) throw new Error("seed");
+    const withText = {
+      ...pagesDef,
+      fields: [
+        ...pagesDef.fields,
+        { id: "f_subtitle", key: "subtitle", type: "text" as const, required: false },
+      ],
+    };
+    await writeCollectionDef("pages", withText);
+    await POST_ITEM(
+      new Request("https://x", {
+        method: "POST",
+        body: JSON.stringify({
+          slug: "tour-2026",
+          values: {
+            ...VALID_VALUES,
+            f_subtitle: { type: "text", value: "Hello world" },
+          },
+        }),
+      }),
+      ctx("pages"),
+    );
+
+    const flipped = {
+      ...withText,
+      fields: withText.fields.map((f) =>
+        f.id === "f_subtitle" && f.type === "text"
+          ? { ...f, type: "longText" as const }
+          : f,
+      ),
+    };
+    publishMock.mockClear();
+    const res = await PUT(jsonReq(flipped), ctx("pages"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.migratedItemCount).toBe(1);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.arrayContaining([
+          expect.objectContaining({ kind: "collection-def" }),
+          expect.objectContaining({
+            kind: "collection-item",
+            collectionSlug: "pages",
+            itemSlug: "tour-2026",
+          }),
+        ]),
+      }),
+    );
+
+    // The bug this guards against: without migration, readItem against
+    // the new def would throw because the on-disk value's `type` no
+    // longer matches the field's `type`.
+    const updatedDef = await readCollectionDef("pages");
+    if (!updatedDef) throw new Error("def gone");
+    const reread = await readItem("pages", "tour-2026", updatedDef);
+    expect(reread).not.toBeNull();
+    expect(reread!.values.f_subtitle).toEqual({ type: "longText", value: "Hello world" });
+  });
+
+  it("blocks removing a select option that an item references", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const pagesDef = await readCollectionDef("pages");
+    if (!pagesDef) throw new Error("seed");
+    // Add a select field with two options, create an item referencing one.
+    const withSelect = {
+      ...pagesDef,
+      fields: [
+        ...pagesDef.fields,
+        {
+          id: "f_status",
+          key: "status",
+          type: "select" as const,
+          required: false,
+          options: [
+            { id: "o1", value: "draft", label: "Draft" },
+            { id: "o2", value: "live", label: "Live" },
+          ],
+        },
+      ],
+    };
+    await writeCollectionDef("pages", withSelect);
+    await POST_ITEM(
+      new Request("https://x", {
+        method: "POST",
+        body: JSON.stringify({
+          slug: "tour-2026",
+          values: { ...VALID_VALUES, f_status: { type: "select", value: "draft" } },
+        }),
+      }),
+      ctx("pages"),
+    );
+
+    // Remove the "draft" option that the item references.
+    const trimmed = {
+      ...withSelect,
+      fields: withSelect.fields.map((f) =>
+        f.id === "f_status" && f.type === "select"
+          ? { ...f, options: f.options.filter((o) => o.value !== "draft") }
+          : f,
+      ),
+    };
+    const res = await PUT(jsonReq(trimmed), ctx("pages"));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "tour-2026",
+      }),
+    );
+  });
+
+  it("blocks adding a brand-new required field while items exist", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    // Pages already has one item by virtue of POST_ITEM in another
+    // test? No — beforeEach wipes the collections dir. Create one
+    // first.
+    await POST_ITEM(
+      new Request("https://x", {
+        method: "POST",
+        body: JSON.stringify({ slug: "tour-2026", values: VALID_VALUES }),
+      }),
+      ctx("pages"),
+    );
+
+    const pagesDef = await readCollectionDef("pages");
+    if (!pagesDef) throw new Error("seed");
+    const withRequired = {
+      ...pagesDef,
+      fields: [
+        ...pagesDef.fields,
+        { id: "f_ticket", key: "ticketUrl", type: "url" as const, required: true },
+      ],
+    };
+    const res = await PUT(jsonReq(withRequired), ctx("pages"));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "tour-2026",
+      }),
+    );
   });
 });

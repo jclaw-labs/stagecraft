@@ -800,11 +800,31 @@ The schema editor enforces:
   - `multiSelect` → `select` (only if every item has at most one option
     selected; otherwise blocked)
   - adding new options to `select` / `multiSelect` (purely additive)
-  
+
+  When a transition is allowed, the schema-change route eagerly
+  rewrites the affected items' on-disk values so the value's `type`
+  discriminator matches the new `FieldDef.type`. Without that rewrite,
+  the per-collection dynamic Zod schema rejects the next read of each
+  item. The route publishes the rewritten items in the same commit as
+  the new `_collection.json`.
+
   Lossy transitions (e.g. `puckContent` → `text`, removing select
   options that are in use) remain blocked. Future versions may add
   more lossless coercions or a "convert with confirmation" path for
   intentional data loss.
+- **Whole-item validation against the new schema**: as a final pass,
+  every existing item is parsed against
+  `buildItemFileSchema(newDef.fields)` (after the hypothetical
+  migration above). Any item that fails is reported as a blocking
+  issue carrying the item slug, the Zod path, and Zod's message. This
+  is the catch-all for every flavour of "constraint tightening that
+  current data violates" — removing a select option in use,
+  tightening `text.maxLength`, tightening `number.min` / `max`,
+  toggling `date.includeTime`, raising `multiSelect.minItems`, adding
+  a brand-new required field while items exist, etc. The structural
+  rules above can't enumerate every constraint the per-field Zod
+  enforces; delegating the check to the same code that will reject
+  reads after the save closes the gap.
 - **Reorder fields**: free; affects display order in the item editor and
   in the default item template only.
 

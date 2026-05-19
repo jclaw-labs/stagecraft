@@ -7,6 +7,7 @@ import {
   describeWarning,
   itemsUsingField,
   LOSSLESS_TYPE_TRANSITIONS,
+  migrateItemValues,
   validateSchemaChange,
 } from "./schema-changes";
 import type { CollectionDef, Item } from "./schema";
@@ -268,9 +269,12 @@ describe("validateSchemaChange — destructive changes", () => {
         f.id === "f_venue" && f.type === "text" ? { ...f, required: true } : f,
       ) as CollectionDef["fields"],
     };
+    // Items must satisfy the full schema (every required field present)
+    // — the new whole-item validator catches missing required fields,
+    // not just the one being toggled.
     const items: Item[] = [
-      emptyItem("a", { f_venue: { type: "text", value: "A" } }),
-      emptyItem("b", { f_venue: { type: "text", value: "B" } }),
+      tourDateItem("a", "2026-07-15", "A", "Paris"),
+      tourDateItem("b", "2026-07-16", "B", "Lyon"),
     ];
     expect(validateSchemaChange(oldDef, newDef, items).ok).toBe(true);
   });
@@ -315,5 +319,245 @@ describe("describe helpers", () => {
         affectedItemCount: 3,
       }),
     ).toContain("3 items");
+  });
+
+  it("renders a message for item-invalid-under-new-schema issues", () => {
+    expect(
+      describeIssue({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "paris-2026",
+        path: "f_venue.value",
+        message: "String must contain at most 5 character(s)",
+      }),
+    ).toContain("paris-2026");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateItemValues — pure data rewrite for lossless type transitions
+// ---------------------------------------------------------------------------
+
+describe("migrateItemValues", () => {
+  it("returns no items when no type changed", () => {
+    const def = tourDatesDef();
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    expect(migrateItemValues(def, def, items)).toEqual([]);
+  });
+
+  it("relabels the value's type discriminator for text → longText", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text" ? { ...f, type: "longText" as const } : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris")];
+    const migrated = migrateItemValues(oldDef, newDef, items);
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0].values.f_venue).toEqual({ type: "longText", value: "La Cigale" });
+  });
+
+  it("wraps the scalar in an array for select → multiSelect", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_status" && f.type === "select"
+          ? { ...f, type: "multiSelect" as const, options: f.options }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    const migrated = migrateItemValues(oldDef, newDef, items);
+    expect(migrated[0].values.f_status).toEqual({ type: "multiSelect", value: ["on_sale"] });
+  });
+
+  it("takes the first array entry for multiSelect → select", () => {
+    const oldDef: CollectionDef = {
+      ...tourDatesDef(),
+      fields: tourDatesDef().fields.map((f) =>
+        f.id === "f_status" && f.type === "select"
+          ? { ...f, type: "multiSelect" as const, options: f.options }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_status" && f.type === "multiSelect"
+          ? { ...f, type: "select" as const, required: true, options: f.options }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const items: Item[] = [
+      {
+        id: "item_a",
+        slug: "a",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: {
+          f_date: { type: "date", value: "2026-07-15" },
+          f_venue: { type: "text", value: "X" },
+          f_city: { type: "text", value: "Paris" },
+          f_status: { type: "multiSelect", value: ["on_sale", "sold_out"] },
+        },
+      },
+    ];
+    const migrated = migrateItemValues(oldDef, newDef, items);
+    expect(migrated[0].values.f_status).toEqual({ type: "select", value: "on_sale" });
+  });
+
+  it("drops the value entirely for multiSelect → select with an empty array", () => {
+    const oldDef: CollectionDef = {
+      ...tourDatesDef(),
+      fields: tourDatesDef().fields.map((f) =>
+        f.id === "f_status" && f.type === "select"
+          ? { ...f, type: "multiSelect" as const, options: f.options }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_status" && f.type === "multiSelect"
+          ? { ...f, type: "select" as const, required: true, options: f.options }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const items: Item[] = [
+      {
+        id: "item_a",
+        slug: "a",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: {
+          f_date: { type: "date", value: "2026-07-15" },
+          f_venue: { type: "text", value: "X" },
+          f_city: { type: "text", value: "Paris" },
+          f_status: { type: "multiSelect", value: [] },
+        },
+      },
+    ];
+    const migrated = migrateItemValues(oldDef, newDef, items);
+    expect(migrated[0].values.f_status).toBeUndefined();
+  });
+
+  it("leaves items alone when the transitioned field has no value", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text" ? { ...f, type: "longText" as const } : f,
+      ) as CollectionDef["fields"],
+    };
+    const items: Item[] = [
+      {
+        id: "item_a",
+        slug: "a",
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+        values: { f_date: { type: "date", value: "2026-07-15" } }, // no f_venue
+      },
+    ];
+    expect(migrateItemValues(oldDef, newDef, items)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateSchemaChange — whole-item validation against the new dynamic Zod
+// ---------------------------------------------------------------------------
+
+describe("validateSchemaChange — item validation under the new schema", () => {
+  it("blocks removing a select option that an item references", () => {
+    const oldDef: CollectionDef = tourDatesDef();
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_status" && f.type === "select"
+          ? {
+              ...f,
+              // Drop the `on_sale` option that the test item references.
+              options: f.options.filter((opt) => opt.value !== "on_sale"),
+            }
+          : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    expect(report.ok).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "paris-2026",
+      }),
+    );
+  });
+
+  it("blocks tightening text.maxLength when an item exceeds the new bound", () => {
+    const oldDef: CollectionDef = tourDatesDef();
+    const newDef: CollectionDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text" ? { ...f, maxLength: 3 } : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris")];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    expect(report.ok).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "paris-2026",
+      }),
+    );
+  });
+
+  it("blocks adding a brand-new required field while items exist", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: [
+        ...oldDef.fields,
+        { id: "f_ticket_url", key: "ticketUrl", type: "url" as const, required: true },
+      ],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    const report = validateSchemaChange(oldDef, newDef, items);
+    expect(report.ok).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "item-invalid-under-new-schema",
+        itemSlug: "paris-2026",
+      }),
+    );
+  });
+
+  it("accepts adding a brand-new OPTIONAL field while items exist", () => {
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: [
+        ...oldDef.fields,
+        { id: "f_ticket_url", key: "ticketUrl", type: "url" as const, required: false },
+      ],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "X", "Paris")];
+    expect(validateSchemaChange(oldDef, newDef, items).ok).toBe(true);
+  });
+
+  it("accepts a lossless type transition by validating the MIGRATED view", () => {
+    // text → longText: existing item has {type: "text"}; the validator
+    // would reject if it parsed the raw item, but migrateItemValues
+    // rewrites the discriminator first.
+    const oldDef = tourDatesDef();
+    const newDef = {
+      ...oldDef,
+      fields: oldDef.fields.map((f) =>
+        f.id === "f_venue" && f.type === "text" ? { ...f, type: "longText" as const } : f,
+      ) as CollectionDef["fields"],
+    };
+    const items = [tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris")];
+    expect(validateSchemaChange(oldDef, newDef, items).ok).toBe(true);
   });
 });
