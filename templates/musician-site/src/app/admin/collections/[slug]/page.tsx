@@ -10,6 +10,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+const chromeButtonStyle: React.CSSProperties = {
+  padding: "var(--space-2) var(--space-4)",
+  background: "var(--color-surface-raised)",
+  color: "var(--color-text)",
+  borderRadius: "var(--radius-sm)",
+  textDecoration: "none",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  fontSize: "var(--font-size-sm)",
+  border: "1px solid var(--color-border)",
+};
+
 import { AdminShell } from "@/components/admin/AdminShell";
 import { getSession } from "@/lib/auth";
 import {
@@ -68,21 +79,21 @@ export default async function CollectionView({ params }: { params: Promise<Param
               {items.length} item{items.length === 1 ? "" : "s"}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <Link
-              href={`/admin/collections/${parsed.data}/schema`}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                background: "var(--color-surface-raised)",
-                color: "var(--color-text)",
-                borderRadius: "var(--radius-sm)",
-                textDecoration: "none",
-                fontWeight: "var(--font-weight-semibold)" as unknown as number,
-                fontSize: "var(--font-size-sm)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            <Link href={`/admin/collections/${parsed.data}/schema`} style={chromeButtonStyle}>
               Edit schema
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/template/item`}
+              style={chromeButtonStyle}
+            >
+              Item template
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/template/detail`}
+              style={chromeButtonStyle}
+            >
+              Detail template
             </Link>
             <Link
               href={`/admin/collections/${parsed.data}/items/new`}
