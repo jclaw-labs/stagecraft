@@ -11,6 +11,7 @@ import {
   readCollectionDef,
   readItem,
   resolveCollectionItemUrl,
+  slugSchema,
   validateCollectionRouting,
   type CollectionDef,
 } from "@/lib/collections";
@@ -164,6 +165,10 @@ async function renderCollectionItemDetail({
 }) {
   const def = allDefs.find((d) => d.slug === collectionSlug);
   if (!def) notFound();
+  // Validate the slug shape before the store does — store.ts's
+  // `itemSlugSchema.parse` throws on invalid slugs, which would bubble
+  // as a 500. A malformed URL is a 404, not an internal error.
+  if (!slugSchema.safeParse(itemSlug).success) notFound();
   const item = await readItem(collectionSlug, itemSlug, def);
   if (!item) notFound();
 
