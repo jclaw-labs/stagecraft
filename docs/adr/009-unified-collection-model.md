@@ -920,17 +920,23 @@ Eight PRs, each independently reviewable and (where possible) mergeable:
    which blocks are registered.
 7. **First non-pages collection: tour dates.** Validates the full stack.
    Includes the `TourDatesView` block on pages, with the "Manage" button
-   for navigation. Shipped in two stacked PRs:
-   - **7a** — Foundation: tour-dates `CollectionDef` seed, filter Zod
-     schemas (§5.1), `kind: "item" | "detail"` parameter on
-     `buildEditorPuckConfig`. No new UI; nothing yet renders the
-     Collection blocks. Lets the rest land on a stable base.
-   - **7b** — Rendering + routing + editing: Collection block registry
-     and `TourDatesView` block, detail-page route at `<detailUrlPrefix>/
-     <slug>`, walker `currentItem` context, build-time conflict
-     detection on `detailUrlPrefix`s, filter-clause inspector UI, and
-     the "Manage tour dates →" button in the Collection block's
-     inspector.
+   for navigation. Shipped in three stacked PRs:
+   - **7a** — Static foundation: tour-dates `CollectionDef` seed and
+     filter Zod schemas (§5.1). No new UI; nothing yet renders the
+     Collection blocks. Lands as #135.
+   - **7b** — Dynamic foundation: pure filter resolver
+     (`applyFilter(items, filter, currentItem)`) and walker
+     `currentItem` context. Still no UI; the resolver is the engine
+     Collection blocks call into, with currentItem threaded so
+     `currentItemId` / `currentItemField` filter values resolve
+     against the surrounding template.
+   - **7c** — Rendering + routing + editing: Collection block
+     registry and `TourDatesView` block, detail-page route at
+     `<detailUrlPrefix>/<slug>`, build-time conflict detection on
+     `detailUrlPrefix`s, filter-clause inspector UI, the "Manage tour
+     dates →" button in the Collection block's inspector, and the
+     `kind: "item" | "detail"` parameter on `buildEditorPuckConfig`
+     to gate Collection-block registration per §4.3 cycle safety.
 8. **Prebaked collections: releases, posts, store items, photos, videos.**
    Each adds a `_collection.json` and seed items. Small PRs at this point.
 
