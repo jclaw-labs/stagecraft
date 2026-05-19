@@ -45,12 +45,20 @@ export type TemplateRendererProps = {
    */
   currentItem?: Item;
   /**
-   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. PR 7b supplies an
-   * extended registry that adds Collection blocks for detail / list
-   * templates; itemTemplate consumers stay on the Primitive-only
-   * default to preserve the §4.3 cycle-safety rule.
+   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. Detail / page-
+   * body renders pass an extended registry that adds one Collection
+   * block per loaded collection — built from `buildCollectionBlockRegistry`
+   * and unioned with the primitives.
    */
   registry?: Readonly<Record<string, BlockEntry>>;
+  /**
+   * Items + defs the template's Collection blocks iterate. The
+   * caller (catch-all route) pre-walks the template via
+   * `findCollectionBlockSources`, loads each in parallel, and passes
+   * the map here. Item-template renders skip this; Collection
+   * blocks aren't permitted inside them.
+   */
+  loadedCollections?: LoadedCollections;
 };
 
 export function TemplateRenderer({
@@ -58,9 +66,14 @@ export function TemplateRenderer({
   item,
   currentItem,
   registry = PRIMITIVE_BLOCKS,
+  loadedCollections,
 }: TemplateRendererProps): ReactNode {
   if (!template) return null;
-  const resolved = resolveTemplate(template, item, { registry, currentItem });
+  const resolved = resolveTemplate(template, item, {
+    registry,
+    currentItem,
+    loadedCollections,
+  });
   const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
   return <Render config={config ?? buildTemplatePuckConfig()} data={resolved} />;
 }

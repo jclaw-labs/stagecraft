@@ -315,3 +315,49 @@ export function blockNameForCollection(slug: string): string {
     .join("");
   return `${pascal}View`;
 }
+
+// ---------------------------------------------------------------------------
+// Template pre-walk: discover which collections to pre-load
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a template tree and collect every `sourceCollection` slug
+ * any Collection block references. The renderer uses this server-
+ * side to know which collections to load before invoking the sync
+ * walker.
+ *
+ * Returns a sorted, deduplicated array — sorted only for test
+ * determinism; callers don't depend on order.
+ */
+export function findCollectionBlockSources(template: Template | null): string[] {
+  if (!template || !Array.isArray(template.content)) return [];
+  const sources = new Set<string>();
+  walkForSources(template.content, sources);
+  return [...sources].sort();
+}
+
+function walkForSources(blocks: unknown[], out: Set<string>): void {
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    const blockObj = block as { type?: unknown; props?: unknown };
+    const props = blockObj.props;
+    if (!props || typeof props !== "object") continue;
+
+    // Collection blocks store their source collection slug on
+    // `sourceCollection` (set by `defaultProps` when the block is
+    // added; not editable in the inspector). Pick it up structurally
+    // so this walker doesn't have to know which block names belong
+    // to Collection blocks.
+    const sourceSlug = (props as { sourceCollection?: unknown }).sourceCollection;
+    if (typeof sourceSlug === "string" && sourceSlug.length > 0) {
+      out.add(sourceSlug);
+    }
+
+    // Recurse into any array-valued prop (slot children, e.g.
+    // Section.children — same structural-walk pattern as the
+    // schema-changes template walker).
+    for (const value of Object.values(props as Record<string, unknown>)) {
+      if (Array.isArray(value)) walkForSources(value, out);
+    }
+  }
+}
