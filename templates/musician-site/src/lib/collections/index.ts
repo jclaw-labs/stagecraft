@@ -9,3 +9,4 @@ export * from "./schema";
 export * from "./store";
 export * from "./accessors";
 export * from "./schema-changes";
+export * from "./routing";

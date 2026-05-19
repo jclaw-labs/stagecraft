@@ -6,6 +6,19 @@ import { notFound } from "next/navigation";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import {
+  describeRoutingConflict,
+  listCollectionSlugs,
+  readCollectionDef,
+  readItem,
+  resolveCollectionItemUrl,
+  validateCollectionRouting,
+  type CollectionDef,
+} from "@/lib/collections";
+import { buildCollectionBlockRegistry } from "@/lib/collections/template/collection-block";
+import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
+import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
+import { resolveTemplate } from "@/lib/collections/template/renderer";
+import {
   extractPageRootProps,
   listPageSummaries,
   readHeaderConfig,
@@ -35,27 +48,62 @@ type Props = {
 export default async function CatchAllPage({ params }: Props) {
   const { slug: segments } = await params;
 
-  // Resolve the requested slug. No segments = root URL = splash or home.
+  // Step 1: try to dispatch to a non-Pages collection's detail page.
+  // Multi-segment URLs like `/shows/paris-2026` go to tour-dates; the
+  // existing Pages flow handles the rest. `validateCollectionRouting`
+  // runs first to catch a Page slug shadowing a collection prefix or
+  // two collections claiming the same prefix — both can corrupt the
+  // public site silently if allowed.
+  const allSlugs = await listCollectionSlugs();
+  const allDefs = (
+    await Promise.all(allSlugs.map((s) => readCollectionDef(s)))
+  ).filter((d): d is CollectionDef => d !== null);
+
+  const summaries = await listPageSummaries();
+  const conflicts = validateCollectionRouting(
+    allDefs,
+    summaries.map((s) => s.slug),
+  );
+  if (conflicts.length > 0) {
+    // A configuration error in the artist's repo. Fail loudly with a
+    // structured message; falling through to 404 would hide the real
+    // problem from whoever's debugging.
+    throw new Error(
+      `Collection-routing conflict:\n${conflicts.map(describeRoutingConflict).join("\n")}`,
+    );
+  }
+
+  const segs = segments ?? [];
+  const itemUrl = resolveCollectionItemUrl(segs, allDefs);
+  if (itemUrl && itemUrl.collectionSlug !== "pages") {
+    // Detail page for a non-Pages collection.
+    return await renderCollectionItemDetail({
+      collectionSlug: itemUrl.collectionSlug,
+      itemSlug: itemUrl.itemSlug,
+      allDefs,
+    });
+  }
+
+  // Step 2: Pages flow. Either the root URL, or a 1-segment URL that
+  // resolves to a Page slug.
   let requestedSlug: string;
-  if (!segments || segments.length === 0) {
+  if (segs.length === 0) {
     const root = await resolveRootPageSlug();
     if (!root) notFound();
     requestedSlug = root;
-  } else if (segments.length === 1) {
-    const parsed = pageSlugSchema.safeParse(segments[0]);
+  } else if (segs.length === 1) {
+    const parsed = pageSlugSchema.safeParse(segs[0]);
     if (!parsed.success) notFound();
     requestedSlug = parsed.data;
   } else {
-    // Nested URLs (/news/post-slug) aren't supported by the template yet —
-    // fall through to 404.
+    // Multi-segment URL didn't match any collection prefix.
     notFound();
   }
 
-  const [pageData, site, header, summaries] = await Promise.all([
+  const [pageData, site, header] = await Promise.all([
     readPageOrNull(requestedSlug),
     readSiteConfig(),
     readHeaderConfig(),
-    listPageSummaries(),
   ]);
 
   if (!pageData) notFound();
@@ -93,6 +141,118 @@ export default async function CatchAllPage({ params }: Props) {
       {hideFooter ? null : <Footer site={site} />}
     </>
   );
+}
+
+/**
+ * Render one item's detail page. Resolves the item, walks the
+ * collection's detailTemplate against it (pre-loading any
+ * Collection blocks the template references), and emits the
+ * resolved Puck tree wrapped in the standard site chrome.
+ *
+ * If the collection's `detailTemplate` is null, falls back to a
+ * minimal "every scalar field as plain text" rendering — keeps
+ * the URL usable before the artist authors a template.
+ */
+async function renderCollectionItemDetail({
+  collectionSlug,
+  itemSlug,
+  allDefs,
+}: {
+  collectionSlug: string;
+  itemSlug: string;
+  allDefs: CollectionDef[];
+}) {
+  const def = allDefs.find((d) => d.slug === collectionSlug);
+  if (!def) notFound();
+  const item = await readItem(collectionSlug, itemSlug, def);
+  if (!item) notFound();
+
+  const [site, header, summaries] = await Promise.all([
+    readSiteConfig(),
+    readHeaderConfig(),
+    listPageSummaries(),
+  ]);
+  const pageTitleBySlug = new Map(summaries.map((s) => [s.slug, s.title]));
+  const navItems = summaries
+    .filter((s) => !s.isSplashPage && !s.isHiddenFromNav)
+    .map((s) => s.slug);
+
+  return (
+    <>
+      <Header
+        artistName={site.artistName}
+        header={header}
+        navItems={navItems}
+        pageTitleBySlug={pageTitleBySlug}
+      />
+      <main>
+        <CollectionItemBody def={def} item={item} />
+      </main>
+      {site.isFooterHidden ? null : <Footer site={site} />}
+    </>
+  );
+}
+
+/**
+ * Inner render component for a collection item's detail body.
+ * Async because it pre-loads the template's Collection-block
+ * sources before walking.
+ */
+async function CollectionItemBody({
+  def,
+  item,
+}: {
+  def: CollectionDef;
+  item: import("@/lib/collections").Item;
+}) {
+  const template = def.detailTemplate as import(
+    "@/lib/collections/template/types"
+  ).Template | null;
+  if (!template) {
+    // No detail template configured — fall back to a minimal
+    // "every scalar field as plain text" rendering. Lets the URL
+    // be useful before the artist authors a real template.
+    return (
+      <article style={{ maxWidth: "var(--max-width-content)", margin: "var(--space-8) auto", padding: "0 var(--space-4)" }}>
+        <h1>{item.slug}</h1>
+        {def.fields.map((field) => {
+          const value = item.values[field.id];
+          if (!value || !("value" in value)) return null;
+          const display = typeof value.value === "string" || typeof value.value === "number"
+            ? String(value.value)
+            : null;
+          if (display === null) return null;
+          return (
+            <p key={field.id} style={{ margin: "var(--space-2) 0" }}>
+              <strong>{field.key}:</strong> {display}
+            </p>
+          );
+        })}
+      </article>
+    );
+  }
+
+  // Build the extended registry: primitives + one Collection block
+  // entry per known collection. The dispatcher's render is the same
+  // `CollectionBlockRender` component regardless of slug; the slug
+  // shows up as the block's `type`.
+  const allSlugs = await listCollectionSlugs();
+  const collectionRegistry = buildCollectionBlockRegistry(allSlugs);
+  const registry = { ...PRIMITIVE_BLOCKS, ...collectionRegistry };
+
+  const loaded = await loadCollectionsForTemplate(template);
+  const resolved = resolveTemplate(template, item, {
+    registry,
+    currentItem: item,
+    loadedCollections: loaded,
+  });
+
+  // Build the Puck config from the extended registry so <Render>
+  // can dispatch Collection blocks alongside primitives.
+  const { buildTemplatePuckConfig } = await import(
+    "@/lib/collections/template/puck-config"
+  );
+  return <Render config={buildTemplatePuckConfig(registry)} data={resolved} />;
 }
 
 /**

@@ -18,7 +18,10 @@ import "@measured/puck/puck.css";
 import { useCallback, useMemo, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
-import { buildEditorPuckConfig } from "@/components/admin/buildEditorPuckConfig";
+import {
+  buildEditorPuckConfig,
+  type ExtraBlocks,
+} from "@/components/admin/buildEditorPuckConfig";
 import {
   PuckBackLink,
   PuckLabelPill,
@@ -35,9 +38,22 @@ type Props = {
   def: CollectionDef;
   kind: TemplateKind;
   email: string;
+  /**
+   * Per-collection Puck `ComponentConfig`s the detail-template
+   * surface registers as Collection blocks. Pre-built server-side
+   * from `listCollectionSlugs()` so the editor doesn't need to fetch
+   * mid-mount. Always undefined for the item-template kind.
+   */
+  extraBlocks?: ExtraBlocks;
 };
 
-export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props) {
+export function TemplateEditorClient({
+  collectionSlug,
+  def,
+  kind,
+  email,
+  extraBlocks,
+}: Props) {
   const initialData = useMemo<Data>(() => {
     const stored = kind === "item" ? def.itemTemplate : def.detailTemplate;
     if (stored && typeof stored === "object" && "content" in stored) {
@@ -46,7 +62,15 @@ export function TemplateEditorClient({ collectionSlug, def, kind, email }: Props
     return { content: [], root: { props: {} } };
   }, [def, kind]);
 
-  const config = useMemo(() => buildEditorPuckConfig(def), [def]);
+  const config = useMemo(
+    // Detail templates can embed Collection blocks (one per existing
+    // collection); item templates can't, per ADR §4.3 cycle safety.
+    // The `extraBlocks` map is pre-built server-side when needed and
+    // passed in via the page route — this client component only
+    // knows the kind, not the registry of available collections.
+    () => buildEditorPuckConfig(def, { kind, extraBlocks }),
+    [def, kind, extraBlocks],
+  );
 
   const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
