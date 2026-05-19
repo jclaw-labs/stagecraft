@@ -70,4 +70,48 @@ describe("buildEditorPuckConfig", () => {
       content: { kind: "literal" },
     });
   });
+
+  // ADR §4.3 cycle-safety gate. itemTemplates can't contain Collection
+  // blocks; the editor surface enforces this by ignoring `extraBlocks`
+  // when `kind === "item"`. A regression that inverts this gate would
+  // let an itemTemplate embed Collection blocks that re-render
+  // itemTemplates → infinite recursion at render time.
+  describe("cycle-safety gate (kind + extraBlocks)", () => {
+    const fakeBlock = { fields: {}, defaultProps: {}, render: () => <span /> };
+
+    it("defaults to item kind — extraBlocks ignored even if passed", () => {
+      const config = buildEditorPuckConfig(def(), {
+        extraBlocks: { TourDatesView: fakeBlock },
+      });
+      expect(config.components).not.toHaveProperty("TourDatesView");
+    });
+
+    it("kind: item ignores extraBlocks", () => {
+      const config = buildEditorPuckConfig(def(), {
+        kind: "item",
+        extraBlocks: { TourDatesView: fakeBlock, PagesView: fakeBlock },
+      });
+      expect(config.components).not.toHaveProperty("TourDatesView");
+      expect(config.components).not.toHaveProperty("PagesView");
+    });
+
+    it("kind: detail registers every extraBlocks entry alongside primitives", () => {
+      const config = buildEditorPuckConfig(def(), {
+        kind: "detail",
+        extraBlocks: { TourDatesView: fakeBlock, PagesView: fakeBlock },
+      });
+      expect(config.components).toHaveProperty("TourDatesView");
+      expect(config.components).toHaveProperty("PagesView");
+      // Primitives still present.
+      expect(config.components).toHaveProperty("Text");
+      expect(config.components).toHaveProperty("Section");
+    });
+
+    it("kind: detail with no extraBlocks is the primitive set", () => {
+      const config = buildEditorPuckConfig(def(), { kind: "detail" });
+      expect(Object.keys(config.components).sort()).toEqual(
+        ["Button", "Image", "Link", "RichTextRender", "Section", "Stack", "Text"].sort(),
+      );
+    });
+  });
 });
