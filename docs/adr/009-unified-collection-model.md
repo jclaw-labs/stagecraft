@@ -938,7 +938,21 @@ Eight PRs, each independently reviewable and (where possible) mergeable:
      `kind: "item" | "detail"` parameter on `buildEditorPuckConfig`
      to gate Collection-block registration per §4.3 cycle safety.
 8. **Prebaked collections: releases, posts, store items, photos, videos.**
-   Each adds a `_collection.json` and seed items. Small PRs at this point.
+   Each adds a `_collection.json` to `PREBAKED_COLLECTIONS`. Shipped
+   together as one PR — each def is small enough that a per-PR split
+   would just be ceremony. Routing characteristics:
+   - **releases** — detailUrlPrefix `/releases`, sort desc by
+     releaseDate. Body is `puckContent` for tracklist / liner notes /
+     embedded streaming links.
+   - **posts** — detailUrlPrefix `/news`, sort desc by publishedAt.
+     Body is `puckContent` for the post itself.
+   - **store-items** — no detail pages; `externalUrl` is the canonical
+     destination. Renders as image + title + price linking out.
+   - **photos** — no detail pages, manual sort. Items render inline
+     in a `PhotosView` Collection block.
+   - **videos** — no detail pages, sort desc by publishedAt. Items
+     render inline in a `VideosView` block (`embedUrl` field carries
+     the YouTube/Vimeo URL or upload path).
 
 PRs 1–2 are foundation with no UI; 3–7 each ship a usable slice; 8 is
 breadth on the same foundation.
