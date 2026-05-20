@@ -29,7 +29,7 @@ import {
   validateSchemaChange,
   writeCollectionDef,
 } from "@/lib/collections";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -104,7 +104,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   await writeCollectionDef(parsedSlug.data, nextDef.data);
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-def",

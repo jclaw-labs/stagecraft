@@ -47,6 +47,12 @@ type Props = {
 type PublishState =
   | { status: "idle" }
   | { status: "publishing" }
+  // "saved" replaces the v1 immediate-publish path post-ADR-010 PR 3:
+  // the editor's onPublish commits to draft, not main, and no deploy
+  // fires. The in_flight / live / stalled states below are unused
+  // for this flow but kept for back-compat in case the deploy
+  // polling resurfaces in a follow-up.
+  | { status: "saved" }
   | { status: "in_flight"; phase: DeployState; publishedAt: number }
   | { status: "live" }
   | { status: "stalled"; publishedAt: number }
@@ -100,16 +106,14 @@ export function Editor({ initialData, pageSlug, email }: Props) {
           setPublishState({ status: "error", message });
           throw new Error(message);
         }
-        if (body && body.ok && body.commitSha) {
-          // Production: real commit, deploy will follow. Polling kicks in
-          // via the useEffect below.
-          setPublishState({ status: "in_flight", phase: "queued", publishedAt: Date.now() });
-        } else {
-          // Dev fallback (no STAGECRAFT_PLATFORM_URL configured): publish
-          // wrote JSON to local disk, no deploy, nothing to poll for.
-          setPublishState({ status: "live" });
-        }
-        // Publish succeeded — the saved data is the new baseline.
+        // Post-ADR-010 PR 3: /api/publish saves to the draft branch
+        // without triggering a deploy. The artist explicitly hits
+        // Publish (in the AdminShell) to promote draft → main, which
+        // is when the deploy fires. No polling here — there's no
+        // deploy in flight from this save. Indicate "Saved" via the
+        // pill regardless of dev vs prod (both paths persisted the
+        // change; only the storage layer differs).
+        setPublishState({ status: "saved" });
         setIsDirty(false);
       } catch (cause) {
         setPublishState((current) =>
@@ -309,6 +313,20 @@ function PublishStatusPill({ state }: { state: PublishState }) {
         </span>
       );
     }
+    case "saved":
+      return (
+        <span
+          role="status"
+          style={{
+            ...base,
+            background: "var(--color-surface-raised)",
+            color: "var(--color-text)",
+          }}
+          title="Saved to draft. Hit Publish in the sidebar to push live."
+        >
+          <Dot /> Saved
+        </span>
+      );
     case "live":
       return (
         <span

@@ -13,7 +13,7 @@ vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
 vi.mock("@/lib/publish", async () => {
   const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
-  return { ...actual, publish: publishMock };
+  return { ...actual, saveToDraft: publishMock };
 });
 
 const { writeJsonBatchAtomicMock } = vi.hoisted(() => ({

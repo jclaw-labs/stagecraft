@@ -145,13 +145,9 @@ describe("publishPage — dev fallback (no platform configured)", () => {
 });
 
 describe("publishPage — broker + GitHub path", () => {
-  it("commits via GitHub when platform is configured", async () => {
+  it("commits the page to draft and does NOT publish to main (ADR-010 PR 3)", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("draft-commit-sha");
-    squashBranchIntoMock.mockResolvedValue({
-      commitSha: "main-squash-sha",
-      alreadyInSync: false,
-    });
 
     const result = await publishPage({
       pageSlug: TEST_SLUG,
@@ -160,14 +156,15 @@ describe("publishPage — broker + GitHub path", () => {
       authorName: "Real Artist",
     });
 
-    // Result is exactly the v1 PublishResult shape — `publish()`
-    // strips publishDraftToMain's extra `alreadyInSync` field at the
-    // boundary so back-compat callers see the contract they expect.
+    // Post-PR 3: publishPage is save-only. The reported SHA is the
+    // draft commit. squashBranchInto is NOT called — the artist
+    // promotes draft → main via the explicit Publish flow.
     expect(result).toEqual({
       mode: "github",
-      commitSha: "main-squash-sha",
+      commitSha: "draft-commit-sha",
     });
-    // The per-save commit went to `draft` (per ADR-010), not main.
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
+    // The per-save commit goes to `draft` with [skip ci].
     expect(commitFilesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "ghs_token",
@@ -179,17 +176,6 @@ describe("publishPage — broker + GitHub path", () => {
             path: `src/content/collections/pages/items/${TEST_SLUG}.json`,
           }),
         ],
-        author: { name: "Real Artist", email: "artist@example.com" },
-      }),
-    );
-    // And the squash targets main with the same author.
-    expect(squashBranchIntoMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        token: "ghs_token",
-        owner: "artist",
-        repo: "site",
-        fromBranch: "draft",
-        toBranch: "main",
         author: { name: "Real Artist", email: "artist@example.com" },
       }),
     );
@@ -218,10 +204,8 @@ describe("publishPage — broker + GitHub path", () => {
     });
     const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
     expect(draftMessage).toContain("[skip ci]");
-    // And the squash commit on main does NOT carry the skip marker —
-    // it's the one that triggers the deploy.
-    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
-    expect(squashMessage).not.toContain("[skip ci]");
+    // No squash commit — the artist publishes explicitly post-PR 3.
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
   });
 
   it("forwards Authorization Bearer secret to the broker", async () => {
@@ -277,25 +261,23 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
-    // The squash commit on main carries the trailer (the user-
-    // visible "publish" event). The draft commit has the same body
-    // plus `[skip ci]`; both should include the trailer.
-    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
-    expect(squashMessage).toMatch(/^Update publish-test/);
-    expect(squashMessage).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}$/);
+    // Post-PR 3: trailer lives on the draft commit (save event).
+    // The squash commit is created later by the explicit Publish flow
+    // and isn't reached by publishPage anymore.
+    const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
+    expect(draftMessage).toMatch(/^Update publish-test/);
+    expect(draftMessage).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}/);
   });
 
-  it("respects SITE_GIT_BRANCH env override for the squash target", async () => {
+  it("respects SITE_GIT_BRANCH env override for the draft branch base", async () => {
     configurePlatform();
     process.env.SITE_GIT_BRANCH = "develop";
     commitFilesMock.mockResolvedValue("sha");
     await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
-    // The published branch is the squash target; `draft` is unchanged.
-    expect(squashBranchIntoMock.mock.calls[0][0].toBranch).toBe("develop");
+    // Save still targets `draft`; the override changes only the
+    // branch draft is based on (and what publishDraftToMain would
+    // squash into, which publishPage no longer triggers).
     expect(commitFilesMock.mock.calls[0][0].branch).toBe("draft");
-    // ensureBranchExists bases the draft branch off the env branch
-    // (which is now `develop`) so a non-default deploy branch still
-    // gets a draft companion.
     expect(ensureBranchExistsMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "draft", fromBranch: "develop" }),
     );

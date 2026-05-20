@@ -24,7 +24,7 @@ import {
   slugSchema,
   writeOrder,
 } from "@/lib/collections";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 
 const requestSchema = z.object({
   order: z.array(z.string().min(1)),
@@ -79,7 +79,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   await writeOrder(parsedCollectionSlug.data, parsed.data.order);
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-order",
