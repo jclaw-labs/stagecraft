@@ -86,6 +86,32 @@ export function FilterField({
 
   const { mode, clauses } = readFilter(value);
 
+  // Synthetic per-clause ids used as React keys on each ClauseRow. The
+  // `Filter` shape carries no identity — without these, removing the
+  // first clause re-keys every row by index and remounts the inputs,
+  // dropping focus mid-edit on rows the artist wasn't touching. The
+  // counter ref is per-FilterField so two inspectors don't collide.
+  const idCounterRef = useRef(0);
+  const freshId = () => `c${++idCounterRef.current}`;
+  const [clauseIds, setClauseIds] = useState<string[]>(() => clauses.map(freshId));
+
+  // Resync ids when an external value change (raw-JSON edit, undo/
+  // redo, programmatic reset) reshapes the clauses array. Internal
+  // changes go through the emit helpers below, which keep ids in
+  // lockstep with clauses and therefore never trigger this. Ids that
+  // line up by position survive; the rest are minted fresh, which is
+  // the best we can do without a structural identity on FilterClause.
+  useEffect(() => {
+    setClauseIds((current) =>
+      current.length === clauses.length
+        ? current
+        : clauses.map((_, i) => current[i] ?? freshId()),
+    );
+    // freshId is intentionally not in deps — it's a stable closure
+    // over the ref, recreating it would cause an infinite loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clauses.length]);
+
   // Raw-JSON pane local state. Mirrors the v1 textarea's
   // text-vs-parse split so the artist can type partial JSON without
   // having their input snapped back. `ownRawChangeRef` is set when
@@ -106,24 +132,36 @@ export function FilterField({
     setRawError(null);
   }, [value]);
 
-  function emit(nextClauses: FilterClause[], nextMode: "all" | "any" = mode) {
+  function emit(
+    nextClauses: FilterClause[],
+    nextIds: string[],
+    nextMode: "all" | "any" = mode,
+  ) {
+    setClauseIds(nextIds);
     onChange(buildFilter(nextMode, nextClauses));
   }
 
   function handleAddClause() {
-    emit([...clauses, defaultClause(sourceFields)]);
+    emit([...clauses, defaultClause(sourceFields)], [...clauseIds, freshId()]);
   }
 
   function handleRemoveClause(i: number) {
-    emit(clauses.filter((_, j) => j !== i));
+    emit(
+      clauses.filter((_, j) => j !== i),
+      clauseIds.filter((_, j) => j !== i),
+    );
   }
 
   function handleChangeClause(i: number, next: FilterClause) {
-    emit(clauses.map((c, j) => (j === i ? next : c)));
+    // Content-only change — ids unchanged.
+    emit(
+      clauses.map((c, j) => (j === i ? next : c)),
+      clauseIds,
+    );
   }
 
   function handleModeChange(next: "all" | "any") {
-    emit(clauses, next);
+    emit(clauses, clauseIds, next);
   }
 
   function handleRawChange(next: string) {
@@ -181,10 +219,11 @@ export function FilterField({
         <div style={clauseListStyle}>
           {clauses.map((clause, i) => (
             <ClauseRow
-              // Index-key is fine: rows reorder via remove only, and React
-              // remounting the row on an op change is desirable (it
-              // resets the row's local focus state cleanly).
-              key={i}
+              // Synthetic id per clause keeps row controls stably keyed
+              // when neighbours are removed mid-edit. Falls back to the
+              // index only during the single render between an external
+              // value change and the resync effect below.
+              key={clauseIds[i] ?? `i${i}`}
               clause={clause}
               onChange={(next) => handleChangeClause(i, next)}
               onRemove={() => handleRemoveClause(i)}
