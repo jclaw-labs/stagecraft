@@ -6,7 +6,11 @@
 import { notFound } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
-import { readCollectionDef, slugSchema } from "@/lib/collections";
+import {
+  listItemsInOrder,
+  readCollectionDef,
+  slugSchema,
+} from "@/lib/collections";
 
 import { TemplateEditorClient } from "../TemplateEditorClient";
 
@@ -29,12 +33,19 @@ export default async function ItemTemplateEditorPage({
   // is dead code. The route 404s to keep the editor surface honest.
   if (def.isSingleton) notFound();
 
+  // Pre-fetch this collection's items so the editor can offer a
+  // "Preview item" dropdown and resolve the template against a real
+  // item without a client-side round-trip. Empty collection → the
+  // client surfaces an "add an item to enable preview" message.
+  const previewItems = await listItemsInOrder(parsed.data, def);
+
   return (
     <TemplateEditorClient
       collectionSlug={parsed.data}
       def={def}
       kind="item"
       email={session?.email ?? ""}
+      previewItems={previewItems}
     />
   );
 }

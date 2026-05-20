@@ -25,6 +25,10 @@
  * Inside the editor, the artist sees a labelled placeholder; clicking
  * the "Manage" button takes them to the collection's admin where
  * they can edit items.
+ *
+ * The factory has to be called from a client component — the
+ * returned config carries render closures that aren't serialisable
+ * across the RSC boundary.
  */
 
 "use client";
