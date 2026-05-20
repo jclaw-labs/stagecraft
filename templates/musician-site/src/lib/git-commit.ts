@@ -442,3 +442,84 @@ export async function mergeBranchInto(
     throw cause;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Discard a branch back to another branch's HEAD (ADR-010 §4)
+// ---------------------------------------------------------------------------
+
+export type ResetBranchToArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** The branch being reset (usually `draft`). */
+  branch: string;
+  /** The branch whose HEAD `branch` should point at (usually `main`). */
+  toBranch: string;
+};
+
+export type ResetBranchToResult = {
+  /**
+   * SHA `branch` was pointing at before the reset. `null` if `branch`
+   * didn't exist (fresh site).
+   */
+  resetFromSha: string | null;
+  /** SHA `branch` now points at (equal to `toBranch`'s current HEAD). */
+  toSha: string;
+  /** True when `branch` already equalled `toBranch` (no-op). */
+  alreadyInSync: boolean;
+};
+
+/**
+ * Force-reset `branch` to point at `toBranch`'s current HEAD. Used by
+ * ADR-010 §4's discard flow — `draft` gets wiped back to `main`.
+ *
+ * The previous `branch` commits become unreachable from any active
+ * ref (visible only via GitHub's reflog for a short retention window).
+ * Idempotent: a missing `branch` is treated as "nothing to reset"
+ * and reported as `alreadyInSync: true` rather than an error.
+ *
+ * Force-push is required because the new SHA generally isn't a
+ * descendant of `branch`'s current HEAD — GitHub rejects non-FF ref
+ * updates by default.
+ */
+export async function resetBranchTo(
+  args: ResetBranchToArgs,
+): Promise<ResetBranchToResult> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, branch, toBranch } = args;
+
+  const toRef = await octokit.git.getRef({
+    owner,
+    repo,
+    ref: `heads/${toBranch}`,
+  });
+  const toSha = toRef.data.object.sha;
+
+  let resetFromSha: string | null = null;
+  try {
+    const fromRef = await octokit.git.getRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`,
+    });
+    resetFromSha = fromRef.data.object.sha;
+  } catch (cause) {
+    if (!isNotFound(cause)) throw cause;
+    // Branch doesn't exist — nothing to reset.
+    return { resetFromSha: null, toSha, alreadyInSync: true };
+  }
+
+  if (resetFromSha === toSha) {
+    return { resetFromSha, toSha, alreadyInSync: true };
+  }
+
+  await octokit.git.updateRef({
+    owner,
+    repo,
+    ref: `heads/${branch}`,
+    sha: toSha,
+    force: true,
+  });
+
+  return { resetFromSha, toSha, alreadyInSync: false };
+}

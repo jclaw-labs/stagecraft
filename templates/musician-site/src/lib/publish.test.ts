@@ -7,21 +7,25 @@ const {
   commitFilesMock,
   ensureBranchExistsMock,
   mergeBranchIntoMock,
+  resetBranchToMock,
   squashBranchIntoMock,
 } = vi.hoisted(() => ({
   commitFilesMock: vi.fn(),
   ensureBranchExistsMock: vi.fn(),
   mergeBranchIntoMock: vi.fn(),
+  resetBranchToMock: vi.fn(),
   squashBranchIntoMock: vi.fn(),
 }));
 vi.mock("./git-commit", () => ({
   commitFiles: commitFilesMock,
   ensureBranchExists: ensureBranchExistsMock,
   mergeBranchInto: mergeBranchIntoMock,
+  resetBranchTo: resetBranchToMock,
   squashBranchInto: squashBranchIntoMock,
 }));
 
 import {
+  discardDraft,
   isPlatformConfigured,
   publish,
   publishDraftToMain,
@@ -68,6 +72,16 @@ beforeEach(() => {
   squashBranchIntoMock
     .mockReset()
     .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false });
+  // Default: discard reports a real reset (draft went somewhere
+  // different from main). Tests that exercise the alreadyInSync or
+  // missing-branch paths override.
+  resetBranchToMock
+    .mockReset()
+    .mockResolvedValue({
+      resetFromSha: "old-draft-sha",
+      toSha: "main-sha",
+      alreadyInSync: false,
+    });
   process.env = { ...ORIGINAL_ENV };
   delete process.env.STAGECRAFT_PLATFORM_URL;
   delete process.env.STAGECRAFT_SITE_ID;
@@ -737,5 +751,86 @@ describe("publishDraftToMain", () => {
       message: expect.stringMatching(/^auto-rebase: /),
     });
     expect(squashBranchIntoMock).not.toHaveBeenCalled();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// discardDraft — force-reset draft back to main
+// ---------------------------------------------------------------------------
+
+describe("discardDraft", () => {
+  it("dev fallback returns mode=local (no GitHub call)", async () => {
+    const result = await discardDraft({ authorEmail: "a@e.com" });
+    expect(result).toEqual({ mode: "local" });
+    expect(resetBranchToMock).not.toHaveBeenCalled();
+  });
+
+  it("force-resets draft to mains HEAD via resetBranchTo", async () => {
+    configurePlatform();
+    resetBranchToMock.mockResolvedValue({
+      resetFromSha: "old-draft",
+      toSha: "main-head",
+      alreadyInSync: false,
+    });
+    const result = await discardDraft({ authorEmail: "a@e.com" });
+    expect(result).toEqual({
+      mode: "github",
+      discardedFromSha: "old-draft",
+      mainSha: "main-head",
+      alreadyInSync: false,
+    });
+    expect(resetBranchToMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: "draft",
+        toBranch: "main",
+      }),
+    );
+  });
+
+  it("reports alreadyInSync when draft was already at main", async () => {
+    configurePlatform();
+    resetBranchToMock.mockResolvedValue({
+      resetFromSha: "same",
+      toSha: "same",
+      alreadyInSync: true,
+    });
+    const result = await discardDraft({ authorEmail: "a@e.com" });
+    expect(result).toMatchObject({ mode: "github", alreadyInSync: true });
+  });
+
+  it("reports null discardedFromSha when draft did not exist", async () => {
+    configurePlatform();
+    resetBranchToMock.mockResolvedValue({
+      resetFromSha: null,
+      toSha: "main-head",
+      alreadyInSync: true,
+    });
+    const result = await discardDraft({ authorEmail: "a@e.com" });
+    expect(result).toMatchObject({
+      mode: "github",
+      discardedFromSha: null,
+      alreadyInSync: true,
+    });
+  });
+
+  it("respects SITE_GIT_BRANCH override for the reset target", async () => {
+    configurePlatform();
+    process.env.SITE_GIT_BRANCH = "develop";
+    await discardDraft({ authorEmail: "a@e.com" });
+    expect(resetBranchToMock).toHaveBeenCalledWith(
+      expect.objectContaining({ toBranch: "develop" }),
+    );
+  });
+
+  it("wraps resetBranchTo errors as PublishError(github-failed)", async () => {
+    configurePlatform();
+    resetBranchToMock.mockRejectedValue(new Error("rate limit"));
+    await expect(
+      discardDraft({ authorEmail: "a@e.com" }),
+    ).rejects.toMatchObject({
+      code: "github-failed",
+      message: expect.stringMatching(/discard draft: /),
+    });
   });
 });
