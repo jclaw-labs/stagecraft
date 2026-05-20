@@ -85,9 +85,158 @@ export async function writeText(file: string, content: string): Promise<void> {
  * Write `value` to `file` with canonical JSON formatting. Equivalent to
  * `writeText(file, stringifyContent(value))`; preferred over the raw
  * pair so re-saves keep diffing minimally.
+ *
+ * Prefer `writeJsonAtomic` for content writes — `writeJson` doesn't
+ * protect against torn writes if the process crashes mid-write.
+ * `writeJson` stays exported for the rare callers that need bare-
+ * write semantics (test fixtures, the bootstrap path).
  */
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await writeText(file, stringifyContent(value));
+}
+
+/**
+ * Atomic single-file write: write to a tmp sibling, then `rename` it
+ * into place. POSIX rename is atomic for files within the same
+ * filesystem, so a reader either sees the old contents or the fully-
+ * written new contents — never a half-written file.
+ *
+ * Catches:
+ *   - Process crash mid-write (the tmp file is incomplete; the
+ *     final file is untouched).
+ *   - Disk-full during write (the tmp write throws; the final file
+ *     is untouched).
+ *   - Stringify failures (the content is written to tmp first; if
+ *     it threw we'd never reach the rename).
+ *
+ * Does NOT catch:
+ *   - A crash between rename steps in a multi-file batch — see
+ *     `writeJsonBatchAtomic` for the batched variant with phase-1
+ *     protection.
+ */
+export async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
+  const tmp = tmpPathFor(file);
+  await writeText(tmp, stringifyContent(value));
+  try {
+    await fs.rename(tmp, file);
+  } catch (cause) {
+    // Rename failed — try to clean up the tmp file so it doesn't
+    // accumulate. Swallow cleanup errors so the caller sees the
+    // original rename error.
+    await unlinkIfExists(tmp).catch(() => {});
+    throw cause;
+  }
+}
+
+/**
+ * Multi-file atomic-ish write. Two phases:
+ *
+ *   1. Write every entry to a tmp sibling. If any phase-1 write
+ *      throws, clean up the tmp files written so far and re-throw.
+ *      No final files have been touched at this point.
+ *   2. Rename each tmp into place. Per-file atomic, but NOT
+ *      all-or-nothing as a group — a crash mid-phase-2 leaves some
+ *      files new and some old. We accept this limit because true
+ *      transactional cross-file atomicity needs a journal /
+ *      WAL-style log; for the schema-save batch (one def +
+ *      typically <100 migrated items) the phase-2 window is
+ *      sub-second and a meaningful improvement over the previous
+ *      non-atomic loop.
+ *
+ * Used by the schema-save endpoint to commit the new
+ * `_collection.json` + any per-item migrations as a unit. A
+ * mid-batch failure during phase 1 (the common failure mode —
+ * disk full, stringify error, validation slip) leaves the previous
+ * state intact.
+ */
+export async function writeJsonBatchAtomic(
+  writes: ReadonlyArray<{ file: string; value: unknown }>,
+): Promise<void> {
+  const staged: Array<{ tmp: string; final: string }> = [];
+  try {
+    for (const w of writes) {
+      const tmp = tmpPathFor(w.file);
+      await writeText(tmp, stringifyContent(w.value));
+      staged.push({ tmp, final: w.file });
+    }
+  } catch (cause) {
+    // Phase-1 failure: roll back by deleting any tmp files written
+    // so far. None of the final files have been touched.
+    await Promise.all(staged.map((s) => unlinkIfExists(s.tmp).catch(() => {})));
+    throw cause;
+  }
+  for (const s of staged) {
+    await fs.rename(s.tmp, s.final);
+  }
+}
+
+/**
+ * Sibling tmp path used by the atomic helpers. Same directory so
+ * `rename` stays within one filesystem (the atomicity guarantee
+ * doesn't cross mount points). PID + timestamp + random suffix so
+ * concurrent writers don't collide on the tmp filename.
+ */
+function tmpPathFor(file: string): string {
+  const random = Math.random().toString(36).slice(2, 8);
+  return `${file}.tmp-${process.pid}-${Date.now()}-${random}`;
+}
+
+/** Matches the tmp suffix `tmpPathFor` produces. Exported only so the
+ * janitor below can recognise its own droppings. */
+const TMP_SUFFIX_PATTERN = /\.tmp-\d+-\d+-[a-z0-9]+$/;
+
+/**
+ * Walk `rootDir` recursively and delete any `<file>.tmp-...` artifact
+ * older than `olderThanMs` (default 15 minutes). Cleans up orphan tmp
+ * files that the atomic helpers couldn't remove because the process
+ * was hard-killed (OOM, SIGKILL, host reboot) — the in-process
+ * catch blocks rely on JS-level throws and can't run during a crash.
+ *
+ * Called once per process from the content-bootstrap path, so an
+ * artist site that crashed mid-write self-heals on the next boot.
+ *
+ * Threshold is deliberately conservative: an in-flight write that's
+ * been going for >15 minutes is almost certainly orphaned, but
+ * within that window we leave tmps alone so a long write isn't
+ * sniped by a concurrent janitor pass.
+ */
+export async function purgeOrphanTmps(
+  rootDir: string,
+  options: { olderThanMs?: number } = {},
+): Promise<{ deleted: number }> {
+  const threshold = Date.now() - (options.olderThanMs ?? 15 * 60 * 1000);
+  let deleted = 0;
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (cause) {
+      // ENOENT — directory doesn't exist; nothing to clean.
+      if (isNotFound(cause)) return;
+      throw cause;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!TMP_SUFFIX_PATTERN.test(entry.name)) continue;
+      try {
+        const stat = await fs.stat(full);
+        if (stat.mtimeMs < threshold) {
+          await unlinkIfExists(full);
+          deleted++;
+        }
+      } catch (cause) {
+        // Stat / unlink race with another process — silently move on.
+        if (isNotFound(cause)) continue;
+        throw cause;
+      }
+    }
+  }
+  await walk(rootDir);
+  return { deleted };
 }
 
 /**

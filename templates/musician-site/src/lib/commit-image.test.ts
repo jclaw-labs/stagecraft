@@ -4,11 +4,13 @@ import sharp from "sharp";
 const {
   commitFilesMock,
   ensureBranchExistsMock,
+  mergeBranchIntoMock,
   squashBranchIntoMock,
   fetchPublishTokenMock,
 } = vi.hoisted(() => ({
   commitFilesMock: vi.fn(),
   ensureBranchExistsMock: vi.fn(),
+  mergeBranchIntoMock: vi.fn(),
   squashBranchIntoMock: vi.fn(),
   fetchPublishTokenMock: vi.fn(),
 }));
@@ -16,6 +18,7 @@ const {
 vi.mock("./git-commit", () => ({
   commitFiles: commitFilesMock,
   ensureBranchExists: ensureBranchExistsMock,
+  mergeBranchInto: mergeBranchIntoMock,
   squashBranchInto: squashBranchIntoMock,
 }));
 
@@ -32,6 +35,9 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   commitFilesMock.mockReset();
   ensureBranchExistsMock.mockReset().mockResolvedValue(undefined);
+  mergeBranchIntoMock
+    .mockReset()
+    .mockResolvedValue({ kind: "already-included", reason: "ancestor" });
   squashBranchIntoMock
     .mockReset()
     .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false });
@@ -83,8 +89,12 @@ describe("commitUploadedImage", () => {
       authorEmail: "artist@example.com",
     });
 
-    // Per ADR-010, the reported SHA is the squash commit on main.
-    expect(result.commitSha).toBe("main-squash-sha");
+    // Per ADR-010 PR 2, the upload lands on draft and waits for an
+    // explicit Publish — so the reported SHA is the draft commit, not
+    // a squash on main. (PR 1's behavior of "immediate publish" was
+    // dropped here when the Save/Publish split landed.)
+    expect(result.commitSha).toBe("draft-sha");
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
     expect(result.metadata.contentSlug).toBe("homepage");
     expect(result.metadata.alt).toBe("hero");
 
@@ -92,8 +102,14 @@ describe("commitUploadedImage", () => {
     expect(ensureBranchExistsMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "draft", fromBranch: "main" }),
     );
+    // Auto-rebase fires before every commit (ADR-010 §7).
+    expect(mergeBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
     expect(commitFilesMock).toHaveBeenCalledOnce();
-    expect(squashBranchIntoMock).toHaveBeenCalledOnce();
+    // Post-PR 2: image uploads land on draft and wait for an explicit
+    // Publish. squashBranchInto is no longer called here.
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
 
     const args = commitFilesMock.mock.calls[0][0];
     // Image blobs land on draft (not main); the [skip ci] marker

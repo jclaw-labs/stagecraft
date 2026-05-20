@@ -16,7 +16,7 @@ import {
   readPageOrNull,
   writePage,
 } from "@/lib/content";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 import { createPageRequestSchema } from "@/lib/site-config-types";
 
 /**
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
   if (!item) return err(500, "Page disappeared between write and publish");
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-item",

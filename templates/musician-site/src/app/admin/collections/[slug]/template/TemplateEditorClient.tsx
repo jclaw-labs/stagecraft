@@ -101,10 +101,13 @@ export function TemplateEditorClient({
     return Object.fromEntries(
       iterableCollectionDefs.map((d) => [
         blockNameForCollection(d.slug),
-        buildCollectionBlockComponentConfig(d),
+        // `d` is the source collection this block iterates; `def` is
+        // the containing template's collection so the FilterField's
+        // currentItemField picker has fields to offer.
+        buildCollectionBlockComponentConfig(d, def),
       ]),
     );
-  }, [kind, iterableCollectionDefs]);
+  }, [def, kind, iterableCollectionDefs]);
   const initialData = useMemo<Data>(() => {
     const stored = kind === "item" ? def.itemTemplate : def.detailTemplate;
     if (stored && typeof stored === "object" && "content" in stored) {

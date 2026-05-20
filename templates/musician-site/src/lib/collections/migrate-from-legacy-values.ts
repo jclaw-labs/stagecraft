@@ -109,6 +109,10 @@ export function siteConfigToItemValues(config: SiteConfig): Item["values"] {
     [SITE_FIELD_IDS.contactEmail]: { type: "email", value: config.contactEmail },
     [SITE_FIELD_IDS.copyrightName]: { type: "text", value: config.copyrightName },
     [SITE_FIELD_IDS.isFooterHidden]: { type: "boolean", value: config.isFooterHidden },
+    [SITE_FIELD_IDS.hasCompletedFirstRun]: {
+      type: "boolean",
+      value: config.hasCompletedFirstRun,
+    },
   };
   for (const platform of SOCIAL_PLATFORMS) {
     const url = config.socialLinks[platform];
@@ -137,6 +141,11 @@ export function siteConfigFromItem(item: Item | null): SiteConfig {
       getString(item, SITE_FIELD_IDS.contactEmail) ?? DEFAULT_SITE_CONFIG.contactEmail,
     copyrightName: getString(item, SITE_FIELD_IDS.copyrightName) ?? "",
     isFooterHidden: getBoolean(item, SITE_FIELD_IDS.isFooterHidden) ?? false,
+    // Absent flag on a pre-existing site → treat as not-yet-completed
+    // so older repos see the wizard on next visit. New repos write the
+    // field explicitly through the wizard or the dev seed.
+    hasCompletedFirstRun:
+      getBoolean(item, SITE_FIELD_IDS.hasCompletedFirstRun) ?? false,
     // pageOrder + hiddenFromNav are derived from the Pages collection
     // (ADR-009 §14). Surfaced via separate accessors in content.ts.
     pageOrder: [],

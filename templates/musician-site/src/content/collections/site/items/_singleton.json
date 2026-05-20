@@ -1,0 +1,35 @@
+{
+  "id": "item_site_singleton_dev_seed",
+  "createdAt": "2026-05-20T00:00:00.000Z",
+  "updatedAt": "2026-05-20T00:00:00.000Z",
+  "values": {
+    "fld_site_artistName": {
+      "type": "text",
+      "value": "Artist Name"
+    },
+    "fld_site_siteTitle": {
+      "type": "text",
+      "value": "Artist Name — Official Website"
+    },
+    "fld_site_siteDescription": {
+      "type": "longText",
+      "value": ""
+    },
+    "fld_site_contactEmail": {
+      "type": "email",
+      "value": "contact@example.com"
+    },
+    "fld_site_copyrightName": {
+      "type": "text",
+      "value": ""
+    },
+    "fld_site_isFooterHidden": {
+      "type": "boolean",
+      "value": false
+    },
+    "fld_site_hasCompletedFirstRun": {
+      "type": "boolean",
+      "value": true
+    }
+  }
+}
