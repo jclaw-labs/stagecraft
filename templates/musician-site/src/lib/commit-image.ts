@@ -1,8 +1,13 @@
-import { type FileToCommit } from "./git-commit";
+import {
+  commitFiles,
+  ensureBranchExists,
+  mergeBranchInto,
+  type FileToCommit,
+} from "./git-commit";
 import { generateImageVariants, variantFilename, type ProcessImageInput } from "./image";
 import { type ImageMetadata } from "./image-types";
 import {
-  commitThroughDraft,
+  DRAFT_BRANCH,
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
@@ -27,12 +32,19 @@ function imageRepoPaths(metadata: ImageMetadata): {
 
 /**
  * Commit one uploaded image (original + all generated variants) to the
- * artist's repo through the platform's GitHub App broker. Mirrors the
- * publishPage flow in publish.ts: token broker → octokit Git Data API →
- * single commit.
+ * artist's `draft` branch through the platform's GitHub App broker.
  *
- * Returns the same `ImageMetadata` shape the local-disk path returns, so
- * callers can hand it back to the editor unchanged.
+ * Per ADR-010, image uploads land on `draft` like every other save;
+ * they don't deploy until the artist hits Publish. The draft commit
+ * carries `[skip ci]` so the host doesn't trigger a build for it.
+ *
+ * Auto-rebase fires first so the image lands on top of any direct-to-
+ * main pushes since the artist's previous save.
+ *
+ * Returns the same `ImageMetadata` shape the local-disk path returns,
+ * so callers can hand it back to the editor unchanged. `commitSha` is
+ * the draft commit; the eventual publish commit's SHA is reported
+ * separately when the artist hits Publish.
  *
  * Dedup note: this function does NOT short-circuit when the same image
  * was uploaded before. Re-uploading the same buffer produces deterministic
@@ -71,23 +83,54 @@ export async function commitUploadedImage(args: {
   ];
 
   const { token, owner, repo } = await fetchPublishToken(env);
+  const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
+  const message = `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`;
 
-  // Route through the draft branch (ADR-010). Images upload as one
-  // commit on draft + immediate squash to main, matching the rest of
-  // the save flow. The draft commit carries `[skip ci]` so the
-  // deploy only fires for the squash commit on main.
-  //
-  // `commitThroughDraft` already wraps each step in a labelled
-  // PublishError — don't double-wrap or the step name is lost.
-  const commitSha = await commitThroughDraft({
-    token,
-    owner,
-    repo,
-    mainBranch: env.branch,
-    message: `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`,
-    files,
-    author: { name: args.authorName ?? "Artist", email: args.authorEmail },
-  });
+  try {
+    await ensureBranchExists({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      fromBranch: env.branch,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `ensure draft branch: ${String(cause)}`);
+  }
+
+  try {
+    const merge = await mergeBranchInto({
+      token,
+      owner,
+      repo,
+      from: env.branch,
+      into: DRAFT_BRANCH,
+    });
+    if (merge.kind === "conflict") {
+      throw new PublishError(
+        "github-failed",
+        `auto-rebase: draft can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError("github-failed", `auto-rebase: ${String(cause)}`);
+  }
+
+  let commitSha: string;
+  try {
+    commitSha = await commitFiles({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      message: `${message}\n\n[skip ci]`,
+      files,
+      author,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `commit to draft: ${String(cause)}`);
+  }
 
   return { metadata: generated.metadata, commitSha };
 }

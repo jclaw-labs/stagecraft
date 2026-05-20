@@ -8,14 +8,22 @@ const createTree = vi.fn();
 const createCommit = vi.fn();
 const createRef = vi.fn();
 const updateRef = vi.fn();
+const reposMerge = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
     git = { getRef, getCommit, createBlob, createTree, createCommit, createRef, updateRef };
+    repos = { merge: reposMerge };
   },
 }));
 
-import { commitFiles, ConcurrentEditError, ensureBranchExists, squashBranchInto } from "./git-commit";
+import {
+  commitFiles,
+  ConcurrentEditError,
+  ensureBranchExists,
+  mergeBranchInto,
+  squashBranchInto,
+} from "./git-commit";
 
 beforeEach(() => {
   getRef.mockReset();
@@ -25,6 +33,7 @@ beforeEach(() => {
   createCommit.mockReset();
   createRef.mockReset();
   updateRef.mockReset();
+  reposMerge.mockReset();
 });
 
 function setupHappyPath() {
@@ -648,5 +657,118 @@ describe("squashBranchInto", () => {
     expect(getCommit).not.toHaveBeenCalled();
     expect(createCommit).not.toHaveBeenCalled();
     expect(updateRef).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeBranchInto (ADR-010 §7 — auto-rebase main → draft before each save)
+// ---------------------------------------------------------------------------
+
+describe("mergeBranchInto", () => {
+  it("returns merged with the new commit SHA on a clean merge (201)", async () => {
+    reposMerge.mockResolvedValue({
+      status: 201,
+      data: { sha: "merge-commit-sha" },
+    });
+    const result = await mergeBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      from: "main",
+      into: "draft",
+    });
+    expect(result).toEqual({ kind: "merged", mergeCommitSha: "merge-commit-sha" });
+    expect(reposMerge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        base: "draft",
+        head: "main",
+        commit_message: expect.stringContaining("[skip ci]"),
+      }),
+    );
+  });
+
+  it("returns already-included when GitHub reports nothing to merge", async () => {
+    // Octokit normalises 204 No Content to a 204 response without data.
+    reposMerge.mockResolvedValue({ status: 204, data: null });
+    const result = await mergeBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      from: "main",
+      into: "draft",
+    });
+    expect(result).toEqual({ kind: "already-included", reason: "noop" });
+  });
+
+  it("returns conflict when GitHub returns 409", async () => {
+    reposMerge.mockRejectedValue(
+      new RequestError("Merge conflict", 409, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 409, url: "x", headers: {}, data: {} },
+      }),
+    );
+    const result = await mergeBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      from: "main",
+      into: "draft",
+    });
+    expect(result).toEqual({ kind: "conflict" });
+  });
+
+  it("treats a 204 RequestError as already-included (Octokit's typing quirk)", async () => {
+    reposMerge.mockRejectedValue(
+      new RequestError("No Content", 204, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 204, url: "x", headers: {}, data: {} },
+      }),
+    );
+    const result = await mergeBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      from: "main",
+      into: "draft",
+    });
+    expect(result).toEqual({ kind: "already-included", reason: "ancestor" });
+  });
+
+  it("propagates non-conflict / non-204 errors", async () => {
+    reposMerge.mockRejectedValue(
+      new RequestError("Not Found", 404, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 404, url: "x", headers: {}, data: {} },
+      }),
+    );
+    await expect(
+      mergeBranchInto({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        from: "main",
+        into: "draft",
+      }),
+    ).rejects.toThrow("Not Found");
+  });
+
+  it("respects a custom commit message", async () => {
+    reposMerge.mockResolvedValue({
+      status: 201,
+      data: { sha: "merge-sha" },
+    });
+    await mergeBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      from: "main",
+      into: "draft",
+      commitMessage: "Custom merge message",
+    });
+    expect(reposMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ commit_message: "Custom merge message" }),
+    );
   });
 });

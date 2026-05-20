@@ -20,6 +20,7 @@ import {
 import {
   commitFiles,
   ensureBranchExists,
+  mergeBranchInto,
   squashBranchInto,
   type FileToCommit,
 } from "./git-commit";
@@ -254,9 +255,65 @@ async function writeLocal(targets: PublishTarget[]): Promise<PublishResult> {
   return { commitSha: null, mode: "local" };
 }
 
+/**
+ * Save + immediate publish (PR 1 of ADR-010's rollout). Kept as a
+ * back-compat shim for callers that haven't yet been migrated to
+ * separate Save and Publish flows. Internally: `saveToDraft` followed
+ * by `publishDraftToMain`. Both flows are independently exported so
+ * new callers can compose them directly.
+ *
+ * Returns the squash commit's SHA on `main` (the deploy trigger) —
+ * preserves the v1 contract.
+ */
 export async function publish(args: PublishArgs): Promise<PublishResult> {
   if (args.targets.length === 0) {
     throw new PublishError("github-failed", "publish: no targets supplied");
+  }
+  const env = readEnv();
+  if (!isPlatformConfigured(env)) {
+    return writeLocal(args.targets);
+  }
+
+  const saveResult = await saveToDraft(args);
+  if (saveResult.mode === "local") {
+    return saveResult;
+  }
+  return publishDraftToMain({
+    authorEmail: args.authorEmail,
+    authorName: args.authorName,
+    commitSubject: args.commitSubject,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// saveToDraft — write to draft only, no squash, no deploy
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist the artist's pending changes to the `draft` branch. Does
+ * NOT publish to `main` — the deploy doesn't fire. Use this for every
+ * mid-edit save; the explicit Publish flow promotes draft → main
+ * separately.
+ *
+ * Flow:
+ *   1. Ensure `draft` exists (creates it from `main`'s HEAD when missing).
+ *   2. Auto-rebase: merge `main` into `draft` if `main` has moved since
+ *      the last save (ADR-010 §7). Preserves the invariant
+ *      `draft.sha === main.sha OR draft is ahead of main`.
+ *   3. Commit the targets to `draft` with `[skip ci]` so the host
+ *      doesn't deploy. Commit message uses the same `summariseTargets`
+ *      auto-summary that `publish()` does, so a future "what's pending"
+ *      summary can walk the draft commits for per-save context.
+ *
+ * Returns the new draft commit's SHA. The caller doesn't normally need
+ * to poll a deploy for this — no deploy fires.
+ *
+ * Dev fallback: writes to local disk like `publish()` does (no
+ * branches in dev). The mode/commitSha pair stays the same shape.
+ */
+export async function saveToDraft(args: PublishArgs): Promise<PublishResult> {
+  if (args.targets.length === 0) {
+    throw new PublishError("github-failed", "saveToDraft: no targets supplied");
   }
   const env = readEnv();
   if (!isPlatformConfigured(env)) {
@@ -270,89 +327,145 @@ export async function publish(args: PublishArgs): Promise<PublishResult> {
   const message = `${subject}\n\nStagecraft-Publish-Id: ${publishId}`;
   const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
 
-  // `commitThroughDraft` already wraps each step in a labelled
-  // PublishError; don't double-wrap or the step name gets lost.
-  const commitSha = await commitThroughDraft({
-    token,
-    owner,
-    repo,
-    mainBranch: env.branch,
-    message,
-    files: writes,
-    deletePaths,
-    author,
-  });
-
-  return { commitSha, mode: "github" };
-}
-
-export type CommitThroughDraftArgs = {
-  token: string;
-  owner: string;
-  repo: string;
-  /** The published branch — typically `main`. From the env config. */
-  mainBranch: string;
-  /** Commit message subject + optional body. `[skip ci]` is appended internally. */
-  message: string;
-  files: FileToCommit[];
-  deletePaths?: string[];
-  author: { name: string; email: string };
-};
-
-/**
- * Commit a set of file changes through the draft branch and squash
- * up to main in one round-trip (ADR-010's "Save + immediate Publish"
- * intermediate behaviour during PR 1 of the rollout).
- *
- * Flow:
- *   1. Ensure `draft` exists (no-op after first call per artist).
- *   2. Commit the changes to `draft` with `[skip ci]` so the host
- *      doesn't run a production build for this commit.
- *   3. Squash `draft` into `main` — a single commit on main whose
- *      tree comes from draft's HEAD. Triggers the deploy.
- *
- * Returns the SHA of the squash commit on `main` — that's the one
- * that triggers the deploy, and the SHA callers / deploy-status
- * pollers care about. The per-save commit on draft becomes
- * unreachable as soon as draft FF's to main, which is fine for the
- * transitional behaviour: PR 2 of the rollout flips the wiring so
- * `commitToDraft` is called without `squashBranchInto`, and the
- * per-save draft commits accumulate until an explicit Publish.
- */
-export async function commitThroughDraft(
-  args: CommitThroughDraftArgs,
-): Promise<string> {
-  const { token, owner, repo, mainBranch, message, files, deletePaths, author } = args;
-  // Wrap each step with a step label so a failure tells you whether
-  // ensure / commit / squash blew up. This becomes load-bearing in
-  // PR 2 of ADR-010, where retry behavior depends on knowing which
-  // step failed (squash failure with draft already at the new SHA
-  // can be retried as just the squash; commit failure can't).
   try {
     await ensureBranchExists({
       token,
       owner,
       repo,
       branch: DRAFT_BRANCH,
-      fromBranch: mainBranch,
+      fromBranch: env.branch,
     });
   } catch (cause) {
     throw new PublishError("github-failed", `ensure draft branch: ${String(cause)}`);
   }
+
+  // Auto-rebase: pull main's commits into draft so the artist's save
+  // is on top of any direct-to-main changes (a developer push, a
+  // schema migration, etc.). Conflict surfaces as a structured error;
+  // the artist's resolution path is to discard pending changes or
+  // contact support.
   try {
-    await commitFiles({
+    const merge = await mergeBranchInto({
+      token,
+      owner,
+      repo,
+      from: env.branch,
+      into: DRAFT_BRANCH,
+    });
+    if (merge.kind === "conflict") {
+      throw new PublishError(
+        "github-failed",
+        `auto-rebase: draft can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError("github-failed", `auto-rebase: ${String(cause)}`);
+  }
+
+  let draftSha: string;
+  try {
+    draftSha = await commitFiles({
       token,
       owner,
       repo,
       branch: DRAFT_BRANCH,
       message: `${message}\n\n[skip ci]`,
-      files,
+      files: writes,
       deletePaths,
       author,
     });
   } catch (cause) {
     throw new PublishError("github-failed", `commit to draft: ${String(cause)}`);
   }
+  return { commitSha: draftSha, mode: "github" };
+}
+
+// ---------------------------------------------------------------------------
+// publishDraftToMain — squash draft into main, deploy
+// ---------------------------------------------------------------------------
+
+export type PublishDraftToMainArgs = {
+  authorEmail: string;
+  authorName?: string;
+  /** Optional override for the squash commit's subject. */
+  commitSubject?: string;
+};
+
+export type PublishDraftToMainResult = PublishResult & {
+  /** True when draft and main were already in sync (no commit created). */
+  alreadyInSync: boolean;
+};
+
+/**
+ * Publish every pending change on `draft` to `main` in one squash
+ * commit. The squash's tree comes from `draft`'s HEAD; its parent is
+ * `main`'s current HEAD. After the commit lands on `main`, `draft` is
+ * fast-forwarded to match.
+ *
+ * Auto-rebase fires first (belt and suspenders alongside saveToDraft's
+ * own rebase) so a `main` push between the artist's last save and
+ * Publish doesn't get silently dropped.
+ *
+ * Returns the squash commit's SHA on `main` — the deploy trigger.
+ * `alreadyInSync` is true when there was nothing pending (no-op);
+ * callers can use it to skip deploy polling.
+ *
+ * Dev fallback: no-op. Files are already on disk; there's no draft
+ * branch to promote.
+ */
+export async function publishDraftToMain(
+  args: PublishDraftToMainArgs,
+): Promise<PublishDraftToMainResult> {
+  const env = readEnv();
+  if (!isPlatformConfigured(env)) {
+    // Nothing to do in dev — every save already wrote to disk.
+    return { commitSha: null, mode: "local", alreadyInSync: true };
+  }
+
+  const { token, owner, repo } = await fetchPublishToken(env);
+  const publishId = randomUUID();
+  const subject = args.commitSubject ?? "Publish pending changes";
+  const message = `${subject}\n\nStagecraft-Publish-Id: ${publishId}`;
+  const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
+
+  // Ensure draft exists before we squash. If a fresh site somehow
+  // hits Publish before any Save, draft doesn't exist yet — create
+  // it equal to main and report nothing to publish.
+  try {
+    await ensureBranchExists({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      fromBranch: env.branch,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `ensure draft branch: ${String(cause)}`);
+  }
+
+  // Auto-rebase guard: if main moved since the artist's last save,
+  // bring draft up to date before squashing. Otherwise the squash
+  // would silently overwrite main's recent changes.
+  try {
+    const merge = await mergeBranchInto({
+      token,
+      owner,
+      repo,
+      from: env.branch,
+      into: DRAFT_BRANCH,
+    });
+    if (merge.kind === "conflict") {
+      throw new PublishError(
+        "github-failed",
+        `auto-rebase: draft can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError("github-failed", `auto-rebase: ${String(cause)}`);
+  }
+
   let squash: { commitSha: string; alreadyInSync: boolean };
   try {
     squash = await squashBranchInto({
@@ -360,14 +473,18 @@ export async function commitThroughDraft(
       owner,
       repo,
       fromBranch: DRAFT_BRANCH,
-      toBranch: mainBranch,
+      toBranch: env.branch,
       message,
       author,
     });
   } catch (cause) {
     throw new PublishError("github-failed", `squash draft → main: ${String(cause)}`);
   }
-  return squash.commitSha;
+  return {
+    commitSha: squash.commitSha,
+    mode: "github",
+    alreadyInSync: squash.alreadyInSync,
+  };
 }
 
 /**

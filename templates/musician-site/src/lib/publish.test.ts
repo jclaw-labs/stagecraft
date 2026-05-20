@@ -3,20 +3,32 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { commitFilesMock, ensureBranchExistsMock, squashBranchIntoMock } = vi.hoisted(
-  () => ({
-    commitFilesMock: vi.fn(),
-    ensureBranchExistsMock: vi.fn(),
-    squashBranchIntoMock: vi.fn(),
-  }),
-);
+const {
+  commitFilesMock,
+  ensureBranchExistsMock,
+  mergeBranchIntoMock,
+  squashBranchIntoMock,
+} = vi.hoisted(() => ({
+  commitFilesMock: vi.fn(),
+  ensureBranchExistsMock: vi.fn(),
+  mergeBranchIntoMock: vi.fn(),
+  squashBranchIntoMock: vi.fn(),
+}));
 vi.mock("./git-commit", () => ({
   commitFiles: commitFilesMock,
   ensureBranchExists: ensureBranchExistsMock,
+  mergeBranchInto: mergeBranchIntoMock,
   squashBranchInto: squashBranchIntoMock,
 }));
 
-import { PublishError, publish, publishPage, isPlatformConfigured } from "./publish";
+import {
+  isPlatformConfigured,
+  publish,
+  publishDraftToMain,
+  publishPage,
+  PublishError,
+  saveToDraft,
+} from "./publish";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
 
 /** Spread into in-line item-file literals so tests don't repeat them. */
@@ -45,6 +57,11 @@ afterAll(async () => {
 beforeEach(() => {
   commitFilesMock.mockReset();
   ensureBranchExistsMock.mockReset().mockResolvedValue(undefined);
+  // Default: auto-rebase is a no-op (`main` already an ancestor of
+  // `draft`). Tests that exercise the merge / conflict paths override.
+  mergeBranchIntoMock
+    .mockReset()
+    .mockResolvedValue({ kind: "already-included", reason: "ancestor" });
   // Default: squash returns a deterministic SHA so happy-path tests
   // can ignore the call shape. Tests that care about the SHA override
   // explicitly.
@@ -144,8 +161,16 @@ describe("publishPage — broker + GitHub path", () => {
     });
 
     // Result reports the squash commit's SHA — that's the one on
-    // main that triggers the deploy and that callers poll for.
-    expect(result).toEqual({ mode: "github", commitSha: "main-squash-sha" });
+    // main that triggers the deploy and that callers poll for. The
+    // back-compat `publish()` wrapper calls saveToDraft then
+    // publishDraftToMain, returning the squash SHA. The extra
+    // `alreadyInSync` field comes from publishDraftToMain's result
+    // shape (false when a commit was created).
+    expect(result).toEqual({
+      mode: "github",
+      commitSha: "main-squash-sha",
+      alreadyInSync: false,
+    });
     // The per-save commit went to `draft` (per ADR-010), not main.
     expect(commitFilesMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -547,10 +572,168 @@ describe("publish — collection target kinds", () => {
       ],
       authorEmail: "a@e.com",
     });
-    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
-    expect(squashMessage).toContain("collection defs: tour-dates");
-    expect(squashMessage).toContain("items: tour-dates/paris-2026");
-    expect(squashMessage).toContain("order: tour-dates");
-    expect(squashMessage).toContain("delete items: tour-dates/old-show");
+    // Per-target summarisation lives on the SAVE commit (on draft)
+    // post-PR 2 — the squash commit on main carries a generic
+    // "Publish pending changes" subject because publishDraftToMain
+    // doesn't take targets (it ships everything pending in one go).
+    const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
+    expect(draftMessage).toContain("collection defs: tour-dates");
+    expect(draftMessage).toContain("items: tour-dates/paris-2026");
+    expect(draftMessage).toContain("order: tour-dates");
+    expect(draftMessage).toContain("delete items: tour-dates/old-show");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveToDraft — write to draft only, no squash
+// ---------------------------------------------------------------------------
+
+describe("saveToDraft", () => {
+  const TARGETS = [
+    {
+      kind: "collection-item" as const,
+      collectionSlug: "pages",
+      itemSlug: TEST_SLUG,
+      data: { id: "i", ...TS, values: {} },
+    },
+  ];
+
+  it("rejects empty target list", async () => {
+    await expect(
+      saveToDraft({ targets: [], authorEmail: "a@e.com" }),
+    ).rejects.toBeInstanceOf(PublishError);
+  });
+
+  it("dev fallback writes locally without calling commitFiles", async () => {
+    await saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" });
+    expect(commitFilesMock).not.toHaveBeenCalled();
+    expect(ensureBranchExistsMock).not.toHaveBeenCalled();
+  });
+
+  it("commits to draft and does NOT squash to main", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("draft-sha");
+    const result = await saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" });
+    expect(result).toEqual({ mode: "github", commitSha: "draft-sha" });
+    // No squash — save and publish are separate now.
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
+    // Commits target draft with [skip ci].
+    const args = commitFilesMock.mock.calls[0][0];
+    expect(args.branch).toBe("draft");
+    expect(args.message).toContain("[skip ci]");
+  });
+
+  it("calls ensureBranchExists before committing", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("draft-sha");
+    await saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" });
+    expect(ensureBranchExistsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft", fromBranch: "main" }),
+    );
+  });
+
+  it("auto-rebases main into draft before committing (ADR-010 §7)", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("draft-sha");
+    await saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" });
+    expect(mergeBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+    // The order matters: ensure → merge → commit. If we committed
+    // before rebasing, our commit's tree would be based on stale
+    // draft state and the next save's tree comparison would lose
+    // main's recent changes.
+    const ensureOrder = ensureBranchExistsMock.mock.invocationCallOrder[0];
+    const mergeOrder = mergeBranchIntoMock.mock.invocationCallOrder[0];
+    const commitOrder = commitFilesMock.mock.invocationCallOrder[0];
+    expect(ensureOrder).toBeLessThan(mergeOrder);
+    expect(mergeOrder).toBeLessThan(commitOrder);
+  });
+
+  it("surfaces a structured PublishError on merge conflict", async () => {
+    configurePlatform();
+    mergeBranchIntoMock.mockResolvedValueOnce({ kind: "conflict" });
+    await expect(
+      saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" }),
+    ).rejects.toMatchObject({
+      code: "github-failed",
+    });
+    // The commit was NOT attempted — a conflict short-circuits the flow.
+    expect(commitFilesMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// publishDraftToMain — squash draft into main, no targets
+// ---------------------------------------------------------------------------
+
+describe("publishDraftToMain", () => {
+  it("dev fallback is a no-op (alreadyInSync: true)", async () => {
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({ commitSha: null, mode: "local", alreadyInSync: true });
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
+  });
+
+  it("squashes draft into main and reports the squash SHA", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockResolvedValue({
+      commitSha: "squash-sha",
+      alreadyInSync: false,
+    });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({
+      commitSha: "squash-sha",
+      mode: "github",
+      alreadyInSync: false,
+    });
+    expect(squashBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ fromBranch: "draft", toBranch: "main" }),
+    );
+  });
+
+  it("auto-rebases before squashing (defense in depth alongside saveToDraft's rebase)", async () => {
+    configurePlatform();
+    await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(mergeBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+  });
+
+  it("reports alreadyInSync when squash short-circuits (nothing pending)", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockResolvedValue({
+      commitSha: "main-sha",
+      alreadyInSync: true,
+    });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result.alreadyInSync).toBe(true);
+    expect(result.commitSha).toBe("main-sha");
+  });
+
+  it("uses 'Publish pending changes' as the default subject", async () => {
+    configurePlatform();
+    await publishDraftToMain({ authorEmail: "a@e.com" });
+    const message = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(message).toMatch(/^Publish pending changes/);
+    expect(message).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}/);
+  });
+
+  it("accepts a commitSubject override", async () => {
+    configurePlatform();
+    await publishDraftToMain({
+      authorEmail: "a@e.com",
+      commitSubject: "Ship the spring tour",
+    });
+    const message = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(message).toMatch(/^Ship the spring tour/);
+  });
+
+  it("surfaces a structured PublishError on merge conflict", async () => {
+    configurePlatform();
+    mergeBranchIntoMock.mockResolvedValueOnce({ kind: "conflict" });
+    await expect(
+      publishDraftToMain({ authorEmail: "a@e.com" }),
+    ).rejects.toMatchObject({ code: "github-failed" });
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
   });
 });
