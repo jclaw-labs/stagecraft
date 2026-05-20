@@ -359,3 +359,86 @@ export async function squashBranchInto(
 function isNotFound(cause: unknown): boolean {
   return cause instanceof RequestError && cause.status === 404;
 }
+
+// ---------------------------------------------------------------------------
+// Auto-rebase (ADR-010 §7)
+// ---------------------------------------------------------------------------
+
+export type MergeBranchIntoArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** Source branch — typically `main`. Its commits get merged into `into`. */
+  from: string;
+  /** Target branch — typically `draft`. Receives the merge commit. */
+  into: string;
+  /** Commit message for the merge commit, if one is created. */
+  commitMessage?: string;
+};
+
+export type MergeBranchIntoResult =
+  | { kind: "already-included"; reason: "ancestor" | "noop" }
+  | { kind: "merged"; mergeCommitSha: string }
+  | { kind: "conflict" };
+
+/**
+ * Bring `into` up to date with `from` by creating a merge commit on
+ * `into`. ADR-010 §7 "Main moves outside of publish" — fires before
+ * every save and every publish so `draft` never falls behind `main`,
+ * even when a developer pushes directly to `main`.
+ *
+ * Outcomes:
+ *   - `from`'s HEAD is already an ancestor of `into` → no-op
+ *     (`ancestor`), no merge commit created.
+ *   - GitHub's merge succeeds cleanly → returns the new merge commit
+ *     SHA (`merged`).
+ *   - Files conflict between the two branches → returns `conflict`.
+ *     Caller surfaces this as a structured error to the artist; the
+ *     resolution path is "discard the draft and re-author" (or
+ *     contact support).
+ *
+ * Uses GitHub's `repos.merge` endpoint — atomic at the GitHub side,
+ * one API call, returns 201 / 204 / 409 / 404. 204 is "already
+ * merged" (the more common signal that there's nothing to do). 409
+ * is the conflict signal.
+ */
+export async function mergeBranchInto(
+  args: MergeBranchIntoArgs,
+): Promise<MergeBranchIntoResult> {
+  const octokit = new Octokit({ auth: args.token });
+  try {
+    const response = await octokit.repos.merge({
+      owner: args.owner,
+      repo: args.repo,
+      base: args.into,
+      head: args.from,
+      commit_message:
+        args.commitMessage ??
+        `Merge ${args.from} into ${args.into} [skip ci]`,
+    });
+    // 201 → new merge commit created. 204 → nothing to merge (head is
+    // already reachable from base). Octokit normalises the response;
+    // status comes from `response.status`.
+    if (response.status === 201) {
+      return { kind: "merged", mergeCommitSha: response.data.sha };
+    }
+    // Defensive: anything other than 201 in the success path is the
+    // "no-op" case in practice. Octokit may surface 204 with no body.
+    return { kind: "already-included", reason: "noop" };
+  } catch (cause) {
+    if (cause instanceof RequestError) {
+      // 409 → merge conflict. Surface as a structured outcome so
+      // the caller can wrap it as a user-facing "your draft can't
+      // merge with main's recent changes" error rather than a 500.
+      if (cause.status === 409) {
+        return { kind: "conflict" };
+      }
+      // 204 sometimes surfaces as a RequestError on Octokit's typing;
+      // treat it the same as the success no-op.
+      if (cause.status === 204) {
+        return { kind: "already-included", reason: "ancestor" };
+      }
+    }
+    throw cause;
+  }
+}
