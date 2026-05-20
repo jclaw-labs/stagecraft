@@ -213,7 +213,7 @@ describe("commitFiles", () => {
     });
   }
 
-  it("retries on stale-ref 422, rebuilding the tree off the new base", async () => {
+  it("retries on stale-ref 422, succeeds on second attempt", async () => {
     // First updateRef sees draft-at-X; rebuild against draft-at-Y; succeed.
     getRef
       .mockResolvedValueOnce({ data: { object: { sha: "head-X" } } })
@@ -255,7 +255,7 @@ describe("commitFiles", () => {
     expect(updateRef).toHaveBeenCalledTimes(2);
   });
 
-  it("the retry rebuilds the tree with a fresh base_tree from the new HEAD", async () => {
+  it("each retry uses a fresh base_tree and parent SHA from the new HEAD", async () => {
     getRef
       .mockResolvedValueOnce({ data: { object: { sha: "head-X" } } })
       .mockResolvedValueOnce({ data: { object: { sha: "head-Y" } } });
@@ -307,8 +307,18 @@ describe("commitFiles", () => {
   });
 
   it("throws ConcurrentEditError after 3 exhausted attempts", async () => {
-    getRef.mockResolvedValue({ data: { object: { sha: "head" } } });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "tree" } } });
+    // Use distinct head SHAs across the three attempts — the realistic
+    // race shape (the ref keeps moving each time we re-fetch). Asserting
+    // `lastAttemptedParentSha === "head-3"` then proves the error
+    // actually carries the LAST attempt's SHA, not the first.
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "head-1" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "head-2" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "head-3" } } });
+    getCommit
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-1" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-2" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-3" } } });
     createBlob.mockImplementation(({ content }) =>
       Promise.resolve({ data: { sha: `blob-${content.slice(0, 8)}` } }),
     );
@@ -333,10 +343,42 @@ describe("commitFiles", () => {
     const err = thrown as ConcurrentEditError;
     expect(err.ref).toBe("heads/draft");
     expect(err.attempts).toBe(3);
-    expect(err.lastAttemptedParentSha).toBe("head");
+    expect(err.lastAttemptedParentSha).toBe("head-3");
     expect(err.cause).toBeInstanceOf(RequestError);
     // updateRef was tried exactly 3 times, no more.
     expect(updateRef).toHaveBeenCalledTimes(3);
+  });
+
+  // Locks the discriminator's accepted message catalog. If GitHub
+  // changes the wording on `updateRef`'s stale-ref 422 (they have
+  // historically — `fast-forward` vs `fast forward`), one of these
+  // cases should fail, which is the signal to update `isStaleRefError`
+  // and add the new phrasing here.
+  it.each([
+    "Update is not a fast-forward",
+    "Update is not a fast forward",
+    "Reference is not at expected value",
+    "Update is not a Fast-Forward", // case-insensitive
+  ])("treats 422 with message %j as a stale-ref signal and retries", async (msg) => {
+    createBlob.mockResolvedValue({ data: { sha: "blob" } });
+    getRef.mockResolvedValue({ data: { object: { sha: "head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "tree" } } });
+    createTree.mockResolvedValue({ data: { sha: "new-tree" } });
+    createCommit.mockResolvedValue({ data: { sha: "commit" } });
+    updateRef
+      .mockRejectedValueOnce(staleRefError(msg))
+      .mockResolvedValueOnce({ data: {} });
+
+    const sha = await commitFiles({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      message: "save",
+      files: [{ path: "a.txt", content: "x" }],
+    });
+    expect(sha).toBe("commit");
+    expect(updateRef).toHaveBeenCalledTimes(2);
   });
 
   it("bubbles non-stale-ref 422 immediately without retrying", async () => {

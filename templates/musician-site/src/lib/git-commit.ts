@@ -140,6 +140,17 @@ export async function commitFiles(args: CommitArgs): Promise<string> {
     })),
   ];
 
+  // Initialised to "" only to satisfy TypeScript's flow analysis
+  // across the loop / catch boundary — `lastParentSha` is always
+  // reassigned to `headSha` below before any path that reads it
+  // (the `ConcurrentEditError` throw lives after the assignment in
+  // the same iteration).
+  //
+  // No backoff between attempts is intentional. The realistic
+  // concurrent-save rate is "two browser tabs," not a thundering
+  // herd; adding a sleep would just slow every save without changing
+  // collision behaviour. Revisit if telemetry shows actual herd
+  // patterns.
   let lastParentSha = "";
   for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
     const ref = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
