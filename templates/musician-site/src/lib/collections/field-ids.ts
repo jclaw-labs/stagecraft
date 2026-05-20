@@ -63,3 +63,10 @@ export const APPEARANCE_FIELD_IDS = {
   headingWeight_h2: "fld_appearance_headingWeight_h2",
   headingWeight_h3: "fld_appearance_headingWeight_h3",
 } as const;
+
+export const PHOTOS_FIELD_IDS = {
+  image: "fld_photos_image",
+  caption: "fld_photos_caption",
+  takenAt: "fld_photos_takenAt",
+  credit: "fld_photos_credit",
+} as const;
