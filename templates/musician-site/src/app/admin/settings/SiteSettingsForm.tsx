@@ -17,6 +17,19 @@ import {
 
 type Props = {
   initial: SiteConfig;
+  /**
+   * Currently-signed-in admin email. Used to surface a sandbox-mode
+   * warning when the contact email diverges and Resend can only deliver
+   * to the verified account address.
+   */
+  adminEmail: string;
+  /**
+   * True when outgoing mail still flows through Resend's shared sandbox
+   * sender (no verified domain provisioned). In that mode Resend will
+   * only deliver to addresses verified on the account, so contactEmail
+   * has to match the admin sign-in email or messages won't arrive.
+   */
+  isResendSandbox: boolean;
 };
 
 /**
@@ -24,7 +37,7 @@ type Props = {
  * Social links, and Footer — same structure as the legacy template's
  * Keystatic schema, but with the conditional/discriminator wrappers removed.
  */
-export function SiteSettingsForm({ initial }: Props) {
+export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props) {
   const form = useSettingsForm<SiteConfig>({
     initial,
     endpoint: "/api/save-config",
@@ -80,7 +93,13 @@ export function SiteSettingsForm({ initial }: Props) {
         <TextField
           id="contactEmail"
           label="Contact email"
-          description="Where contact-form submissions are delivered. Must be a valid email."
+          description={
+            <ContactEmailDescription
+              adminEmail={adminEmail}
+              isResendSandbox={isResendSandbox}
+              currentValue={form.value.contactEmail}
+            />
+          }
           value={form.value.contactEmail}
           onChange={(v) => setField("contactEmail", v)}
           type="email"
@@ -125,5 +144,53 @@ export function SiteSettingsForm({ initial }: Props) {
         />
       </FieldGroup>
     </AdminPanel>
+  );
+}
+
+/**
+ * Description renderer for the Contact email field. Always states that
+ * the address is server-side only; conditionally adds a sandbox-mode
+ * warning when the artist hasn't connected a custom domain and the
+ * value diverges from their sign-in email — in that mode Resend only
+ * delivers to addresses verified on the account.
+ *
+ * Exported for unit testing.
+ */
+export function ContactEmailDescription({
+  adminEmail,
+  isResendSandbox,
+  currentValue,
+}: {
+  adminEmail: string;
+  isResendSandbox: boolean;
+  currentValue: string;
+}) {
+  const normalizedAdmin = adminEmail.trim().toLowerCase();
+  const normalizedCurrent = currentValue.trim().toLowerCase();
+  const isDiverged =
+    isResendSandbox &&
+    normalizedAdmin.length > 0 &&
+    normalizedCurrent.length > 0 &&
+    normalizedAdmin !== normalizedCurrent;
+
+  return (
+    <>
+      Where contact-form submissions are delivered. Never appears on your public
+      site — used only to forward messages to you.
+      {isDiverged ? (
+        <span
+          role="status"
+          style={{
+            display: "block",
+            marginTop: "var(--space-2)",
+            color: "var(--color-text-error)",
+          }}
+        >
+          Heads up: your site is still using the shared email sender, which only
+          delivers to {normalizedAdmin}. Set the contact email to your sign-in
+          address — or connect a custom email domain — to receive messages.
+        </span>
+      ) : null}
+    </>
   );
 }

@@ -1,0 +1,58 @@
+{
+  "id": "item_contact_default_0001",
+  "createdAt": "2026-05-20T00:00:00.000Z",
+  "updatedAt": "2026-05-20T00:00:00.000Z",
+  "values": {
+    "fld_pages_title": {
+      "type": "text",
+      "value": "Contact"
+    },
+    "fld_pages_isSplashPage": {
+      "type": "boolean",
+      "value": false
+    },
+    "fld_pages_isFooterHidden": {
+      "type": "boolean",
+      "value": false
+    },
+    "fld_pages_showInNav": {
+      "type": "boolean",
+      "value": true
+    },
+    "fld_pages_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [
+          {
+            "type": "Heading",
+            "props": {
+              "id": "heading-contact-1",
+              "text": "Get in touch",
+              "level": "h1",
+              "textAlign": "center"
+            }
+          },
+          {
+            "type": "Section",
+            "props": {
+              "id": "section-contact-1",
+              "width": "md",
+              "headline": "",
+              "body": "Have a question, booking inquiry, or just want to say hello? Fill out the form below and we'll get back to you.",
+              "textAlign": "start"
+            }
+          },
+          {
+            "type": "ContactForm",
+            "props": {
+              "id": "contact-form-1"
+            }
+          }
+        ],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}

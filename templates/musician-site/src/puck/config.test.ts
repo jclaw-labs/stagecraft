@@ -29,6 +29,7 @@ describe("puckConfig", () => {
       [
         "Button",
         "Columns",
+        "ContactForm",
         "Divider",
         "Embed",
         "FullscreenSection",
@@ -328,6 +329,23 @@ describe("puckConfig", () => {
     it("renders the inset-margin token pair (vertical + horizontal) when inset=true", () => {
       const html = render("Divider", { inset: true });
       expect(html).toMatch(/margin:\s*var\(--space-[0-9]+\) var\(--space-[0-9]+\)/);
+    });
+  });
+
+  describe("ContactForm", () => {
+    it("exposes no artist-editable fields", () => {
+      // The form is intentionally fixed — the only configurable bit is
+      // the delivery address in site.json#contactEmail.
+      const fields = puckConfig.components.ContactForm.fields ?? {};
+      expect(Object.keys(fields)).toHaveLength(0);
+    });
+
+    it("renders a <form> with name / email / message inputs", () => {
+      const html = render("ContactForm", {});
+      expect(html).toContain("<form");
+      expect(html).toContain('name="name"');
+      expect(html).toContain('name="email"');
+      expect(html).toContain('name="message"');
     });
   });
 });
