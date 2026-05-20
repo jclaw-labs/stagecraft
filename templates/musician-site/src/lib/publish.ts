@@ -270,21 +270,18 @@ export async function publish(args: PublishArgs): Promise<PublishResult> {
   const message = `${subject}\n\nStagecraft-Publish-Id: ${publishId}`;
   const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
 
-  let commitSha: string;
-  try {
-    commitSha = await commitThroughDraft({
-      token,
-      owner,
-      repo,
-      mainBranch: env.branch,
-      message,
-      files: writes,
-      deletePaths,
-      author,
-    });
-  } catch (cause) {
-    throw new PublishError("github-failed", `GitHub commit failed: ${String(cause)}`);
-  }
+  // `commitThroughDraft` already wraps each step in a labelled
+  // PublishError; don't double-wrap or the step name gets lost.
+  const commitSha = await commitThroughDraft({
+    token,
+    owner,
+    repo,
+    mainBranch: env.branch,
+    message,
+    files: writes,
+    deletePaths,
+    author,
+  });
 
   return { commitSha, mode: "github" };
 }
@@ -326,32 +323,50 @@ export async function commitThroughDraft(
   args: CommitThroughDraftArgs,
 ): Promise<string> {
   const { token, owner, repo, mainBranch, message, files, deletePaths, author } = args;
-  await ensureBranchExists({
-    token,
-    owner,
-    repo,
-    branch: DRAFT_BRANCH,
-    fromBranch: mainBranch,
-  });
-  await commitFiles({
-    token,
-    owner,
-    repo,
-    branch: DRAFT_BRANCH,
-    message: `${message}\n\n[skip ci]`,
-    files,
-    deletePaths,
-    author,
-  });
-  const squash = await squashBranchInto({
-    token,
-    owner,
-    repo,
-    fromBranch: DRAFT_BRANCH,
-    toBranch: mainBranch,
-    message,
-    author,
-  });
+  // Wrap each step with a step label so a failure tells you whether
+  // ensure / commit / squash blew up. This becomes load-bearing in
+  // PR 2 of ADR-010, where retry behavior depends on knowing which
+  // step failed (squash failure with draft already at the new SHA
+  // can be retried as just the squash; commit failure can't).
+  try {
+    await ensureBranchExists({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      fromBranch: mainBranch,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `ensure draft branch: ${String(cause)}`);
+  }
+  try {
+    await commitFiles({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      message: `${message}\n\n[skip ci]`,
+      files,
+      deletePaths,
+      author,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `commit to draft: ${String(cause)}`);
+  }
+  let squash: { commitSha: string; alreadyInSync: boolean };
+  try {
+    squash = await squashBranchInto({
+      token,
+      owner,
+      repo,
+      fromBranch: DRAFT_BRANCH,
+      toBranch: mainBranch,
+      message,
+      author,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `squash draft → main: ${String(cause)}`);
+  }
   return squash.commitSha;
 }
 

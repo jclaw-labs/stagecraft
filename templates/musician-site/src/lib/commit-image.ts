@@ -72,24 +72,22 @@ export async function commitUploadedImage(args: {
 
   const { token, owner, repo } = await fetchPublishToken(env);
 
-  let commitSha: string;
-  try {
-    // Route through the draft branch (ADR-010). Images upload as one
-    // commit on draft + immediate squash to main, matching the rest
-    // of the save flow. The draft commit carries `[skip ci]` so the
-    // deploy only fires for the squash commit on main.
-    commitSha = await commitThroughDraft({
-      token,
-      owner,
-      repo,
-      mainBranch: env.branch,
-      message: `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`,
-      files,
-      author: { name: args.authorName ?? "Artist", email: args.authorEmail },
-    });
-  } catch (cause) {
-    throw new PublishError("github-failed", `GitHub commit failed: ${String(cause)}`);
-  }
+  // Route through the draft branch (ADR-010). Images upload as one
+  // commit on draft + immediate squash to main, matching the rest of
+  // the save flow. The draft commit carries `[skip ci]` so the
+  // deploy only fires for the squash commit on main.
+  //
+  // `commitThroughDraft` already wraps each step in a labelled
+  // PublishError — don't double-wrap or the step name is lost.
+  const commitSha = await commitThroughDraft({
+    token,
+    owner,
+    repo,
+    mainBranch: env.branch,
+    message: `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`,
+    files,
+    author: { name: args.authorName ?? "Artist", email: args.authorEmail },
+  });
 
   return { metadata: generated.metadata, commitSha };
 }

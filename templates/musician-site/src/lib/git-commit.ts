@@ -147,12 +147,21 @@ export async function ensureBranchExists(args: EnsureBranchExistsArgs): Promise<
     if (!isNotFound(cause)) throw cause;
   }
   const base = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
-  await octokit.git.createRef({
-    owner,
-    repo,
-    ref: `refs/heads/${branch}`,
-    sha: base.data.object.sha,
-  });
+  try {
+    await octokit.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha: base.data.object.sha,
+    });
+  } catch (cause) {
+    // Race: another process (a parallel save in another tab, the
+    // broker's bootstrap, etc.) created the branch between our 404
+    // and our createRef. GitHub returns 422 "Reference already
+    // exists". Idempotent: the branch is there, our work is done.
+    if (cause instanceof RequestError && cause.status === 422) return;
+    throw cause;
+  }
 }
 
 export type SquashBranchIntoArgs = {
@@ -230,21 +239,24 @@ export async function squashBranchInto(
     author: args.author,
   });
 
-  // Update the destination first — that's the one the public site
-  // builds from. If the draft FF fails afterwards, the destination
-  // is still correct (just at a SHA that draft doesn't yet match,
-  // which the next save's `ensureBranchExists` + commit will
-  // observe and reconcile).
+  // Update the source ref first — that preserves ADR-010's invariant
+  // (`fromBranch === toBranch OR fromBranch is ahead of toBranch`) on
+  // partial failure. If we updated `toBranch` first and then the
+  // `fromBranch` FF failed, `fromBranch` would be BEHIND `toBranch`,
+  // and the next save's commit would be parented on stale draft
+  // state — silently dropping `toBranch`'s recent content on the
+  // next squash. Doing it this way leaves `fromBranch` ahead of
+  // `toBranch` on partial failure, which the next call self-heals.
   await octokit.git.updateRef({
     owner,
     repo,
-    ref: `heads/${toBranch}`,
+    ref: `heads/${fromBranch}`,
     sha: squash.data.sha,
   });
   await octokit.git.updateRef({
     owner,
     repo,
-    ref: `heads/${fromBranch}`,
+    ref: `heads/${toBranch}`,
     sha: squash.data.sha,
   });
 

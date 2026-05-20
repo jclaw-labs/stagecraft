@@ -250,6 +250,28 @@ describe("ensureBranchExists", () => {
     });
   });
 
+  it("idempotent when createRef races with another caller (422 already exists)", async () => {
+    getRef
+      .mockRejectedValueOnce(notFoundError()) // first getRef: heads/draft → 404
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    // Someone else created the branch between our 404 and createRef.
+    createRef.mockRejectedValue(
+      new RequestError("Reference already exists", 422, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 422, url: "x", headers: {}, data: {} },
+      }),
+    );
+    await expect(
+      ensureBranchExists({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        fromBranch: "main",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("propagates non-404 errors from the first getRef", async () => {
     const boom = new Error("rate limit");
     getRef.mockRejectedValue(boom);
@@ -301,20 +323,53 @@ describe("squashBranchInto", () => {
         author: { name: "A", email: "a@e.com" },
       }),
     );
-    // Both refs end at the new commit. Order: main first (the
-    // user-visible deploy ref), then draft FF's to match.
+    // Both refs end at the new commit. Order MATTERS: source (draft)
+    // first, then target (main). On partial failure that order
+    // preserves ADR-010's invariant `draft.sha === main.sha OR draft
+    // is ahead of main`; the reverse order would leave draft behind
+    // main and the next save would lose data.
     expect(updateRef).toHaveBeenNthCalledWith(1, {
-      owner: "o",
-      repo: "r",
-      ref: "heads/main",
-      sha: "squash-sha",
-    });
-    expect(updateRef).toHaveBeenNthCalledWith(2, {
       owner: "o",
       repo: "r",
       ref: "heads/draft",
       sha: "squash-sha",
     });
+    expect(updateRef).toHaveBeenNthCalledWith(2, {
+      owner: "o",
+      repo: "r",
+      ref: "heads/main",
+      sha: "squash-sha",
+    });
+  });
+
+  it("on partial failure (draft updated, main not) the invariant holds (draft ahead of main)", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    // First updateRef (draft) succeeds; second (main) throws.
+    updateRef
+      .mockResolvedValueOnce({ data: {} })
+      .mockRejectedValueOnce(new Error("transient: 503"));
+    await expect(
+      squashBranchInto({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        fromBranch: "draft",
+        toBranch: "main",
+        message: "msg",
+      }),
+    ).rejects.toThrow("transient: 503");
+    // Crucially: draft *did* get updated to the squash. Next save's
+    // commitFiles will append to it, and the retry's squash will
+    // catch main up from a draft tree that includes the previous
+    // squash's content.
+    expect(updateRef).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      ref: "heads/draft",
+      sha: "squash-sha",
+    }));
   });
 
   it("returns alreadyInSync without creating a commit when the refs match", async () => {
