@@ -18,6 +18,7 @@ import {
   readItem,
   readOrder,
   readSingleton,
+  renameItem,
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
   writeItem,
@@ -233,6 +234,101 @@ describe("item operations", () => {
     await deleteItem("tour-dates", "paris-2026");
     expect(await readItem("tour-dates", "paris-2026", def)).toBeNull();
     await deleteItem("tour-dates", "paris-2026");
+  });
+
+  describe("renameItem", () => {
+    it("renames the file, preserves the item's id, and removes the old slug", async () => {
+      const def = tourDatesDef();
+      await writeCollectionDef("tour-dates", def);
+      const item = tourDateItem("paris-2026", "2026-07-15", "La Cigale", "Paris");
+      await writeItem("tour-dates", "paris-2026", item, def);
+
+      const renamed = await renameItem("tour-dates", "paris-2026", "paris-night", def);
+      expect(renamed.id).toBe(item.id);
+      expect(renamed.slug).toBe("paris-night");
+      expect(await readItem("tour-dates", "paris-2026", def)).toBeNull();
+      expect((await readItem("tour-dates", "paris-night", def))?.id).toBe(item.id);
+    });
+
+    it("updates _order.json when the collection uses manual ordering", async () => {
+      const def: CollectionDef = { ...tourDatesDef(), defaultSort: { mode: "manual" } };
+      await writeCollectionDef("tour-dates", def);
+      await writeItem(
+        "tour-dates",
+        "paris-2026",
+        tourDateItem("paris-2026", "2026-07-15", "X", "Paris"),
+        def,
+      );
+      await writeItem(
+        "tour-dates",
+        "berlin-2026",
+        tourDateItem("berlin-2026", "2026-07-20", "Y", "Berlin"),
+        def,
+      );
+      await writeOrder("tour-dates", ["paris-2026", "berlin-2026"]);
+
+      await renameItem("tour-dates", "paris-2026", "paris-night", def);
+      expect(await readOrder("tour-dates")).toEqual(["paris-night", "berlin-2026"]);
+    });
+
+    it("leaves _order.json alone when the collection isn't manually ordered", async () => {
+      // tourDatesDef defaults to fieldSort, not manual. The rename still
+      // succeeds; the (nonexistent) order file shouldn't get conjured up.
+      const def = tourDatesDef();
+      await writeCollectionDef("tour-dates", def);
+      await writeItem(
+        "tour-dates",
+        "paris-2026",
+        tourDateItem("paris-2026", "2026-07-15", "X", "Paris"),
+        def,
+      );
+      await renameItem("tour-dates", "paris-2026", "paris-night", def);
+      expect(await readOrder("tour-dates")).toBeNull();
+    });
+
+    it("throws ItemExistsError if the new slug already exists", async () => {
+      const def = tourDatesDef();
+      await writeCollectionDef("tour-dates", def);
+      await writeItem(
+        "tour-dates",
+        "paris-2026",
+        tourDateItem("paris-2026", "2026-07-15", "X", "Paris"),
+        def,
+      );
+      await writeItem(
+        "tour-dates",
+        "berlin-2026",
+        tourDateItem("berlin-2026", "2026-07-20", "Y", "Berlin"),
+        def,
+      );
+      await expect(
+        renameItem("tour-dates", "paris-2026", "berlin-2026", def),
+      ).rejects.toThrow(ItemExistsError);
+      // Old slug should still be readable — no partial state.
+      expect(await readItem("tour-dates", "paris-2026", def)).not.toBeNull();
+    });
+
+    it("throws when the source slug doesn't exist", async () => {
+      const def = tourDatesDef();
+      await writeCollectionDef("tour-dates", def);
+      await expect(
+        renameItem("tour-dates", "ghost", "phantom", def),
+      ).rejects.toThrow(/no item/);
+    });
+
+    it("throws when old and new slugs are identical", async () => {
+      const def = tourDatesDef();
+      await writeCollectionDef("tour-dates", def);
+      await writeItem(
+        "tour-dates",
+        "paris-2026",
+        tourDateItem("paris-2026", "2026-07-15", "X", "Paris"),
+        def,
+      );
+      await expect(
+        renameItem("tour-dates", "paris-2026", "paris-2026", def),
+      ).rejects.toThrow(/must differ/);
+    });
   });
 
   it("readItem strips values for fields that no longer exist on the schema", async () => {

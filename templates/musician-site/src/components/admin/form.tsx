@@ -86,6 +86,13 @@ export type TextFieldProps = {
   isMultiline?: boolean;
   rows?: number;
   isRequired?: boolean;
+  /**
+   * Optional ref forwarded to the underlying `<input>` (single-line
+   * mode only). Useful for auto-focus on mount (modals, inline
+   * editors). The multiline variant ignores it — pass `isMultiline`
+   * with a refless caller until a textarea consumer needs one.
+   */
+  inputRef?: React.Ref<HTMLInputElement>;
 };
 
 export function TextField({
@@ -99,6 +106,7 @@ export function TextField({
   isMultiline = false,
   rows = 3,
   isRequired = false,
+  inputRef,
 }: TextFieldProps) {
   return (
     <Field label={label} description={description} htmlFor={id}>
@@ -115,6 +123,7 @@ export function TextField({
       ) : (
         <input
           id={id}
+          ref={inputRef}
           type={type}
           value={value}
           required={isRequired}
