@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import { RequestError } from "@octokit/request-error";
 
 export type FileToCommit = {
   /** Path relative to the repo root, e.g. "src/content/pages/home.json". */
@@ -111,4 +112,157 @@ export async function commitFiles(args: CommitArgs): Promise<string> {
   });
 
   return commit.data.sha;
+}
+
+// ---------------------------------------------------------------------------
+// Branch management helpers used by ADR-010's two-branch publish model
+// ---------------------------------------------------------------------------
+
+export type EnsureBranchExistsArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** The branch we want to guarantee exists, e.g. "draft". */
+  branch: string;
+  /** Where to base the new branch off of when it doesn't exist yet. */
+  fromBranch: string;
+};
+
+/**
+ * Make sure `branch` exists on the artist's repo, creating it from
+ * `fromBranch`'s current HEAD if not. Idempotent — call before any
+ * commit that targets `branch`.
+ *
+ * The 404 path is the only "doesn't exist" signal GitHub returns for
+ * a missing ref. Other errors bubble; the caller wraps them as
+ * PublishError at the publish.ts boundary.
+ */
+export async function ensureBranchExists(args: EnsureBranchExistsArgs): Promise<void> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, branch, fromBranch } = args;
+  try {
+    await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    return;
+  } catch (cause) {
+    if (!isNotFound(cause)) throw cause;
+  }
+  const base = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
+  try {
+    await octokit.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha: base.data.object.sha,
+    });
+  } catch (cause) {
+    // Race: another process (a parallel save in another tab, the
+    // broker's bootstrap, etc.) created the branch between our 404
+    // and our createRef. GitHub returns 422 "Reference already
+    // exists". Idempotent: the branch is there, our work is done.
+    if (cause instanceof RequestError && cause.status === 422) return;
+    throw cause;
+  }
+}
+
+export type SquashBranchIntoArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** Source branch — `draft`. Its tree becomes the squash commit's tree. */
+  fromBranch: string;
+  /** Target branch — `main`. Receives the new squash commit on top of HEAD. */
+  toBranch: string;
+  /** Commit message subject (+ optional body). */
+  message: string;
+  author?: { name: string; email: string };
+};
+
+export type SquashBranchIntoResult = {
+  /** SHA of the new squash commit on `toBranch`. */
+  commitSha: string;
+  /**
+   * `true` when nothing was published because the branches already
+   * matched. `commitSha` is `toBranch`'s existing HEAD in that case.
+   */
+  alreadyInSync: boolean;
+};
+
+/**
+ * Squash `fromBranch` into `toBranch`: create a new commit on
+ * `toBranch` whose parent is `toBranch`'s current HEAD and whose
+ * tree comes from `fromBranch`'s current HEAD. Then fast-forward
+ * `fromBranch` to point at the new commit (so the invariant
+ * `fromBranch === toBranch OR fromBranch is ahead of toBranch`
+ * holds again).
+ *
+ * Per ADR-010 §3 — this is the Publish flow. The per-save commits
+ * on `fromBranch` between the previous and new `toBranch` HEAD
+ * become unreachable from any active ref (visible only via reflog
+ * before GitHub garbage-collects them).
+ *
+ * No-op when the two branches already point at the same SHA;
+ * returns `alreadyInSync: true` so the caller can skip downstream
+ * work (no deploy to wait for).
+ */
+export async function squashBranchInto(
+  args: SquashBranchIntoArgs,
+): Promise<SquashBranchIntoResult> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, fromBranch, toBranch } = args;
+
+  const [fromRef, toRef] = await Promise.all([
+    octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` }),
+    octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` }),
+  ]);
+  const fromSha = fromRef.data.object.sha;
+  const toSha = toRef.data.object.sha;
+
+  if (fromSha === toSha) {
+    return { commitSha: toSha, alreadyInSync: true };
+  }
+
+  // Take the tree pointer off the source-branch's HEAD commit. We're
+  // not building a new tree from blobs — we're reusing what `draft`
+  // already committed.
+  const fromCommit = await octokit.git.getCommit({
+    owner,
+    repo,
+    commit_sha: fromSha,
+  });
+
+  const squash = await octokit.git.createCommit({
+    owner,
+    repo,
+    message: args.message,
+    tree: fromCommit.data.tree.sha,
+    parents: [toSha],
+    author: args.author,
+  });
+
+  // Update the source ref first — that preserves ADR-010's invariant
+  // (`fromBranch === toBranch OR fromBranch is ahead of toBranch`) on
+  // partial failure. If we updated `toBranch` first and then the
+  // `fromBranch` FF failed, `fromBranch` would be BEHIND `toBranch`,
+  // and the next save's commit would be parented on stale draft
+  // state — silently dropping `toBranch`'s recent content on the
+  // next squash. Doing it this way leaves `fromBranch` ahead of
+  // `toBranch` on partial failure, which the next call self-heals.
+  await octokit.git.updateRef({
+    owner,
+    repo,
+    ref: `heads/${fromBranch}`,
+    sha: squash.data.sha,
+  });
+  await octokit.git.updateRef({
+    owner,
+    repo,
+    ref: `heads/${toBranch}`,
+    sha: squash.data.sha,
+  });
+
+  return { commitSha: squash.data.sha, alreadyInSync: false };
+}
+
+function isNotFound(cause: unknown): boolean {
+  return cause instanceof RequestError && cause.status === 404;
 }

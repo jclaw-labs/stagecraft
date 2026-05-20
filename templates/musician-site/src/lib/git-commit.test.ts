@@ -1,19 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { RequestError } from "@octokit/request-error";
 
 const getRef = vi.fn();
 const getCommit = vi.fn();
 const createBlob = vi.fn();
 const createTree = vi.fn();
 const createCommit = vi.fn();
+const createRef = vi.fn();
 const updateRef = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
-    git = { getRef, getCommit, createBlob, createTree, createCommit, updateRef };
+    git = { getRef, getCommit, createBlob, createTree, createCommit, createRef, updateRef };
   },
 }));
 
-import { commitFiles } from "./git-commit";
+import { commitFiles, ensureBranchExists, squashBranchInto } from "./git-commit";
 
 beforeEach(() => {
   getRef.mockReset();
@@ -21,6 +23,7 @@ beforeEach(() => {
   createBlob.mockReset();
   createTree.mockReset();
   createCommit.mockReset();
+  createRef.mockReset();
   updateRef.mockReset();
 });
 
@@ -193,5 +196,197 @@ describe("commitFiles", () => {
         files: [{ path: "a.txt", content: "x" }],
       }),
     ).rejects.toThrow("404");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureBranchExists (ADR-010)
+// ---------------------------------------------------------------------------
+
+function notFoundError(): Error {
+  // The ensureBranchExists "missing branch" path keys off
+  // `cause instanceof RequestError && cause.status === 404`, so the
+  // test must supply that exact shape. RequestError lives in
+  // @octokit/request-error (not re-exported from @octokit/rest).
+  return new RequestError("Not Found", 404, {
+    request: { method: "GET", url: "x", headers: {} },
+    response: { status: 404, url: "x", headers: {}, data: {} },
+  });
+}
+
+describe("ensureBranchExists", () => {
+  it("no-op when the branch already exists", async () => {
+    getRef.mockResolvedValue({ data: { object: { sha: "sha" } } });
+    await ensureBranchExists({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      fromBranch: "main",
+    });
+    expect(getRef).toHaveBeenCalledTimes(1);
+    expect(getRef).toHaveBeenCalledWith({ owner: "o", repo: "r", ref: "heads/draft" });
+    expect(createRef).not.toHaveBeenCalled();
+  });
+
+  it("creates the branch from fromBranch's HEAD when missing", async () => {
+    getRef
+      .mockRejectedValueOnce(notFoundError()) // first: heads/draft → 404
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } }); // second: heads/main
+    createRef.mockResolvedValue({ data: {} });
+
+    await ensureBranchExists({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      fromBranch: "main",
+    });
+    expect(createRef).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      ref: "refs/heads/draft",
+      sha: "main-head",
+    });
+  });
+
+  it("idempotent when createRef races with another caller (422 already exists)", async () => {
+    getRef
+      .mockRejectedValueOnce(notFoundError()) // first getRef: heads/draft → 404
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    // Someone else created the branch between our 404 and createRef.
+    createRef.mockRejectedValue(
+      new RequestError("Reference already exists", 422, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 422, url: "x", headers: {}, data: {} },
+      }),
+    );
+    await expect(
+      ensureBranchExists({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        fromBranch: "main",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("propagates non-404 errors from the first getRef", async () => {
+    const boom = new Error("rate limit");
+    getRef.mockRejectedValue(boom);
+    await expect(
+      ensureBranchExists({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        fromBranch: "main",
+      }),
+    ).rejects.toBe(boom);
+    expect(createRef).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// squashBranchInto (ADR-010)
+// ---------------------------------------------------------------------------
+
+describe("squashBranchInto", () => {
+  it("creates a new commit on toBranch with fromBranch's tree, then FFs fromBranch", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } }) // fromBranch
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } }); // toBranch
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree-sha" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    updateRef.mockResolvedValue({ data: {} });
+
+    const result = await squashBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      fromBranch: "draft",
+      toBranch: "main",
+      message: "Publish from draft",
+      author: { name: "A", email: "a@e.com" },
+    });
+
+    expect(result).toEqual({ commitSha: "squash-sha", alreadyInSync: false });
+    // Squash commit: parent = main's current HEAD, tree = draft's tree.
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        message: "Publish from draft",
+        tree: "draft-tree-sha",
+        parents: ["main-head"],
+        author: { name: "A", email: "a@e.com" },
+      }),
+    );
+    // Both refs end at the new commit. Order MATTERS: source (draft)
+    // first, then target (main). On partial failure that order
+    // preserves ADR-010's invariant `draft.sha === main.sha OR draft
+    // is ahead of main`; the reverse order would leave draft behind
+    // main and the next save would lose data.
+    expect(updateRef).toHaveBeenNthCalledWith(1, {
+      owner: "o",
+      repo: "r",
+      ref: "heads/draft",
+      sha: "squash-sha",
+    });
+    expect(updateRef).toHaveBeenNthCalledWith(2, {
+      owner: "o",
+      repo: "r",
+      ref: "heads/main",
+      sha: "squash-sha",
+    });
+  });
+
+  it("on partial failure (draft updated, main not) the invariant holds (draft ahead of main)", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    // First updateRef (draft) succeeds; second (main) throws.
+    updateRef
+      .mockResolvedValueOnce({ data: {} })
+      .mockRejectedValueOnce(new Error("transient: 503"));
+    await expect(
+      squashBranchInto({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        fromBranch: "draft",
+        toBranch: "main",
+        message: "msg",
+      }),
+    ).rejects.toThrow("transient: 503");
+    // Crucially: draft *did* get updated to the squash. Next save's
+    // commitFiles will append to it, and the retry's squash will
+    // catch main up from a draft tree that includes the previous
+    // squash's content.
+    expect(updateRef).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      ref: "heads/draft",
+      sha: "squash-sha",
+    }));
+  });
+
+  it("returns alreadyInSync without creating a commit when the refs match", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } });
+    const result = await squashBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      fromBranch: "draft",
+      toBranch: "main",
+      message: "noop",
+    });
+    expect(result).toEqual({ commitSha: "same", alreadyInSync: true });
+    expect(getCommit).not.toHaveBeenCalled();
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(updateRef).not.toHaveBeenCalled();
   });
 });

@@ -3,8 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { commitFilesMock } = vi.hoisted(() => ({ commitFilesMock: vi.fn() }));
-vi.mock("./git-commit", () => ({ commitFiles: commitFilesMock }));
+const { commitFilesMock, ensureBranchExistsMock, squashBranchIntoMock } = vi.hoisted(
+  () => ({
+    commitFilesMock: vi.fn(),
+    ensureBranchExistsMock: vi.fn(),
+    squashBranchIntoMock: vi.fn(),
+  }),
+);
+vi.mock("./git-commit", () => ({
+  commitFiles: commitFilesMock,
+  ensureBranchExists: ensureBranchExistsMock,
+  squashBranchInto: squashBranchIntoMock,
+}));
 
 import { PublishError, publish, publishPage, isPlatformConfigured } from "./publish";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
@@ -34,6 +44,13 @@ afterAll(async () => {
 
 beforeEach(() => {
   commitFilesMock.mockReset();
+  ensureBranchExistsMock.mockReset().mockResolvedValue(undefined);
+  // Default: squash returns a deterministic SHA so happy-path tests
+  // can ignore the call shape. Tests that care about the SHA override
+  // explicitly.
+  squashBranchIntoMock
+    .mockReset()
+    .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false });
   process.env = { ...ORIGINAL_ENV };
   delete process.env.STAGECRAFT_PLATFORM_URL;
   delete process.env.STAGECRAFT_SITE_ID;
@@ -113,7 +130,11 @@ describe("publishPage — dev fallback (no platform configured)", () => {
 describe("publishPage — broker + GitHub path", () => {
   it("commits via GitHub when platform is configured", async () => {
     configurePlatform();
-    commitFilesMock.mockResolvedValue("commit-sha-abc");
+    commitFilesMock.mockResolvedValue("draft-commit-sha");
+    squashBranchIntoMock.mockResolvedValue({
+      commitSha: "main-squash-sha",
+      alreadyInSync: false,
+    });
 
     const result = await publishPage({
       pageSlug: TEST_SLUG,
@@ -122,13 +143,16 @@ describe("publishPage — broker + GitHub path", () => {
       authorName: "Real Artist",
     });
 
-    expect(result).toEqual({ mode: "github", commitSha: "commit-sha-abc" });
+    // Result reports the squash commit's SHA — that's the one on
+    // main that triggers the deploy and that callers poll for.
+    expect(result).toEqual({ mode: "github", commitSha: "main-squash-sha" });
+    // The per-save commit went to `draft` (per ADR-010), not main.
     expect(commitFilesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "ghs_token",
         owner: "artist",
         repo: "site",
-        branch: "main",
+        branch: "draft",
         files: [
           expect.objectContaining({
             path: `src/content/collections/pages/items/${TEST_SLUG}.json`,
@@ -137,6 +161,46 @@ describe("publishPage — broker + GitHub path", () => {
         author: { name: "Real Artist", email: "artist@example.com" },
       }),
     );
+    // And the squash targets main with the same author.
+    expect(squashBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: "ghs_token",
+        owner: "artist",
+        repo: "site",
+        fromBranch: "draft",
+        toBranch: "main",
+        author: { name: "Real Artist", email: "artist@example.com" },
+      }),
+    );
+  });
+
+  it("ensures the draft branch exists before committing to it", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("sha");
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "a@e.com",
+    });
+    expect(ensureBranchExistsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft", fromBranch: "main" }),
+    );
+  });
+
+  it("appends [skip ci] to the draft commit message (deploy gate)", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("sha");
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "a@e.com",
+    });
+    const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
+    expect(draftMessage).toContain("[skip ci]");
+    // And the squash commit on main does NOT carry the skip marker —
+    // it's the one that triggers the deploy.
+    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(squashMessage).not.toContain("[skip ci]");
   });
 
   it("forwards Authorization Bearer secret to the broker", async () => {
@@ -192,17 +256,28 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
-    const message = commitFilesMock.mock.calls[0][0].message as string;
-    expect(message).toMatch(/^Update publish-test/);
-    expect(message).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}$/);
+    // The squash commit on main carries the trailer (the user-
+    // visible "publish" event). The draft commit has the same body
+    // plus `[skip ci]`; both should include the trailer.
+    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(squashMessage).toMatch(/^Update publish-test/);
+    expect(squashMessage).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}$/);
   });
 
-  it("respects SITE_GIT_BRANCH env override", async () => {
+  it("respects SITE_GIT_BRANCH env override for the squash target", async () => {
     configurePlatform();
     process.env.SITE_GIT_BRANCH = "develop";
     commitFilesMock.mockResolvedValue("sha");
     await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
-    expect(commitFilesMock.mock.calls[0][0].branch).toBe("develop");
+    // The published branch is the squash target; `draft` is unchanged.
+    expect(squashBranchIntoMock.mock.calls[0][0].toBranch).toBe("develop");
+    expect(commitFilesMock.mock.calls[0][0].branch).toBe("draft");
+    // ensureBranchExists bases the draft branch off the env branch
+    // (which is now `develop`) so a non-default deploy branch still
+    // gets a draft companion.
+    expect(ensureBranchExistsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft", fromBranch: "develop" }),
+    );
   });
 });
 
@@ -228,8 +303,10 @@ describe("publish — multi-target API", () => {
       authorEmail: "a@e.com",
       commitSubject: "Custom subject line",
     });
-    const message = commitFilesMock.mock.calls[0][0].message as string;
-    expect(message).toMatch(/^Custom subject line/);
+    // The squash commit on main is the user-visible one — assert
+    // there. (The draft commit has the same subject plus [skip ci].)
+    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(squashMessage).toMatch(/^Custom subject line/);
   });
 });
 
@@ -470,10 +547,10 @@ describe("publish — collection target kinds", () => {
       ],
       authorEmail: "a@e.com",
     });
-    const message = commitFilesMock.mock.calls[0][0].message as string;
-    expect(message).toContain("collection defs: tour-dates");
-    expect(message).toContain("items: tour-dates/paris-2026");
-    expect(message).toContain("order: tour-dates");
-    expect(message).toContain("delete items: tour-dates/old-show");
+    const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
+    expect(squashMessage).toContain("collection defs: tour-dates");
+    expect(squashMessage).toContain("items: tour-dates/paris-2026");
+    expect(squashMessage).toContain("order: tour-dates");
+    expect(squashMessage).toContain("delete items: tour-dates/old-show");
   });
 });
