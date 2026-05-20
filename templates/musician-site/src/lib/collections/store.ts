@@ -281,7 +281,20 @@ export async function renameItem(
 
   const renamed: Item = { ...existing, slug: newSlug };
   await writeItem(collectionSlug, newSlug, renamed, def);
-  await deleteItem(collectionSlug, oldSlug);
+  try {
+    await deleteItem(collectionSlug, oldSlug);
+  } catch (cause) {
+    // Partial-failure recovery: the new file is on disk but the old
+    // one couldn't be removed. Surface a specific error so the artist
+    // (or platform support) knows the on-disk state and which file
+    // to delete manually. A naive retry would hit the collision
+    // check (newSlug now exists) and fail with a misleading message.
+    const message = cause instanceof Error ? cause.message : "unknown";
+    throw new Error(
+      `renameItem: wrote ${newSlug}.json but failed to delete ${oldSlug}.json (${message}). ` +
+        `Both files now exist in items/. Delete ${oldSlug}.json manually to complete the rename.`,
+    );
+  }
 
   // Preserve manual ordering: replace oldSlug with newSlug at its
   // current position so the artist's drag-ordered sequence survives

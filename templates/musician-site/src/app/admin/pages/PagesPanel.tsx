@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { TextField } from "@/components/admin/form";
 import {
@@ -554,6 +554,31 @@ function RenamePageModal({
   const [nextSlug, setNextSlug] = useState(page.slug);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Remember the element that had focus before the modal opened so we
+  // can restore it on close. Without this, keyboard / screen-reader
+  // users land in the page chrome instead of back on the Rename
+  // button they triggered the modal from.
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    triggerRef.current = document.activeElement as HTMLElement | null;
+    // Auto-focus the slug input on mount so the artist can start
+    // typing immediately.
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !isSaving) onCancel();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      triggerRef.current?.focus?.();
+    };
+    // We deliberately don't re-run on every render — the focus
+    // restore should fire once at unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isValid =
     nextSlug.length > 0 && PAGE_SLUG_PATTERN.test(nextSlug) && nextSlug !== page.slug;
@@ -607,22 +632,46 @@ function RenamePageModal({
         >
           Rename page
         </h2>
-        <p
-          style={{
-            margin: 0,
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-          }}
-        >
-          Renaming changes the page&apos;s URL from{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> to{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>
-            /{nextSlug || "new-slug"}
-          </code>
-          . The old URL won&apos;t redirect — anyone with a link to{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> will see
-          a 404. Copy the old URL first if you need to update external links.
-        </p>
+        {page.isSplashPage ? (
+          // Splash pages always render at `/`, regardless of slug.
+          // Renaming changes the filename and the URL the page would
+          // have if it stopped being the splash, but doesn't break
+          // any currently-live link.
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            This is the splash page, so it always lives at{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>/</code> — renaming
+            won&apos;t change its public URL. The filename and the slug it would
+            have if it stopped being the splash change from{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>{page.slug}</code> to{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>
+              {nextSlug || "new-slug"}
+            </code>
+            .
+          </p>
+        ) : (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            Renaming changes the page&apos;s URL from{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> to{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>
+              /{nextSlug || "new-slug"}
+            </code>
+            . The old URL won&apos;t redirect — anyone with a link to{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> will see
+            a 404. Copy the old URL first if you need to update external links.
+          </p>
+        )}
         <TextField
           id="rename-page-slug"
           label="New URL slug"
@@ -634,6 +683,7 @@ function RenamePageModal({
           }}
           placeholder="e.g. tour-2026"
           isRequired
+          inputRef={inputRef}
         />
         {error ? (
           <div
