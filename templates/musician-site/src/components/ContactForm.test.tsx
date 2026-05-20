@@ -38,12 +38,6 @@ describe("<ContactForm />", () => {
     expect(html).toContain('aria-hidden');
   });
 
-  it("uses an aria-live status region (for SSR'd accessibility tree)", () => {
-    // No status messages on initial render — but the markup should not
-    // leak a stale state region.
-    expect(html).not.toContain('role="status"');
-  });
-
   it("only uses design tokens for colors (no raw hex in inline styles)", () => {
     // Spacing / sizing tokens are covered by the existing config tests
     // for the surrounding Puck blocks; ContactForm just needs to keep

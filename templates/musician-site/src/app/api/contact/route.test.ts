@@ -30,6 +30,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -95,6 +97,48 @@ describe("POST /api/contact", () => {
     expect(sendContactEmailMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["name", "Sarah\nBcc: leak@evil.com"],
+    ["name", "Sarah\rBcc: leak@evil.com"],
+    ["subject", "Booking\nX-Header: pwned"],
+  ])("rejects CRLF in %s to prevent header injection (%s)", async (field, payload) => {
+    const res = await POST(buildRequest({ ...validBody, [field]: payload }));
+    expect(res.status).toBe(400);
+    expect(sendContactEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-origin POSTs", async () => {
+    const res = await POST(
+      buildRequest(validBody, {
+        "x-forwarded-for": "1.2.3.4",
+        origin: "https://evil.com",
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(sendContactEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts same-origin POSTs", async () => {
+    const res = await POST(
+      buildRequest(validBody, {
+        "x-forwarded-for": "1.2.3.4",
+        origin: "http://localhost",
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects oversized bodies before parsing", async () => {
+    const res = await POST(
+      buildRequest(validBody, {
+        "x-forwarded-for": "1.2.3.4",
+        "content-length": "100000",
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect(sendContactEmailMock).not.toHaveBeenCalled();
+  });
+
   it("rate-limits a single IP after 3 messages within the window", async () => {
     const req = () => POST(buildRequest(validBody));
     expect((await req()).status).toBe(200);
@@ -103,6 +147,21 @@ describe("POST /api/contact", () => {
     const fourth = await req();
     expect(fourth.status).toBe(429);
     expect(sendContactEmailMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("re-allows the same IP once its oldest send leaves the window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T00:00:00Z"));
+    const req = () => POST(buildRequest(validBody));
+    expect((await req()).status).toBe(200);
+    expect((await req()).status).toBe(200);
+    expect((await req()).status).toBe(200);
+    expect((await req()).status).toBe(429);
+    // Advance just past the window — the three earlier timestamps fall
+    // out of the .filter() and a new send is allowed.
+    vi.setSystemTime(new Date("2026-05-20T00:01:00.500Z"));
+    expect((await req()).status).toBe(200);
+    expect(sendContactEmailMock).toHaveBeenCalledTimes(4);
   });
 
   it("isolates rate limiting per IP", async () => {

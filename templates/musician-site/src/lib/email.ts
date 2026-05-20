@@ -67,6 +67,17 @@ export type ContactMessage = {
 };
 
 /**
+ * Strip characters that would break out of an RFC 5322 display name
+ * (`<`, `>`, `"`) or fold the header onto a new line (`\r`, `\n`).
+ * `siteName` originates from the admin-authored `artistName`, so this
+ * is defense-in-depth — but the cost is one regex, and a stray quote
+ * in an artist's name shouldn't make Resend reject the payload.
+ */
+function sanitizeDisplayName(name: string): string {
+  return name.replace(/[<>"\r\n]/g, "").trim();
+}
+
+/**
  * Send a contact-form submission to the artist via Resend. Mirrors
  * `sendMagicLink`: same `RESEND_API_KEY` env, same `MAGIC_LINK_FROM`
  * override. The submitter never sees the artist's address — the
@@ -83,8 +94,12 @@ export async function sendContactEmail(message: ContactMessage): Promise<void> {
     return;
   }
   const resend = new Resend(apiKey);
+  const displayName = sanitizeDisplayName(message.siteName);
+  const from = displayName.length > 0
+    ? `${displayName} <${resolveFromAddress()}>`
+    : resolveFromAddress();
   await resend.emails.send({
-    from: `${message.siteName} <${resolveFromAddress()}>`,
+    from,
     to: message.to,
     replyTo: message.replyTo,
     subject: message.subject,

@@ -18,22 +18,60 @@ import { clientIp, isRateLimited } from "./rate-limit";
  * IP rate limit caps a single client to 3 messages per minute. The
  * in-memory limiter is per-instance; under serverless scale-out it
  * degrades to "best effort," same as the legacy template.
+ *
+ * Cross-origin POSTs are rejected — keeps the form a same-site
+ * endpoint so a third-party site can't burn Resend send-cost on the
+ * artist's account up to the IP rate limit.
  */
 
-const MAX_FIELD_BYTES = 5000;
+const MAX_MESSAGE_BYTES = 5000;
+const MAX_BODY_BYTES = 50_000;
+
+// Single-line text fields: reject embedded CR/LF so nothing reaches
+// the email backend's header parser (subject is a header; name lands
+// in the from-display and the body, both confused by stray newlines).
+const singleLineString = z
+  .string()
+  .trim()
+  .refine((v) => !/[\r\n]/.test(v), { message: "Newlines are not allowed." });
 
 const submissionSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  email: z.string().trim().toLowerCase().email(),
-  subject: z.string().trim().max(200).default(""),
-  message: z.string().trim().min(1).max(MAX_FIELD_BYTES),
+  name: singleLineString.pipe(z.string().min(1).max(200)),
+  email: z.string().trim().toLowerCase().email().max(254),
+  subject: singleLineString.pipe(z.string().max(200)).default(""),
+  message: z.string().trim().min(1).max(MAX_MESSAGE_BYTES),
 });
 
 function err(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+/**
+ * Reject requests whose Origin header doesn't match the request's own
+ * host. Missing Origin is allowed (same-origin form posts and cURL
+ * health checks don't set it); a mismatched Origin is a clear
+ * cross-site POST and gets dropped before we parse the body.
+ */
+function isCrossOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== new URL(request.url).host;
+  } catch {
+    return true;
+  }
+}
+
 export async function POST(request: Request) {
+  if (isCrossOrigin(request)) {
+    return err(403, "Cross-origin requests are not allowed.");
+  }
+
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return err(413, "Message is too large.");
+  }
+
   if (isRateLimited(clientIp(request))) {
     return err(429, "Too many requests. Please try again in a minute.");
   }

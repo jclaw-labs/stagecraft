@@ -127,4 +127,26 @@ describe("sendContactEmail", () => {
       expect.objectContaining({ from: "Pumpkin Bread <hello@artist.com>" }),
     );
   });
+
+  it("strips header-breaking characters from the siteName display", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    sendMock.mockResolvedValue({ id: "ok" });
+    await sendContactEmail({
+      ...baseMessage,
+      siteName: 'Evil" <evil@x.com>, "Real\r\nName',
+    });
+    const from = sendMock.mock.calls[0][0].from as string;
+    // The address half is always wrapped in the angle brackets we
+    // control; check only the display-name portion for hostile chars.
+    const displayPortion = from.slice(0, from.lastIndexOf("<")).trim();
+    expect(displayPortion).not.toMatch(/[<>"\r\n]/);
+    expect(from.endsWith(`<${MAGIC_LINK_FROM_DEFAULT}>`)).toBe(true);
+  });
+
+  it("falls back to the bare sender when siteName sanitizes to empty", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    sendMock.mockResolvedValue({ id: "ok" });
+    await sendContactEmail({ ...baseMessage, siteName: '"""' });
+    expect(sendMock.mock.calls[0][0].from).toBe(MAGIC_LINK_FROM_DEFAULT);
+  });
 });
