@@ -35,6 +35,12 @@ type Status =
   | { kind: "in_flight"; publishedAt: number }
   | { kind: "live" }
   | { kind: "stalled" }
+  // ADR-010 §6: the publish layer maps a stale-ref retry exhaustion to
+  // `code: "concurrent-edit"` (HTTP 409). The recovery is a page
+  // reload: the in-memory editor state is stale relative to the
+  // artist's repo, so re-publishing without reloading would just race
+  // again with whichever tab won the previous round.
+  | { kind: "concurrent_edit" }
   | { kind: "error"; message: string };
 
 export function PublishPendingChangesButton() {
@@ -71,6 +77,14 @@ export function PublishPendingChangesButton() {
         | { ok: false; code: string; error: string }
         | null;
       if (!res.ok || !body || !body.ok) {
+        // ADR-010 §6: a `concurrent-edit` code is a separate recovery
+        // path from a generic publish failure — surfacing it as the
+        // same red error toast would just retrain the artist to
+        // re-click Publish, which would race again.
+        if (body && "code" in body && body.code === "concurrent-edit") {
+          setStatus({ kind: "concurrent_edit" });
+          return;
+        }
         const message =
           (body && "error" in body && body.error) || `Publish failed (HTTP ${res.status})`;
         setStatus({ kind: "error", message });
@@ -117,6 +131,14 @@ export function PublishPendingChangesButton() {
           onCancel={() => setStatus({ kind: "idle" })}
           onConfirm={fire}
         />
+      ) : status.kind === "concurrent_edit" ? (
+        // Reload, not republish: in-memory editor state diverges from
+        // whatever the other tab just committed. Reloading re-reads
+        // from disk so the artist sees the merged state before they
+        // try again.
+        <button type="button" onClick={() => window.location.reload()} style={buttonStyle}>
+          Reload
+        </button>
       ) : (
         <button
           type="button"
@@ -219,12 +241,27 @@ function StatusLine({
       </span>
     );
   }
+  if (status.kind === "concurrent_edit") {
+    return (
+      <span role="status" style={mutedStyle}>
+        Someone else just saved — reload to see the latest version
+        before publishing.
+      </span>
+    );
+  }
   return (
     <span role="alert" style={errorStyle} title={status.message}>
       {status.message}
     </span>
   );
 }
+
+// Exported for direct testing — `PublishPendingChangesButton`'s
+// status machine is driven by fetch responses + a polling hook, so
+// SSR snapshots of the button can't reach the concurrent-edit /
+// stalled / error states. Tests render `StatusLine` with a literal
+// status instead.
+export { StatusLine as __StatusLine };
 
 const containerStyle: CSSProperties = {
   display: "flex",
