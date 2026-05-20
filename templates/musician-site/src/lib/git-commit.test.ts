@@ -15,7 +15,7 @@ vi.mock("@octokit/rest", () => ({
   },
 }));
 
-import { commitFiles, ensureBranchExists, squashBranchInto } from "./git-commit";
+import { commitFiles, ConcurrentEditError, ensureBranchExists, squashBranchInto } from "./git-commit";
 
 beforeEach(() => {
   getRef.mockReset();
@@ -185,6 +185,10 @@ describe("commitFiles", () => {
   });
 
   it("propagates octokit errors", async () => {
+    // Blob upload now happens before getRef (it's outside the retry
+    // loop so retries reuse the same content-addressed SHAs). Mock
+    // createBlob so the failure surfaces from getRef as intended.
+    createBlob.mockResolvedValue({ data: { sha: "blob" } });
     getRef.mockRejectedValue(new Error("404"));
     await expect(
       commitFiles({
@@ -196,6 +200,220 @@ describe("commitFiles", () => {
         files: [{ path: "a.txt", content: "x" }],
       }),
     ).rejects.toThrow("404");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Retry on stale-ref 422 (ADR-010 §6)
+  // ---------------------------------------------------------------------------
+
+  function staleRefError(message = "Update is not a fast-forward"): RequestError {
+    return new RequestError(message, 422, {
+      request: { method: "PATCH", url: "x", headers: {} },
+      response: { status: 422, url: "x", headers: {}, data: { message } },
+    });
+  }
+
+  it("retries on stale-ref 422, rebuilding the tree off the new base", async () => {
+    // First updateRef sees draft-at-X; rebuild against draft-at-Y; succeed.
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "head-X" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "head-Y" } } });
+    getCommit
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-of-X" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-of-Y" } } });
+    createBlob.mockImplementation(({ content }) =>
+      Promise.resolve({ data: { sha: `blob-${content.slice(0, 8)}` } }),
+    );
+    createTree
+      .mockResolvedValueOnce({ data: { sha: "new-tree-1" } })
+      .mockResolvedValueOnce({ data: { sha: "new-tree-2" } });
+    createCommit
+      .mockResolvedValueOnce({ data: { sha: "commit-1" } })
+      .mockResolvedValueOnce({ data: { sha: "commit-2" } });
+    updateRef
+      .mockRejectedValueOnce(staleRefError())
+      .mockResolvedValueOnce({ data: {} });
+
+    const sha = await commitFiles({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      message: "save",
+      files: [{ path: "a.txt", content: "hello" }],
+    });
+
+    expect(sha).toBe("commit-2");
+    // Blob is created exactly once even though the retry rebuilds the
+    // tree — blobs are content-addressed and reused across attempts.
+    expect(createBlob).toHaveBeenCalledTimes(1);
+    // getRef, getCommit, createTree, createCommit each ran twice.
+    expect(getRef).toHaveBeenCalledTimes(2);
+    expect(getCommit).toHaveBeenCalledTimes(2);
+    expect(createTree).toHaveBeenCalledTimes(2);
+    expect(createCommit).toHaveBeenCalledTimes(2);
+    expect(updateRef).toHaveBeenCalledTimes(2);
+  });
+
+  it("the retry rebuilds the tree with a fresh base_tree from the new HEAD", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "head-X" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "head-Y" } } });
+    getCommit
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-of-X" } } })
+      .mockResolvedValueOnce({ data: { tree: { sha: "tree-of-Y" } } });
+    createBlob.mockImplementation(({ content }) =>
+      Promise.resolve({ data: { sha: `blob-${content.slice(0, 8)}` } }),
+    );
+    createTree
+      .mockResolvedValueOnce({ data: { sha: "new-tree-1" } })
+      .mockResolvedValueOnce({ data: { sha: "new-tree-2" } });
+    createCommit
+      .mockResolvedValueOnce({ data: { sha: "commit-1" } })
+      .mockResolvedValueOnce({ data: { sha: "commit-2" } });
+    updateRef
+      .mockRejectedValueOnce(staleRefError())
+      .mockResolvedValueOnce({ data: {} });
+
+    await commitFiles({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      message: "save",
+      files: [{ path: "a.txt", content: "hello" }],
+    });
+
+    // First attempt builds on tree-of-X; retry builds on tree-of-Y.
+    // This is the key correctness invariant: the rebuilt commit's
+    // base_tree (and parent) reflect the new ref, not the stale one.
+    expect(createTree).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ base_tree: "tree-of-X" }),
+    );
+    expect(createTree).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ base_tree: "tree-of-Y" }),
+    );
+    // Parent SHAs follow the same shape.
+    expect(createCommit).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ parents: ["head-X"] }),
+    );
+    expect(createCommit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ parents: ["head-Y"] }),
+    );
+  });
+
+  it("throws ConcurrentEditError after 3 exhausted attempts", async () => {
+    getRef.mockResolvedValue({ data: { object: { sha: "head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "tree" } } });
+    createBlob.mockImplementation(({ content }) =>
+      Promise.resolve({ data: { sha: `blob-${content.slice(0, 8)}` } }),
+    );
+    createTree.mockResolvedValue({ data: { sha: "new-tree" } });
+    createCommit.mockResolvedValue({ data: { sha: "commit" } });
+    updateRef.mockRejectedValue(staleRefError());
+
+    let thrown: unknown;
+    try {
+      await commitFiles({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        message: "save",
+        files: [{ path: "a.txt", content: "x" }],
+      });
+    } catch (cause) {
+      thrown = cause;
+    }
+    expect(thrown).toBeInstanceOf(ConcurrentEditError);
+    const err = thrown as ConcurrentEditError;
+    expect(err.ref).toBe("heads/draft");
+    expect(err.attempts).toBe(3);
+    expect(err.lastAttemptedParentSha).toBe("head");
+    expect(err.cause).toBeInstanceOf(RequestError);
+    // updateRef was tried exactly 3 times, no more.
+    expect(updateRef).toHaveBeenCalledTimes(3);
+  });
+
+  it("bubbles non-stale-ref 422 immediately without retrying", async () => {
+    // 422 with a different message — e.g. the branch was deleted, or
+    // a permissions issue. Not a stale-ref signal; the caller needs to
+    // see it.
+    getRef.mockResolvedValue({ data: { object: { sha: "head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "tree" } } });
+    createBlob.mockResolvedValue({ data: { sha: "blob" } });
+    createTree.mockResolvedValue({ data: { sha: "new-tree" } });
+    createCommit.mockResolvedValue({ data: { sha: "commit" } });
+    updateRef.mockRejectedValue(staleRefError("Reference does not exist"));
+
+    await expect(
+      commitFiles({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        message: "save",
+        files: [{ path: "a.txt", content: "x" }],
+      }),
+    ).rejects.toThrow(/does not exist/);
+    expect(updateRef).toHaveBeenCalledTimes(1);
+  });
+
+  it("bubbles a non-422 updateRef error immediately without retrying", async () => {
+    getRef.mockResolvedValue({ data: { object: { sha: "head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "tree" } } });
+    createBlob.mockResolvedValue({ data: { sha: "blob" } });
+    createTree.mockResolvedValue({ data: { sha: "new-tree" } });
+    createCommit.mockResolvedValue({ data: { sha: "commit" } });
+    updateRef.mockRejectedValue(
+      new RequestError("Internal server error", 500, {
+        request: { method: "PATCH", url: "x", headers: {} },
+        response: { status: 500, url: "x", headers: {}, data: {} },
+      }),
+    );
+
+    await expect(
+      commitFiles({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        message: "save",
+        files: [{ path: "a.txt", content: "x" }],
+      }),
+    ).rejects.toThrow(/Internal server error/);
+    expect(updateRef).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 404 on getRef bubbles immediately (no retry triggered)", async () => {
+    // The retry triggers on updateRef 422, not on getRef failures.
+    // A 404 here means the branch doesn't exist — different recovery
+    // (caller calls ensureBranchExists or fails publish).
+    createBlob.mockResolvedValue({ data: { sha: "blob" } });
+    getRef.mockRejectedValue(
+      new RequestError("Not Found", 404, {
+        request: { method: "GET", url: "x", headers: {} },
+        response: { status: 404, url: "x", headers: {}, data: {} },
+      }),
+    );
+
+    await expect(
+      commitFiles({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        message: "save",
+        files: [{ path: "a.txt", content: "x" }],
+      }),
+    ).rejects.toThrow(/Not Found/);
+    // Only getRef ran (once) — the retry loop didn't even reach updateRef.
+    expect(getRef).toHaveBeenCalledTimes(1);
+    expect(updateRef).not.toHaveBeenCalled();
   });
 });
 
