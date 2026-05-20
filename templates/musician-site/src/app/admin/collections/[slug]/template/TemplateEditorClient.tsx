@@ -23,7 +23,8 @@
 
 import { Puck, Render, type Data } from "@measured/puck";
 import "@measured/puck/puck.css";
-import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
@@ -115,9 +116,9 @@ export function TemplateEditorClient({
   const config = useMemo(
     // Detail templates can embed Collection blocks (one per existing
     // collection); item templates can't, per ADR §4.3 cycle safety.
-    // The `extraBlocks` map is pre-built server-side when needed and
-    // passed in via the page route — this client component only
-    // knows the kind, not the registry of available collections.
+    // `extraBlocks` is built from the server-supplied `iterableCollectionDefs`
+    // above — the closures inside each block's render aren't
+    // RSC-serialisable, so the factory has to run client-side.
     () => buildEditorPuckConfig(def, { kind, extraBlocks }),
     [def, kind, extraBlocks],
   );
@@ -130,13 +131,16 @@ export function TemplateEditorClient({
   // Track the artist's live Puck data so the preview pane can render
   // it without waiting for a save. Initialise from disk; Puck calls
   // `onChange(data)` on every keystroke / drag, and the preview
-  // re-renders against the current selection.
-  const [liveData, setLiveData] = useState<Data>(initialData);
+  // re-renders against the current selection. `Template` is a type
+  // alias for Puck's `Data` (see `template/types.ts`), so no cast.
+  const [liveData, setLiveData] = useState<Template>(initialData);
 
-  // The Puck data shape and the Template shape are intentionally
-  // identical (`content` + `root`) — cast at the boundary so the
-  // resolver doesn't need a Puck dependency in its types.
-  const liveTemplate = liveData as unknown as Template;
+  // Re-sync from disk when `initialData` changes (e.g. concurrent edit
+  // in another tab refetched the def). Without this, `useState`
+  // ignores the new value because it only seeds on mount.
+  useEffect(() => {
+    setLiveData(initialData);
+  }, [initialData]);
 
   const [selectedItemSlug, setSelectedItemSlug] = useState<string | null>(
     previewItems[0]?.slug ?? null,
@@ -162,12 +166,12 @@ export function TemplateEditorClient({
 
   const resolvedPreview = useMemo(() => {
     if (!selectedItem) return null;
-    return resolveTemplate(liveTemplate, selectedItem, {
+    return resolveTemplate(liveData, selectedItem, {
       registry: previewRegistry,
       currentItem: selectedItem,
       loadedCollections: loadedCollections ?? {},
     });
-  }, [liveTemplate, selectedItem, previewRegistry, loadedCollections]);
+  }, [liveData, selectedItem, previewRegistry, loadedCollections]);
 
   const onPublish = useCallback(
     async (data: Data) => {
@@ -264,6 +268,7 @@ export function TemplateEditorClient({
         />
       </div>
       <PreviewPane
+        collectionSlug={collectionSlug}
         config={previewPuckConfig}
         data={resolvedPreview}
         hasItems={previewItems.length > 0}
@@ -343,11 +348,13 @@ function PreviewItemPicker({
  *   - resolved template        → Puck `<Render>` against `resolvedPreview`
  */
 function PreviewPane({
+  collectionSlug,
   config,
   data,
   hasItems,
   selectedSlug,
 }: {
+  collectionSlug: string;
   config: ReturnType<typeof buildTemplatePuckConfig>;
   data: Template | null;
   hasItems: boolean;
@@ -367,8 +374,15 @@ function PreviewPane({
       <aside style={wrapperStyle} aria-label="Template preview">
         <PreviewHeader />
         <EmptyState>
-          Add an item to enable preview — the template renders against a real
-          item, so it needs at least one to bind against.
+          The template renders against a real item, so it needs at least one to
+          bind against.{" "}
+          <Link
+            href={`/admin/collections/${collectionSlug}/items/new`}
+            style={{ color: "var(--color-action)" }}
+          >
+            Add an item
+          </Link>{" "}
+          to enable preview.
         </EmptyState>
       </aside>
     );
@@ -387,7 +401,7 @@ function PreviewPane({
     <aside style={wrapperStyle} aria-label="Template preview">
       <PreviewHeader />
       <div data-testid="template-preview-render">
-        <Render config={config} data={data as unknown as Data} />
+        <Render config={config} data={data} />
       </div>
     </aside>
   );

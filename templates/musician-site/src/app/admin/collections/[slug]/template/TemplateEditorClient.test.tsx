@@ -33,6 +33,7 @@ import { TemplateEditorClient } from "./TemplateEditorClient";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "@/lib/collections/test-fixtures";
 import type { Item } from "@/lib/collections";
 
+// Values keyed by the ids on `tourDatesDef` — no phantom fields.
 function parisItem(): Item {
   return {
     id: "item_paris-2026",
@@ -40,11 +41,10 @@ function parisItem(): Item {
     createdAt: FIXTURE_TIMESTAMP,
     updatedAt: FIXTURE_TIMESTAMP,
     values: {
-      f_date: { type: "date", value: "2026-07-15" },
+      f_date: { type: "date", value: "2026-07-15T20:00:00Z" },
       f_venue: { type: "text", value: "La Cigale" },
       f_city: { type: "text", value: "Paris" },
       f_status: { type: "select", value: "on_sale" },
-      f_url: { type: "url", value: "https://tix.example/paris" },
     },
   };
 }
@@ -56,11 +56,10 @@ function tokyoItem(): Item {
     createdAt: FIXTURE_TIMESTAMP,
     updatedAt: FIXTURE_TIMESTAMP,
     values: {
-      f_date: { type: "date", value: "2026-08-20" },
+      f_date: { type: "date", value: "2026-08-20T20:00:00Z" },
       f_venue: { type: "text", value: "Liquidroom" },
       f_city: { type: "text", value: "Tokyo" },
       f_status: { type: "select", value: "on_sale" },
-      f_url: { type: "url", value: "https://tix.example/tokyo" },
     },
   };
 }
@@ -145,9 +144,14 @@ describe("<TemplateEditorClient />", () => {
       expect(options?.loadedCollections).toBeDefined();
     });
 
-    it("renders the empty-state when the collection has no items", () => {
+    it("renders the empty-state with a link to add an item when the collection is empty", () => {
       const html = render({ previewItems: [] });
-      expect(html).toMatch(/Add an item to enable preview/);
+      expect(html).toMatch(/The template renders against a real item/);
+      // The empty state should link to the collection's new-item URL —
+      // a missing link would dead-end the artist (the original bug
+      // surfaced by the deep-review pass).
+      expect(html).toContain('href="/admin/collections/tour-dates/items/new"');
+      expect(html).toContain(">Add an item</a>");
       // The Puck mock's render is mounted, but the resolved-tree
       // marker must NOT be — there's nothing to render against.
       expect(html).not.toContain("template-preview-render");
@@ -156,6 +160,24 @@ describe("<TemplateEditorClient />", () => {
     it("renders the resolved tree marker when an item is selected", () => {
       const html = render();
       expect(html).toContain("template-preview-render");
+    });
+
+    it("hands the on-disk template (not an empty tree) to resolveTemplate", () => {
+      // Mirrors how the editor mounts: `initialData` seeds `liveData`
+      // from `def.itemTemplate`. The preview should pick that up
+      // immediately, not wait for the first `onChange`.
+      const def = tourDatesDef();
+      const seededTemplate = {
+        content: [
+          { type: "Text", props: { id: "t-1", content: { kind: "literal", value: "hi" } } },
+        ],
+        root: { props: {} },
+      };
+      render({
+        def: { ...def, itemTemplate: seededTemplate },
+      });
+      const [template] = resolveTemplateMock.mock.calls[0];
+      expect(template.content).toEqual(seededTemplate.content);
     });
   });
 });

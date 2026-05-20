@@ -15,8 +15,15 @@
  * Pre-loading every non-singleton collection's items lets the
  * preview pane render Collection-block iteration without a
  * round-trip, even for blocks the artist drops onto the canvas
- * mid-edit. Bounded by the total items count across the site —
- * for an artist site that's small.
+ * mid-edit. The public renderer at `(public)/[[...slug]]/page.tsx`
+ * uses `loadCollectionsForTemplate(template)` to walk only the
+ * blocks the template actually references — but that template is
+ * static at request time. The editor is interactive: the artist
+ * adds blocks while the page is mounted, and we want their preview
+ * populated the moment a `TourDatesView` lands on the canvas.
+ * Bounded by total items across the site, small for an artist
+ * site — revisit when sites grow past a few hundred items per
+ * non-singleton collection.
  *
  * Cycle safety (ADR §4.3): item templates don't get this surface —
  * the item-template editor's config omits Collection blocks
@@ -61,14 +68,20 @@ export default async function DetailTemplateEditorPage({
     (d): d is NonNullable<CollectionDef> => d !== null && !d.isSingleton,
   );
 
-  const [previewItems, ...iterableItemLists] = await Promise.all([
-    listItemsInOrder(parsed.data, def),
-    ...iterableDefs.map((d) => listItemsInOrder(d.slug, d)),
-  ]);
+  // Detail collections are non-singleton, so the current `def` already
+  // sits in `iterableDefs`. Load every iterable in one batch and reuse
+  // the current-collection slot as `previewItems` instead of issuing a
+  // duplicate `listItemsInOrder` for the same slug.
+  const iterableItemLists = await Promise.all(
+    iterableDefs.map((d) => listItemsInOrder(d.slug, d)),
+  );
 
   const loadedCollections: LoadedCollections = Object.fromEntries(
     iterableDefs.map((d, i) => [d.slug, { def: d, items: iterableItemLists[i] ?? [] }]),
   );
+
+  const currentIndex = iterableDefs.findIndex((d) => d.slug === parsed.data);
+  const previewItems = currentIndex >= 0 ? iterableItemLists[currentIndex] ?? [] : [];
 
   return (
     <TemplateEditorClient
