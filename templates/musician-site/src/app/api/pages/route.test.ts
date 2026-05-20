@@ -159,6 +159,67 @@ describe("POST /api/pages", () => {
     expect(res.status).toBe(409);
   });
 
+  it.each([
+    ["news", "posts", "/news"],
+    ["releases", "releases", "/releases"],
+    ["shows", "tour-dates", "/shows"],
+  ])(
+    "returns 409 when the slug shadows the %s collection's prefix",
+    async (slug, collectionSlug, prefix) => {
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      const req = new Request("https://x/api/pages", {
+        method: "POST",
+        body: JSON.stringify({ slug, title: "Conflicting" }),
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(collectionSlug);
+      expect(body.error).toContain(prefix);
+      // The page should not have been written, and publish should
+      // never have been called.
+      expect(publishMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns 409 when the slug shadows a custom (non-prebaked) collection's prefix", async () => {
+    // Drop a synthetic `_collection.json` on disk for a fake
+    // "podcasts" collection at `/episodes`. The shadow check should
+    // pick it up via the on-disk-defs branch.
+    const podcastsDir = path.join(TMP_CONTENT_DIR, "collections", "podcasts");
+    await fs.mkdir(podcastsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(podcastsDir, "_collection.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        slug: "podcasts",
+        singularName: "podcast",
+        pluralName: "podcasts",
+        fields: [{ id: "f_title", key: "title", type: "text", required: true }],
+        slugSourceFieldId: "f_title",
+        detailUrlPrefix: "/episodes",
+        defaultSort: null,
+        itemTemplate: null,
+        detailTemplate: null,
+        listTemplate: null,
+        isSingleton: false,
+      }),
+      "utf-8",
+    );
+
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const req = new Request("https://x/api/pages", {
+      method: "POST",
+      body: JSON.stringify({ slug: "episodes", title: "Episodes" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("podcasts");
+    expect(body.error).toContain("/episodes");
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
   it("returns ok with publishWarning when local write succeeds but publish fails", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(

@@ -30,6 +30,7 @@ import {
   siteCollectionDef,
   headerCollectionDef,
   appearanceCollectionDef,
+  PREBAKED_COLLECTIONS,
   PAGES_FIELD_IDS,
 } from "./collections/seeds";
 import {
@@ -107,11 +108,14 @@ export function collectionDefRepoPathFor(slug: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Write the four prebaked `_collection.json` files if they're not
- * already on disk. Called lazily before any read so a fresh artist
- * site (or one that pre-dates this migration) doesn't fail on
- * "collection not found." After the migration ships, every artist
+ * Write every prebaked `_collection.json` if it's not already on disk.
+ * Called lazily before any read so a fresh artist site (or one that
+ * pre-dates ADR-009) doesn't fail on "collection not found" for any of
+ * the ten prebaked surfaces. After the migration ships, every artist
  * repo has these committed and this is a no-op.
+ *
+ * Iterates `PREBAKED_COLLECTIONS` directly so a new entry there
+ * automatically gets bootstrapped — no second place to keep in sync.
  *
  * Memoised per content-dir (the value of `STAGECRAFT_CONTENT_DIR`).
  * Tests that run against multiple tmpdirs see independent caches;
@@ -125,12 +129,11 @@ const bootstrapKey = () => process.env.STAGECRAFT_CONTENT_DIR ?? "<default>";
 async function ensurePrebakedCollections(): Promise<void> {
   const key = bootstrapKey();
   if (bootstrapped.has(key)) return;
-  await Promise.all([
-    ensureCollectionDef(pagesCollectionDef.slug, pagesCollectionDef),
-    ensureCollectionDef(siteCollectionDef.slug, siteCollectionDef),
-    ensureCollectionDef(headerCollectionDef.slug, headerCollectionDef),
-    ensureCollectionDef(appearanceCollectionDef.slug, appearanceCollectionDef),
-  ]);
+  await Promise.all(
+    Object.values(PREBAKED_COLLECTIONS).map((def) =>
+      ensureCollectionDef(def.slug, def),
+    ),
+  );
   bootstrapped.add(key);
 }
 

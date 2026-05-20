@@ -771,12 +771,16 @@ export const videosCollectionDef: CollectionDef = {
       options: selectOptionsFrom(VIDEO_SOURCES, VIDEO_SOURCE_LABELS),
     },
     {
-      // Raw URL (YouTube watch URL, Vimeo URL, or a direct file
-      // path under public/ for uploads). The Puck block reading
-      // this is responsible for the embed-vs-file rendering split.
+      // Polymorphic with `source`: a full URL when source is youtube /
+      // vimeo, a `/uploads/...` path under public/ when source is
+      // upload. Typed as `text` rather than `url` because the v1 `url`
+      // schema (`z.string().url()`) rejects path-only values, so the
+      // upload variant couldn't otherwise round-trip through the item
+      // API. The Puck block reading this dispatches embed-vs-file
+      // rendering off `source`.
       id: VIDEOS_FIELD_IDS.embedUrl,
       key: "embedUrl",
-      type: "url",
+      type: "text",
       required: true,
       systemLocked: true,
     },

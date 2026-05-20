@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "slug": "photos",
+  "singularName": "photo",
+  "pluralName": "photos",
+  "fields": [
+    {
+      "id": "fld_photos_image",
+      "key": "image",
+      "systemLocked": true,
+      "type": "image",
+      "required": true
+    },
+    {
+      "id": "fld_photos_caption",
+      "key": "caption",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_photos_takenAt",
+      "key": "takenAt",
+      "type": "date",
+      "required": false
+    },
+    {
+      "id": "fld_photos_credit",
+      "key": "credit",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "slugSourceFieldId": null,
+  "detailUrlPrefix": null,
+  "defaultSort": {
+    "mode": "manual"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}
