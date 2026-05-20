@@ -32,6 +32,10 @@
  * template (its fields populate the `currentItemField` FilterValue
  * dropdown so the artist can write "where source.artist equals
  * currentItem.id"-style filters).
+ *
+ * The factory has to be called from a client component — the
+ * returned config carries render closures that aren't serialisable
+ * across the RSC boundary.
  */
 
 "use client";

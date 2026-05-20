@@ -5,8 +5,25 @@
  * The detail-template editor includes Collection blocks — one per
  * existing collection — so an artist authoring a tour-dates detail
  * template can embed `PagesView`, `TourDatesView`, etc. blocks. This
- * route pre-builds the per-collection block configs server-side and
- * hands them to `TemplateEditorClient` as `extraBlocks`.
+ * route fetches every non-singleton collection's def + items and
+ * hands them to `TemplateEditorClient`. The Puck `ComponentConfig`s
+ * are built client-side from the defs because their render closures
+ * aren't serialisable across the RSC boundary (passing them through
+ * server-side props was a long-standing bug that broke the route
+ * outright — see the matching change in `TemplateEditorClient.tsx`).
+ *
+ * Pre-loading every non-singleton collection's items lets the
+ * preview pane render Collection-block iteration without a
+ * round-trip, even for blocks the artist drops onto the canvas
+ * mid-edit. The public renderer at `(public)/[[...slug]]/page.tsx`
+ * uses `loadCollectionsForTemplate(template)` to walk only the
+ * blocks the template actually references — but that template is
+ * static at request time. The editor is interactive: the artist
+ * adds blocks while the page is mounted, and we want their preview
+ * populated the moment a `TourDatesView` lands on the canvas.
+ * Bounded by total items across the site, small for an artist
+ * site — revisit when sites grow past a few hundred items per
+ * non-singleton collection.
  *
  * Cycle safety (ADR §4.3): item templates don't get this surface —
  * the item-template editor's config omits Collection blocks
@@ -18,12 +35,12 @@ import { notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import {
   listCollectionSlugs,
+  listItemsInOrder,
   readCollectionDef,
   slugSchema,
+  type CollectionDef,
 } from "@/lib/collections";
-import { blockNameForCollection } from "@/lib/collections/template/collection-block";
-import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
-import type { ExtraBlocks } from "@/components/admin/buildEditorPuckConfig";
+import type { LoadedCollections } from "@/lib/collections/template/renderer";
 
 import { TemplateEditorClient } from "../TemplateEditorClient";
 
@@ -45,27 +62,26 @@ export default async function DetailTemplateEditorPage({
   // `<detailUrlPrefix>/<slug>` URL to render. Route 404s.
   if (def.isSingleton) notFound();
 
-  // Build one Collection-block component config per known collection
-  // (skipping singletons — they have no items to iterate). The
-  // dispatcher name (`TourDatesView`, `PagesView`, …) is the key the
-  // editor and renderer route to. Self-embedding is allowed by the
-  // ADR: a tour-dates detail page can embed `TourDatesView` to show
-  // related shows; the rendering layer's recursion is bounded by
-  // itemTemplates (which can't contain Collection blocks).
   const allSlugs = await listCollectionSlugs();
   const allDefs = await Promise.all(allSlugs.map((s) => readCollectionDef(s)));
-  const extraBlocks: ExtraBlocks = Object.fromEntries(
-    allDefs
-      .filter((d): d is NonNullable<typeof d> => d !== null && !d.isSingleton)
-      .map((d) => [
-        blockNameForCollection(d.slug),
-        // `d` is the source collection (the one this block iterates);
-        // `def` is the containing template's collection (passed in so
-        // the FilterField's currentItemField picker has fields to
-        // offer).
-        buildCollectionBlockComponentConfig(d, def),
-      ]),
+  const iterableDefs = allDefs.filter(
+    (d): d is NonNullable<CollectionDef> => d !== null && !d.isSingleton,
   );
+
+  // Detail collections are non-singleton, so the current `def` already
+  // sits in `iterableDefs`. Load every iterable in one batch and reuse
+  // the current-collection slot as `previewItems` instead of issuing a
+  // duplicate `listItemsInOrder` for the same slug.
+  const iterableItemLists = await Promise.all(
+    iterableDefs.map((d) => listItemsInOrder(d.slug, d)),
+  );
+
+  const loadedCollections: LoadedCollections = Object.fromEntries(
+    iterableDefs.map((d, i) => [d.slug, { def: d, items: iterableItemLists[i] ?? [] }]),
+  );
+
+  const currentIndex = iterableDefs.findIndex((d) => d.slug === parsed.data);
+  const previewItems = currentIndex >= 0 ? iterableItemLists[currentIndex] ?? [] : [];
 
   return (
     <TemplateEditorClient
@@ -73,7 +89,9 @@ export default async function DetailTemplateEditorPage({
       def={def}
       kind="detail"
       email={session?.email ?? ""}
-      extraBlocks={extraBlocks}
+      iterableCollectionDefs={iterableDefs}
+      previewItems={previewItems}
+      loadedCollections={loadedCollections}
     />
   );
 }
