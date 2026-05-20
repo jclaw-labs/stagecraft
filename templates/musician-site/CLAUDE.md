@@ -342,14 +342,22 @@ Endpoints:
 
 - `POST /api/publish` — single-page publish from the Puck editor's
   `onPublish` (back-compat path; takes `{ pageSlug, data }`).
-- `POST /api/pages` — create a new empty page (writes the file + commits).
+- `POST /api/pages` — create a new empty page. Kept alongside the
+  generic `POST /api/collections/pages/items` because it has a
+  Pages-specific slug-collision guard + a friendlier "Create page X"
+  commit message; the generic endpoint takes a full item payload and
+  doesn't pre-check slug uniqueness.
 - `DELETE /api/pages/[slug]` — delete a page (removes the file +
-  commits a tree entry with `sha: null` via `commitFiles`).
+  commits a tree entry with `sha: null` via `commitFiles`). Kept
+  alongside the generic `DELETE /api/collections/pages/items/<slug>`
+  for the same commit-message reason.
 - `PUT /api/collections/<slug>/items/<itemSlug>` — write any
   collection item (used by both the generic editor and the three
   custom singleton panels; `itemSlug=_singleton` for singletons).
 - `PUT /api/collections/<slug>/order` — write a collection's
-  `_order.json` (used by the Pages panel's drag-reorder).
+  `_order.json` (used by the Pages panel's drag-reorder). Validates
+  every slug in the requested order against on-disk items; phantoms
+  return 400.
 
 Save semantics: every settings/page mutation writes locally **first**,
 then publishes through the broker → GitHub path. A publish failure

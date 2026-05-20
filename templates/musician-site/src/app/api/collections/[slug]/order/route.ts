@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import {
+  listItemSlugs,
   readCollectionDef,
   slugSchema,
   writeOrder,
@@ -62,6 +63,18 @@ export async function PUT(request: Request, ctx: Ctx) {
   // (UI bug, hand-rolled curl) doesn't silently write an order file
   // that the store layer would ignore.
   if (def.isSingleton) return err(400, "Singleton collections have no order");
+
+  // Cross-check every slug in the requested order against the items
+  // actually on disk. Phantoms get filtered out at read time
+  // (`listItemsInOrder`), so writing them is benign — but a phantom
+  // in the request is almost always a client bug (stale UI state,
+  // typo), and we'd rather surface it at the API boundary than let it
+  // accumulate.
+  const knownSlugs = new Set(await listItemSlugs(parsedCollectionSlug.data));
+  const unknown = parsed.data.order.filter((s) => !knownSlugs.has(s));
+  if (unknown.length > 0) {
+    return err(400, `Unknown item slug(s): ${unknown.join(", ")}`);
+  }
 
   await writeOrder(parsedCollectionSlug.data, parsed.data.order);
 

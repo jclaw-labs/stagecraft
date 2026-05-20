@@ -18,9 +18,31 @@ vi.mock("@/lib/publish", async () => {
 });
 
 import { PUT } from "./route";
-import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
+import { PAGES_FIELD_IDS, PREBAKED_COLLECTIONS, pagesCollectionDef } from "@/lib/collections/seeds";
 import { __resetBootstrapCacheForTests } from "@/lib/content";
-import { readOrder, writeCollectionDef } from "@/lib/collections";
+import { generateItemId, readOrder, writeCollectionDef, writeItem } from "@/lib/collections";
+
+async function seedPage(slug: string, title: string) {
+  const now = new Date().toISOString();
+  await writeItem(
+    "pages",
+    slug,
+    {
+      id: generateItemId(),
+      slug,
+      createdAt: now,
+      updatedAt: now,
+      values: {
+        [PAGES_FIELD_IDS.title]: { type: "text", value: title },
+        [PAGES_FIELD_IDS.body]: {
+          type: "puckContent",
+          value: { content: [], root: { props: {} } },
+        },
+      },
+    },
+    pagesCollectionDef,
+  );
+}
 
 let TMP_CONTENT_DIR: string;
 
@@ -100,6 +122,9 @@ describe("PUT /api/collections/[slug]/order", () => {
 
   it("writes the order file and publishes one collection-order target", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await seedPage("home", "Home");
+    await seedPage("about", "About");
+    await seedPage("tour", "Tour");
     const order = ["home", "about", "tour"];
     const res = await PUT(jsonReq({ order }), ctx("pages"));
     expect(res.status).toBe(200);
@@ -126,10 +151,23 @@ describe("PUT /api/collections/[slug]/order", () => {
     expect(written).toEqual([]);
   });
 
+  it("returns 400 when the order contains unknown item slugs", async () => {
+    // Cross-check guard: phantom slugs would otherwise silently land
+    // in `_order.json` (the listing layer filters them at read time,
+    // but accepting them at the API boundary masks client bugs).
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await seedPage("home", "Home");
+    const res = await PUT(jsonReq({ order: ["home", "phantom"] }), ctx("pages"));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("phantom");
+  });
+
   it("returns the publishWarning envelope on broker failure", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const { PublishError } = await import("@/lib/publish");
     publishMock.mockRejectedValueOnce(new PublishError("broker-rejected", "broker rejected"));
+    await seedPage("home", "Home");
     const res = await PUT(jsonReq({ order: ["home"] }), ctx("pages"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

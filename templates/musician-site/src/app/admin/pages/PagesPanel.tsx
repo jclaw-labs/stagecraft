@@ -94,6 +94,17 @@ export function PagesPanel({ initialPages }: Props) {
    * Flip a single page's `showInNav` field. Fetches the current item
    * (we don't have it in the panel's PageSummary view), flips the
    * boolean, and PUTs the merged values back. One commit per toggle.
+   *
+   * Concurrency: last-write-wins. No `If-Match` / ETag — if two tabs
+   * toggle the same page near-simultaneously the second PUT
+   * overwrites the first. Fine for the single-user admin UX; if the
+   * platform ever goes multi-tab / multi-admin, the per-item PUT
+   * needs versioning.
+   *
+   * Round-trips: this is GET + PUT (two requests) per toggle.
+   * Acceptable today; if bulk affordances ("hide all" / "show all")
+   * land, revisit with a server-side PATCH that merges partial
+   * values to halve the request count.
    */
   async function setPageShowInNav(slug: string, showInNav: boolean): Promise<boolean> {
     setNavError(null);
@@ -196,10 +207,11 @@ export function PagesPanel({ initialPages }: Props) {
         return;
       }
       setPages((current) => current.filter((p) => p.slug !== slug));
-      // The deleted slug stays as a phantom entry in `_order.json`
-      // until something rewrites it — `listItemsInOrder` filters out
-      // missing items at read time, so it's benign. A cleanup pass
-      // could PUT a freshly-pruned order here; left out for simplicity.
+      // TODO: prune the deleted slug from `_order.json` here.
+      // `listItemsInOrder` filters missing items at read time, so a
+      // phantom entry is benign, but they accumulate over time. A PUT
+      // to /api/collections/pages/order with the freshly-filtered
+      // order array would tidy up.
       router.refresh();
     } finally {
       setDeletingSlug(null);
