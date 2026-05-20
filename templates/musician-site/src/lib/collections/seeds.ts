@@ -26,9 +26,18 @@ import {
   APPEARANCE_FIELD_IDS,
   HEADER_FIELD_IDS,
   PAGES_FIELD_IDS,
+  PHOTOS_COLLECTION_SLUG,
+  PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
 } from "./field-ids";
-export { APPEARANCE_FIELD_IDS, HEADER_FIELD_IDS, PAGES_FIELD_IDS, SITE_FIELD_IDS };
+export {
+  APPEARANCE_FIELD_IDS,
+  HEADER_FIELD_IDS,
+  PAGES_FIELD_IDS,
+  PHOTOS_COLLECTION_SLUG,
+  PHOTOS_FIELD_IDS,
+  SITE_FIELD_IDS,
+};
 
 import {
   COLOR_FIELDS,
@@ -672,16 +681,9 @@ export const storeItemsCollectionDef: CollectionDef = {
 // Photos collection — image gallery (ADR-009 PR 8)
 // ---------------------------------------------------------------------------
 
-export const PHOTOS_FIELD_IDS = {
-  image: "fld_photos_image",
-  caption: "fld_photos_caption",
-  takenAt: "fld_photos_takenAt",
-  credit: "fld_photos_credit",
-} as const;
-
 export const photosCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
-  slug: "photos",
+  slug: PHOTOS_COLLECTION_SLUG,
   singularName: "photo",
   pluralName: "photos",
   fields: [
@@ -712,15 +714,14 @@ export const photosCollectionDef: CollectionDef = {
     },
   ],
   // Caption is the natural label, but it's optional and longText —
-  // hard to slugify cleanly. Today the artist types the slug
-  // manually in the new-item flow, which is rough UX for a
-  // gallery's worth of uploads.
-  //
-  // FOLLOW-UP: derive a default slug from the uploaded image's
-  // `contentSlug` (or a date-based fallback like
-  // `photo-2026-07-15-001`). Out of scope for the seed PR; lives
-  // in the new-item flow alongside the upload pipeline. Tracked in
-  // ADR §"Schema editor follow-ups."
+  // hard to slugify cleanly, and the Zod superRefine rejects
+  // pointing slugSourceFieldId at an `image`-type field. Stays null
+  // on the def; the new-item flow's `suggestSlug` special-cases
+  // photos and derives a slug from the uploaded image's
+  // `contentSlug` (plus a short id-hash suffix to disambiguate
+  // multiple photos under the same bucket), falling back to
+  // `photo-<YYYY-MM-DD>` before the upload lands. See
+  // `./suggest-slug.ts`.
   slugSourceFieldId: null,
   detailUrlPrefix: null,
   defaultSort: { mode: "manual" },

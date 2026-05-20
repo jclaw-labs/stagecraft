@@ -2,10 +2,9 @@
  * Client wrapper for the "new item" flow.
  *
  * Adds a slug input above the field editor — the slug becomes the
- * item's filename. We auto-suggest from the `slugSourceFieldId` when
- * present (PR 4 doesn't ship a full slugify utility yet, so this is
- * a naive lowercase-and-hyphenate; the schema editor PR will tighten
- * it).
+ * item's filename. Slug suggestions come from
+ * `@/lib/collections/suggest-slug`, which handles both the common
+ * text-source case and the photo-specific image-derived case.
  */
 
 "use client";
@@ -17,6 +16,7 @@ import { ItemEditor, type ReferenceOptions } from "@/components/admin/ItemEditor
 import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
 import { TextField } from "@/components/admin/form";
 
+import { suggestSlug } from "@/lib/collections/suggest-slug";
 import type { CollectionDef, Item } from "@/lib/collections";
 
 export function NewItemClient({
@@ -36,7 +36,7 @@ export function NewItemClient({
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const suggestedSlug = suggestSlug(draft, def.slugSourceFieldId);
+  const suggestedSlug = suggestSlug(draft, def);
   const slug = slugInput || suggestedSlug;
 
   const save = async () => {
@@ -128,19 +128,3 @@ export function NewItemClient({
   );
 }
 
-/**
- * Derive a slug from the draft's slug-source field. Naive
- * slugification: lowercase, ASCII-ish, hyphens for whitespace. Good
- * enough for the v1 flow; PR 5 / 7 can tighten if needed.
- */
-function suggestSlug(item: Item, slugSourceFieldId: string | null): string {
-  if (!slugSourceFieldId) return "";
-  const v = item.values[slugSourceFieldId];
-  if (!v || !("value" in v) || typeof v.value !== "string") return "";
-  return v.value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 64);
-}
