@@ -160,16 +160,12 @@ describe("publishPage — broker + GitHub path", () => {
       authorName: "Real Artist",
     });
 
-    // Result reports the squash commit's SHA — that's the one on
-    // main that triggers the deploy and that callers poll for. The
-    // back-compat `publish()` wrapper calls saveToDraft then
-    // publishDraftToMain, returning the squash SHA. The extra
-    // `alreadyInSync` field comes from publishDraftToMain's result
-    // shape (false when a commit was created).
+    // Result is exactly the v1 PublishResult shape — `publish()`
+    // strips publishDraftToMain's extra `alreadyInSync` field at the
+    // boundary so back-compat callers see the contract they expect.
     expect(result).toEqual({
       mode: "github",
       commitSha: "main-squash-sha",
-      alreadyInSync: false,
     });
     // The per-save commit went to `draft` (per ADR-010), not main.
     expect(commitFilesMock).toHaveBeenCalledWith(
@@ -661,6 +657,18 @@ describe("saveToDraft", () => {
     // The commit was NOT attempted — a conflict short-circuits the flow.
     expect(commitFilesMock).not.toHaveBeenCalled();
   });
+
+  it("wraps a non-PublishError thrown by mergeBranchInto as auto-rebase: ...", async () => {
+    configurePlatform();
+    mergeBranchIntoMock.mockRejectedValueOnce(new Error("ECONNRESET"));
+    await expect(
+      saveToDraft({ targets: TARGETS, authorEmail: "a@e.com" }),
+    ).rejects.toMatchObject({
+      code: "github-failed",
+      message: expect.stringMatching(/^auto-rebase: /),
+    });
+    expect(commitFilesMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -734,6 +742,18 @@ describe("publishDraftToMain", () => {
     await expect(
       publishDraftToMain({ authorEmail: "a@e.com" }),
     ).rejects.toMatchObject({ code: "github-failed" });
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
+  });
+
+  it("wraps a non-PublishError thrown by mergeBranchInto as auto-rebase: ...", async () => {
+    configurePlatform();
+    mergeBranchIntoMock.mockRejectedValueOnce(new Error("rate limit hit"));
+    await expect(
+      publishDraftToMain({ authorEmail: "a@e.com" }),
+    ).rejects.toMatchObject({
+      code: "github-failed",
+      message: expect.stringMatching(/^auto-rebase: /),
+    });
     expect(squashBranchIntoMock).not.toHaveBeenCalled();
   });
 });

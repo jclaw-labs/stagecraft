@@ -1,13 +1,8 @@
-import {
-  commitFiles,
-  ensureBranchExists,
-  mergeBranchInto,
-  type FileToCommit,
-} from "./git-commit";
+import { type FileToCommit } from "./git-commit";
 import { generateImageVariants, variantFilename, type ProcessImageInput } from "./image";
 import { type ImageMetadata } from "./image-types";
 import {
-  DRAFT_BRANCH,
+  _commitToDraft as commitToDraft,
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
@@ -83,54 +78,15 @@ export async function commitUploadedImage(args: {
   ];
 
   const { token, owner, repo } = await fetchPublishToken(env);
-  const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
-  const message = `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`;
-
-  try {
-    await ensureBranchExists({
-      token,
-      owner,
-      repo,
-      branch: DRAFT_BRANCH,
-      fromBranch: env.branch,
-    });
-  } catch (cause) {
-    throw new PublishError("github-failed", `ensure draft branch: ${String(cause)}`);
-  }
-
-  try {
-    const merge = await mergeBranchInto({
-      token,
-      owner,
-      repo,
-      from: env.branch,
-      into: DRAFT_BRANCH,
-    });
-    if (merge.kind === "conflict") {
-      throw new PublishError(
-        "github-failed",
-        `auto-rebase: draft can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
-      );
-    }
-  } catch (cause) {
-    if (cause instanceof PublishError) throw cause;
-    throw new PublishError("github-failed", `auto-rebase: ${String(cause)}`);
-  }
-
-  let commitSha: string;
-  try {
-    commitSha = await commitFiles({
-      token,
-      owner,
-      repo,
-      branch: DRAFT_BRANCH,
-      message: `${message}\n\n[skip ci]`,
-      files,
-      author,
-    });
-  } catch (cause) {
-    throw new PublishError("github-failed", `commit to draft: ${String(cause)}`);
-  }
+  const commitSha = await commitToDraft({
+    token,
+    owner,
+    repo,
+    mainBranch: env.branch,
+    message: `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`,
+    files,
+    author: { name: args.authorName ?? "Artist", email: args.authorEmail },
+  });
 
   return { metadata: generated.metadata, commitSha };
 }
