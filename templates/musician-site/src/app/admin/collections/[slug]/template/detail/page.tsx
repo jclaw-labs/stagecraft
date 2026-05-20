@@ -57,7 +57,14 @@ export default async function DetailTemplateEditorPage({
   const extraBlocks: ExtraBlocks = Object.fromEntries(
     allDefs
       .filter((d): d is NonNullable<typeof d> => d !== null && !d.isSingleton)
-      .map((d) => [blockNameForCollection(d.slug), buildCollectionBlockComponentConfig(d)]),
+      .map((d) => [
+        blockNameForCollection(d.slug),
+        // `d` is the source collection (the one this block iterates);
+        // `def` is the containing template's collection (passed in so
+        // the FilterField's currentItemField picker has fields to
+        // offer).
+        buildCollectionBlockComponentConfig(d, def),
+      ]),
   );
 
   return (

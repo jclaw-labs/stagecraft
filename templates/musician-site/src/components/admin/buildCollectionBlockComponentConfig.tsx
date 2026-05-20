@@ -10,9 +10,9 @@
  *
  * Fields:
  *
- *   - `filter`        — custom: `FilterField` (JSON textarea + Zod
- *                       validation; the v1 clause builder lands
- *                       later)
+ *   - `filter`        — custom: `FilterField` (visual clause builder
+ *                       per §5.1; collapsible raw-JSON escape hatch
+ *                       for shapes the visual UI doesn't surface)
  *   - `sort`          — sortFieldId + direction
  *   - `limit`         — number
  *   - `hideFields`    — array of fieldIds to omit from each iterated
@@ -25,6 +25,13 @@
  * Inside the editor, the artist sees a labelled placeholder; clicking
  * the "Manage" button takes them to the collection's admin where
  * they can edit items.
+ *
+ * Two CollectionDefs are passed: `sourceDef` is the collection this
+ * block iterates (its fields populate the FilterField's clause field
+ * pickers); `currentItemDef` is the collection of the *containing*
+ * template (its fields populate the `currentItemField` FilterValue
+ * dropdown so the artist can write "where source.artist equals
+ * currentItem.id"-style filters).
  */
 
 "use client";
@@ -46,9 +53,10 @@ type ComponentConfig = Config["components"][string];
 type AnyField = Field<unknown>;
 
 export function buildCollectionBlockComponentConfig(
-  def: CollectionDef,
+  sourceDef: CollectionDef,
+  currentItemDef: CollectionDef,
 ): ComponentConfig {
-  const sortableFields = def.fields.filter((f) => SORTABLE_FIELD_TYPES.has(f.type));
+  const sortableFields = sourceDef.fields.filter((f) => SORTABLE_FIELD_TYPES.has(f.type));
 
   const filterField: AnyField = {
     type: "custom",
@@ -57,6 +65,8 @@ export function buildCollectionBlockComponentConfig(
       <FilterField
         value={(value as Filter | null | undefined) ?? null}
         onChange={onChange}
+        sourceDef={sourceDef}
+        currentItemDef={currentItemDef}
       />
     ),
   };
@@ -65,7 +75,10 @@ export function buildCollectionBlockComponentConfig(
     type: "custom",
     label: "Manage",
     render: () => (
-      <ManageCollectionLink collectionSlug={def.slug} pluralName={def.pluralName} />
+      <ManageCollectionLink
+        collectionSlug={sourceDef.slug}
+        pluralName={sourceDef.pluralName}
+      />
     ),
   };
 
@@ -76,7 +89,7 @@ export function buildCollectionBlockComponentConfig(
       <HideFieldsField
         value={(value as string[] | undefined) ?? []}
         onChange={onChange}
-        fields={def.fields.map((f) => ({ id: f.id, key: f.key }))}
+        fields={sourceDef.fields.map((f) => ({ id: f.id, key: f.key }))}
       />
     ),
   };
@@ -109,7 +122,7 @@ export function buildCollectionBlockComponentConfig(
       hideFields: hideFieldsField,
     },
     defaultProps: {
-      sourceCollection: def.slug,
+      sourceCollection: sourceDef.slug,
       filter: null,
       sort: null,
       limit: null,
@@ -117,7 +130,7 @@ export function buildCollectionBlockComponentConfig(
     },
     render: ({ filter, limit }) => (
       <EditorPreview
-        pluralName={def.pluralName}
+        pluralName={sourceDef.pluralName}
         hasFilter={filter !== null && filter !== undefined}
         limit={typeof limit === "number" ? limit : null}
       />
