@@ -7,6 +7,7 @@ import {
   CUSTOM_ADMIN_SURFACES,
   CUSTOM_PANEL_COLLECTION_SLUGS,
 } from "./admin-surfaces";
+import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink";
 import { PublishPendingChangesButton } from "./PublishPendingChangesButton";
 import {
   listCollectionSlugs,
@@ -193,6 +194,7 @@ export async function AdminShell({
         ) : null}
         <div style={{ marginTop: "auto", paddingTop: "var(--space-6)" }}>
           <PublishPendingChangesButton />
+          <DiscardPendingChangesLink />
           <Link
             href="/"
             style={{

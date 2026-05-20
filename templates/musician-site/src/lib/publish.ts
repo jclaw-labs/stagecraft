@@ -22,6 +22,7 @@ import {
   ConcurrentEditError,
   ensureBranchExists,
   mergeBranchInto,
+  resetBranchTo,
   squashBranchInto,
   type FileToCommit,
 } from "./git-commit";
@@ -545,6 +546,90 @@ export async function publishDraftToMain(
     commitSha: squash.commitSha,
     mode: "github",
     alreadyInSync: squash.alreadyInSync,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// discardDraft — reset draft back to main (ADR-010 §4)
+// ---------------------------------------------------------------------------
+
+export type DiscardDraftResult =
+  | {
+      mode: "github";
+      /**
+       * SHA `draft` was pointing at before the discard. `null` if
+       * draft didn't exist yet (a fresh site that hit Discard before
+       * any save).
+       */
+      discardedFromSha: string | null;
+      /** SHA `draft` now points at (equal to `main`). */
+      mainSha: string;
+      /**
+       * True when draft was already at main (nothing to discard).
+       * Callers can surface this as "nothing pending" without
+       * touching state.
+       */
+      alreadyInSync: boolean;
+    }
+  | { mode: "local" };
+
+/**
+ * Throw `draft` away and reset it to `main`'s current HEAD. Force-
+ * pushes the ref; the previous draft commits become unreachable
+ * (visible only via reflog before GitHub garbage-collects them).
+ *
+ * Per ADR-010 §4 this is the "I changed my mind, discard everything
+ * I've saved since the last publish" affordance. Distinct from the
+ * deletes that publish-time wipes out — `discardDraft` is the
+ * artist's explicit undo, not a side effect.
+ *
+ * Dev fallback: no-op. Files are already on disk; there's no draft
+ * branch concept to reset. Returns `{ mode: "local" }`.
+ *
+ * Note: the artist's local-disk state isn't touched in production
+ * either — only the remote `draft` ref moves. The next admin read
+ * from another container (or after a redeploy) will see `main`'s
+ * state, since draft now equals main. Containers that have writes
+ * cached in their own memory diverge until they cold-start; the
+ * runtime-fetch + cache layer (PR 4 in the rollout) makes this
+ * symmetric across containers.
+ */
+export async function discardDraft(args: {
+  /**
+   * Session-bound author email. Currently unused — GitHub's `repos.merge`
+   * + `updateRef` track the GitHub App as the committer regardless of
+   * what we pass. Kept on the signature so callers thread session
+   * context uniformly, and so a future audit log (or a per-discard
+   * commit message) can pick it up without an API change.
+   */
+  authorEmail: string;
+}): Promise<DiscardDraftResult> {
+  void args.authorEmail;
+
+  const env = readEnv();
+  if (!isPlatformConfigured(env)) {
+    return { mode: "local" };
+  }
+
+  const { token, owner, repo } = await fetchPublishToken(env);
+
+  let reset: Awaited<ReturnType<typeof resetBranchTo>>;
+  try {
+    reset = await resetBranchTo({
+      token,
+      owner,
+      repo,
+      branch: DRAFT_BRANCH,
+      toBranch: env.branch,
+    });
+  } catch (cause) {
+    throw new PublishError("github-failed", `discard draft: ${String(cause)}`);
+  }
+  return {
+    mode: "github",
+    discardedFromSha: reset.resetFromSha,
+    mainSha: reset.toSha,
+    alreadyInSync: reset.alreadyInSync,
   };
 }
 
