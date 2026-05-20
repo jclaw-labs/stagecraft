@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SaveStatus } from "./SaveBar";
+import { useBeforeUnloadIfDirty } from "./useBeforeUnloadIfDirty";
 
 /**
  * Hook that backs every custom singleton panel (Site Settings,
@@ -87,6 +88,7 @@ export function useSettingsForm<T>({
     () => JSON.stringify(value) !== initialSnapshot,
     [value, initialSnapshot],
   );
+  useBeforeUnloadIfDirty(isDirty);
 
   const save = useCallback(async () => {
     setStatus("saving");

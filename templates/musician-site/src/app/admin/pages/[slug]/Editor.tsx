@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
+import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { puckConfig } from "@/puck/config";
 import type { PageData } from "@/lib/content";
 import type { DeployState } from "@/lib/deploy-status";
@@ -73,6 +74,11 @@ type DeployStatusBody = {
 
 export function Editor({ initialData, pageSlug, email }: Props) {
   const [publishState, setPublishState] = useState<PublishState>({ status: "idle" });
+  // Puck doesn't surface dirty state to wrappers; track it ourselves
+  // via onChange. Reset on successful publish (the saved data becomes
+  // the new baseline).
+  const [isDirty, setIsDirty] = useState(false);
+  useBeforeUnloadIfDirty(isDirty);
 
   const onPublish = useCallback(
     async (data: PageData) => {
@@ -103,6 +109,8 @@ export function Editor({ initialData, pageSlug, email }: Props) {
           // wrote JSON to local disk, no deploy, nothing to poll for.
           setPublishState({ status: "live" });
         }
+        // Publish succeeded — the saved data is the new baseline.
+        setIsDirty(false);
       } catch (cause) {
         setPublishState((current) =>
           current.status === "error"
@@ -211,6 +219,7 @@ export function Editor({ initialData, pageSlug, email }: Props) {
       config={puckConfig}
       data={initialData}
       onPublish={onPublish}
+      onChange={() => setIsDirty(true)}
       overrides={{
         headerActions: ({ children }) => (
           <>

@@ -20,6 +20,7 @@ import {
   PuckSaveStatusPill,
   type PuckEditorSaveStatus,
 } from "@/components/admin/PuckEditorChrome";
+import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { puckContentValue } from "@/lib/collections/puck-content-value";
 import { templatePuckConfig } from "@/lib/collections/template/puck-config";
 
@@ -54,6 +55,8 @@ export function BodyEditorClient({
 
   const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useBeforeUnloadIfDirty(isDirty);
 
   const onPublish = useCallback(
     async (data: Data) => {
@@ -87,6 +90,7 @@ export function BodyEditorClient({
           return;
         }
         setStatus("saved");
+        setIsDirty(false);
         if ("publishWarning" in body && body.publishWarning) {
           setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
         }
@@ -103,6 +107,7 @@ export function BodyEditorClient({
       config={templatePuckConfig}
       data={initialData}
       onPublish={onPublish}
+      onChange={() => setIsDirty(true)}
       overrides={{
         headerActions: ({ children }) => (
           <>
