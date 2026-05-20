@@ -33,6 +33,54 @@ export type CommitArgs = {
 };
 
 /**
+ * Thrown by `commitFiles` when every retry attempt was beaten to the
+ * branch by another caller — i.e. `updateRef` returned the
+ * stale-ref 422 even after re-fetching head and rebuilding the tree.
+ *
+ * Per ADR-010 §6: two concurrent saves can each refresh `draft.sha`,
+ * build commits in parallel, and update-ref in some order; the loser
+ * sees 422. We retry on the loser's side; if it keeps losing, the
+ * caller (`publish.ts`) maps this to a user-facing "someone else just
+ * saved" message.
+ *
+ * `lastAttemptedParentSha` is the head SHA the final attempt was
+ * parented on — useful for log forensics. `cause` is the underlying
+ * `RequestError`.
+ */
+export class ConcurrentEditError extends Error {
+  constructor(
+    public readonly ref: string,
+    public readonly attempts: number,
+    public readonly lastAttemptedParentSha: string,
+    public readonly cause: unknown,
+  ) {
+    super(
+      `Concurrent edit on ${ref}: ${attempts} attempts exhausted. ` +
+        `Last attempted parent SHA was ${lastAttemptedParentSha}; ` +
+        `the ref was updated by another caller before each updateRef.`,
+    );
+    this.name = "ConcurrentEditError";
+  }
+}
+
+/** How many tree-rebuild-and-updateRef cycles `commitFiles` tries before giving up. */
+const MAX_COMMIT_ATTEMPTS = 3;
+
+/**
+ * Discriminates the stale-ref 422 from other 422 shapes GitHub returns
+ * on `updateRef`. The retry case is "the ref moved under us": message
+ * is some flavour of "Update is not a fast-forward" or "Reference is
+ * not at expected value". Other 422s (e.g. "Reference does not exist"
+ * when the branch was deleted) shouldn't retry — they need a higher-
+ * level recovery.
+ */
+function isStaleRefError(cause: unknown): cause is RequestError {
+  if (!(cause instanceof RequestError) || cause.status !== 422) return false;
+  const message = cause.message ?? "";
+  return /not a fast.?forward|not at expected value/i.test(message);
+}
+
+/**
  * Commit one or more files in a single commit using GitHub's Git Data API.
  * Pure function over the Octokit interface — no side effects beyond the API
  * calls. Returns the new commit SHA.
@@ -42,17 +90,24 @@ export type CommitArgs = {
  *
  * `deletePaths` items are added as tree entries with `sha: null`, which the
  * GitHub API treats as "remove from tree" relative to `base_tree`.
+ *
+ * Concurrent-edit handling (ADR-010 §6): if `updateRef` returns the
+ * stale-ref 422 (another caller updated `branch` between our
+ * `getRef` and our `updateRef`), we re-fetch HEAD, rebuild the tree
+ * off the new base, and try again — up to {@link MAX_COMMIT_ATTEMPTS}
+ * times. Blob creation lives outside the retry because blobs are
+ * content-addressed: the SHAs we computed on the first pass remain
+ * valid across retries. After exhausting attempts we throw
+ * {@link ConcurrentEditError} so callers can map it to a user-facing
+ * message.
  */
 export async function commitFiles(args: CommitArgs): Promise<string> {
   const octokit = new Octokit({ auth: args.token });
   const { owner, repo, branch } = args;
 
-  const ref = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
-  const headSha = ref.data.object.sha;
-
-  const headCommit = await octokit.git.getCommit({ owner, repo, commit_sha: headSha });
-  const baseTreeSha = headCommit.data.tree.sha;
-
+  // Blobs are content-addressed and idempotent — hoisted out of the
+  // retry loop so a stale-ref retry doesn't re-upload identical
+  // content.
   const blobs = await Promise.all(
     args.files.map(async (file) => {
       const blob = await octokit.git.createBlob({
@@ -85,33 +140,71 @@ export async function commitFiles(args: CommitArgs): Promise<string> {
     })),
   ];
 
-  // Octokit's TS type for `tree` doesn't model `sha: null` as a deletion,
-  // but the REST endpoint accepts it. Cast to bypass the typed property
-  // check; runtime behaviour is what we're asserting in git-commit.test.ts.
-  const createdTree = await octokit.git.createTree({
-    owner,
-    repo,
-    base_tree: baseTreeSha,
-    tree,
-  } as unknown as Parameters<typeof octokit.git.createTree>[0]);
+  // Initialised to "" only to satisfy TypeScript's flow analysis
+  // across the loop / catch boundary — `lastParentSha` is always
+  // reassigned to `headSha` below before any path that reads it
+  // (the `ConcurrentEditError` throw lives after the assignment in
+  // the same iteration).
+  //
+  // No backoff between attempts is intentional. The realistic
+  // concurrent-save rate is "two browser tabs," not a thundering
+  // herd; adding a sleep would just slow every save without changing
+  // collision behaviour. Revisit if telemetry shows actual herd
+  // patterns.
+  let lastParentSha = "";
+  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
+    const ref = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    const headSha = ref.data.object.sha;
+    lastParentSha = headSha;
 
-  const commit = await octokit.git.createCommit({
-    owner,
-    repo,
-    message: args.message,
-    tree: createdTree.data.sha,
-    parents: [headSha],
-    author: args.author,
-  });
+    const headCommit = await octokit.git.getCommit({ owner, repo, commit_sha: headSha });
+    const baseTreeSha = headCommit.data.tree.sha;
 
-  await octokit.git.updateRef({
-    owner,
-    repo,
-    ref: `heads/${branch}`,
-    sha: commit.data.sha,
-  });
+    // Octokit's TS type for `tree` doesn't model `sha: null` as a deletion,
+    // but the REST endpoint accepts it. Cast to bypass the typed property
+    // check; runtime behaviour is what we're asserting in git-commit.test.ts.
+    const createdTree = await octokit.git.createTree({
+      owner,
+      repo,
+      base_tree: baseTreeSha,
+      tree,
+    } as unknown as Parameters<typeof octokit.git.createTree>[0]);
 
-  return commit.data.sha;
+    const commit = await octokit.git.createCommit({
+      owner,
+      repo,
+      message: args.message,
+      tree: createdTree.data.sha,
+      parents: [headSha],
+      author: args.author,
+    });
+
+    try {
+      await octokit.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: commit.data.sha,
+      });
+      return commit.data.sha;
+    } catch (cause) {
+      if (!isStaleRefError(cause)) throw cause;
+      if (attempt === MAX_COMMIT_ATTEMPTS) {
+        throw new ConcurrentEditError(
+          `heads/${branch}`,
+          MAX_COMMIT_ATTEMPTS,
+          lastParentSha,
+          cause,
+        );
+      }
+      // Else: fall through, loop body re-fetches HEAD and rebuilds.
+    }
+  }
+
+  // Unreachable: the loop body either returns on success or throws on
+  // exhaustion. The throw here exists so TypeScript can prove the
+  // function returns `string`.
+  throw new Error("commitFiles: retry loop exited without returning or throwing");
 }
 
 // ---------------------------------------------------------------------------
