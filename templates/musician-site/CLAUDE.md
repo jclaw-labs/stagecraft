@@ -364,6 +364,18 @@ then publishes through the broker → GitHub path. A publish failure
 surfaces as `{ ok: true, publishWarning }` so the artist keeps a
 usable local copy — the next save retries the publish.
 
+**Local-write atomicity.** Content writes go through
+`writeJsonAtomic` (per-file: write to tmp sibling, then `rename` into
+place — POSIX atomic for same-filesystem renames). Multi-file writes
+that need all-or-nothing-ish semantics (schema saves with per-item
+migrations) go through `writeJsonBatchAtomic`, which stages all
+tmps in phase 1 before any renames in phase 2. A failure in phase 1
+(stringify error, disk full, validation slip) leaves NO final files
+touched. Phase 2 is per-file atomic but not all-or-nothing across
+files — a crash mid-batch can leave some files new and some old;
+true cross-file atomicity needs a journal and isn't worth the
+complexity for the sub-second write windows we see in practice.
+
 **Production (platform configured):**
 1. Validate magic-link session.
 2. POST `STAGECRAFT_PLATFORM_URL/api/publish-token` with `{ siteId }` and `Authorization: Bearer STAGECRAFT_BROKER_SECRET`.

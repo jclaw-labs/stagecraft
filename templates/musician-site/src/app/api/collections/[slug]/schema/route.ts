@@ -26,17 +26,18 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import {
+  collectionDefRepoPath,
   collectionDefSchema,
   describeIssue,
   describeWarning,
   listItemsInOrder,
+  prepareItemFileWrite,
   readCollectionDef,
   slugSchema,
   validateSchemaChange,
-  writeCollectionDef,
-  writeItem,
   type Item,
 } from "@/lib/collections";
+import { localPathForRepoPath, writeJsonBatchAtomic } from "@/lib/fs-helpers";
 import { PublishError, publish } from "@/lib/publish";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
@@ -98,10 +99,28 @@ export async function PUT(request: Request, ctx: Ctx) {
   // so there's a single source of truth for what the save will do.
   const migratedItems = report.migratedItems;
 
-  await writeCollectionDef(parsedSlug.data, newDef);
-  for (const item of migratedItems) {
-    await writeItem(parsedSlug.data, item.slug, item, newDef);
-  }
+  // Stage every local write (the new def + every migrated item) and
+  // commit them with `writeJsonBatchAtomic`. The phase-1-protected
+  // batch means a stringify / disk-full / validation slip on any
+  // single item leaves the previous state untouched — no half-
+  // migrated collection where the def says "field X is now type Y"
+  // but some items still carry the old type Y.
+  //
+  // Item writes go through `prepareItemFileWrite` (shared with
+  // `writeItem`) so the on-disk bytes match exactly what a per-call
+  // write would produce. Passing a shared `nowIso` means every item
+  // in this batch ends up with the same `updatedAt`.
+  const nowIso = new Date().toISOString();
+  const writes: Array<{ file: string; value: unknown }> = [
+    {
+      file: localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
+      value: collectionDefSchema.parse(newDef),
+    },
+    ...migratedItems.map((item: Item) =>
+      prepareItemFileWrite(parsedSlug.data, item.slug, item, newDef, nowIso),
+    ),
+  ];
+  await writeJsonBatchAtomic(writes);
 
   // Serialise warnings once — both success branches return the same
   // shape, and `describeWarning` is pure but cheap to call twice was
@@ -123,7 +142,12 @@ export async function PUT(request: Request, ctx: Ctx) {
           data: {
             id: item.id,
             createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
+            // Match the `updatedAt` we just wrote to disk so the
+            // publish target and the on-disk file agree. The
+            // previous code used `item.updatedAt` from the
+            // validator's migrated item, which was stale relative
+            // to what `writeItem` stamped on disk.
+            updatedAt: nowIso,
             values: item.values,
           },
         })),

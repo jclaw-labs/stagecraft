@@ -69,6 +69,7 @@ import {
   type PageSummary,
   type SiteConfig,
 } from "./site-config-types";
+import { contentDir, purgeOrphanTmps } from "./fs-helpers";
 
 export type PageData = Data<BlockProps>;
 
@@ -129,6 +130,14 @@ async function ensurePrebakedCollections(): Promise<void> {
       ensureCollectionDef(def.slug, def),
     ),
   );
+  // Once per process, sweep any orphan `<file>.tmp-...` artifacts a
+  // previous hard-crash (OOM, SIGKILL, reboot) left behind. The
+  // atomic-write helpers in `fs-helpers.ts` clean up after JS-level
+  // throws but can't run during a crash. Threshold is the default
+  // 15 minutes — anything older than that is almost certainly
+  // orphaned. Fire-and-forget on failure: a janitor error
+  // shouldn't block normal content reads.
+  await purgeOrphanTmps(contentDir()).catch(() => {});
   bootstrapped.add(key);
 }
 
