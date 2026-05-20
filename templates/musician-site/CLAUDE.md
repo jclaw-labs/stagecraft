@@ -144,8 +144,38 @@ src/
 
 ## Admin shell
 
-`/admin` is the editor surface. The sidebar in `AdminShell` lists four
-sections:
+`/admin` is the editor surface. The sidebar in `AdminShell` lists two
+groups:
+
+1. **Custom admin surfaces** (top, curated UX) — Pages, Site Settings,
+   Header & Navigation, Appearance.
+2. **Collections** (under a header) — every other collection
+   registered in `_collections.json`, listed alphabetically by plural
+   name. Each links to the generic
+   `/admin/collections/<slug>` list view (or
+   `/admin/collections/<slug>/items/_singleton` for singletons).
+
+### Custom admin surfaces
+
+Every editable collection has a generic editor at
+`/admin/collections/<slug>/items/<itemSlug>`. For collections where we
+want a richer, hand-authored UX, the platform ships a dedicated panel
+at a stable URL. These are registered in
+`src/components/admin/admin-surfaces.ts` (`CUSTOM_ADMIN_SURFACES`),
+which is the single source of truth for which collections have one.
+Registering a collection there:
+
+- Adds it as a top-level sidebar entry in the "Custom" group, before
+  the generic Collections group. Order in the array is the sidebar
+  order.
+- Bounces direct visits to
+  `/admin/collections/<slug>/items/_singleton` to the registered
+  `route` (same pattern as `/admin/pages` being canonical for the
+  pages collection).
+- Hides the collection from the generic Collections sidebar group, so
+  Site Settings doesn't appear twice.
+
+The four custom surfaces today:
 
 - **Pages** — `/admin/pages` is the landing page. Lists every page on
   disk; each row carries a drag handle (reorder = nav order +
@@ -167,10 +197,17 @@ sections:
   optional split heading font/weights).
 
 Each singleton panel uses the same `useSettingsForm` hook + `SaveBar`
-component, so adding another singleton later is a small file. Per-page
-settings (title, isSplashPage, isFooterHidden) live on the Puck `root`
-fields and surface in the editor's right-hand inspector when no block
-is selected.
+component, posting to the generic
+`PUT /api/collections/<slug>/items/_singleton` endpoint — the same
+path the generic editor uses. One save API, two surfaces. Adding a
+new custom panel is a small file: route at `/admin/<name>`, an entry
+in `admin-surfaces.ts`, a call to `useSettingsForm({ collectionSlug,
+toValues })`.
+
+`/api/save-config` still exists for the PagesPanel's cross-collection
+writes (drag-reorder updates the pages-collection order; eye-toggle
+flips per-page `showInNav`). Migrating those to per-collection
+endpoints is a follow-up.
 
 ## Collections (ADR-009)
 
@@ -199,6 +236,13 @@ import via sibling submodules that have no node imports:
 - `lib/collections/field-classification.ts` — `SLUG_SOURCE_COMPATIBLE_TYPES`,
   `SORTABLE_FIELD_TYPES`
 - `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
+- `lib/collections/field-ids.ts` — stable field-id constants for the
+  prebaked collections (`PAGES_FIELD_IDS` etc.). `seeds.ts` re-exports
+  for source-compat.
+- `lib/collections/migrate-from-legacy-values.ts` — `*ToItemValues` /
+  `*FromItem` conversion helpers used by the three custom singleton
+  panels at save time. `migrate-from-legacy.ts` re-exports for
+  source-compat + adds the crypto-using `pageDataToItem` helper.
 
 When you need a value (not just a type) from `schema.ts` in a
 `"use client"` file and there's no client-safe submodule yet, either

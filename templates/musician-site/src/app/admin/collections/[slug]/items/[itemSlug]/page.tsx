@@ -9,17 +9,24 @@
  * list view redirects here). For multi-item collections the route
  * shows one item; the list view at /admin/collections/<slug> is the
  * jumping-off point.
+ *
+ * Custom-panel collections (Site Settings, Header & Navigation,
+ * Appearance, Pages) bounce to their registered route — same
+ * pattern as `/admin/pages` is canonical for the pages collection.
+ * Registry in `@/components/admin/admin-surfaces`.
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/AdminShell";
+import { findCustomSurface } from "@/components/admin/admin-surfaces";
 import { getSession } from "@/lib/auth";
 import {
   itemSlugSchema,
   listItemsInOrder,
   readCollectionDef,
   readItem,
+  SINGLETON_ITEM_SLUG,
   slugSchema,
   type Item,
 } from "@/lib/collections";
@@ -33,6 +40,15 @@ export default async function ItemEdit({ params }: { params: Promise<Params> }) 
   const parsedSlug = slugSchema.safeParse(slug);
   const parsedItemSlug = itemSlugSchema.safeParse(itemSlug);
   if (!parsedSlug.success || !parsedItemSlug.success) notFound();
+
+  // Custom-panel singletons redirect to their curated UX. Multi-item
+  // custom-panel collections (Pages) handle their own list / per-item
+  // routes; the per-item URL within /admin/collections is fine for
+  // those, since the custom panel's list view is at a different path.
+  const customSurface = findCustomSurface(parsedSlug.data);
+  if (customSurface && parsedItemSlug.data === SINGLETON_ITEM_SLUG) {
+    redirect(customSurface.route);
+  }
 
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsedSlug.data)]);
   if (!def) notFound();

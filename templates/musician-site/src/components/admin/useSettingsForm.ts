@@ -2,28 +2,51 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { puckContentValue } from "@/lib/collections/puck-content-value";
+import type { Data as PuckData } from "@measured/puck";
+
 import type { SaveStatus } from "./SaveBar";
 
 /**
- * Hook that backs every settings panel (site, header, appearance) with the
- * same dirty-tracking + save logic.
+ * Hook that backs every custom singleton panel (Site Settings,
+ * Header & Navigation, Appearance) with the same dirty-tracking +
+ * save logic.
+ *
+ * Saves go through `PUT /api/collections/<collectionSlug>/items/_singleton`
+ * — the same endpoint the generic collection editor uses. Two save
+ * APIs for the same on-disk data was the original SSOT-drift smell;
+ * one endpoint, one write path now.
  *
  * The hook owns:
  *   - the current value (with a setter)
  *   - a derived `isDirty` flag (deep-equality vs. the initial snapshot)
  *   - the SaveBar status machine (idle → saving → saved | error)
- *   - the actual save call (post body to `endpoint` with a `kind` discriminator)
+ *   - the actual save call (PUT `{ values: toValues(value) }` to the
+ *     collection-item endpoint)
  *
- * Panels stay declarative: build the form with `value` + `setValue`, drop
- * `<SaveBar {...form.saveBarProps} />` at the bottom, done.
+ * Panels stay declarative: build the form with `value` + `setValue`,
+ * drop `<SaveBar {...form.saveBarProps} />` at the bottom, done.
+ *
+ * The legacy `toValues` shape is what each panel maintains internally
+ * (e.g. `SiteConfig` for Site Settings); we convert to the
+ * Collection's `Item["values"]` shape at save time so the form code
+ * stays panel-flavoured and the wire format stays one shape.
  */
+
+// Avoid pulling `node:crypto` into the client bundle by depending on
+// `Item["values"]` via the schema barrel — instead, derive the shape
+// from a type-only import of `FieldValue`. The runtime helper for
+// puckContent values comes from a node-import-free sibling module.
+import type { FieldValue } from "@/lib/collections/schema";
+
+export type ItemValues = Record<string, FieldValue>;
 
 export type UseSettingsFormArgs<T> = {
   initial: T;
-  /** Path to POST changes to. Body shape: `{ kind, data: value }`. */
-  endpoint: string;
-  /** Discriminator embedded in the request body. */
-  kind: string;
+  /** Collection slug whose singleton item this form edits. */
+  collectionSlug: string;
+  /** Convert the form's local shape to Collection `Item["values"]`. */
+  toValues: (value: T) => ItemValues;
 };
 
 export type UseSettingsFormResult<T> = {
@@ -43,8 +66,8 @@ export type UseSettingsFormResult<T> = {
 
 export function useSettingsForm<T>({
   initial,
-  endpoint,
-  kind,
+  collectionSlug,
+  toValues,
 }: UseSettingsFormArgs<T>): UseSettingsFormResult<T> {
   // Snapshot the initial value as a JSON string and compare on every render.
   // The form schemas are plain JSON, so JSON.stringify is sufficient and
@@ -63,11 +86,14 @@ export function useSettingsForm<T>({
     setStatus("saving");
     setErrorMessage(null);
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, data: value }),
-      });
+      const res = await fetch(
+        `/api/collections/${collectionSlug}/items/_singleton`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ values: toValues(value) }),
+        },
+      );
       const body = (await res.json().catch(() => null)) as
         | { ok: true; publishWarning?: string }
         | { ok: false; error?: string }
@@ -92,7 +118,7 @@ export function useSettingsForm<T>({
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");
     }
-  }, [endpoint, kind, value]);
+  }, [collectionSlug, toValues, value]);
 
   return {
     value,
@@ -109,3 +135,11 @@ export function useSettingsForm<T>({
     },
   };
 }
+
+/**
+ * Re-export `puckContentValue` so panels that need to embed a
+ * Puck-content value in their `toValues` result can do so without
+ * a second import. The helper is node-import-free.
+ */
+export { puckContentValue };
+export type { PuckData };

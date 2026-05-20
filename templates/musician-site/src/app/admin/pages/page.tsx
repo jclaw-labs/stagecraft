@@ -1,7 +1,8 @@
 import { getSession } from "@/lib/auth";
 import { listPageSummaries, readSiteConfig } from "@/lib/content";
 
-import { AdminShell, AdminPanel } from "@/components/admin/AdminShell";
+import { AdminPanel } from "@/components/admin/AdminPanel";
+import { AdminShell } from "@/components/admin/AdminShell";
 
 import { PagesPanel } from "./PagesPanel";
 
