@@ -241,6 +241,65 @@ export async function deleteItem(
 }
 
 /**
+ * Rename an item's slug — writes the file at the new path, deletes the
+ * old, and updates `_order.json` if manual ordering is in effect.
+ *
+ * Returns the renamed item as read back from disk (so callers see the
+ * canonical `updatedAt` the write stamped). Throws `ItemExistsError`
+ * if the new slug collides; throws a plain `Error` if the old item
+ * doesn't exist or the slugs are identical.
+ *
+ * The slug is the on-disk filename; renaming bumps `updatedAt` because
+ * `writeItem` always does. Acceptable lie for v1: the alternative is a
+ * special-case write path that preserves the timestamp, and the
+ * cost-benefit doesn't earn it.
+ *
+ * Caller is responsible for the publish-layer side (committing the
+ * write + delete + order update in one commit). This helper only
+ * touches local disk.
+ */
+export async function renameItem(
+  collectionSlug: string,
+  oldSlug: string,
+  newSlug: string,
+  def: CollectionDef,
+): Promise<Item> {
+  slugSchema.parse(collectionSlug);
+  slugSchema.parse(oldSlug);
+  slugSchema.parse(newSlug);
+  if (oldSlug === newSlug) {
+    throw new Error("renameItem: new slug must differ from old");
+  }
+  const existing = await readItem(collectionSlug, oldSlug, def);
+  if (!existing) {
+    throw new Error(`renameItem: no item at ${collectionSlug}/${oldSlug}`);
+  }
+  const collidesWith = await readItem(collectionSlug, newSlug, def);
+  if (collidesWith !== null) {
+    throw new ItemExistsError(collectionSlug, newSlug);
+  }
+
+  const renamed: Item = { ...existing, slug: newSlug };
+  await writeItem(collectionSlug, newSlug, renamed, def);
+  await deleteItem(collectionSlug, oldSlug);
+
+  // Preserve manual ordering: replace oldSlug with newSlug at its
+  // current position so the artist's drag-ordered sequence survives
+  // the rename. Field-sorted collections don't care.
+  if (def.defaultSort?.mode === "manual") {
+    const order = await readOrder(collectionSlug);
+    if (order !== null) {
+      const updated = order.map((s) => (s === oldSlug ? newSlug : s));
+      await writeOrder(collectionSlug, updated);
+    }
+  }
+
+  const saved = await readItem(collectionSlug, newSlug, def);
+  if (!saved) throw new Error("renameItem: rename succeeded but read failed");
+  return saved;
+}
+
+/**
  * List every item in a collection, respecting the configured ordering:
  *
  *   - `defaultSort = { mode: "manual" }` → use `_order.json`. Items

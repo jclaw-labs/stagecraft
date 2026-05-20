@@ -50,6 +50,7 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
   const [navError, setNavError] = useState<string | null>(null);
   const [draggingSlug, setDraggingSlug] = useState<string | null>(null);
   const [dragOverSlug, setDragOverSlug] = useState<string | null>(null);
+  const [renamingPage, setRenamingPage] = useState<PageSummary | null>(null);
 
   const effectiveSlug = hasSlugBeenEdited ? newSlug : slugifyTitle(newTitle);
   const isSlugValid = effectiveSlug.length > 0 && PAGE_SLUG_PATTERN.test(effectiveSlug);
@@ -171,6 +172,40 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
       setPages((current) =>
         current.map((p) => (p.slug === slug ? { ...p, isHiddenFromNav: wasHidden } : p)),
       );
+    }
+  }
+
+  async function handleRename(oldSlug: string, nextSlug: string): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `/api/collections/pages/items/${encodeURIComponent(oldSlug)}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ newSlug: nextSlug }),
+        },
+      );
+      const body = (await res.json().catch(() => null)) as
+        | { ok: true; newSlug: string }
+        | { ok: false; error: string }
+        | null;
+      if (!res.ok || !body || !body.ok) {
+        return (body && "error" in body && body.error) || `Rename failed (HTTP ${res.status})`;
+      }
+      // Optimistic local update: swap the slug everywhere the panel
+      // holds it. router.refresh() pulls the canonical state.
+      setPages((current) =>
+        current.map((p) => (p.slug === oldSlug ? { ...p, slug: body.newSlug } : p)),
+      );
+      setSiteConfig((prev) => ({
+        ...prev,
+        pageOrder: prev.pageOrder.map((s) => (s === oldSlug ? body.newSlug : s)),
+        hiddenFromNav: prev.hiddenFromNav.map((s) => (s === oldSlug ? body.newSlug : s)),
+      }));
+      router.refresh();
+      return null;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "Rename failed";
     }
   }
 
@@ -365,6 +400,22 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
                   </Link>
                   <button
                     type="button"
+                    onClick={() => setRenamingPage(page)}
+                    aria-label={`Rename page ${page.slug}`}
+                    style={{
+                      padding: "var(--space-1) var(--space-3)",
+                      fontSize: "var(--font-size-sm)",
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-surface)",
+                      color: "var(--color-text)",
+                      cursor: "pointer",
+                      borderRadius: "var(--radius-sm)",
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleDelete(page.slug)}
                     disabled={deletingSlug === page.slug}
                     aria-label={`Delete page ${page.slug}`}
@@ -475,6 +526,170 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
           </button>
         </form>
       </section>
+
+      {renamingPage ? (
+        <RenamePageModal
+          page={renamingPage}
+          onCancel={() => setRenamingPage(null)}
+          onSubmit={async (nextSlug) => {
+            const error = await handleRename(renamingPage.slug, nextSlug);
+            if (error === null) setRenamingPage(null);
+            return error;
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function RenamePageModal({
+  page,
+  onCancel,
+  onSubmit,
+}: {
+  page: PageSummary;
+  onCancel: () => void;
+  onSubmit: (nextSlug: string) => Promise<string | null>;
+}) {
+  const [nextSlug, setNextSlug] = useState(page.slug);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const isValid =
+    nextSlug.length > 0 && PAGE_SLUG_PATTERN.test(nextSlug) && nextSlug !== page.slug;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isValid || isSaving) return;
+    setIsSaving(true);
+    const msg = await onSubmit(nextSlug);
+    setIsSaving(false);
+    if (msg !== null) setError(msg);
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rename-modal-title"
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+      }}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius)",
+          padding: "var(--space-6)",
+          width: "min(28rem, calc(100% - var(--space-8)))",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-4)",
+        }}
+      >
+        <h2
+          id="rename-modal-title"
+          style={{
+            margin: 0,
+            fontSize: "var(--font-size-lg)",
+            fontWeight: "var(--font-weight-semibold)" as unknown as number,
+          }}
+        >
+          Rename page
+        </h2>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          Renaming changes the page&apos;s URL from{" "}
+          <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> to{" "}
+          <code style={{ fontFamily: "var(--font-mono)" }}>
+            /{nextSlug || "new-slug"}
+          </code>
+          . The old URL won&apos;t redirect — anyone with a link to{" "}
+          <code style={{ fontFamily: "var(--font-mono)" }}>/{page.slug}</code> will see
+          a 404. Copy the old URL first if you need to update external links.
+        </p>
+        <TextField
+          id="rename-page-slug"
+          label="New URL slug"
+          description="Lowercase letters, digits, and hyphens."
+          value={nextSlug}
+          onChange={(v) => {
+            setError(null);
+            setNextSlug(v);
+          }}
+          placeholder="e.g. tour-2026"
+          isRequired
+        />
+        {error ? (
+          <div
+            role="alert"
+            style={{
+              color: "var(--color-text-error)",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+              cursor: isSaving ? "wait" : "pointer",
+              borderRadius: "var(--radius-sm)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!isValid || isSaving}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: "var(--font-weight-semibold)" as unknown as number,
+              border: "1px solid transparent",
+              background:
+                isValid && !isSaving
+                  ? "var(--color-action)"
+                  : "var(--color-action-disabled)",
+              color: "var(--color-action-fg)",
+              cursor: isValid && !isSaving ? "pointer" : "not-allowed",
+              borderRadius: "var(--radius-sm)",
+            }}
+          >
+            {isSaving ? "Renaming…" : "Rename"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

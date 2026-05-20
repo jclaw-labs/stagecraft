@@ -15,9 +15,12 @@ import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
   deleteItem,
+  ItemExistsError,
   itemSlugSchema,
   readCollectionDef,
   readItem,
+  readOrder,
+  renameItem,
   slugSchema,
   writeItem,
   type Item,
@@ -138,6 +141,132 @@ export async function PUT(request: Request, ctx: Ctx) {
       return NextResponse.json({
         ok: true,
         item: saved,
+        mode: "local",
+        commitSha: null,
+        publishWarning: cause.message,
+      });
+    }
+    throw cause;
+  }
+}
+
+/**
+ * PATCH — rename an item's slug. Body: `{ newSlug: string }`.
+ *
+ * The slug is the item's URL segment AND its filename. Renaming
+ * physically moves the file from
+ * `items/<oldSlug>.json` → `items/<newSlug>.json` and updates
+ * `_order.json` if manual ordering is in effect. The item's stable
+ * `id` is unchanged so cross-collection refs survive.
+ *
+ * TODO (ADR-009 deferred): the old URL won't redirect — external
+ * links break silently. The fix is a per-collection `_redirects.json`
+ * mapping oldSlug → newSlug, consulted by the public catch-all
+ * before returning 404. Surface a warning in the UI until then.
+ */
+export async function PATCH(request: Request, ctx: Ctx) {
+  const session = await getSession();
+  if (!session) return err(401, "unauthorized");
+
+  const { slug: collectionSlug, itemSlug } = await ctx.params;
+  const parsedCollectionSlug = slugSchema.safeParse(collectionSlug);
+  const parsedOldSlug = slugSchema.safeParse(itemSlug);
+  if (!parsedCollectionSlug.success || !parsedOldSlug.success) {
+    return err(400, "Invalid slug");
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return err(400, "Body must be JSON");
+  }
+  const newSlugRaw = body && typeof body === "object" && "newSlug" in body
+    ? (body as { newSlug: unknown }).newSlug
+    : null;
+  if (typeof newSlugRaw !== "string") {
+    return err(400, "Body must include a string `newSlug`");
+  }
+  const parsedNewSlug = slugSchema.safeParse(newSlugRaw);
+  if (!parsedNewSlug.success) {
+    return err(400, `Invalid newSlug: ${parsedNewSlug.error.issues[0]?.message ?? "invalid"}`);
+  }
+  if (parsedOldSlug.data === parsedNewSlug.data) {
+    return err(400, "newSlug must differ from the current slug");
+  }
+
+  const def = await readCollectionDef(parsedCollectionSlug.data);
+  if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
+
+  let saved: Item;
+  try {
+    saved = await renameItem(
+      parsedCollectionSlug.data,
+      parsedOldSlug.data,
+      parsedNewSlug.data,
+      def,
+    );
+  } catch (cause) {
+    if (cause instanceof ItemExistsError) {
+      return err(409, cause.message);
+    }
+    if (cause instanceof Error && cause.message.startsWith("renameItem: no item")) {
+      return err(404, "Item not found");
+    }
+    throw cause;
+  }
+
+  // Read the (possibly updated) order so the publish includes it
+  // when manual ordering is in effect. Otherwise the publish just
+  // covers the write + delete pair.
+  const orderAfter =
+    def.defaultSort?.mode === "manual" ? await readOrder(parsedCollectionSlug.data) : null;
+
+  try {
+    const result = await publish({
+      targets: [
+        {
+          kind: "collection-item",
+          collectionSlug: parsedCollectionSlug.data,
+          itemSlug: parsedNewSlug.data,
+          data: {
+            id: saved.id,
+            createdAt: saved.createdAt,
+            updatedAt: saved.updatedAt,
+            values: saved.values,
+          },
+        },
+        {
+          kind: "delete-collection-item",
+          collectionSlug: parsedCollectionSlug.data,
+          itemSlug: parsedOldSlug.data,
+        },
+        ...(orderAfter !== null
+          ? [
+              {
+                kind: "collection-order" as const,
+                collectionSlug: parsedCollectionSlug.data,
+                data: orderAfter,
+              },
+            ]
+          : []),
+      ],
+      authorEmail: session.email,
+      commitSubject: `Rename ${parsedCollectionSlug.data}/${parsedOldSlug.data} → ${parsedNewSlug.data}`,
+    });
+    return NextResponse.json({
+      ok: true,
+      item: saved,
+      newSlug: parsedNewSlug.data,
+      mode: result.mode,
+      commitSha: result.commitSha,
+    });
+  } catch (cause) {
+    if (cause instanceof PublishError) {
+      return NextResponse.json({
+        ok: true,
+        item: saved,
+        newSlug: parsedNewSlug.data,
         mode: "local",
         commitSha: null,
         publishWarning: cause.message,
