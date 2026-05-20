@@ -199,7 +199,7 @@ export function validateCollectionRouting(
  * surfaces every conflict in the registry; this helper is the
  * pre-flight version for the single-slug case so the editor can fail
  * a creation attempt with a useful 409 instead of letting the new
- * page render the entire site uneatable.
+ * page render the entire site unreachable.
  */
 export function findShadowingPrefix(
   pageSlug: string,
