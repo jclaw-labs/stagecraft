@@ -56,6 +56,11 @@ const cachedReadCollectionDef = cache(readCollectionDef);
 const cachedReadSiteConfig = cache(readSiteConfig);
 const cachedReadHeaderConfig = cache(readHeaderConfig);
 const cachedListPageSummaries = cache(listPageSummaries);
+const cachedReadPageOrNull = cache(readPageOrNull);
+// resolveRootPageSlug calls listPageSummaries internally; wrap it at
+// this layer so root-URL requests don't trigger that read twice (once
+// per generateMetadata + render path).
+const cachedResolveRootPageSlug = cache(resolveRootPageSlug);
 
 /**
  * Load every collection's def in parallel, filter out nulls, and
@@ -139,7 +144,7 @@ export default async function CatchAllPage({ params }: Props) {
 async function renderPage({ segs }: { segs: string[] }) {
   let requestedSlug: string;
   if (segs.length === 0) {
-    const root = await resolveRootPageSlug();
+    const root = await cachedResolveRootPageSlug();
     if (!root) notFound();
     requestedSlug = root;
   } else if (segs.length === 1) {
@@ -152,7 +157,7 @@ async function renderPage({ segs }: { segs: string[] }) {
   }
 
   const [pageData, site, header, summaries] = await Promise.all([
-    readPageOrNull(requestedSlug),
+    cachedReadPageOrNull(requestedSlug),
     cachedReadSiteConfig(),
     cachedReadHeaderConfig(),
     cachedListPageSummaries(),
@@ -280,7 +285,7 @@ function PublicPageChrome({
  * Takes `allDefs` from the catch-all rather than re-reading every
  * definition. When `detailTemplate` is null, falls back to a
  * minimal "every scalar field as plain text" rendering wrapped in
- * a `Section` primitive so token discipline survives.
+ * an `<article>` with token-driven inline styles.
  */
 async function CollectionItemBody({
   def,
@@ -337,14 +342,14 @@ async function CollectionItemBody({
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug: segments } = await params;
   const slug = !segments || segments.length === 0
-    ? await resolveRootPageSlug()
+    ? await cachedResolveRootPageSlug()
     : segments[0];
 
   if (!slug) return { title: "Site" };
 
   const [site, pageData] = await Promise.all([
     cachedReadSiteConfig(),
-    readPageOrNull(slug),
+    cachedReadPageOrNull(slug),
   ]);
 
   const pageTitle = pageData ? extractPageRootProps(pageData).title : null;
