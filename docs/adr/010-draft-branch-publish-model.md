@@ -134,8 +134,8 @@ After the new commit lands on `main`, the publish flow fast-forwards
 invariant holds; the next edit cycle starts clean.
 
 The per-save draft commits between the previous `main.sha` and the
-new one remain in GitHub's reflog (for a short window — non-protected
-refs reflog is ~30 days) but aren't reachable from any active ref.
+new one remain in GitHub's reflog for some retention window before
+being garbage-collected, but aren't reachable from any active ref.
 
 **Implementation cost**: three GitHub Git Data API calls — `getRef`
 for both branches, `createCommit` with the right parent + tree,
@@ -150,8 +150,8 @@ clicking Publish. v1 ships the auto-generated message only.
 ### 4. Discard
 
 Force-update `draft`'s ref to `main.sha`. The previous draft state is
-unreachable via active refs (visible only via reflog within GitHub's
-retention window).
+unreachable via active refs (visible only via reflog before GitHub
+garbage-collects it).
 
 The admin UI requires confirmation: *"Discard 17 unpublished
 changes? This can't be undone."* The count is the cheap diff between
@@ -181,6 +181,15 @@ one HEAD check + cached content reads.
 After any admin write, the writer's process updates its own cache
 synchronously with the new commit's tree. Other containers' caches
 update on their next read via the SHA comparison.
+
+Cache GC: paths removed from the source branch (e.g., a deleted
+item) get dropped on the next `listItemSlugs` call that observes
+the absence — the listing operation rewrites the cache for that
+collection's items directory. For long-lived processes (non-
+serverless deploys), this means cache size tracks the live tree
+plus any items removed since the most recent list call. Serverless
+processes are bounded by cold-start frequency; either way, no
+unbounded growth.
 
 ### 6. Concurrent edits on draft
 
