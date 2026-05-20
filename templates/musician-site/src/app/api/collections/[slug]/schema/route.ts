@@ -26,17 +26,19 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import {
+  buildItemFileSchema,
+  collectionDefRepoPath,
   collectionDefSchema,
   describeIssue,
   describeWarning,
+  itemRepoPath,
   listItemsInOrder,
   readCollectionDef,
   slugSchema,
   validateSchemaChange,
-  writeCollectionDef,
-  writeItem,
   type Item,
 } from "@/lib/collections";
+import { localPathForRepoPath, writeJsonBatchAtomic } from "@/lib/fs-helpers";
 import { PublishError, publish } from "@/lib/publish";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
@@ -98,10 +100,36 @@ export async function PUT(request: Request, ctx: Ctx) {
   // so there's a single source of truth for what the save will do.
   const migratedItems = report.migratedItems;
 
-  await writeCollectionDef(parsedSlug.data, newDef);
-  for (const item of migratedItems) {
-    await writeItem(parsedSlug.data, item.slug, item, newDef);
-  }
+  // Stage every local write (the new def + every migrated item) and
+  // commit them with `writeJsonBatchAtomic`. The phase-1-protected
+  // batch means a stringify / disk-full / validation slip on any
+  // single item leaves the previous state untouched — no half-
+  // migrated collection where the def says "field X is now type Y"
+  // but some items still carry the old type Y.
+  //
+  // Item-file content matches what `writeItem` produces server-side
+  // (stamp `updatedAt` now; preserve `id` + `createdAt` from the
+  // validator's migrated item; run the full file through
+  // `buildItemFileSchema` so per-field constraints get applied to
+  // the on-disk bytes).
+  const nowIso = new Date().toISOString();
+  const itemFileSchemaForNewDef = buildItemFileSchema(newDef.fields);
+  const writes: Array<{ file: string; value: unknown }> = [
+    {
+      file: localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
+      value: collectionDefSchema.parse(newDef),
+    },
+    ...migratedItems.map((item: Item) => ({
+      file: localPathForRepoPath(itemRepoPath(parsedSlug.data, item.slug)),
+      value: itemFileSchemaForNewDef.parse({
+        id: item.id,
+        createdAt: item.createdAt,
+        updatedAt: nowIso,
+        values: item.values,
+      }),
+    })),
+  ];
+  await writeJsonBatchAtomic(writes);
 
   // Serialise warnings once — both success branches return the same
   // shape, and `describeWarning` is pure but cheap to call twice was
@@ -123,7 +151,12 @@ export async function PUT(request: Request, ctx: Ctx) {
           data: {
             id: item.id,
             createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
+            // Match the `updatedAt` we just wrote to disk so the
+            // publish target and the on-disk file agree. The
+            // previous code used `item.updatedAt` from the
+            // validator's migrated item, which was stale relative
+            // to what `writeItem` stamped on disk.
+            updatedAt: nowIso,
             values: item.values,
           },
         })),

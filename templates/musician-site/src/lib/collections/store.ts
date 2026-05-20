@@ -25,7 +25,7 @@ import {
   readdirFiltered,
   readJson,
   unlinkIfExists,
-  writeJson,
+  writeJsonAtomic,
 } from "../fs-helpers";
 
 import {
@@ -109,7 +109,10 @@ export async function writeCollectionDef(
       `writeCollectionDef: def.slug (${def.slug}) must match target slug (${collectionSlug})`,
     );
   }
-  await writeJson(collectionDefLocalPath(collectionSlug), collectionDefSchema.parse(def));
+  await writeJsonAtomic(
+    collectionDefLocalPath(collectionSlug),
+    collectionDefSchema.parse(def),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +204,7 @@ export async function writeItem(
     updatedAt: nowIso(),
     values: item.values,
   });
-  await writeJson(itemLocalPath(collectionSlug, itemSlug), file);
+  await writeJsonAtomic(itemLocalPath(collectionSlug, itemSlug), file);
 }
 
 /** Wall-clock current time as an ISO 8601 string. Extracted for tests. */
@@ -392,7 +395,7 @@ export async function writeOrder(
   order: string[],
 ): Promise<void> {
   slugSchema.parse(collectionSlug);
-  await writeJson(orderLocalPath(collectionSlug), orderFileSchema.parse(order));
+  await writeJsonAtomic(orderLocalPath(collectionSlug), orderFileSchema.parse(order));
 }
 
 // ---------------------------------------------------------------------------

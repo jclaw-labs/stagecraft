@@ -16,6 +16,18 @@ vi.mock("@/lib/publish", async () => {
   return { ...actual, publish: publishMock };
 });
 
+const { writeJsonBatchAtomicMock } = vi.hoisted(() => ({
+  writeJsonBatchAtomicMock: vi.fn(),
+}));
+vi.mock("@/lib/fs-helpers", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/fs-helpers")>("@/lib/fs-helpers");
+  // Default to the real implementation; tests override via
+  // `mockImplementationOnce` when they want to simulate a failure.
+  writeJsonBatchAtomicMock.mockImplementation(actual.writeJsonBatchAtomic);
+  return { ...actual, writeJsonBatchAtomic: writeJsonBatchAtomicMock };
+});
+
 import { PUT } from "./route";
 import { POST as POST_ITEM } from "../items/route";
 import {
@@ -39,6 +51,13 @@ beforeEach(async () => {
   getSessionMock.mockReset();
   publishMock.mockReset();
   publishMock.mockResolvedValue({ commitSha: null, mode: "local" });
+  // Reset to the real `writeJsonBatchAtomic` between tests so an
+  // override from one test doesn't leak into the next.
+  const fsHelpersActual = await vi.importActual<typeof import("@/lib/fs-helpers")>(
+    "@/lib/fs-helpers",
+  );
+  writeJsonBatchAtomicMock.mockReset();
+  writeJsonBatchAtomicMock.mockImplementation(fsHelpersActual.writeJsonBatchAtomic);
   process.env.STAGECRAFT_CONTENT_DIR = TMP_CONTENT_DIR;
   __resetBootstrapCacheForTests();
   await fs.rm(path.join(TMP_CONTENT_DIR, "collections"), { recursive: true, force: true });
@@ -322,6 +341,91 @@ describe("PUT /api/collections/[slug]/schema", () => {
     const reread = await readItem("pages", "tour-2026", updatedDef);
     expect(reread).not.toBeNull();
     expect(reread!.values.f_subtitle).toEqual({ type: "longText", value: "Hello world" });
+  });
+
+  it("leaves disk untouched when the atomic batch write fails", async () => {
+    // Atomicity guard: if the underlying `writeJsonBatchAtomic` throws
+    // (disk full, simulated mid-write failure, etc.), the schema-save
+    // endpoint must propagate the error AND leave the previous def +
+    // items on disk byte-identical. The helper's own tests
+    // (`fs-helpers.test.ts`) cover the phase-1 rollback semantics —
+    // this test confirms the endpoint actually uses the helper rather
+    // than the old sequential-write loop that left half-migrated
+    // state on partial failure.
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    publishMock.mockResolvedValue({ commitSha: "abc", mode: "github" });
+
+    // Set up: pages collection with a text field + one item that
+    // would be migrated to longText if the save succeeded.
+    const pagesDef = await readCollectionDef("pages");
+    if (!pagesDef) throw new Error("seed");
+    const withText = {
+      ...pagesDef,
+      fields: [
+        ...pagesDef.fields,
+        { id: "f_subtitle", key: "subtitle", type: "text" as const, required: false },
+      ],
+    };
+    await writeCollectionDef("pages", withText);
+    await POST_ITEM(
+      new Request("https://x", {
+        method: "POST",
+        body: JSON.stringify({
+          slug: "tour-2026",
+          values: {
+            ...VALID_VALUES,
+            f_subtitle: { type: "text", value: "Original" },
+          },
+        }),
+      }),
+      ctx("pages"),
+    );
+
+    // Snapshot the on-disk state before the failed save.
+    const defPath = path.join(
+      TMP_CONTENT_DIR,
+      "collections/pages/_collection.json",
+    );
+    const itemPath = path.join(
+      TMP_CONTENT_DIR,
+      "collections/pages/items/tour-2026.json",
+    );
+    const defBytesBefore = await fs.readFile(defPath, "utf-8");
+    const itemBytesBefore = await fs.readFile(itemPath, "utf-8");
+
+    // Clear publishMock so the post-PUT assertion only sees calls
+    // from the schema endpoint, not the seeding POST_ITEM above.
+    publishMock.mockClear();
+
+    // Simulate a mid-write failure. The helper's phase-1 rollback
+    // would clean up any tmp files; here we go further and verify
+    // the endpoint's behavior when the helper itself throws.
+    writeJsonBatchAtomicMock.mockRejectedValueOnce(new Error("simulated disk full"));
+
+    const flipped = {
+      ...withText,
+      fields: withText.fields.map((f) =>
+        f.id === "f_subtitle" && f.type === "text"
+          ? { ...f, type: "longText" as const }
+          : f,
+      ),
+    };
+    await expect(PUT(jsonReq(flipped), ctx("pages"))).rejects.toThrow(
+      "simulated disk full",
+    );
+
+    // Both files are byte-identical to before the failed save.
+    expect(await fs.readFile(defPath, "utf-8")).toBe(defBytesBefore);
+    expect(await fs.readFile(itemPath, "utf-8")).toBe(itemBytesBefore);
+
+    // No publish target was attempted — the write threw before the
+    // publish call ran. (The endpoint relies on local-write-first
+    // semantics, so a failed local write means no broker call at all.)
+    expect(publishMock).not.toHaveBeenCalled();
+
+    // And no tmp siblings leaked into the items directory.
+    const itemsDirEntries = await fs.readdir(path.dirname(itemPath));
+    expect(itemsDirEntries.sort()).toEqual(["tour-2026.json"]);
   });
 
   it("blocks removing a select option that an item references", async () => {

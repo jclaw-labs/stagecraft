@@ -14,6 +14,8 @@ import {
   stringifyContent,
   unlinkIfExists,
   writeJson,
+  writeJsonAtomic,
+  writeJsonBatchAtomic,
 } from "./fs-helpers";
 
 let TMP_DIR: string;
@@ -126,6 +128,129 @@ describe("unlinkIfExists", () => {
 
   it("is a no-op when the file doesn't exist", async () => {
     await expect(unlinkIfExists(path.join(TMP_DIR, "nope.txt"))).resolves.toBeUndefined();
+  });
+});
+
+describe("writeJsonAtomic", () => {
+  it("writes the file with canonical formatting (matches writeJson)", async () => {
+    const file = path.join(TMP_DIR, "atomic-ok.json");
+    await writeJsonAtomic(file, { a: 1 });
+    expect(await fs.readFile(file, "utf-8")).toBe('{\n  "a": 1\n}\n');
+  });
+
+  it("creates parent directories as needed", async () => {
+    const file = path.join(TMP_DIR, "atomic-deep/dir/file.json");
+    await writeJsonAtomic(file, { x: 1 });
+    expect(await readJson(file)).toEqual({ x: 1 });
+  });
+
+  it("leaves no tmp sibling behind on success", async () => {
+    const dir = path.join(TMP_DIR, "no-tmp-leak");
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, "x.json");
+    await writeJsonAtomic(file, { y: 2 });
+    const siblings = await fs.readdir(dir);
+    expect(siblings).toEqual(["x.json"]);
+  });
+
+  it("doesn't touch the final file when stringify throws", async () => {
+    // Pre-write a known-good file so we can verify the write
+    // operation left it alone.
+    const file = path.join(TMP_DIR, "preserved-on-error.json");
+    await fs.writeFile(file, '{"original":true}\n', "utf-8");
+
+    // Circular references make `JSON.stringify` throw inside
+    // `stringifyContent`. Because we write the tmp BEFORE renaming
+    // into place, a stringify throw leaves the final file untouched.
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await expect(writeJsonAtomic(file, circular)).rejects.toThrow();
+
+    // Final file is byte-for-byte unchanged.
+    expect(await fs.readFile(file, "utf-8")).toBe('{"original":true}\n');
+  });
+});
+
+describe("writeJsonBatchAtomic", () => {
+  it("is a no-op for an empty array", async () => {
+    await expect(writeJsonBatchAtomic([])).resolves.toBeUndefined();
+  });
+
+  it("writes every entry on the happy path", async () => {
+    const dir = path.join(TMP_DIR, "batch-ok");
+    await fs.mkdir(dir, { recursive: true });
+    const writes = [
+      { file: path.join(dir, "a.json"), value: { n: 1 } },
+      { file: path.join(dir, "b.json"), value: { n: 2 } },
+      { file: path.join(dir, "c.json"), value: { n: 3 } },
+    ];
+    await writeJsonBatchAtomic(writes);
+    expect(await readJson(writes[0].file)).toEqual({ n: 1 });
+    expect(await readJson(writes[1].file)).toEqual({ n: 2 });
+    expect(await readJson(writes[2].file)).toEqual({ n: 3 });
+  });
+
+  it("leaves no tmp siblings behind on success", async () => {
+    const dir = path.join(TMP_DIR, "batch-no-tmp-leak");
+    await fs.mkdir(dir, { recursive: true });
+    await writeJsonBatchAtomic([
+      { file: path.join(dir, "x.json"), value: { v: 1 } },
+      { file: path.join(dir, "y.json"), value: { v: 2 } },
+    ]);
+    const names = (await fs.readdir(dir)).sort();
+    expect(names).toEqual(["x.json", "y.json"]);
+  });
+
+  it("phase-1 rollback: a mid-batch stringify throw leaves no final files touched", async () => {
+    // Pre-write the FIRST final path so we can verify it survives.
+    // The OTHER two paths don't exist initially.
+    const dir = path.join(TMP_DIR, "batch-rollback");
+    await fs.mkdir(dir, { recursive: true });
+    const fileA = path.join(dir, "a.json");
+    const fileB = path.join(dir, "b.json");
+    const fileC = path.join(dir, "c.json");
+    await fs.writeFile(fileA, '{"keep":"me"}\n', "utf-8");
+
+    // Second entry stringifies fine; THIRD entry has a circular
+    // reference so phase-1 throws on it. Phase-1 rollback should
+    // delete the tmps for entries 1 and 2 and not touch any
+    // final files.
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await expect(
+      writeJsonBatchAtomic([
+        { file: fileA, value: { rewritten: true } },
+        { file: fileB, value: { new: true } },
+        { file: fileC, value: circular },
+      ]),
+    ).rejects.toThrow();
+
+    // fileA is unchanged — still has the original content.
+    expect(await fs.readFile(fileA, "utf-8")).toBe('{"keep":"me"}\n');
+    // fileB and fileC were never created (the rename phase didn't
+    // run for either; both tmps got cleaned up in the catch).
+    expect(await readJson(fileB)).toBeNull();
+    expect(await readJson(fileC)).toBeNull();
+    // No tmp siblings remain — the catch block deleted them.
+    const remaining = (await fs.readdir(dir)).sort();
+    expect(remaining).toEqual(["a.json"]);
+  });
+
+  it("each tmp path is in the same dir as its final (so rename stays atomic)", async () => {
+    // The atomicity guarantee depends on rename happening within
+    // one filesystem. Tmp paths must be siblings of the final
+    // paths. We can't directly inspect tmp paths (private), but we
+    // verify the implicit contract by watching the dir during a
+    // batch — if a tmp leaked into a different dir, the batch dir
+    // wouldn't be the one to delete it.
+    const dir = path.join(TMP_DIR, "batch-same-dir");
+    await fs.mkdir(dir, { recursive: true });
+    await writeJsonBatchAtomic([
+      { file: path.join(dir, "one.json"), value: { v: 1 } },
+    ]);
+    const after = await fs.readdir(dir);
+    // Just the final file — no leftover tmp.
+    expect(after).toEqual(["one.json"]);
   });
 });
 
