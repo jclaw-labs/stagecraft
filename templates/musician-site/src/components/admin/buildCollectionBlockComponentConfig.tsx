@@ -36,6 +36,7 @@ import { FilterField } from "./FilterField";
 import { ManageCollectionLink } from "./ManageCollectionLink";
 
 import type { CollectionDef } from "@/lib/collections/schema";
+import { SORTABLE_FIELD_TYPES } from "@/lib/collections/field-classification";
 import type { Filter } from "@/lib/collections/filter-schema";
 
 type ComponentConfig = Config["components"][string];
@@ -47,11 +48,7 @@ type AnyField = Field<unknown>;
 export function buildCollectionBlockComponentConfig(
   def: CollectionDef,
 ): ComponentConfig {
-  const sortableFields = def.fields.filter((f) =>
-    ["date", "number", "text", "longText", "url", "email", "color", "select", "boolean"].includes(
-      f.type,
-    ),
-  );
+  const sortableFields = def.fields.filter((f) => SORTABLE_FIELD_TYPES.has(f.type));
 
   const filterField: AnyField = {
     type: "custom",
@@ -59,7 +56,7 @@ export function buildCollectionBlockComponentConfig(
     render: ({ value, onChange }) => (
       <FilterField
         value={(value as Filter | null | undefined) ?? null}
-        onChange={(next) => onChange(next as never)}
+        onChange={onChange}
       />
     ),
   };
@@ -78,7 +75,7 @@ export function buildCollectionBlockComponentConfig(
     render: ({ value, onChange }) => (
       <HideFieldsField
         value={(value as string[] | undefined) ?? []}
-        onChange={(next) => onChange(next as never)}
+        onChange={onChange}
         fields={def.fields.map((f) => ({ id: f.id, key: f.key }))}
       />
     ),

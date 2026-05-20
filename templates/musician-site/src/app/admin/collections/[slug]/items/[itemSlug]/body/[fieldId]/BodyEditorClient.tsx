@@ -20,6 +20,7 @@ import {
   PuckSaveStatusPill,
   type PuckEditorSaveStatus,
 } from "@/components/admin/PuckEditorChrome";
+import { puckContentValue } from "@/lib/collections/puck-content-value";
 import { templatePuckConfig } from "@/lib/collections/template/puck-config";
 
 import type { Item } from "@/lib/collections";
@@ -63,7 +64,7 @@ export function BodyEditorClient({
       // sibling fields aren't dropped.
       const nextValues = {
         ...initialItem.values,
-        [fieldId]: { type: "puckContent" as const, value: data as never },
+        [fieldId]: puckContentValue(data),
       };
       try {
         const res = await fetch(
