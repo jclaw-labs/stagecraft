@@ -40,6 +40,9 @@ import {
   defaultClause,
   defaultFilterValue,
   filterableFields,
+  isArrayValueClause,
+  isFieldBearingClause,
+  isSingleValueClause,
   morphClauseToOp,
   readFilter,
   setClauseField,
@@ -85,8 +88,11 @@ export function FilterField({
 
   // Raw-JSON pane local state. Mirrors the v1 textarea's
   // text-vs-parse split so the artist can type partial JSON without
-  // having their input snapped back. `ownRawChangeRef` keeps the
-  // useEffect below from re-pretty-printing on our own emit.
+  // having their input snapped back. `ownRawChangeRef` is set when
+  // the artist edits the raw-JSON pane and we've just propagated the
+  // parsed value via onChange — the resync effect skips one pass so
+  // the artist's partial text formatting isn't pretty-printed away.
+  // Visual-UI changes intentionally let the effect resync the pane.
   const [rawText, setRawText] = useState(() => stringifyFilter(value));
   const [rawError, setRawError] = useState<string | null>(null);
   const ownRawChangeRef = useRef(false);
@@ -101,7 +107,6 @@ export function FilterField({
   }, [value]);
 
   function emit(nextClauses: FilterClause[], nextMode: "all" | "any" = mode) {
-    ownRawChangeRef.current = false;
     onChange(buildFilter(nextMode, nextClauses));
   }
 
@@ -243,10 +248,9 @@ function ClauseRow({
 }) {
   const op = clauseToOp(clause);
   const shape = clauseValueShape(op);
-  const isExclude = shape === "excludeCurrent";
 
-  const field = !isExclude
-    ? sourceFields.find((f) => f.id === (clause as { field: string }).field)
+  const field = isFieldBearingClause(clause)
+    ? sourceFields.find((f) => f.id === clause.field)
     : undefined;
 
   function handleOpChange(newOp: ClauseOp) {
@@ -256,11 +260,9 @@ function ClauseRow({
   return (
     <div style={rowStyle}>
       <div style={rowControlsStyle}>
-        {isExclude ? (
-          <span style={pseudoFieldStyle}>(no field)</span>
-        ) : (
+        {isFieldBearingClause(clause) ? (
           <select
-            value={(clause as { field: string }).field}
+            value={clause.field}
             onChange={(e) => onChange(setClauseField(clause, e.target.value))}
             style={{ ...selectStyle, flex: 1 }}
             aria-label="Field"
@@ -274,6 +276,8 @@ function ClauseRow({
               </option>
             ))}
           </select>
+        ) : (
+          <span style={pseudoFieldStyle}>(no field)</span>
         )}
 
         <select
@@ -299,18 +303,18 @@ function ClauseRow({
         </button>
       </div>
 
-      {shape === "single" ? (
+      {isSingleValueClause(clause) ? (
         <FilterValueEditor
-          value={(clause as { value: FilterValue }).value}
+          value={clause.value}
           onChange={(next) => onChange(setClauseValue(clause, next))}
           field={field}
           currentItemFields={currentItemFields}
         />
       ) : null}
 
-      {shape === "array" ? (
+      {isArrayValueClause(clause) ? (
         <ArrayValueEditor
-          values={(clause as { values: FilterValue[] }).values}
+          values={clause.values}
           onChange={(next) => onChange(setClauseValues(clause, next))}
           field={field}
           currentItemFields={currentItemFields}
@@ -344,11 +348,17 @@ function FilterValueEditor({
   currentItemFields: ReadonlyArray<FieldDef>;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
-    if (nextKind === value.kind) return;
     if (nextKind === "literal") onChange({ kind: "literal", value: "" });
     else if (nextKind === "currentItemId") onChange({ kind: "currentItemId" });
     else onChange({ kind: "currentItemField", fieldId: currentItemFields[0]?.id ?? "" });
   }
+
+  // Hide the `currentItemField` option when the host has no current
+  // item fields to offer (e.g. the Collection block lives somewhere
+  // other than a detail template). The empty dropdown would otherwise
+  // let the artist save `{ kind: "currentItemField", fieldId: "" }`,
+  // which the resolver can't dereference.
+  const canPickCurrentItemField = currentItemFields.length > 0;
 
   return (
     <div style={valueEditorStyle}>
@@ -360,7 +370,9 @@ function FilterValueEditor({
       >
         <option value="literal">Literal</option>
         <option value="currentItemId">Current item ID</option>
-        <option value="currentItemField">From current item field</option>
+        {canPickCurrentItemField || value.kind === "currentItemField" ? (
+          <option value="currentItemField">From current item field</option>
+        ) : null}
       </select>
 
       {value.kind === "literal" ? (
@@ -582,6 +594,15 @@ function LiteralInput({
       // the field picker, so the FieldDef won't reach here. Render an
       // explicit dead-end if it does so the UI doesn't silently break.
       return <span style={pseudoFieldStyle}>(can&apos;t filter on {field.type})</span>;
+    default: {
+      // Exhaustiveness check — TS errors here if a new FieldType is
+      // added without a matching case above, instead of silently
+      // rendering nothing (return type is ReactNode, which permits
+      // undefined). Same pattern the filter resolver uses.
+      const _exhaustive: never = field;
+      void _exhaustive;
+      return null;
+    }
   }
 }
 

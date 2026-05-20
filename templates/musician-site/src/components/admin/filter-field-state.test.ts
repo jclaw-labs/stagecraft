@@ -12,12 +12,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFilter,
+  CLAUSE_OPS,
   clauseToOp,
   clauseValueShape,
   defaultClause,
   defaultFilterValue,
   filterableFields,
   firstFilterValue,
+  isArrayValueClause,
+  isFieldBearingClause,
+  isSingleValueClause,
   morphClauseToOp,
   readFilter,
   setClauseField,
@@ -180,6 +184,38 @@ describe("readFilter / buildFilter", () => {
 // clauseToOp / clauseValueShape
 // ---------------------------------------------------------------------------
 
+describe("isFieldBearingClause / isSingleValueClause / isArrayValueClause", () => {
+  const fieldBearing: FilterClause = {
+    field: "f_city",
+    op: "equals",
+    value: { kind: "literal", value: "Paris" },
+  };
+  const arrayBearing: FilterClause = { field: "f_status", op: "in", values: [] };
+  const emptyOp: FilterClause = { field: "f_city", op: "isEmpty" };
+  const exclude: FilterClause = { excludeCurrentItem: true };
+
+  it("isFieldBearingClause: true for every shape except excludeCurrentItem", () => {
+    expect(isFieldBearingClause(fieldBearing)).toBe(true);
+    expect(isFieldBearingClause(arrayBearing)).toBe(true);
+    expect(isFieldBearingClause(emptyOp)).toBe(true);
+    expect(isFieldBearingClause(exclude)).toBe(false);
+  });
+
+  it("isSingleValueClause: true only for single-value arms", () => {
+    expect(isSingleValueClause(fieldBearing)).toBe(true);
+    expect(isSingleValueClause(arrayBearing)).toBe(false);
+    expect(isSingleValueClause(emptyOp)).toBe(false);
+    expect(isSingleValueClause(exclude)).toBe(false);
+  });
+
+  it("isArrayValueClause: true only for in/notIn", () => {
+    expect(isArrayValueClause(fieldBearing)).toBe(false);
+    expect(isArrayValueClause(arrayBearing)).toBe(true);
+    expect(isArrayValueClause(emptyOp)).toBe(false);
+    expect(isArrayValueClause(exclude)).toBe(false);
+  });
+});
+
 describe("clauseToOp", () => {
   it("returns the op for value-bearing clauses", () => {
     const c: FilterClause = {
@@ -224,6 +260,35 @@ describe("clauseValueShape", () => {
 
   it("maps excludeCurrentItem to its own shape", () => {
     expect(clauseValueShape("excludeCurrentItem")).toBe("excludeCurrent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLAUSE_OPS exhaustiveness — guard against silently forgetting to add a
+// picker entry when a new operator is added to the union.
+// ---------------------------------------------------------------------------
+
+describe("CLAUSE_OPS picker", () => {
+  it("lists every ClauseOp exactly once", () => {
+    // The union of every value `clauseValueShape` handles — derived
+    // from the function's switch arms via TypeScript exhaustiveness.
+    const everyOp: ClauseOp[] = [
+      "equals",
+      "notEquals",
+      "in",
+      "notIn",
+      "isEmpty",
+      "isNotEmpty",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "contains",
+      "excludeCurrentItem",
+    ];
+    const pickerOps = CLAUSE_OPS.map((o) => o.value);
+    expect(pickerOps.slice().sort()).toEqual(everyOp.slice().sort());
+    expect(new Set(pickerOps).size).toBe(pickerOps.length);
   });
 });
 

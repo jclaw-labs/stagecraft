@@ -212,6 +212,41 @@ describe("<FilterField> — visual UI", () => {
     expect(html).toMatch(/value="sold_out" selected/);
   });
 
+  it("hides the `From current item field` option when no current item is available", () => {
+    const filter: Filter = {
+      all: [
+        { field: "f_city", op: "equals", value: { kind: "literal", value: "Paris" } },
+      ],
+    };
+    // No currentItemDef → no host current item fields. The option
+    // must not appear, because the resolver can't dereference an
+    // empty fieldId.
+    const html = renderToStaticMarkup(
+      <FilterField value={filter} onChange={vi.fn()} sourceDef={SOURCE_DEF} />,
+    );
+    expect(html).not.toContain("From current item field");
+  });
+
+  it("keeps the `From current item field` option visible if the existing value already uses it (so it stays editable)", () => {
+    const filter: Filter = {
+      all: [
+        {
+          field: "f_city",
+          op: "equals",
+          value: { kind: "currentItemField", fieldId: "p_title" },
+        },
+      ],
+    };
+    // No currentItemDef passed in — but the value already references
+    // a currentItemField. Hiding the option entirely would silently
+    // strip the value's editable label; keep the option visible so the
+    // dropdown's current selection still renders.
+    const html = renderToStaticMarkup(
+      <FilterField value={filter} onChange={vi.fn()} sourceDef={SOURCE_DEF} />,
+    );
+    expect(html).toContain("From current item field");
+  });
+
   it("renders the raw JSON pane initialised with the serialised filter", () => {
     const filter: Filter = {
       all: [{ field: "f_city", op: "equals", value: { kind: "literal", value: "Paris" } }],

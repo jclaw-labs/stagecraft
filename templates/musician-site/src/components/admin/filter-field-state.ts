@@ -91,6 +91,31 @@ export function clauseToOp(clause: FilterClause): ClauseOp {
 }
 
 /**
+ * Type guard: clause is one of the field-bearing arms (everything
+ * except `{ excludeCurrentItem: true }`). Narrowing lets call sites
+ * read `clause.field` without an `as` cast.
+ */
+export function isFieldBearingClause(
+  clause: FilterClause,
+): clause is Exclude<FilterClause, { excludeCurrentItem: true }> {
+  return !("excludeCurrentItem" in clause);
+}
+
+/** Type guard: clause carries a single `value: FilterValue`. */
+export function isSingleValueClause(
+  clause: FilterClause,
+): clause is Extract<FilterClause, { value: FilterValue }> {
+  return isFieldBearingClause(clause) && "value" in clause;
+}
+
+/** Type guard: clause carries an array of `values: FilterValue[]`. */
+export function isArrayValueClause(
+  clause: FilterClause,
+): clause is Extract<FilterClause, { values: FilterValue[] }> {
+  return isFieldBearingClause(clause) && "values" in clause;
+}
+
+/**
  * Field types whose stored value the resolver can't compare against
  * (`scalarValueAt` returns `undefined`). Hidden from the per-clause
  * field picker so the artist can't pick a field whose filter would
