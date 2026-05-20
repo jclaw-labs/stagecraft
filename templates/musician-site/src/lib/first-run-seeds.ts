@@ -60,6 +60,13 @@ export type FirstRunSeed = {
  * a stranger's. `firstPageTitle` defaults to "Home" upstream when the
  * artist didn't type anything; we don't second-guess it here.
  *
+ * `now` parameterises the tour-date seed dates so they're always a
+ * few months out from when the wizard runs — the alternative
+ * (hardcoded calendar dates) bit-rots into the past within a year,
+ * exactly the demo-content-the-artist-forgot-to-clean-up failure
+ * mode this seed pack tries to avoid. Tests pass a fixed `Date` for
+ * snapshot stability.
+ *
  * `slugify` matches the rule applied to artist-typed page titles in
  * the create-page form (`/admin/pages` inline form): lowercase ASCII,
  * spaces → dashes, strip anything else. We only need it for the home
@@ -68,13 +75,14 @@ export type FirstRunSeed = {
 export function buildFirstRunSeed(
   artistName: string,
   firstPageTitle: string,
+  now: Date = new Date(),
 ): FirstRunSeed {
   const trimmedName = artistName.trim() || "Artist Name";
   const title = firstPageTitle.trim() || "Home";
   const homeSlug = slugifyForSeed(title);
   return {
     homePage: buildHomePageSeed(trimmedName, title, homeSlug),
-    tourDates: buildTourDateSeeds(),
+    tourDates: buildTourDateSeeds(now),
   };
 }
 
@@ -143,16 +151,19 @@ function buildHomePageSeed(
   return { slug, data };
 }
 
-function buildTourDateSeeds(): FirstRunTourDateSeed[] {
-  // Dates picked a few months out so they feel current to whoever
-  // bootstraps a site. The artist replaces these immediately — the
-  // important thing is that the Tour Dates panel and the public
-  // shows page have something to render on day one.
+function buildTourDateSeeds(now: Date): FirstRunTourDateSeed[] {
+  // Dates picked ~3 and ~4 months out from `now` so they always
+  // feel current to whoever bootstraps a site. The artist replaces
+  // these immediately — the important thing is that the Tour Dates
+  // panel and the public shows page have something to render on
+  // day one.
+  const first = addMonths(now, 3).toISOString();
+  const second = addMonths(now, 4).toISOString();
   return [
     {
       slug: "mercury-lounge-new-york",
       values: {
-        fld_tour_dates_date: { type: "date", value: "2026-08-15T20:00:00.000Z" },
+        fld_tour_dates_date: { type: "date", value: first },
         fld_tour_dates_venue: { type: "text", value: "Mercury Lounge" },
         fld_tour_dates_city: { type: "text", value: "New York" },
         fld_tour_dates_country: { type: "text", value: "United States" },
@@ -166,7 +177,7 @@ function buildTourDateSeeds(): FirstRunTourDateSeed[] {
     {
       slug: "mississippi-studios-portland",
       values: {
-        fld_tour_dates_date: { type: "date", value: "2026-09-12T20:00:00.000Z" },
+        fld_tour_dates_date: { type: "date", value: second },
         fld_tour_dates_venue: { type: "text", value: "Mississippi Studios" },
         fld_tour_dates_city: { type: "text", value: "Portland" },
         fld_tour_dates_country: { type: "text", value: "United States" },
@@ -178,6 +189,17 @@ function buildTourDateSeeds(): FirstRunTourDateSeed[] {
       },
     },
   ];
+}
+
+// Date.setMonth handles month rollover (Nov + 3 → Feb) and keeps the
+// time-of-day component; we set the hour to 20:00 UTC so the
+// renderer always shows an evening start time regardless of when
+// the wizard ran.
+function addMonths(d: Date, months: number): Date {
+  const next = new Date(d);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  next.setUTCHours(20, 0, 0, 0);
+  return next;
 }
 
 /**

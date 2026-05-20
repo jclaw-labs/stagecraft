@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { readAppearance, readSiteConfig } from "@/lib/content";
 import { checkIsFirstRun } from "@/lib/first-run";
+import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
 
 import { WelcomeWizard } from "./WelcomeWizard";
 
@@ -31,10 +32,17 @@ export default async function AdminWelcomePage() {
     readAppearance(),
   ]);
 
+  // A fresh site (or one freshly reset) carries the DEFAULT_SITE_CONFIG
+  // artist-name sentinel — show the wizard with a blank field rather
+  // than pre-filling the placeholder string the artist would just
+  // delete anyway.
+  const prefillArtistName =
+    site.artistName === DEFAULT_SITE_CONFIG.artistName ? "" : site.artistName;
+
   return (
     <WelcomeWizard
       email={session?.email ?? ""}
-      initialArtistName={site.artistName === "Artist Name" ? "" : site.artistName}
+      initialArtistName={prefillArtistName}
       initialPrimaryColor={appearance.colors.accent}
     />
   );

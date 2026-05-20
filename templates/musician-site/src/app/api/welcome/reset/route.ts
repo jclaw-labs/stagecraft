@@ -32,14 +32,12 @@ import {
 } from "@/lib/collections/seeds";
 import {
   deleteItem,
-  generateItemId,
   listCollectionSlugs,
   listItemSlugs,
   readCollectionDef,
   readSingleton,
   SINGLETON_ITEM_SLUG,
   writeSingleton,
-  type Item,
 } from "@/lib/collections";
 import {
   appearanceToItemValues,
@@ -53,6 +51,8 @@ import {
   DEFAULT_SITE_CONFIG,
 } from "@/lib/site-config-types";
 import { PublishError, publish, type PublishTarget } from "@/lib/publish";
+
+import { publishItemTarget, upsertSingletonItem } from "../_shared";
 
 const requestSchema = z.object({
   confirmArtistName: z.string().min(1),
@@ -178,42 +178,3 @@ export async function POST(request: Request) {
   }
 }
 
-function upsertSingletonItem(
-  existing: Item | null,
-  values: Item["values"],
-): Item {
-  const now = new Date().toISOString();
-  if (existing) {
-    return {
-      ...existing,
-      slug: SINGLETON_ITEM_SLUG,
-      updatedAt: now,
-      values,
-    };
-  }
-  return {
-    id: generateItemId(),
-    slug: SINGLETON_ITEM_SLUG,
-    createdAt: now,
-    updatedAt: now,
-    values,
-  };
-}
-
-function publishItemTarget(
-  collectionSlug: string,
-  itemSlug: string,
-  item: Item,
-): PublishTarget {
-  return {
-    kind: "collection-item",
-    collectionSlug,
-    itemSlug,
-    data: {
-      id: item.id,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      values: item.values,
-    },
-  };
-}

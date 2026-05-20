@@ -54,6 +54,8 @@ import { imageMetadataSchema } from "@/lib/image-types";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
 import { PublishError, publish, type PublishTarget } from "@/lib/publish";
 
+import { publishItemTarget, upsertSingletonItem } from "../_shared";
+
 const TOUR_DATES_SLUG = "tour-dates";
 
 const requestSchema = z.object({
@@ -178,14 +180,22 @@ export async function POST(request: Request) {
   // ---------------------------------------------------------------
   // Write locally (admin runs against the local disk), then publish
   // everything in one commit.
+  //
+  // The site singleton goes LAST because that's where the
+  // `hasCompletedFirstRun: true` flag lands. If any earlier write
+  // throws (disk full, permission error), the flag is never set, the
+  // welcome wizard re-runs on next visit, and the next attempt's
+  // writes overwrite anything that did succeed. Set the flag first
+  // and a partial failure strands the artist on an empty Pages list
+  // with no path back into the wizard.
   // ---------------------------------------------------------------
-  await writeSingleton("site", siteItem, siteCollectionDef);
   await writeSingleton("appearance", appearanceItem, appearanceCollectionDef);
   await writeSingleton("header", headerItem, headerCollectionDef);
   await writeItem("pages", seed.homePage.slug, homeItem, pagesCollectionDef);
   for (const item of tourDateItems) {
     await writeItem(TOUR_DATES_SLUG, item.slug, item, tourDatesDef!);
   }
+  await writeSingleton("site", siteItem, siteCollectionDef);
 
   const targets: PublishTarget[] = [
     publishItemTarget("site", SINGLETON_ITEM_SLUG, siteItem),
@@ -219,50 +229,5 @@ export async function POST(request: Request) {
     }
     throw cause;
   }
-}
-
-/**
- * Merge a fresh `values` map into the existing singleton item (or
- * generate a brand-new shell when none exists). Preserves `id` +
- * `createdAt` across welcome runs so the publish history is clean.
- */
-function upsertSingletonItem(
-  existing: Item | null,
-  values: Item["values"],
-): Item {
-  const now = new Date().toISOString();
-  if (existing) {
-    return {
-      ...existing,
-      slug: SINGLETON_ITEM_SLUG,
-      updatedAt: now,
-      values,
-    };
-  }
-  return {
-    id: generateItemId(),
-    slug: SINGLETON_ITEM_SLUG,
-    createdAt: now,
-    updatedAt: now,
-    values,
-  };
-}
-
-function publishItemTarget(
-  collectionSlug: string,
-  itemSlug: string,
-  item: Item,
-): PublishTarget {
-  return {
-    kind: "collection-item",
-    collectionSlug,
-    itemSlug,
-    data: {
-      id: item.id,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      values: item.values,
-    },
-  };
 }
 
