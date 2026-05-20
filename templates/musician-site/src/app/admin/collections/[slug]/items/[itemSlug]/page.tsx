@@ -41,13 +41,25 @@ export default async function ItemEdit({ params }: { params: Promise<Params> }) 
   const parsedItemSlug = itemSlugSchema.safeParse(itemSlug);
   if (!parsedSlug.success || !parsedItemSlug.success) notFound();
 
-  // Custom-panel singletons redirect to their curated UX. Multi-item
-  // custom-panel collections (Pages) handle their own list / per-item
-  // routes; the per-item URL within /admin/collections is fine for
-  // those, since the custom panel's list view is at a different path.
+  // Custom-panel collections bounce to their curated UX. Singletons
+  // use the registered `route`; multi-item custom panels (Pages) use
+  // `itemRoute(itemSlug)`. Either way the generic editor is hidden
+  // behind the canonical surface, matching how /admin/pages is the
+  // canonical UX for the pages collection.
+  //
+  // NOTE: schema / template editor routes
+  // (/admin/collections/<slug>/{schema,template/*}) are NOT redirected
+  // for custom-panel collections — until `systemLocked` enforcement
+  // ships (follow-up PR) an artist can navigate there directly and
+  // remove fields the custom panel reads by field-id. Tracked.
   const customSurface = findCustomSurface(parsedSlug.data);
-  if (customSurface && parsedItemSlug.data === SINGLETON_ITEM_SLUG) {
-    redirect(customSurface.route);
+  if (customSurface) {
+    if (parsedItemSlug.data === SINGLETON_ITEM_SLUG) {
+      redirect(customSurface.route);
+    }
+    if (customSurface.itemRoute) {
+      redirect(customSurface.itemRoute(parsedItemSlug.data));
+    }
   }
 
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsedSlug.data)]);
@@ -79,7 +91,7 @@ export default async function ItemEdit({ params }: { params: Promise<Params> }) 
   );
 
   return (
-    <AdminShell activeSection="collections" email={session?.email ?? ""}>
+    <AdminShell activeSection={`collection:${parsedSlug.data}`} email={session?.email ?? ""}>
       <ItemEditorClient
         def={def}
         item={item}

@@ -44,7 +44,7 @@
 export type CustomAdminSurface = {
   /** The Collection this surface edits (matches `_collection.json` slug). */
   collectionSlug: string;
-  /** Where the curated UI lives. */
+  /** Where the curated UI lives (singleton item, or multi-item list). */
   route: string;
   /** Sidebar label. */
   label: string;
@@ -55,6 +55,13 @@ export type CustomAdminSurface = {
    * pages keep working. Future panels can pick any stable string.
    */
   section: string;
+  /**
+   * For multi-item custom panels (Pages), where a per-item URL
+   * inside `/admin/collections/<slug>/items/<itemSlug>` should
+   * redirect to. Singleton panels leave this unset — the singleton
+   * redirect uses `route` directly.
+   */
+  itemRoute?: (itemSlug: string) => string;
 };
 
 export const CUSTOM_ADMIN_SURFACES: ReadonlyArray<CustomAdminSurface> = [
@@ -64,6 +71,7 @@ export const CUSTOM_ADMIN_SURFACES: ReadonlyArray<CustomAdminSurface> = [
     label: "Pages",
     description: "Add, remove, and edit the pages on your site.",
     section: "pages",
+    itemRoute: (itemSlug) => `/admin/pages/${itemSlug}`,
   },
   {
     collectionSlug: "site",
@@ -92,15 +100,17 @@ export const CUSTOM_ADMIN_SURFACES: ReadonlyArray<CustomAdminSurface> = [
 /**
  * Lookup helper — returns the registered surface for a given
  * collection slug, or null if the collection uses the generic
- * editor. Cheap; the registry is small.
+ * editor. Derived `Map` for O(1) lookup since the redirect runs on
+ * every request to a per-item URL.
  */
+const CUSTOM_SURFACES_BY_SLUG = new Map(
+  CUSTOM_ADMIN_SURFACES.map((s) => [s.collectionSlug, s]),
+);
+
 export function findCustomSurface(
   collectionSlug: string,
 ): CustomAdminSurface | null {
-  return (
-    CUSTOM_ADMIN_SURFACES.find((s) => s.collectionSlug === collectionSlug) ??
-    null
-  );
+  return CUSTOM_SURFACES_BY_SLUG.get(collectionSlug) ?? null;
 }
 
 /** Set of collection slugs that have a custom surface. */

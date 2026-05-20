@@ -9,9 +9,10 @@
  * item's edit page.
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/AdminShell";
+import { findCustomSurface } from "@/components/admin/admin-surfaces";
 import { defaultItemValues } from "@/components/admin/ItemEditor";
 import { getSession } from "@/lib/auth";
 import {
@@ -30,6 +31,14 @@ export default async function NewItem({ params }: { params: Promise<Params> }) {
   const { slug } = await params;
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
+
+  // Custom-panel collections (e.g. Pages) own their own create flow
+  // on the custom list route — bounce there instead of rendering the
+  // generic new-item form.
+  const customSurface = findCustomSurface(parsed.data);
+  if (customSurface) {
+    redirect(customSurface.route);
+  }
 
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
   if (!def) notFound();
@@ -69,7 +78,7 @@ export default async function NewItem({ params }: { params: Promise<Params> }) {
   };
 
   return (
-    <AdminShell activeSection="collections" email={session?.email ?? ""}>
+    <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>
       <NewItemClient
         def={def}
         draft={draft}

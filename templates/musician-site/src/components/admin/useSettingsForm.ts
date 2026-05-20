@@ -1,9 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-
-import { puckContentValue } from "@/lib/collections/puck-content-value";
-import type { Data as PuckData } from "@measured/puck";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SaveStatus } from "./SaveBar";
 
@@ -77,6 +74,15 @@ export function useSettingsForm<T>({
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Pin `toValues` through a ref so an inline-passed callback (fresh
+  // identity every render) doesn't thrash the `save` memo. The three
+  // current callers pass module-level functions, but the hook
+  // shouldn't depend on that discipline being maintained.
+  const toValuesRef = useRef(toValues);
+  useEffect(() => {
+    toValuesRef.current = toValues;
+  }, [toValues]);
+
   const isDirty = useMemo(
     () => JSON.stringify(value) !== initialSnapshot,
     [value, initialSnapshot],
@@ -91,7 +97,7 @@ export function useSettingsForm<T>({
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ values: toValues(value) }),
+          body: JSON.stringify({ values: toValuesRef.current(value) }),
         },
       );
       const body = (await res.json().catch(() => null)) as
@@ -118,7 +124,7 @@ export function useSettingsForm<T>({
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");
     }
-  }, [collectionSlug, toValues, value]);
+  }, [collectionSlug, value]);
 
   return {
     value,
@@ -135,11 +141,3 @@ export function useSettingsForm<T>({
     },
   };
 }
-
-/**
- * Re-export `puckContentValue` so panels that need to embed a
- * Puck-content value in their `toValues` result can do so without
- * a second import. The helper is node-import-free.
- */
-export { puckContentValue };
-export type { PuckData };
