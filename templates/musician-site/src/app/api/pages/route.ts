@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
-import { readItem } from "@/lib/collections";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
+import { findShadowingPrefix, readItem } from "@/lib/collections";
+import { pagesCollectionDef, PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import {
   emptyPageData,
   listPageSummaries,
@@ -50,6 +50,19 @@ export async function POST(request: Request) {
   }
 
   const { slug, title } = parsed.data;
+
+  // Reject slugs that would shadow a prebaked collection's detail URL
+  // prefix (`/news`, `/releases`, `/shows`). Without this check the
+  // page write succeeds but every subsequent public request throws
+  // the routing-conflict error from the catch-all — effectively a
+  // full-site outage triggered by a name collision.
+  const shadow = findShadowingPrefix(slug, Object.values(PREBAKED_COLLECTIONS));
+  if (shadow) {
+    return err(
+      409,
+      `Cannot use slug "${slug}" — it shadows the "${shadow.collectionSlug}" collection's URL prefix "${shadow.detailUrlPrefix}". Pick a different slug.`,
+    );
+  }
 
   if (await readPageOrNull(slug)) {
     return err(409, new PageExistsError(slug).message);

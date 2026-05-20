@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "slug": "store-items",
+  "singularName": "store item",
+  "pluralName": "store items",
+  "fields": [
+    {
+      "id": "fld_store_items_title",
+      "key": "title",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_store_items_image",
+      "key": "image",
+      "systemLocked": true,
+      "type": "image",
+      "required": true
+    },
+    {
+      "id": "fld_store_items_kind",
+      "key": "kind",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "physical",
+          "label": "Physical"
+        },
+        {
+          "id": "o2",
+          "value": "digital",
+          "label": "Digital"
+        },
+        {
+          "id": "o3",
+          "value": "ticket",
+          "label": "Ticket"
+        }
+      ]
+    },
+    {
+      "id": "fld_store_items_price",
+      "key": "price",
+      "type": "number",
+      "required": true,
+      "min": 0
+    },
+    {
+      "id": "fld_store_items_currency",
+      "key": "currency",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "USD",
+          "label": "USD — US Dollar"
+        },
+        {
+          "id": "o2",
+          "value": "EUR",
+          "label": "EUR — Euro"
+        },
+        {
+          "id": "o3",
+          "value": "GBP",
+          "label": "GBP — British Pound"
+        },
+        {
+          "id": "o4",
+          "value": "CAD",
+          "label": "CAD — Canadian Dollar"
+        },
+        {
+          "id": "o5",
+          "value": "AUD",
+          "label": "AUD — Australian Dollar"
+        },
+        {
+          "id": "o6",
+          "value": "JPY",
+          "label": "JPY — Japanese Yen"
+        }
+      ]
+    },
+    {
+      "id": "fld_store_items_description",
+      "key": "description",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_store_items_externalUrl",
+      "key": "externalUrl",
+      "systemLocked": true,
+      "type": "url",
+      "required": true
+    }
+  ],
+  "slugSourceFieldId": "fld_store_items_title",
+  "detailUrlPrefix": null,
+  "defaultSort": {
+    "mode": "manual"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

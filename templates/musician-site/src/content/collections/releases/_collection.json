@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "slug": "releases",
+  "singularName": "release",
+  "pluralName": "releases",
+  "fields": [
+    {
+      "id": "fld_releases_title",
+      "key": "title",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_releases_coverImage",
+      "key": "coverImage",
+      "systemLocked": true,
+      "type": "image",
+      "required": true
+    },
+    {
+      "id": "fld_releases_releaseType",
+      "key": "releaseType",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "album",
+          "label": "Album"
+        },
+        {
+          "id": "o2",
+          "value": "ep",
+          "label": "EP"
+        },
+        {
+          "id": "o3",
+          "value": "single",
+          "label": "Single"
+        }
+      ]
+    },
+    {
+      "id": "fld_releases_releaseDate",
+      "key": "releaseDate",
+      "type": "date",
+      "required": false
+    },
+    {
+      "id": "fld_releases_description",
+      "key": "description",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_releases_body",
+      "key": "body",
+      "systemLocked": true,
+      "type": "puckContent"
+    }
+  ],
+  "slugSourceFieldId": "fld_releases_title",
+  "detailUrlPrefix": "/releases",
+  "defaultSort": {
+    "mode": "fieldSort",
+    "fieldId": "fld_releases_releaseDate",
+    "direction": "desc"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

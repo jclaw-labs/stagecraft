@@ -159,6 +159,29 @@ describe("POST /api/pages", () => {
     expect(res.status).toBe(409);
   });
 
+  it.each([
+    ["news", "posts", "/news"],
+    ["releases", "releases", "/releases"],
+    ["shows", "tour-dates", "/shows"],
+  ])(
+    "returns 409 when the slug shadows the %s collection's prefix",
+    async (slug, collectionSlug, prefix) => {
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      const req = new Request("https://x/api/pages", {
+        method: "POST",
+        body: JSON.stringify({ slug, title: "Conflicting" }),
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(collectionSlug);
+      expect(body.error).toContain(prefix);
+      // The page should not have been written, and publish should
+      // never have been called.
+      expect(publishMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns ok with publishWarning when local write succeeds but publish fails", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(

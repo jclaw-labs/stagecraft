@@ -21,6 +21,7 @@ import {
   tourDatesCollectionDef,
   TOUR_DATES_FIELD_IDS,
   videosCollectionDef,
+  VIDEOS_FIELD_IDS,
 } from "./seeds";
 
 describe("prebaked CollectionDefs", () => {
@@ -150,5 +151,16 @@ describe("prebaked CollectionDefs", () => {
       const locked = def.fields.filter((f) => f.systemLocked);
       expect(locked.length, `${def.slug}: no systemLocked fields`).toBeGreaterThan(0);
     }
+  });
+
+  it("videos.embedUrl is text so the upload source can store a public/ path", () => {
+    // The `url` field type validates with `z.string().url()` which
+    // rejects relative paths like `/uploads/song.mp4`. Switching to
+    // `text` keeps embed URLs working for youtube / vimeo and lets
+    // the upload source actually round-trip through the items API.
+    const embedUrl = videosCollectionDef.fields.find(
+      (f) => f.id === VIDEOS_FIELD_IDS.embedUrl,
+    );
+    expect(embedUrl?.type).toBe("text");
   });
 });
