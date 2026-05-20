@@ -106,6 +106,24 @@ describe("POST /api/publish-draft", () => {
     expect(body.code).toBe("github-failed");
   });
 
+  it("returns 409 on concurrent-edit PublishError (recoverable client-side)", async () => {
+    // The new ADR-010 §6 code surface: distinct from github-failed so
+    // the editor can offer a "Reload to see latest" affordance rather
+    // than a generic error toast.
+    getSessionMock.mockResolvedValue({ email: "a@e.com" });
+    publishDraftToMainMock.mockRejectedValue(
+      new PublishError(
+        "concurrent-edit",
+        "Concurrent edit on heads/draft: 3 attempts exhausted.",
+      ),
+    );
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("concurrent-edit");
+    expect(body.error).toContain("heads/draft");
+  });
+
   it("dev fallback returns mode=local and alreadyInSync=true", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
     publishDraftToMainMock.mockResolvedValue({

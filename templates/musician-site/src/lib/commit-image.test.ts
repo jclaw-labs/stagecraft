@@ -15,12 +15,21 @@ const {
   fetchPublishTokenMock: vi.fn(),
 }));
 
-vi.mock("./git-commit", () => ({
-  commitFiles: commitFilesMock,
-  ensureBranchExists: ensureBranchExistsMock,
-  mergeBranchInto: mergeBranchIntoMock,
-  squashBranchInto: squashBranchIntoMock,
-}));
+vi.mock("./git-commit", async () => {
+  // Partial mock: stub the four side-effecting functions but pass
+  // through the real `ConcurrentEditError` class, which publish.ts
+  // uses for `instanceof` discrimination in its `commit to draft`
+  // error mapping. Without this, the mock would shadow the class
+  // with `undefined` and `instanceof` crashes at runtime.
+  const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
+  return {
+    ...actual,
+    commitFiles: commitFilesMock,
+    ensureBranchExists: ensureBranchExistsMock,
+    mergeBranchInto: mergeBranchIntoMock,
+    squashBranchInto: squashBranchIntoMock,
+  };
+});
 
 vi.mock("./publish", async () => {
   const actual = await vi.importActual<typeof import("./publish")>("./publish");
