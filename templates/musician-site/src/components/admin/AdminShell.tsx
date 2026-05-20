@@ -1,7 +1,18 @@
 import Link from "next/link";
+import { cache } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { AdminAccountButton } from "./AdminAccountButton";
+import {
+  CUSTOM_ADMIN_SURFACES,
+  CUSTOM_PANEL_COLLECTION_SLUGS,
+} from "./admin-surfaces";
+import {
+  listCollectionSlugs,
+  readCollectionDef,
+  type CollectionDef,
+} from "@/lib/collections";
+
 
 /**
  * The persistent admin chrome — left sidebar with section nav + signed-in
@@ -10,29 +21,58 @@ import { AdminAccountButton } from "./AdminAccountButton";
  * Used by every admin route except `/admin/login` (which renders its own
  * minimal frame) and the Puck editor on `/admin/pages/[slug]` (which fills
  * the whole viewport so Puck owns the chrome).
+ *
+ * Sidebar layout (ADR-009 follow-up):
+ *
+ *   1. **Custom panels** (top, sanctioned UX) — Pages, Site Settings,
+ *      Header & Navigation, Appearance. Sourced from `CUSTOM_ADMIN_SURFACES`.
+ *   2. **Collections** (below, under a header) — every other collection
+ *      registered in `_collections.json`, listed alphabetically by
+ *      plural name. Each links to the generic
+ *      `/admin/collections/<slug>` list view.
+ *
+ * Custom-panel collections are filtered out of the Collections group so
+ * Site Settings doesn't appear twice. Adding a new custom panel is
+ * registry-only (entry in `admin-surfaces.ts`); the sidebar picks it up
+ * automatically.
  */
+
+const cachedListCollectionSlugs = cache(listCollectionSlugs);
+const cachedReadCollectionDef = cache(readCollectionDef);
+
+/** What the rendered Collections sidebar entry needs to know. */
+type CollectionSidebarEntry = {
+  slug: string;
+  pluralName: string;
+  isSingleton: boolean;
+};
+
+/**
+ * Load every non-custom-panel collection for the sidebar's lower
+ * group. Cached per-request so the sidebar costs one fs walk regardless
+ * of which admin page renders it.
+ */
+const cachedGenericCollections = cache(async (): Promise<CollectionSidebarEntry[]> => {
+  const slugs = await cachedListCollectionSlugs();
+  const defs = await Promise.all(slugs.map((s) => cachedReadCollectionDef(s)));
+  return defs
+    .filter((d): d is CollectionDef => d !== null)
+    .filter((d) => !CUSTOM_PANEL_COLLECTION_SLUGS.has(d.slug))
+    .map((d) => ({
+      slug: d.slug,
+      pluralName: d.pluralName,
+      isSingleton: d.isSingleton,
+    }))
+    .sort((a, b) => a.pluralName.localeCompare(b.pluralName));
+});
 
 export type AdminSection =
   | "pages"
   | "settings"
   | "navigation"
   | "appearance"
-  | "collections";
-
-type Item = {
-  href: string;
-  label: string;
-  section: AdminSection;
-  description: string;
-};
-
-const ITEMS: Item[] = [
-  { href: "/admin/pages", label: "Pages", section: "pages", description: "Add, remove, and edit the pages on your site." },
-  { href: "/admin/settings", label: "Site Settings", section: "settings", description: "Artist name, social links, contact, copyright." },
-  { href: "/admin/navigation", label: "Header & Navigation", section: "navigation", description: "Wordmark, header style, and which pages appear in the nav." },
-  { href: "/admin/appearance", label: "Appearance", section: "appearance", description: "Colors and typography." },
-  { href: "/admin/collections", label: "Collections", section: "collections", description: "Edit any collection's items directly (advanced)." },
-];
+  | "collections"
+  | `collection:${string}`;
 
 const shellStyle: CSSProperties = {
   display: "grid",
@@ -64,7 +104,15 @@ const navListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-1)",
-  flex: 1,
+};
+
+const groupHeadingStyle: CSSProperties = {
+  margin: "var(--space-5) 0 var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-xs)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  color: "var(--color-text-muted)",
 };
 
 function navItemStyle(isActive: boolean): CSSProperties {
@@ -82,7 +130,7 @@ function navItemStyle(isActive: boolean): CSSProperties {
   };
 }
 
-export function AdminShell({
+export async function AdminShell({
   activeSection,
   email,
   children,
@@ -91,6 +139,8 @@ export function AdminShell({
   email: string;
   children: ReactNode;
 }) {
+  const genericCollections = await cachedGenericCollections();
+
   return (
     <div style={shellStyle}>
       <aside style={sidebarStyle}>
@@ -107,18 +157,40 @@ export function AdminShell({
           Stagecraft
         </Link>
         <ul style={navListStyle}>
-          {ITEMS.map((item) => (
-            <li key={item.href}>
+          {CUSTOM_ADMIN_SURFACES.map((surface) => (
+            <li key={surface.collectionSlug}>
               <Link
-                href={item.href}
-                style={navItemStyle(item.section === activeSection)}
+                href={surface.route}
+                style={navItemStyle(surface.section === activeSection)}
               >
-                {item.label}
+                {surface.label}
               </Link>
             </li>
           ))}
         </ul>
-        <div style={{ marginTop: "var(--space-6)" }}>
+        {genericCollections.length > 0 ? (
+          <>
+            <div style={groupHeadingStyle}>Collections</div>
+            <ul style={navListStyle}>
+              {genericCollections.map((c) => {
+                const section: AdminSection = `collection:${c.slug}`;
+                // Singletons go straight to the item; multi-item
+                // collections to the list view.
+                const href = c.isSingleton
+                  ? `/admin/collections/${c.slug}/items/_singleton`
+                  : `/admin/collections/${c.slug}`;
+                return (
+                  <li key={c.slug}>
+                    <Link href={href} style={navItemStyle(section === activeSection)}>
+                      {c.pluralName}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : null}
+        <div style={{ marginTop: "auto", paddingTop: "var(--space-6)" }}>
           <Link
             href="/"
             style={{
@@ -139,58 +211,3 @@ export function AdminShell({
   );
 }
 
-/**
- * Standard page-frame around a single admin panel. Holds the title +
- * description, leaves the body for the panel itself, and lets the panel
- * optionally render a sticky save bar at the bottom.
- */
-export function AdminPanel({
-  title,
-  description,
-  children,
-  saveBar,
-}: {
-  title: string;
-  description?: ReactNode;
-  children: ReactNode;
-  saveBar?: ReactNode;
-}) {
-  return (
-    <>
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "var(--space-8) var(--space-8)",
-        }}
-      >
-        <header style={{ marginBottom: "var(--space-8)" }}>
-          <h1
-            style={{
-              fontSize: "1.5rem",
-              fontWeight: "var(--font-weight-semibold)" as unknown as number,
-              margin: 0,
-            }}
-          >
-            {title}
-          </h1>
-          {description ? (
-            <p
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-                margin: "var(--space-1) 0 0 0",
-                maxWidth: "var(--max-width-content)",
-                lineHeight: "var(--line-height-base)",
-              }}
-            >
-              {description}
-            </p>
-          ) : null}
-        </header>
-        <div style={{ maxWidth: "var(--max-width-content)" }}>{children}</div>
-      </div>
-      {saveBar}
-    </>
-  );
-}

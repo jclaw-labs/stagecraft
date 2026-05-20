@@ -17,9 +17,18 @@
 import {
   CURRENT_COLLECTION_SCHEMA_VERSION,
   type CollectionDef,
-  type FieldId,
   type SelectOption,
 } from "./schema";
+
+// Field-id constants live in `./field-ids.ts` (client-bundle-safe);
+// re-exported here for source-compat with existing imports.
+import {
+  APPEARANCE_FIELD_IDS,
+  HEADER_FIELD_IDS,
+  PAGES_FIELD_IDS,
+  SITE_FIELD_IDS,
+} from "./field-ids";
+export { APPEARANCE_FIELD_IDS, HEADER_FIELD_IDS, PAGES_FIELD_IDS, SITE_FIELD_IDS };
 
 import {
   COLOR_FIELDS,
@@ -31,8 +40,6 @@ import {
   HEADING_MODES,
   HEADING_MODE_LABELS,
   SOCIAL_PLATFORMS,
-  type ColorField,
-  type SocialPlatform,
 } from "../site-config-types";
 
 // ---------------------------------------------------------------------------
@@ -58,14 +65,6 @@ const fontWeightOptions: SelectOption[] = FONT_WEIGHTS.map((w, i) => ({
 // ---------------------------------------------------------------------------
 // Pages collection
 // ---------------------------------------------------------------------------
-
-export const PAGES_FIELD_IDS = {
-  title: "fld_pages_title",
-  isSplashPage: "fld_pages_isSplashPage",
-  isFooterHidden: "fld_pages_isFooterHidden",
-  showInNav: "fld_pages_showInNav",
-  body: "fld_pages_body",
-} as const;
 
 export const pagesCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
@@ -119,19 +118,6 @@ export const pagesCollectionDef: CollectionDef = {
 // Site singleton
 // ---------------------------------------------------------------------------
 
-const socialFieldId = (platform: SocialPlatform): FieldId =>
-  `fld_site_social_${platform}`;
-
-export const SITE_FIELD_IDS = {
-  artistName: "fld_site_artistName",
-  siteTitle: "fld_site_siteTitle",
-  siteDescription: "fld_site_siteDescription",
-  contactEmail: "fld_site_contactEmail",
-  copyrightName: "fld_site_copyrightName",
-  isFooterHidden: "fld_site_isFooterHidden",
-  social: (platform: SocialPlatform) => socialFieldId(platform),
-} as const;
-
 export const siteCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
   slug: "site",
@@ -171,7 +157,7 @@ export const siteCollectionDef: CollectionDef = {
     // `socialLinks: Record<...>` shape but means the schema editor can
     // treat each as an independent slot.
     ...SOCIAL_PLATFORMS.map((platform) => ({
-      id: socialFieldId(platform),
+      id: SITE_FIELD_IDS.social(platform),
       key: `social_${platform}`,
       type: "url" as const,
       required: false,
@@ -189,16 +175,6 @@ export const siteCollectionDef: CollectionDef = {
 // ---------------------------------------------------------------------------
 // Header singleton
 // ---------------------------------------------------------------------------
-
-export const HEADER_FIELD_IDS = {
-  wordmark: "fld_header_wordmark",
-  wordmarkSizeAdjust: "fld_header_wordmarkSizeAdjust",
-  headerMode: "fld_header_headerMode",
-  headerForegroundColor: "fld_header_headerForegroundColor",
-  isHeaderTextUppercase: "fld_header_isHeaderTextUppercase",
-  headerSubtitle: "fld_header_headerSubtitle",
-  headerLayout: "fld_header_headerLayout",
-} as const;
 
 export const headerCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
@@ -254,20 +230,6 @@ export const headerCollectionDef: CollectionDef = {
 // Appearance singleton
 // ---------------------------------------------------------------------------
 
-const colorFieldId = (color: ColorField): FieldId => `fld_appearance_color_${color}`;
-
-export const APPEARANCE_FIELD_IDS = {
-  color: (color: ColorField) => colorFieldId(color),
-  bodyFont: "fld_appearance_bodyFont",
-  headingMode: "fld_appearance_headingMode",
-  headingFont: "fld_appearance_headingFont",
-  bodyWeight_body: "fld_appearance_bodyWeight_body",
-  bodyWeight_bodyBold: "fld_appearance_bodyWeight_bodyBold",
-  headingWeight_h1: "fld_appearance_headingWeight_h1",
-  headingWeight_h2: "fld_appearance_headingWeight_h2",
-  headingWeight_h3: "fld_appearance_headingWeight_h3",
-} as const;
-
 export const appearanceCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
   slug: "appearance",
@@ -280,7 +242,7 @@ export const appearanceCollectionDef: CollectionDef = {
     // not `color` because the legacy empty-string for linkColor would
     // fail the hex-regex check on the `color` type.
     ...COLOR_FIELDS.map((color) => ({
-      id: colorFieldId(color),
+      id: APPEARANCE_FIELD_IDS.color(color),
       key: `color_${color}`,
       type: "text" as const,
       required: color !== "linkColor",

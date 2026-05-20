@@ -22,6 +22,7 @@ const chromeButtonStyle: React.CSSProperties = {
 };
 
 import { AdminShell } from "@/components/admin/AdminShell";
+import { findCustomSurface } from "@/components/admin/admin-surfaces";
 import { getSession } from "@/lib/auth";
 import {
   listItemsInOrder,
@@ -37,6 +38,14 @@ export default async function CollectionView({ params }: { params: Promise<Param
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
+  // Custom-panel collections (Pages, Site Settings, etc.) bounce
+  // to their curated UX. For singletons that means the form;
+  // for multi-item panels (Pages) that means the custom list view.
+  const customSurface = findCustomSurface(parsed.data);
+  if (customSurface) {
+    redirect(customSurface.route);
+  }
+
   const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
   if (!def) notFound();
 
@@ -47,7 +56,7 @@ export default async function CollectionView({ params }: { params: Promise<Param
   const items = await listItemsInOrder(parsed.data, def);
 
   return (
-    <AdminShell activeSection="collections" email={session?.email ?? ""}>
+    <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>
       <main
         style={{
           maxWidth: "var(--max-width-content)",

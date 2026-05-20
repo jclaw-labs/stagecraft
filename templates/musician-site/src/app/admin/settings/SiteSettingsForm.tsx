@@ -1,6 +1,6 @@
 "use client";
 
-import { AdminPanel } from "@/components/admin/AdminShell";
+import { AdminPanel } from "@/components/admin/AdminPanel";
 import {
   CheckboxField,
   FieldGroup,
@@ -8,6 +8,7 @@ import {
 } from "@/components/admin/form";
 import { SaveBar } from "@/components/admin/SaveBar";
 import { useSettingsForm } from "@/components/admin/useSettingsForm";
+import { siteConfigToItemValues } from "@/lib/collections/migrate-from-legacy-values";
 import {
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABELS,
@@ -20,15 +21,16 @@ type Props = {
 };
 
 /**
- * Form for `src/content/config/site.json`. Groups fields into Identity,
- * Social links, and Footer — same structure as the legacy template's
- * Keystatic schema, but with the conditional/discriminator wrappers removed.
+ * Form for the `site` singleton collection. Groups fields into
+ * Identity, Social links, and Footer. Edits go through the generic
+ * `PUT /api/collections/site/items/_singleton` endpoint — same path
+ * the generic editor uses — so the two surfaces stay in lockstep.
  */
 export function SiteSettingsForm({ initial }: Props) {
   const form = useSettingsForm<SiteConfig>({
     initial,
-    endpoint: "/api/save-config",
-    kind: "site-config",
+    collectionSlug: "site",
+    toValues: siteConfigToItemValues,
   });
 
   function setField<K extends keyof SiteConfig>(key: K, val: SiteConfig[K]) {

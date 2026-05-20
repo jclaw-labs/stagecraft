@@ -1,6 +1,6 @@
 "use client";
 
-import { AdminPanel } from "@/components/admin/AdminShell";
+import { AdminPanel } from "@/components/admin/AdminPanel";
 import {
   ColorField,
   FieldGroup,
@@ -9,6 +9,7 @@ import {
 } from "@/components/admin/form";
 import { SaveBar } from "@/components/admin/SaveBar";
 import { useSettingsForm } from "@/components/admin/useSettingsForm";
+import { appearanceToItemValues } from "@/lib/collections/migrate-from-legacy-values";
 import {
   COLOR_FIELDS,
   COLOR_FIELD_LABELS,
@@ -38,8 +39,8 @@ const WEIGHT_OPTIONS = FONT_WEIGHTS.map((w) => ({ label: String(w), value: Strin
 export function AppearanceForm({ initial }: Props) {
   const form = useSettingsForm<Appearance>({
     initial,
-    endpoint: "/api/save-config",
-    kind: "appearance",
+    collectionSlug: "appearance",
+    toValues: appearanceToItemValues,
   });
 
   function setColor(field: (typeof COLOR_FIELDS)[number], value: string) {

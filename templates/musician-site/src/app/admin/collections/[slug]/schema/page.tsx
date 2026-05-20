@@ -26,7 +26,7 @@ export default async function SchemaEditorPage({ params }: { params: Promise<Par
   if (!def) notFound();
 
   return (
-    <AdminShell activeSection="collections" email={session?.email ?? ""}>
+    <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>
       <main
         style={{
           maxWidth: "var(--max-width-content)",

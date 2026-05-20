@@ -1,6 +1,6 @@
 "use client";
 
-import { AdminPanel } from "@/components/admin/AdminShell";
+import { AdminPanel } from "@/components/admin/AdminPanel";
 import {
   CheckboxField,
   ColorField,
@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/form";
 import { SaveBar } from "@/components/admin/SaveBar";
 import { useSettingsForm } from "@/components/admin/useSettingsForm";
+import { headerConfigToItemValues } from "@/lib/collections/migrate-from-legacy-values";
 import { ImagePickerField } from "@/puck/ImagePickerField";
 import {
   HEADER_LAYOUTS,
@@ -37,12 +38,15 @@ type Props = {
  * Nav order / per-page visibility live on the Pages list (drag-reorder +
  * eye toggle there) — not here. The single editor for both makes the
  * source-of-truth obvious and keeps this panel about chrome, not content.
+ *
+ * Edits go through the generic `PUT /api/collections/header/items/_singleton`
+ * endpoint — the same path the generic editor uses.
  */
 export function NavigationForm({ initial }: Props) {
   const form = useSettingsForm<HeaderConfig>({
     initial,
-    endpoint: "/api/save-config",
-    kind: "header-config",
+    collectionSlug: "header",
+    toValues: headerConfigToItemValues,
   });
 
   function setField<K extends keyof HeaderConfig>(key: K, val: HeaderConfig[K]) {

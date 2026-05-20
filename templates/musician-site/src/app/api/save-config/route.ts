@@ -45,6 +45,15 @@ import { readItem, listItemSlugs } from "@/lib/collections";
  * immediately, then we publish through the broker → GitHub path when
  * configured. A publish failure surfaces as a warning rather than
  * rolling back the local save.
+ *
+ * TODO (post-custom-panels): this endpoint's only remaining consumer
+ * is `PagesPanel`'s drag-reorder + eye-toggle, which need to write
+ * the pages-collection order file + per-page `showInNav`. The site /
+ * header / appearance singleton panels now POST to
+ * `PUT /api/collections/<slug>/items/_singleton` directly. To finish
+ * the consolidation, replace this endpoint with a dedicated
+ * `/api/collections/<slug>/order` endpoint plus the existing per-item
+ * PUT for `showInNav` (fetch-modify-PUT pattern from the client).
  */
 
 const requestSchema = z.discriminatedUnion("kind", [
