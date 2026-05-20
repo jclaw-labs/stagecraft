@@ -26,13 +26,12 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import {
-  buildItemFileSchema,
   collectionDefRepoPath,
   collectionDefSchema,
   describeIssue,
   describeWarning,
-  itemRepoPath,
   listItemsInOrder,
+  prepareItemFileWrite,
   readCollectionDef,
   slugSchema,
   validateSchemaChange,
@@ -107,27 +106,19 @@ export async function PUT(request: Request, ctx: Ctx) {
   // migrated collection where the def says "field X is now type Y"
   // but some items still carry the old type Y.
   //
-  // Item-file content matches what `writeItem` produces server-side
-  // (stamp `updatedAt` now; preserve `id` + `createdAt` from the
-  // validator's migrated item; run the full file through
-  // `buildItemFileSchema` so per-field constraints get applied to
-  // the on-disk bytes).
+  // Item writes go through `prepareItemFileWrite` (shared with
+  // `writeItem`) so the on-disk bytes match exactly what a per-call
+  // write would produce. Passing a shared `nowIso` means every item
+  // in this batch ends up with the same `updatedAt`.
   const nowIso = new Date().toISOString();
-  const itemFileSchemaForNewDef = buildItemFileSchema(newDef.fields);
   const writes: Array<{ file: string; value: unknown }> = [
     {
       file: localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
       value: collectionDefSchema.parse(newDef),
     },
-    ...migratedItems.map((item: Item) => ({
-      file: localPathForRepoPath(itemRepoPath(parsedSlug.data, item.slug)),
-      value: itemFileSchemaForNewDef.parse({
-        id: item.id,
-        createdAt: item.createdAt,
-        updatedAt: nowIso,
-        values: item.values,
-      }),
-    })),
+    ...migratedItems.map((item: Item) =>
+      prepareItemFileWrite(parsedSlug.data, item.slug, item, newDef, nowIso),
+    ),
   ];
   await writeJsonBatchAtomic(writes);
 

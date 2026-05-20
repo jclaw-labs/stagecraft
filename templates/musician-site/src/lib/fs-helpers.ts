@@ -181,6 +181,64 @@ function tmpPathFor(file: string): string {
   return `${file}.tmp-${process.pid}-${Date.now()}-${random}`;
 }
 
+/** Matches the tmp suffix `tmpPathFor` produces. Exported only so the
+ * janitor below can recognise its own droppings. */
+const TMP_SUFFIX_PATTERN = /\.tmp-\d+-\d+-[a-z0-9]+$/;
+
+/**
+ * Walk `rootDir` recursively and delete any `<file>.tmp-...` artifact
+ * older than `olderThanMs` (default 15 minutes). Cleans up orphan tmp
+ * files that the atomic helpers couldn't remove because the process
+ * was hard-killed (OOM, SIGKILL, host reboot) — the in-process
+ * catch blocks rely on JS-level throws and can't run during a crash.
+ *
+ * Called once per process from the content-bootstrap path, so an
+ * artist site that crashed mid-write self-heals on the next boot.
+ *
+ * Threshold is deliberately conservative: an in-flight write that's
+ * been going for >15 minutes is almost certainly orphaned, but
+ * within that window we leave tmps alone so a long write isn't
+ * sniped by a concurrent janitor pass.
+ */
+export async function purgeOrphanTmps(
+  rootDir: string,
+  options: { olderThanMs?: number } = {},
+): Promise<{ deleted: number }> {
+  const threshold = Date.now() - (options.olderThanMs ?? 15 * 60 * 1000);
+  let deleted = 0;
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (cause) {
+      // ENOENT — directory doesn't exist; nothing to clean.
+      if (isNotFound(cause)) return;
+      throw cause;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!TMP_SUFFIX_PATTERN.test(entry.name)) continue;
+      try {
+        const stat = await fs.stat(full);
+        if (stat.mtimeMs < threshold) {
+          await unlinkIfExists(full);
+          deleted++;
+        }
+      } catch (cause) {
+        // Stat / unlink race with another process — silently move on.
+        if (isNotFound(cause)) continue;
+        throw cause;
+      }
+    }
+  }
+  await walk(rootDir);
+  return { deleted };
+}
+
 /**
  * `unlink` that swallows ENOENT — useful when the caller's intent is
  * "make sure this file is gone" rather than "delete this specific file

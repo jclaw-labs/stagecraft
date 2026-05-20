@@ -8,6 +8,7 @@ import {
   contentDir,
   isNotFound,
   localPathForRepoPath,
+  purgeOrphanTmps,
   readdirFiltered,
   readJson,
   REPO_CONTENT_PREFIX,
@@ -251,6 +252,81 @@ describe("writeJsonBatchAtomic", () => {
     const after = await fs.readdir(dir);
     // Just the final file — no leftover tmp.
     expect(after).toEqual(["one.json"]);
+  });
+});
+
+describe("purgeOrphanTmps", () => {
+  // Helper: make a file with a specific mtime (controllable "is this
+  // tmp older than the threshold?" testing without `Date.now` mocks).
+  async function makeFileWithMtime(file: string, ageMs: number): Promise<void> {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, "", "utf-8");
+    const mtimeMs = Date.now() - ageMs;
+    await fs.utimes(file, new Date(mtimeMs), new Date(mtimeMs));
+  }
+
+  it("deletes tmp files older than the threshold and leaves recent ones alone", async () => {
+    const dir = path.join(TMP_DIR, "purge-mixed-age");
+    const oldTmp = path.join(dir, `item.json.tmp-1234-1700000000000-abc123`);
+    const newTmp = path.join(dir, `other.json.tmp-1234-1700000000000-def456`);
+    await makeFileWithMtime(oldTmp, 60 * 60 * 1000); // 1 hour old
+    await makeFileWithMtime(newTmp, 5 * 60 * 1000); // 5 min old
+
+    const { deleted } = await purgeOrphanTmps(dir, {
+      olderThanMs: 15 * 60 * 1000,
+    });
+
+    expect(deleted).toBe(1);
+    expect(await readJson(oldTmp)).toBeNull(); // deleted
+    expect(await readJson(newTmp)).toEqual(null); // present but empty (readJson returns null for 0-byte)
+    // Stat call confirms the recent tmp still exists.
+    await expect(fs.stat(newTmp)).resolves.toBeTruthy();
+  });
+
+  it("leaves non-tmp files alone even if they're ancient", async () => {
+    // The regex only matches the `.tmp-<pid>-<ts>-<rand>` suffix —
+    // real content files (whatever their age) must never be touched.
+    const dir = path.join(TMP_DIR, "purge-non-tmp-safe");
+    const realFile = path.join(dir, "real.json");
+    await makeFileWithMtime(realFile, 24 * 60 * 60 * 1000); // 1 day old
+
+    const { deleted } = await purgeOrphanTmps(dir);
+    expect(deleted).toBe(0);
+    await expect(fs.stat(realFile)).resolves.toBeTruthy();
+  });
+
+  it("walks subdirectories", async () => {
+    // Tmps live wherever their final file does — collections are
+    // nested under items/, so the walk has to recurse.
+    const dir = path.join(TMP_DIR, "purge-recursive");
+    const nestedTmp = path.join(
+      dir,
+      "collections/pages/items/foo.json.tmp-99-1700000000000-xyz789",
+    );
+    await makeFileWithMtime(nestedTmp, 60 * 60 * 1000);
+
+    const { deleted } = await purgeOrphanTmps(dir);
+    expect(deleted).toBe(1);
+    expect(await readJson(nestedTmp)).toBeNull();
+  });
+
+  it("returns { deleted: 0 } when the root dir doesn't exist", async () => {
+    // Fresh artist sites bootstrap content lazily — the janitor must
+    // tolerate a missing root and not throw.
+    const { deleted } = await purgeOrphanTmps(path.join(TMP_DIR, "never-existed"));
+    expect(deleted).toBe(0);
+  });
+
+  it("defaults the threshold to 15 minutes", async () => {
+    const dir = path.join(TMP_DIR, "purge-default-threshold");
+    const recent = path.join(dir, "x.json.tmp-1-2-abc");
+    const old = path.join(dir, "y.json.tmp-1-2-def");
+    await makeFileWithMtime(recent, 10 * 60 * 1000); // 10 min — under default
+    await makeFileWithMtime(old, 20 * 60 * 1000); // 20 min — over default
+
+    const { deleted } = await purgeOrphanTmps(dir);
+    expect(deleted).toBe(1);
+    await expect(fs.stat(recent)).resolves.toBeTruthy();
   });
 });
 

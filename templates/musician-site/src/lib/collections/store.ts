@@ -198,13 +198,40 @@ export async function writeItem(
       `writeItem: item.slug (${item.slug}) must match target slug (${itemSlug})`,
     );
   }
-  const file: ItemFile = buildItemFileSchema(def.fields).parse({
+  const { file, value } = prepareItemFileWrite(collectionSlug, itemSlug, item, def);
+  await writeJsonAtomic(file, value);
+}
+
+/**
+ * Build the `{ file, value }` pair for writing one item to disk.
+ * Shared between the per-file `writeItem` (which feeds it straight to
+ * `writeJsonAtomic`) and the schema-save endpoint (which collects
+ * multiple pairs and hands them to `writeJsonBatchAtomic`). Single
+ * source of truth for "what does an item file look like on disk":
+ *
+ *   - `id` and `createdAt` come from the supplied item (callers must
+ *     preserve them across updates so identity is stable).
+ *   - `updatedAt` defaults to `nowIso()` for the per-call case. The
+ *     batched caller passes its own `nowIso` so every item in one
+ *     schema-save batch shares an identical `updatedAt`.
+ *   - The whole file is run through `buildItemFileSchema(def.fields)`
+ *     so per-field constraints (required, options, etc.) get applied
+ *     to the on-disk bytes.
+ */
+export function prepareItemFileWrite(
+  collectionSlug: string,
+  itemSlug: string,
+  item: Item,
+  def: CollectionDef,
+  nowIsoOverride?: string,
+): { file: string; value: ItemFile } {
+  const value = buildItemFileSchema(def.fields).parse({
     id: item.id,
     createdAt: item.createdAt,
-    updatedAt: nowIso(),
+    updatedAt: nowIsoOverride ?? nowIso(),
     values: item.values,
   });
-  await writeJsonAtomic(itemLocalPath(collectionSlug, itemSlug), file);
+  return { file: itemLocalPath(collectionSlug, itemSlug), value };
 }
 
 /** Wall-clock current time as an ISO 8601 string. Extracted for tests. */

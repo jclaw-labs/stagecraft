@@ -28,6 +28,16 @@ vi.mock("@/lib/fs-helpers", async () => {
   return { ...actual, writeJsonBatchAtomic: writeJsonBatchAtomicMock };
 });
 
+// Cache the real `writeJsonBatchAtomic` once at module load so each
+// `beforeEach` reset doesn't re-import the helper module. The mock's
+// initial implementation (set in the `vi.mock` factory above) gets
+// cleared by `mockReset`, so beforeEach has to wire it back.
+const realWriteJsonBatchAtomic = await (async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/fs-helpers")>("@/lib/fs-helpers");
+  return actual.writeJsonBatchAtomic;
+})();
+
 import { PUT } from "./route";
 import { POST as POST_ITEM } from "../items/route";
 import {
@@ -53,11 +63,8 @@ beforeEach(async () => {
   publishMock.mockResolvedValue({ commitSha: null, mode: "local" });
   // Reset to the real `writeJsonBatchAtomic` between tests so an
   // override from one test doesn't leak into the next.
-  const fsHelpersActual = await vi.importActual<typeof import("@/lib/fs-helpers")>(
-    "@/lib/fs-helpers",
-  );
   writeJsonBatchAtomicMock.mockReset();
-  writeJsonBatchAtomicMock.mockImplementation(fsHelpersActual.writeJsonBatchAtomic);
+  writeJsonBatchAtomicMock.mockImplementation(realWriteJsonBatchAtomic);
   process.env.STAGECRAFT_CONTENT_DIR = TMP_CONTENT_DIR;
   __resetBootstrapCacheForTests();
   await fs.rm(path.join(TMP_CONTENT_DIR, "collections"), { recursive: true, force: true });
