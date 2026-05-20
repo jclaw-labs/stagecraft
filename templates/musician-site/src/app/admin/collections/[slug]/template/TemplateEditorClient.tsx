@@ -24,7 +24,7 @@
 import { Puck, Render, type Data } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
@@ -135,16 +135,45 @@ export function TemplateEditorClient({
   // alias for Puck's `Data` (see `template/types.ts`), so no cast.
   const [liveData, setLiveData] = useState<Template>(initialData);
 
-  // Re-sync from disk when `initialData` changes (e.g. concurrent edit
-  // in another tab refetched the def). Without this, `useState`
-  // ignores the new value because it only seeds on mount.
+  // Remount Puck whenever `initialData` changes (concurrent edit in
+  // another tab refetched the def, or a future `router.refresh()`).
+  // Puck takes `data` as an initial value only — without a key
+  // change it holds the pre-refetch tree internally, diverging from
+  // the resynced `liveData` on the right. Bumping the key forces a
+  // clean mount that picks up the new disk state.
+  //
+  // `useRef` skips the first mount so Puck doesn't remount on its
+  // own first render. Subsequent `initialData` changes are real
+  // refetches and warrant the remount.
+  const isFirstRun = useRef(true);
+  const [puckMountId, setPuckMountId] = useState(0);
   useEffect(() => {
+    if (isFirstRun.current) {
+      isFirstRun.current = false;
+      return;
+    }
     setLiveData(initialData);
+    setPuckMountId((id) => id + 1);
   }, [initialData]);
 
   const [selectedItemSlug, setSelectedItemSlug] = useState<string | null>(
     previewItems[0]?.slug ?? null,
   );
+
+  // Clean up the selection if the currently-selected slug falls out
+  // of `previewItems` (e.g. the artist deleted the item in another
+  // tab and the page refetched). Without this, `selectedItem`
+  // resolves to null and the preview pane shows the defensive
+  // "Select an item" branch — confusing copy for a state the
+  // artist didn't choose.
+  useEffect(() => {
+    if (
+      selectedItemSlug !== null &&
+      !previewItems.some((i) => i.slug === selectedItemSlug)
+    ) {
+      setSelectedItemSlug(previewItems[0]?.slug ?? null);
+    }
+  }, [previewItems, selectedItemSlug]);
 
   const selectedItem = useMemo<Item | null>(() => {
     if (!selectedItemSlug) return null;
@@ -152,6 +181,15 @@ export function TemplateEditorClient({
   }, [previewItems, selectedItemSlug]);
 
   const previewRegistry = useMemo(() => {
+    // Two different reasons for the primitives-only registry, both
+    // landing here:
+    //   - item kind → Collection blocks aren't permitted (ADR §4.3
+    //     cycle safety). Always primitives only.
+    //   - detail kind with no `iterableCollectionDefs` → caller
+    //     misconfiguration (the detail route should always pass
+    //     them). Fall back to primitives so the preview still
+    //     renders; surfaces as a missing-block-type in the resolved
+    //     output rather than a crash.
     if (kind === "item" || !iterableCollectionDefs) return PRIMITIVE_BLOCKS;
     const collectionRegistry = buildCollectionBlockRegistry(
       iterableCollectionDefs.map((d) => d.slug),
@@ -241,6 +279,7 @@ export function TemplateEditorClient({
     >
       <div style={{ minWidth: 0, minHeight: 0, overflow: "hidden" }}>
         <Puck
+          key={puckMountId}
           config={config}
           data={initialData}
           onPublish={onPublish}
