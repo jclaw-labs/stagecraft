@@ -26,6 +26,7 @@ import {
   APPEARANCE_FIELD_IDS,
   HEADER_FIELD_IDS,
   PAGES_FIELD_IDS,
+  PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
 } from "./field-ids";
@@ -33,6 +34,7 @@ export {
   APPEARANCE_FIELD_IDS,
   HEADER_FIELD_IDS,
   PAGES_FIELD_IDS,
+  PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
 };
@@ -681,7 +683,7 @@ export const storeItemsCollectionDef: CollectionDef = {
 
 export const photosCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
-  slug: "photos",
+  slug: PHOTOS_COLLECTION_SLUG,
   singularName: "photo",
   pluralName: "photos",
   fields: [

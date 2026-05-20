@@ -70,3 +70,11 @@ export const PHOTOS_FIELD_IDS = {
   takenAt: "fld_photos_takenAt",
   credit: "fld_photos_credit",
 } as const;
+
+/**
+ * Slug of the photos collection. Carved out as a const because
+ * `suggest-slug.ts` special-cases this collection, and a bare
+ * string equality there would silently break if the seed slug was
+ * ever renamed. Used by both `seeds.ts` and `suggest-slug.ts`.
+ */
+export const PHOTOS_COLLECTION_SLUG = "photos";

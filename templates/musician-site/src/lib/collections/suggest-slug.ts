@@ -23,7 +23,7 @@
  */
 
 import type { CollectionDef, Item } from "./schema";
-import { PHOTOS_FIELD_IDS } from "./field-ids";
+import { PHOTOS_COLLECTION_SLUG, PHOTOS_FIELD_IDS } from "./field-ids";
 
 const SLUG_MAX_LENGTH = 64;
 
@@ -32,7 +32,14 @@ export function suggestSlug(item: Item, def: CollectionDef): string {
   // Special-cased here rather than threaded through the def because
   // the underlying field-type union doesn't accept `image` as a
   // slug source — slugSourceFieldId stays null on the seed.
-  if (def.slug === "photos") {
+  //
+  // Precedence: this branch fires regardless of whether
+  // `slugSourceFieldId` is set on the photos def. Image-derived
+  // wins because that's the seed's intent; a hypothetical custom
+  // photos def with a text source falls through to the same image
+  // logic. If someone explicitly wants the text-source path on a
+  // photos-like collection, they should give it a different slug.
+  if (def.slug === PHOTOS_COLLECTION_SLUG) {
     return suggestPhotoSlug(item);
   }
 
@@ -50,6 +57,12 @@ function suggestPhotoSlug(item: Item): string {
     // multiple photos under the same content bucket don't collide.
     // The bucket itself ("tour-2026", "site-photos", etc.) carries
     // the meaning; the suffix just disambiguates.
+    //
+    // 6 hex chars = 16M possible suffixes — birthday-paradox
+    // collisions are possible but rare at typical artist scale.
+    // The POST /api/collections/<slug>/items endpoint validates
+    // slug uniqueness and returns a structured error on collision;
+    // the artist edits the slug field and re-submits.
     const idSuffix = meta.id.slice(0, 6);
     return slugify(`${meta.contentSlug}-${idSuffix}`);
   }
@@ -64,7 +77,10 @@ function suggestPhotoSlug(item: Item): string {
 /**
  * Lowercase, ASCII-ish, hyphens for whitespace and runs of
  * non-slug-safe characters collapsed. Capped at 64 chars to match
- * the `slugSchema` limit.
+ * the `slugSchema` limit. Strips trailing hyphens both before AND
+ * after the truncation — the slice can land mid-run and leave a
+ * dangling hyphen that, while technically valid per the slug
+ * pattern, is ugly in URLs.
  */
 function slugify(raw: string): string {
   return raw
@@ -72,5 +88,6 @@ function slugify(raw: string): string {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-    .slice(0, SLUG_MAX_LENGTH);
+    .slice(0, SLUG_MAX_LENGTH)
+    .replace(/-$/, "");
 }

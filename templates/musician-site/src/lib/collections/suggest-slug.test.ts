@@ -97,6 +97,21 @@ describe("suggestSlug — text-source path", () => {
     const item = makeItem({ f_venue: { type: "text", value: long } });
     expect(suggestSlug(item, def)).toHaveLength(64);
   });
+
+  it("strips a trailing hyphen left by the 64-char slice", () => {
+    // Construct an input where the slice boundary lands inside what
+    // was originally a run of disallowed chars (collapsed to a
+    // single hyphen). Without the post-slice strip, the result
+    // would end in "-".
+    const def = makeDef();
+    // 63 'a's then a space — slugified becomes 63 'a's + "-" (64
+    // chars total). Without the post-slice fix, the slug ends in "-".
+    const input = "a".repeat(63) + " ";
+    const item = makeItem({ f_venue: { type: "text", value: input } });
+    const out = suggestSlug(item, def);
+    expect(out).not.toMatch(/-$/);
+    expect(out).toBe("a".repeat(63));
+  });
 });
 
 describe("suggestSlug — photos collection", () => {
@@ -152,5 +167,27 @@ describe("suggestSlug — photos collection", () => {
     // enforces) but defense-in-depth: the slugifier collapses any
     // stray characters.
     expect(suggestSlug(item, photosDef)).toBe("site-photos-a1b2c3");
+  });
+
+  it("image-derived slug wins even if slugSourceFieldId is set on a photos def", () => {
+    // Pins the precedence rule documented in the helper: photos
+    // collections always use image-derived slugs. A custom photos
+    // def that someone wires up with a text source still falls
+    // through to the image logic.
+    const customDef = makeDef({
+      slug: "photos",
+      singularName: "photo",
+      pluralName: "photos",
+      fields: [
+        { id: PHOTOS_FIELD_IDS.image, key: "image", type: "image", required: true },
+        { id: PHOTOS_FIELD_IDS.caption, key: "caption", type: "text", required: false },
+      ],
+      slugSourceFieldId: PHOTOS_FIELD_IDS.caption,
+    });
+    const item = makeItem({
+      [PHOTOS_FIELD_IDS.image]: { type: "image", value: STUB_IMAGE },
+      [PHOTOS_FIELD_IDS.caption]: { type: "text", value: "Should be ignored" },
+    });
+    expect(suggestSlug(item, customDef)).toBe("tour-2026-paris-a1b2c3");
   });
 });
