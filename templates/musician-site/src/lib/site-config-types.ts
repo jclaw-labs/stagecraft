@@ -85,6 +85,11 @@ export const siteConfigSchema = z.object({
   // this is the "link-in-bio page" escape hatch the legacy template
   // expressed through omission from `header.items`.
   hiddenFromNav: z.array(z.string().min(1)).default([]),
+  // True once the artist has completed the first-run welcome wizard.
+  // Drives the `/admin` redirect: false → /admin/welcome, true →
+  // /admin/pages. Defaults to false so a fresh artist repo (no
+  // singleton on disk) walks into the wizard.
+  hasCompletedFirstRun: z.boolean().default(false),
 });
 export type SiteConfig = z.infer<typeof siteConfigSchema>;
 
@@ -100,6 +105,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   isFooterHidden: false,
   pageOrder: [],
   hiddenFromNav: [],
+  hasCompletedFirstRun: false,
 };
 
 // ---------------------------------------------------------------------------

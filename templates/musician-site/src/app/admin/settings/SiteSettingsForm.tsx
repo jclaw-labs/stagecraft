@@ -16,6 +16,8 @@ import {
   type SocialPlatform,
 } from "@/lib/site-config-types";
 
+import { DangerZone } from "./DangerZone";
+
 type Props = {
   initial: SiteConfig;
   /**
@@ -145,6 +147,7 @@ export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props
           onChange={(v) => setField("isFooterHidden", v)}
         />
       </FieldGroup>
+      <DangerZone artistName={form.value.artistName} />
     </AdminPanel>
   );
 }
