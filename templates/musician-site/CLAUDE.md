@@ -51,9 +51,9 @@ src/
       upload-image/         sharp-based image processor + dedup
       pages/                GET list, POST create
       pages/[slug]/         DELETE
-      save-config/          POST: site-config | header-config | appearance
-      collections/[slug]/items/             PR 4 — generic CRUD
-      collections/[slug]/items/[itemSlug]/  for any collection
+      collections/[slug]/items/             generic CRUD for any collection
+      collections/[slug]/items/[itemSlug]/  per-item GET / PUT / DELETE
+      collections/[slug]/order/             PUT: write `_order.json`
   components/
     Image.tsx               Public <picture> renderer for ImageMetadata
     Header.tsx              Public site header (artist name + nav)
@@ -204,10 +204,11 @@ new custom panel is a small file: route at `/admin/<name>`, an entry
 in `admin-surfaces.ts`, a call to `useSettingsForm({ collectionSlug,
 toValues })`.
 
-`/api/save-config` still exists for the PagesPanel's cross-collection
-writes (drag-reorder updates the pages-collection order; eye-toggle
-flips per-page `showInNav`). Migrating those to per-collection
-endpoints is a follow-up.
+The PagesPanel's drag-reorder uses
+`PUT /api/collections/pages/order` (writes `_order.json`); the
+eye-toggle does `GET` → flip `showInNav` → `PUT` against the
+per-item endpoint. Both paths live under `/api/collections/...` —
+the legacy `/api/save-config` endpoint is gone.
 
 ## Collections (ADR-009)
 
@@ -341,11 +342,14 @@ Endpoints:
 
 - `POST /api/publish` — single-page publish from the Puck editor's
   `onPublish` (back-compat path; takes `{ pageSlug, data }`).
-- `POST /api/save-config` — write one of `site-config`, `header-config`,
-  `appearance` (discriminated body `{ kind, data }`).
 - `POST /api/pages` — create a new empty page (writes the file + commits).
 - `DELETE /api/pages/[slug]` — delete a page (removes the file +
   commits a tree entry with `sha: null` via `commitFiles`).
+- `PUT /api/collections/<slug>/items/<itemSlug>` — write any
+  collection item (used by both the generic editor and the three
+  custom singleton panels; `itemSlug=_singleton` for singletons).
+- `PUT /api/collections/<slug>/order` — write a collection's
+  `_order.json` (used by the Pages panel's drag-reorder).
 
 Save semantics: every settings/page mutation writes locally **first**,
 then publishes through the broker → GitHub path. A publish failure

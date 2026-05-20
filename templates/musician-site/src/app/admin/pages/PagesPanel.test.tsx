@@ -7,10 +7,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-import {
-  DEFAULT_SITE_CONFIG,
-  type PageSummary,
-} from "@/lib/site-config-types";
+import { type PageSummary } from "@/lib/site-config-types";
 
 import { PagesPanel } from "./PagesPanel";
 
@@ -21,9 +18,7 @@ const SUMMARIES: PageSummary[] = [
 ];
 
 function render(): string {
-  return renderToStaticMarkup(
-    <PagesPanel initialPages={SUMMARIES} initialSiteConfig={DEFAULT_SITE_CONFIG} />,
-  );
+  return renderToStaticMarkup(<PagesPanel initialPages={SUMMARIES} />);
 }
 
 describe("<PagesPanel> static markup", () => {

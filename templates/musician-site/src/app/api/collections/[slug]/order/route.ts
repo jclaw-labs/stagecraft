@@ -1,0 +1,96 @@
+/**
+ * PUT /api/collections/<slug>/order — write the manual `_order.json`
+ * for a collection.
+ *
+ * The order is the canonical list of item slugs in the order they
+ * should surface to consumers (`listItemsInOrder`, the public nav,
+ * the Pages admin). Slugs not present here are appended alphabetically
+ * by the listing layer; slugs that no longer have an on-disk item
+ * are filtered out at read time. Both behaviors live in the store
+ * layer — this endpoint just persists the array verbatim.
+ *
+ * Used by the Pages panel's drag-reorder, and by future per-collection
+ * order editors. Replaces the legacy `POST /api/save-config` fan-out
+ * for `siteConfig.pageOrder`.
+ */
+
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { getSession } from "@/lib/auth";
+import {
+  readCollectionDef,
+  slugSchema,
+  writeOrder,
+} from "@/lib/collections";
+import { PublishError, publish } from "@/lib/publish";
+
+const requestSchema = z.object({
+  order: z.array(z.string().min(1)),
+});
+
+function err(status: number, error: string) {
+  return NextResponse.json({ ok: false, error }, { status });
+}
+
+type Ctx = { params: Promise<{ slug: string }> };
+
+export async function PUT(request: Request, ctx: Ctx) {
+  const session = await getSession();
+  if (!session) return err(401, "unauthorized");
+
+  const { slug: collectionSlug } = await ctx.params;
+  const parsedCollectionSlug = slugSchema.safeParse(collectionSlug);
+  if (!parsedCollectionSlug.success) return err(400, "Invalid slug");
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return err(400, "Body must be JSON");
+  }
+
+  const parsed = requestSchema.safeParse(body);
+  if (!parsed.success) {
+    return err(400, parsed.error.message);
+  }
+
+  const def = await readCollectionDef(parsedCollectionSlug.data);
+  if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
+
+  // Singletons have no order — surface as a clear 400 so a misuse
+  // (UI bug, hand-rolled curl) doesn't silently write an order file
+  // that the store layer would ignore.
+  if (def.isSingleton) return err(400, "Singleton collections have no order");
+
+  await writeOrder(parsedCollectionSlug.data, parsed.data.order);
+
+  try {
+    const result = await publish({
+      targets: [
+        {
+          kind: "collection-order",
+          collectionSlug: parsedCollectionSlug.data,
+          data: parsed.data.order,
+        },
+      ],
+      authorEmail: session.email,
+      commitSubject: `Reorder ${parsedCollectionSlug.data}`,
+    });
+    return NextResponse.json({
+      ok: true,
+      mode: result.mode,
+      commitSha: result.commitSha,
+    });
+  } catch (cause) {
+    if (cause instanceof PublishError) {
+      return NextResponse.json({
+        ok: true,
+        mode: "local",
+        commitSha: null,
+        publishWarning: cause.message,
+      });
+    }
+    throw cause;
+  }
+}

@@ -5,42 +5,51 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { TextField } from "@/components/admin/form";
+import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
 import {
   PAGE_SLUG_PATTERN,
   reorderPagesBefore,
   slugifyTitle,
   type PageSummary,
-  type SiteConfig,
 } from "@/lib/site-config-types";
 
 type Props = {
   initialPages: PageSummary[];
-  initialSiteConfig: SiteConfig;
 };
 
 /**
  * Client island for the Pages panel.
  *
  * What lives here that didn't before:
- *   - Drag-reorder per row — order persists to `siteConfig.pageOrder`
- *     and drives the public nav order.
- *   - Eye toggle per row — flips `siteConfig.hiddenFromNav` membership
- *     for that slug. Splash pages don't get a toggle (they override "/"
- *     and shouldn't appear in the nav anyway).
+ *   - Drag-reorder per row — order persists to the pages collection's
+ *     `_order.json` and drives the public nav order.
+ *   - Eye toggle per row — flips the page item's `showInNav` field.
+ *     Splash pages don't get a toggle (they override "/" and shouldn't
+ *     appear in the nav anyway).
  *
- * Mutations: drag/eye fire an immediate POST to `/api/save-config`
- * (kind: site-config). The UI optimistically updates first; on save
- * failure the row state reverts and we surface the error inline.
+ * Mutations:
+ *   - Reorder → `PUT /api/collections/pages/order` with the new slug
+ *     array.
+ *   - Toggle → `GET /api/collections/pages/items/<slug>` to pick up the
+ *     current field values, flip `showInNav`, then
+ *     `PUT /api/collections/pages/items/<slug>` to write back. The
+ *     fetch-then-PUT pattern (vs. a server-side PATCH) keeps the
+ *     collection API surface narrow — the generic PUT validates the
+ *     whole item against the dynamic Zod schema either way.
  *
- * Add-page no longer auto-jumps to the editor — it stays on this list so
- * the artist can keep arranging order/visibility before opening Puck.
- * Each row's "Edit" button is the deliberate path into the editor.
+ * Both endpoints live under `/api/collections/<slug>/...` — same
+ * surface the generic editor uses. The legacy `/api/save-config`
+ * endpoint is gone.
+ *
+ * Add-page no longer auto-jumps to the editor — it stays on this list
+ * so the artist can keep arranging order/visibility before opening
+ * Puck. Each row's "Edit" button is the deliberate path into the
+ * editor.
  */
-export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
+export function PagesPanel({ initialPages }: Props) {
   const router = useRouter();
 
   const [pages, setPages] = useState(initialPages);
-  const [siteConfig, setSiteConfig] = useState(initialSiteConfig);
   const [newTitle, setNewTitle] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [hasSlugBeenEdited, setHasSlugBeenEdited] = useState(false);
@@ -56,13 +65,13 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
   const isTitleValid = newTitle.trim().length > 0;
   const canCreate = isSlugValid && isTitleValid && !isCreating;
 
-  async function saveSiteConfig(next: SiteConfig): Promise<boolean> {
+  async function savePageOrder(order: string[]): Promise<boolean> {
     setNavError(null);
     try {
-      const res = await fetch("/api/save-config", {
-        method: "POST",
+      const res = await fetch("/api/collections/pages/order", {
+        method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "site-config", data: next }),
+        body: JSON.stringify({ order }),
       });
       const body = (await res.json().catch(() => null)) as
         | { ok: true }
@@ -71,6 +80,58 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
       if (!res.ok || !body || !body.ok) {
         setNavError(
           (body && "error" in body && body.error) || `Save failed (HTTP ${res.status})`,
+        );
+        return false;
+      }
+      return true;
+    } catch (cause) {
+      setNavError(cause instanceof Error ? cause.message : "Save failed");
+      return false;
+    }
+  }
+
+  /**
+   * Flip a single page's `showInNav` field. Fetches the current item
+   * (we don't have it in the panel's PageSummary view), flips the
+   * boolean, and PUTs the merged values back. One commit per toggle.
+   */
+  async function setPageShowInNav(slug: string, showInNav: boolean): Promise<boolean> {
+    setNavError(null);
+    try {
+      const getRes = await fetch(
+        `/api/collections/pages/items/${encodeURIComponent(slug)}`,
+      );
+      const getBody = (await getRes.json().catch(() => null)) as
+        | { ok: true; item: { values: Record<string, unknown> } }
+        | { ok: false; error: string }
+        | null;
+      if (!getRes.ok || !getBody || !getBody.ok) {
+        setNavError(
+          (getBody && "error" in getBody && getBody.error) ||
+            `Load failed (HTTP ${getRes.status})`,
+        );
+        return false;
+      }
+      const nextValues = {
+        ...getBody.item.values,
+        [PAGES_FIELD_IDS.showInNav]: { type: "boolean", value: showInNav },
+      };
+      const putRes = await fetch(
+        `/api/collections/pages/items/${encodeURIComponent(slug)}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ values: nextValues }),
+        },
+      );
+      const putBody = (await putRes.json().catch(() => null)) as
+        | { ok: true }
+        | { ok: false; error: string }
+        | null;
+      if (!putRes.ok || !putBody || !putBody.ok) {
+        setNavError(
+          (putBody && "error" in putBody && putBody.error) ||
+            `Save failed (HTTP ${putRes.status})`,
         );
         return false;
       }
@@ -135,17 +196,10 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
         return;
       }
       setPages((current) => current.filter((p) => p.slug !== slug));
-      // Tidy up site config — drop the deleted slug from order + hidden lists
-      // so they don't accumulate dead references over time.
-      setSiteConfig((prev) => {
-        const next: SiteConfig = {
-          ...prev,
-          pageOrder: prev.pageOrder.filter((s) => s !== slug),
-          hiddenFromNav: prev.hiddenFromNav.filter((s) => s !== slug),
-        };
-        void saveSiteConfig(next);
-        return next;
-      });
+      // The deleted slug stays as a phantom entry in `_order.json`
+      // until something rewrites it — `listItemsInOrder` filters out
+      // missing items at read time, so it's benign. A cleanup pass
+      // could PUT a freshly-pruned order here; left out for simplicity.
       router.refresh();
     } finally {
       setDeletingSlug(null);
@@ -153,21 +207,17 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
   }
 
   async function toggleHiddenFromNav(slug: string) {
-    const wasHidden = siteConfig.hiddenFromNav.includes(slug);
-    const nextHidden = wasHidden
-      ? siteConfig.hiddenFromNav.filter((s) => s !== slug)
-      : [...siteConfig.hiddenFromNav, slug];
-    const nextConfig: SiteConfig = { ...siteConfig, hiddenFromNav: nextHidden };
-    setSiteConfig(nextConfig);
+    const target = pages.find((p) => p.slug === slug);
+    if (!target) return;
+    const wasHidden = target.isHiddenFromNav;
+    // Optimistic UI: flip the row first, revert if the save fails.
     setPages((current) =>
       current.map((p) =>
         p.slug === slug ? { ...p, isHiddenFromNav: !wasHidden } : p,
       ),
     );
-    const ok = await saveSiteConfig(nextConfig);
+    const ok = await setPageShowInNav(slug, wasHidden /* invert: was hidden → showInNav=true */);
     if (!ok) {
-      // Revert optimistic state on save failure so the UI matches disk.
-      setSiteConfig((prev) => ({ ...prev, hiddenFromNav: siteConfig.hiddenFromNav }));
       setPages((current) =>
         current.map((p) => (p.slug === slug ? { ...p, isHiddenFromNav: wasHidden } : p)),
       );
@@ -178,17 +228,10 @@ export function PagesPanel({ initialPages, initialSiteConfig }: Props) {
     if (draggedSlug === targetSlug) return;
     const reordered = reorderPagesBefore(pages, draggedSlug, targetSlug);
     const previousPages = pages;
-    const previousOrder = siteConfig.pageOrder;
     setPages(reordered);
-    const nextConfig: SiteConfig = {
-      ...siteConfig,
-      pageOrder: reordered.map((p) => p.slug),
-    };
-    setSiteConfig(nextConfig);
-    const ok = await saveSiteConfig(nextConfig);
+    const ok = await savePageOrder(reordered.map((p) => p.slug));
     if (!ok) {
       setPages(previousPages);
-      setSiteConfig((prev) => ({ ...prev, pageOrder: previousOrder }));
     }
   }
 

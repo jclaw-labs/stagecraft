@@ -34,6 +34,5 @@ export const config = {
     "/api/upload-image",
     "/api/pages",
     "/api/pages/:path*",
-    "/api/save-config",
   ],
 };

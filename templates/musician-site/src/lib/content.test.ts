@@ -16,18 +16,105 @@ import {
   readPageOrNull,
   readSiteConfig,
   resolveRootPageSlug,
-  writeAppearance,
-  writeHeaderConfig,
   writePage,
-  writeSiteConfig,
   type PageData,
 } from "./content";
-import { PAGES_FIELD_IDS } from "./collections/seeds";
+import {
+  PAGES_FIELD_IDS,
+  appearanceCollectionDef,
+  headerCollectionDef,
+  siteCollectionDef,
+} from "./collections/seeds";
+import {
+  generateItemId,
+  SINGLETON_ITEM_SLUG,
+  writeItem,
+  writeOrder,
+  writeSingleton,
+} from "./collections";
+import {
+  appearanceToItemValues,
+  headerConfigToItemValues,
+  siteConfigToItemValues,
+} from "./collections/migrate-from-legacy-values";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
 } from "./site-config-types";
+
+/**
+ * Helpers for tests that previously used the now-removed
+ * `writeSiteConfig` / `writeHeaderConfig` / `writeAppearance`
+ * wrappers. Inline the equivalent collection-store calls — `id` is
+ * stable across writes (generateItemId once) so multiple sequential
+ * writes don't re-mint identity.
+ */
+async function writeSiteSingleton(cfg: Parameters<typeof siteConfigToItemValues>[0]) {
+  const now = new Date().toISOString();
+  await writeSingleton(
+    "site",
+    {
+      id: generateItemId(),
+      slug: SINGLETON_ITEM_SLUG,
+      createdAt: now,
+      updatedAt: now,
+      values: siteConfigToItemValues(cfg),
+    },
+    siteCollectionDef,
+  );
+}
+async function writeHeaderSingleton(cfg: Parameters<typeof headerConfigToItemValues>[0]) {
+  const now = new Date().toISOString();
+  await writeSingleton(
+    "header",
+    {
+      id: generateItemId(),
+      slug: SINGLETON_ITEM_SLUG,
+      createdAt: now,
+      updatedAt: now,
+      values: headerConfigToItemValues(cfg),
+    },
+    headerCollectionDef,
+  );
+}
+async function writeAppearanceSingleton(cfg: Parameters<typeof appearanceToItemValues>[0]) {
+  const now = new Date().toISOString();
+  await writeSingleton(
+    "appearance",
+    {
+      id: generateItemId(),
+      slug: SINGLETON_ITEM_SLUG,
+      createdAt: now,
+      updatedAt: now,
+      values: appearanceToItemValues(cfg),
+    },
+    appearanceCollectionDef,
+  );
+}
+async function setHiddenFromNavLegacy(hiddenSlugs: readonly string[]) {
+  // Replaces the removed `applyHiddenFromNav` — read each page item,
+  // flip its showInNav field. Used by tests that previously set the
+  // legacy `siteConfig.hiddenFromNav` and now need to reach the same
+  // on-disk state.
+  const { listItemSlugs, readItem } = await import("./collections");
+  const { pagesCollectionDef } = await import("./collections/seeds");
+  const hidden = new Set(hiddenSlugs);
+  const slugs = await listItemSlugs("pages");
+  for (const slug of slugs) {
+    const item = await readItem("pages", slug, pagesCollectionDef);
+    if (!item) continue;
+    const shouldShow = !hidden.has(slug);
+    const next = {
+      ...item,
+      values: {
+        ...item.values,
+        [PAGES_FIELD_IDS.showInNav]: { type: "boolean" as const, value: shouldShow },
+      },
+    };
+    await writeItem("pages", slug, next, pagesCollectionDef);
+  }
+}
 
 /**
  * Tests run against an isolated tmpdir (pointed at via STAGECRAFT_CONTENT_DIR)
@@ -194,10 +281,7 @@ describe("listPageSummaries", () => {
     ];
     for (const slug of slugs) await createPage(slug, emptyPageData(slug));
 
-    await writeSiteConfig({
-      ...DEFAULT_SITE_CONFIG,
-      pageOrder: [slugs[1], slugs[2], slugs[0]],
-    });
+    await writeOrder("pages", [slugs[1], slugs[2], slugs[0]]);
 
     const summaries = await listPageSummaries();
     const ours = summaries.filter((s) => slugs.includes(s.slug));
@@ -212,7 +296,7 @@ describe("listPageSummaries", () => {
     await createPage(unorderedZ, emptyPageData("ZUnpinned"));
     await createPage(unorderedM, emptyPageData("MUnpinned"));
 
-    await writeSiteConfig({ ...DEFAULT_SITE_CONFIG, pageOrder: [ordered] });
+    await writeOrder("pages", [ordered]);
 
     const summaries = await listPageSummaries();
     const ours = summaries
@@ -228,7 +312,7 @@ describe("listPageSummaries", () => {
     await createPage(hidden, emptyPageData("Hidden"));
     await createPage(visible, emptyPageData("Visible"));
 
-    await writeSiteConfig({ ...DEFAULT_SITE_CONFIG, hiddenFromNav: [hidden] });
+    await setHiddenFromNavLegacy([hidden]);
 
     const summaries = await listPageSummaries();
     expect(summaries.find((s) => s.slug === hidden)?.isHiddenFromNav).toBe(true);
@@ -307,31 +391,31 @@ describe("write* + read* round-trip through disk", () => {
   // afterEach (above) clears the tmpdir's config/ between tests so each
   // round-trip starts from a clean slate.
 
-  it("writeSiteConfig + readSiteConfig round-trip", async () => {
+  it("siteConfigToItemValues + readSiteConfig round-trip", async () => {
     const cfg = { ...DEFAULT_SITE_CONFIG, artistName: "Test Artist" };
-    await writeSiteConfig(cfg);
+    await writeSiteSingleton(cfg);
     const out = await readSiteConfig();
     expect(out.artistName).toBe("Test Artist");
   });
 
-  it("writeHeaderConfig + readHeaderConfig round-trip", async () => {
+  it("headerConfigToItemValues + readHeaderConfig round-trip", async () => {
     const cfg = {
       ...DEFAULT_HEADER_CONFIG,
       headerMode: "transparent-static" as const,
       headerSubtitle: "Bandleader / Pianist",
     };
-    await writeHeaderConfig(cfg);
+    await writeHeaderSingleton(cfg);
     const out = await readHeaderConfig();
     expect(out.headerMode).toBe("transparent-static");
     expect(out.headerSubtitle).toBe("Bandleader / Pianist");
   });
 
-  it("writeAppearance + readAppearance round-trip", async () => {
+  it("appearanceToItemValues + readAppearance round-trip", async () => {
     const cfg = {
       ...DEFAULT_APPEARANCE,
       colors: { ...DEFAULT_APPEARANCE.colors, primary: "#abcdef" },
     };
-    await writeAppearance(cfg);
+    await writeAppearanceSingleton(cfg);
     const out = await readAppearance();
     expect(out.colors.primary).toBe("#abcdef");
   });

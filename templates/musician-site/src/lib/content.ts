@@ -34,14 +34,11 @@ import {
 } from "./collections/seeds";
 import {
   appearanceFromItem,
-  appearanceToItemValues,
   headerConfigFromItem,
-  headerConfigToItemValues,
   pageDataFromItem,
   pageDataToItem,
   pageDataToItemValues,
   siteConfigFromItem,
-  siteConfigToItemValues,
 } from "./collections/migrate-from-legacy";
 import {
   collectionDefRepoPath,
@@ -58,8 +55,6 @@ import {
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
   writeItem,
-  writeOrder,
-  writeSingleton,
 } from "./collections";
 import {
   DEFAULT_APPEARANCE,
@@ -307,58 +302,6 @@ export async function readSiteConfig(): Promise<SiteConfig> {
   };
 }
 
-/**
- * Write the site config. Page-nav fields route to the pages collection:
- * `pageOrder` updates `items/_order.json`; `hiddenFromNav` flips
- * `showInNav` on each affected page item. Both happen in addition to
- * the singleton write; callers that batch through `publish.ts` should
- * pass the corresponding targets in one call.
- */
-export async function writeSiteConfig(config: SiteConfig): Promise<void> {
-  await ensurePrebakedCollections();
-  const existing = await readSingleton("site", siteCollectionDef);
-  const item = {
-    id: existing?.id ?? generateItemId(),
-    slug: SINGLETON_ITEM_SLUG,
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    values: siteConfigToItemValues(config),
-  };
-  await writeSingleton("site", item, siteCollectionDef);
-  await writeOrder("pages", config.pageOrder);
-  await applyHiddenFromNav(config.hiddenFromNav);
-}
-
-/**
- * Flip every page's `showInNav` to match `hiddenFromNav`. Pages absent
- * from the list become visible; pages present become hidden. Used by
- * `writeSiteConfig` to translate the legacy `hiddenFromNav` field into
- * per-page state.
- */
-async function applyHiddenFromNav(hiddenSlugs: readonly string[]): Promise<void> {
-  const hidden = new Set(hiddenSlugs);
-  const slugs = await listItemSlugs("pages");
-  await Promise.all(
-    slugs.map(async (slug) => {
-      const item = await readItem("pages", slug, pagesCollectionDef);
-      if (!item) return;
-      const currentValue = item.values[PAGES_FIELD_IDS.showInNav];
-      const currentlyShown =
-        currentValue?.type === "boolean" ? currentValue.value : true;
-      const shouldShow = !hidden.has(slug);
-      if (currentlyShown === shouldShow) return;
-      const updated = {
-        ...item,
-        values: {
-          ...item.values,
-          [PAGES_FIELD_IDS.showInNav]: { type: "boolean" as const, value: shouldShow },
-        },
-      };
-      await writeItem("pages", slug, updated, pagesCollectionDef);
-    }),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Header singleton
 // ---------------------------------------------------------------------------
@@ -367,22 +310,6 @@ export async function readHeaderConfig(): Promise<HeaderConfig> {
   await ensurePrebakedCollections();
   const item = await readSingleton("header", headerCollectionDef);
   return headerConfigFromItem(item);
-}
-
-export async function writeHeaderConfig(config: HeaderConfig): Promise<void> {
-  await ensurePrebakedCollections();
-  const existing = await readSingleton("header", headerCollectionDef);
-  await writeSingleton(
-    "header",
-    {
-      id: existing?.id ?? generateItemId(),
-      slug: SINGLETON_ITEM_SLUG,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      values: headerConfigToItemValues(config),
-    },
-    headerCollectionDef,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -395,22 +322,6 @@ export async function readAppearance(): Promise<Appearance> {
   return appearanceFromItem(item);
 }
 
-export async function writeAppearance(config: Appearance): Promise<void> {
-  await ensurePrebakedCollections();
-  const existing = await readSingleton("appearance", appearanceCollectionDef);
-  await writeSingleton(
-    "appearance",
-    {
-      id: existing?.id ?? generateItemId(),
-      slug: SINGLETON_ITEM_SLUG,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      values: appearanceToItemValues(config),
-    },
-    appearanceCollectionDef,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Re-export legacy defaults for callers that still consume them
 // ---------------------------------------------------------------------------
@@ -418,15 +329,15 @@ export async function writeAppearance(config: Appearance): Promise<void> {
 export { DEFAULT_APPEARANCE, DEFAULT_HEADER_CONFIG, DEFAULT_SITE_CONFIG };
 
 // ---------------------------------------------------------------------------
-// Defensive: surface the helpers used by per-build conversion paths
-// (pageDataToItem etc.) so callers don't have to know about the
-// migrate-from-legacy module.
+// Surface the helpers used by per-build conversion paths (pageDataToItem
+// etc.) so callers don't have to know about the migrate-from-legacy
+// module. The value-only conversion helpers
+// (`{site,header,appearance}ConfigToItemValues`) are no longer re-
+// exported here — the custom singleton panels import them directly
+// from `collections/migrate-from-legacy-values` (client-bundle-safe).
 // ---------------------------------------------------------------------------
 
 export {
   pageDataToItem,
   pageDataToItemValues,
-  siteConfigToItemValues,
-  headerConfigToItemValues,
-  appearanceToItemValues,
 };
