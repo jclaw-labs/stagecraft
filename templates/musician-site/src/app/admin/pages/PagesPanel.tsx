@@ -254,16 +254,14 @@ export function PagesPanel({ initialPages }: Props) {
       if (!res.ok || !body || !body.ok) {
         return (body && "error" in body && body.error) || `Rename failed (HTTP ${res.status})`;
       }
-      // Optimistic local update: swap the slug everywhere the panel
-      // holds it. router.refresh() pulls the canonical state.
+      // Optimistic local update: swap the slug in the panel's
+      // `pages` list. The pages-collection `_order.json` is updated
+      // server-side by the PATCH handler (see the route comment), so
+      // no client-side order maintenance is needed here.
+      // router.refresh() pulls the canonical state.
       setPages((current) =>
         current.map((p) => (p.slug === oldSlug ? { ...p, slug: body.newSlug } : p)),
       );
-      setSiteConfig((prev) => ({
-        ...prev,
-        pageOrder: prev.pageOrder.map((s) => (s === oldSlug ? body.newSlug : s)),
-        hiddenFromNav: prev.hiddenFromNav.map((s) => (s === oldSlug ? body.newSlug : s)),
-      }));
       router.refresh();
       return null;
     } catch (cause) {
