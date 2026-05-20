@@ -39,6 +39,7 @@ export const SITE_FIELD_IDS = {
   contactEmail: "fld_site_contactEmail",
   copyrightName: "fld_site_copyrightName",
   isFooterHidden: "fld_site_isFooterHidden",
+  hasCompletedFirstRun: "fld_site_hasCompletedFirstRun",
   social: (platform: SocialPlatform) => socialFieldId(platform),
 } as const;
 

@@ -43,6 +43,12 @@
       "type": "boolean"
     },
     {
+      "id": "fld_site_hasCompletedFirstRun",
+      "key": "hasCompletedFirstRun",
+      "type": "boolean",
+      "systemLocked": true
+    },
+    {
       "id": "fld_site_social_instagram",
       "key": "social_instagram",
       "type": "url",

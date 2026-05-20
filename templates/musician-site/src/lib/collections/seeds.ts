@@ -162,6 +162,15 @@ export const siteCollectionDef: CollectionDef = {
     },
     { id: SITE_FIELD_IDS.copyrightName, key: "copyrightName", type: "text", required: false },
     { id: SITE_FIELD_IDS.isFooterHidden, key: "isFooterHidden", type: "boolean" },
+    // First-run completion flag. systemLocked because the welcome
+    // wizard and reset flow are the only writers; the artist
+    // shouldn't see it as an editable field in the schema editor.
+    {
+      id: SITE_FIELD_IDS.hasCompletedFirstRun,
+      key: "hasCompletedFirstRun",
+      type: "boolean",
+      systemLocked: true,
+    },
     // One field per social platform — flatter than the legacy
     // `socialLinks: Record<...>` shape but means the schema editor can
     // treat each as an independent slot.

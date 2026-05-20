@@ -1,10 +1,15 @@
 import { redirect } from "next/navigation";
 
+import { checkIsFirstRun } from "@/lib/first-run";
+
 /**
- * `/admin` is just the sidebar's "home" — the Pages panel is the actual
- * landing surface because that's where new sites pick up. Redirecting here
- * keeps the URL stable across content edits.
+ * `/admin` is just the sidebar's "home" — for steady-state sites it
+ * bounces straight into the Pages panel because that's where editing
+ * picks up. For fresh artist sites (no completed first-run wizard) it
+ * bounces into `/admin/welcome` instead, so the empty Pages list isn't
+ * the first thing they see.
  */
-export default function AdminRoot() {
+export default async function AdminRoot() {
+  if (await checkIsFirstRun()) redirect("/admin/welcome");
   redirect("/admin/pages");
 }
