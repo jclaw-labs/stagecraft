@@ -27,7 +27,7 @@ import {
   slugSchema,
   type Item,
 } from "@/lib/collections";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 
 import { zodIssuesToStructured } from "./[itemSlug]/issue-format";
 
@@ -125,7 +125,7 @@ export async function POST(request: Request, ctx: Ctx) {
   }
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-item",

@@ -25,7 +25,7 @@ import {
   writeItem,
   type Item,
 } from "@/lib/collections";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 
 import { zodIssuesToStructured } from "./issue-format";
 
@@ -113,7 +113,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   if (!saved) return err(500, "Item disappeared between write and read");
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-item",
@@ -223,7 +223,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     def.defaultSort?.mode === "manual" ? await readOrder(parsedCollectionSlug.data) : null;
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-item",
@@ -296,7 +296,7 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   await deleteItem(parsedCollectionSlug.data, parsedItemSlug.data);
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "delete-collection-item",

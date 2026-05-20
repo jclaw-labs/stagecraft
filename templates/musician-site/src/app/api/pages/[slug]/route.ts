@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { deletePage, readPageOrNull } from "@/lib/content";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 import { pageSlugSchema } from "@/lib/site-config-types";
 
 /**
@@ -32,7 +32,7 @@ export async function DELETE(
   await deletePage(slug);
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [{ kind: "delete-collection-item", collectionSlug: "pages", itemSlug: slug }],
       authorEmail: session.email,
       commitSubject: `Delete page ${slug}`,

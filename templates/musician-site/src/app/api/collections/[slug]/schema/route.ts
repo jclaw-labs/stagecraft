@@ -38,7 +38,7 @@ import {
   type Item,
 } from "@/lib/collections";
 import { localPathForRepoPath, writeJsonBatchAtomic } from "@/lib/fs-helpers";
-import { PublishError, publish } from "@/lib/publish";
+import { PublishError, saveToDraft } from "@/lib/publish";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -128,7 +128,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   const warningsOut = report.warnings.map((w) => ({ ...w, message: describeWarning(w) }));
 
   try {
-    const result = await publish({
+    const result = await saveToDraft({
       targets: [
         {
           kind: "collection-def",

@@ -558,7 +558,7 @@ export async function publishPage(args: {
   if (!item) {
     throw new PublishError("github-failed", `Page ${args.pageSlug} disappeared after write`);
   }
-  return publish({
+  return saveToDraft({
     targets: [
       {
         kind: "collection-item",
