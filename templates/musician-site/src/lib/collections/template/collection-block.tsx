@@ -25,12 +25,14 @@
 import type { ReactNode } from "react";
 import { Render } from "@measured/puck";
 
+import { Image } from "@/components/Image";
+
 import { applyFilter } from "./filter";
 import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
 import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
 import type { Template } from "./types";
-import type { Filter, FieldId, CollectionDef, Item } from "../schema";
+import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
 
 // ---------------------------------------------------------------------------
@@ -206,10 +208,18 @@ function DefaultItemRender({
 }
 
 /**
- * The inner "every scalar field as plain text" body — shared
- * between the in-block iteration fallback and the detail-page
- * no-template fallback. Each call site wraps it with its own
- * outer chrome (heading, page-level spacing, etc.).
+ * The inner default body — shared between the in-block iteration
+ * fallback and the detail-page no-template fallback. Each call site
+ * wraps it with its own outer chrome (heading, page-level spacing,
+ * etc.).
+ *
+ * Renders `image` values as `<picture>` (so photo / cover-art / store
+ * collections aren't visually empty out of the box), `url` values as
+ * clickable links (so `externalUrl` on store-items, `ticketUrl` on
+ * tour-dates etc. behave like links), and every other scalar field
+ * type via `scalarSortKey`. `puckContent`, `richText`, `file`, and
+ * `collectionRef` are skipped — meaningful default rendering for those
+ * needs more context than this fallback has.
  */
 export function DefaultItemFieldsList({
   item,
@@ -223,15 +233,36 @@ export function DefaultItemFieldsList({
       {def.fields.map((field) => {
         const value = item.values[field.id];
         if (value === undefined) return null;
-        const display = scalarSortKey(value);
-        if (display === null) return null;
-        return (
-          <p key={field.id} style={{ margin: "var(--space-1) 0" }}>
-            <strong>{field.key}:</strong> {String(display)}
-          </p>
-        );
+        return renderDefaultField(field, value);
       })}
     </>
+  );
+}
+
+function renderDefaultField(field: FieldDef, value: FieldValue): ReactNode {
+  if (value.type === "image") {
+    return (
+      <div key={field.id} style={{ margin: "var(--space-2) 0" }}>
+        <Image image={value.value} sizes="(max-width: 800px) 100vw, 800px" />
+      </div>
+    );
+  }
+  if (value.type === "url") {
+    return (
+      <p key={field.id} style={{ margin: "var(--space-1) 0" }}>
+        <strong>{field.key}:</strong>{" "}
+        <a href={value.value} rel="noopener noreferrer">
+          {value.value}
+        </a>
+      </p>
+    );
+  }
+  const display = scalarSortKey(value);
+  if (display === null) return null;
+  return (
+    <p key={field.id} style={{ margin: "var(--space-1) 0" }}>
+      <strong>{field.key}:</strong> {String(display)}
+    </p>
   );
 }
 

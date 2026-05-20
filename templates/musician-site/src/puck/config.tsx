@@ -1,6 +1,7 @@
 import type { Config } from "@measured/puck";
 import type { CSSProperties, ReactNode } from "react";
 
+import { ContactForm } from "@/components/ContactForm";
 import { Image as PublicImage } from "@/components/Image";
 import type { ImageMetadata } from "@/lib/image-types";
 
@@ -129,6 +130,7 @@ export type BlockProps = {
   Embed: { html: string };
   Spacer: { size: SpacerSize };
   Divider: { inset: boolean };
+  ContactForm: Record<string, never>;
 };
 
 /**
@@ -548,6 +550,16 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           }}
         />
       ),
+    },
+    ContactForm: {
+      // No artist-editable fields — the form is intentionally fixed
+      // (name / email / subject / message) so a drag-and-drop drop-in
+      // matches what the legacy template's `{% contact-form /%}` block
+      // emitted. Delivery target lives on `site.json#contactEmail`,
+      // edited at /admin/settings.
+      fields: {},
+      defaultProps: {},
+      render: () => <ContactForm />,
     },
   },
 };

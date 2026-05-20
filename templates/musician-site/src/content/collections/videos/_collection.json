@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "slug": "videos",
+  "singularName": "video",
+  "pluralName": "videos",
+  "fields": [
+    {
+      "id": "fld_videos_title",
+      "key": "title",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_videos_source",
+      "key": "source",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "youtube",
+          "label": "YouTube"
+        },
+        {
+          "id": "o2",
+          "value": "vimeo",
+          "label": "Vimeo"
+        },
+        {
+          "id": "o3",
+          "value": "upload",
+          "label": "Self-hosted"
+        }
+      ]
+    },
+    {
+      "id": "fld_videos_embedUrl",
+      "key": "embedUrl",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_videos_thumbnail",
+      "key": "thumbnail",
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_videos_description",
+      "key": "description",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_videos_publishedAt",
+      "key": "publishedAt",
+      "type": "date",
+      "required": false
+    }
+  ],
+  "slugSourceFieldId": "fld_videos_title",
+  "detailUrlPrefix": null,
+  "defaultSort": {
+    "mode": "fieldSort",
+    "fieldId": "fld_videos_publishedAt",
+    "direction": "desc"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

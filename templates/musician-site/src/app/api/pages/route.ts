@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
-import { readItem } from "@/lib/collections";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
+import {
+  findShadowingPrefix,
+  listCollectionSlugs,
+  readCollectionDef,
+  readItem,
+  type CollectionDef,
+} from "@/lib/collections";
+import { pagesCollectionDef, PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import {
   emptyPageData,
   listPageSummaries,
@@ -23,6 +29,24 @@ import { createPageRequestSchema } from "@/lib/site-config-types";
 
 function err(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
+}
+
+/**
+ * Union of every collection def we know about: on-disk defs first
+ * (so artist-added custom collections participate), supplemented by
+ * any prebaked entry that isn't on disk yet (so fresh sites pre-
+ * bootstrap still get the prebaked prefixes in the check).
+ */
+async function loadKnownCollectionDefs(): Promise<CollectionDef[]> {
+  const onDiskSlugs = await listCollectionSlugs();
+  const onDiskDefs = (
+    await Promise.all(onDiskSlugs.map((s) => readCollectionDef(s)))
+  ).filter((d): d is CollectionDef => d !== null);
+  const seen = new Set(onDiskDefs.map((d) => d.slug));
+  return [
+    ...onDiskDefs,
+    ...Object.values(PREBAKED_COLLECTIONS).filter((d) => !seen.has(d.slug)),
+  ];
 }
 
 export async function GET() {
@@ -50,6 +74,24 @@ export async function POST(request: Request) {
   }
 
   const { slug, title } = parsed.data;
+
+  // Reject slugs that would shadow a known collection's detail URL
+  // prefix (`/news`, `/releases`, `/shows`, plus any artist-added
+  // custom collection's prefix). Without this check the page write
+  // succeeds but every subsequent public request throws the routing-
+  // conflict error from the catch-all — effectively a full-site
+  // outage triggered by a name collision. We check the union of
+  // on-disk defs and the prebaked registry: on-disk catches custom
+  // collections; the registry union covers fresh sites where
+  // bootstrap hasn't fired yet for some prebaked entries.
+  const knownDefs = await loadKnownCollectionDefs();
+  const shadow = findShadowingPrefix(slug, knownDefs);
+  if (shadow) {
+    return err(
+      409,
+      `Cannot use slug "${slug}" — it shadows the "${shadow.collectionSlug}" collection's URL prefix "${shadow.detailUrlPrefix}". Pick a different slug.`,
+    );
+  }
 
   if (await readPageOrNull(slug)) {
     return err(409, new PageExistsError(slug).message);

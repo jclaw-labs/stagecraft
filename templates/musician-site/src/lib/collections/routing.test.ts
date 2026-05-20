@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   describeRoutingConflict,
+  findShadowingPrefix,
   resolveCollectionItemUrl,
   validateCollectionRouting,
 } from "./routing";
@@ -161,5 +162,40 @@ describe("validateCollectionRouting", () => {
         detailUrlPrefix: "/shows",
       }),
     ).toContain("shadows");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findShadowingPrefix (pre-flight helper for POST /api/pages)
+// ---------------------------------------------------------------------------
+
+describe("findShadowingPrefix", () => {
+  const TOUR = def("tour-dates", "/shows");
+  const POSTS = def("posts", "/news");
+  const PAGES = def("pages", "/");
+  const QUOTES = def("quotes", null);
+
+  it("returns the offending collection when the slug shadows a prefix root", () => {
+    expect(findShadowingPrefix("shows", [PAGES, TOUR, POSTS])).toEqual({
+      collectionSlug: "tour-dates",
+      detailUrlPrefix: "/shows",
+    });
+    expect(findShadowingPrefix("news", [PAGES, TOUR, POSTS])).toEqual({
+      collectionSlug: "posts",
+      detailUrlPrefix: "/news",
+    });
+  });
+
+  it("returns null for slugs that don't shadow any prefix", () => {
+    expect(findShadowingPrefix("about", [PAGES, TOUR, POSTS])).toBeNull();
+    expect(findShadowingPrefix("home", [PAGES, TOUR, POSTS])).toBeNull();
+  });
+
+  it("ignores the Pages root prefix (`/`) — every page slug 'shadows' it by definition", () => {
+    expect(findShadowingPrefix("about", [PAGES])).toBeNull();
+  });
+
+  it("ignores collections with null detailUrlPrefix", () => {
+    expect(findShadowingPrefix("quotes", [PAGES, QUOTES])).toBeNull();
   });
 });

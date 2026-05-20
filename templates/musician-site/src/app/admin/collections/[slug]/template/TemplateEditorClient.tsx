@@ -28,6 +28,7 @@ import {
   PuckSaveStatusPill,
   type PuckEditorSaveStatus,
 } from "@/components/admin/PuckEditorChrome";
+import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 
 import type { CollectionDef } from "@/lib/collections";
 
@@ -74,6 +75,8 @@ export function TemplateEditorClient({
 
   const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useBeforeUnloadIfDirty(isDirty);
 
   const onPublish = useCallback(
     async (data: Data) => {
@@ -115,6 +118,7 @@ export function TemplateEditorClient({
           return;
         }
         setStatus("saved");
+        setIsDirty(false);
         if ("publishWarning" in body && body.publishWarning) {
           setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
         }
@@ -131,6 +135,7 @@ export function TemplateEditorClient({
       config={config}
       data={initialData}
       onPublish={onPublish}
+      onChange={() => setIsDirty(true)}
       overrides={{
         headerActions: ({ children }) => (
           <>

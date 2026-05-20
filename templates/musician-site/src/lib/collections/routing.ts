@@ -189,6 +189,34 @@ export function validateCollectionRouting(
 }
 
 /**
+ * Single-slug shadowing check, intended for `POST /api/pages` (and
+ * any other create-a-page surface) to reject a proposed slug BEFORE
+ * it lands on disk. Returns the offending collection's slug + prefix
+ * if `pageSlug` would shadow a non-Pages collection's prefix root,
+ * `null` otherwise.
+ *
+ * The full `validateCollectionRouting` runs at request time and
+ * surfaces every conflict in the registry; this helper is the
+ * pre-flight version for the single-slug case so the editor can fail
+ * a creation attempt with a useful 409 instead of letting the new
+ * page render the entire site unreachable.
+ */
+export function findShadowingPrefix(
+  pageSlug: string,
+  defs: ReadonlyArray<CollectionDef>,
+): { collectionSlug: string; detailUrlPrefix: string } | null {
+  for (const def of defs) {
+    const prefix = def.detailUrlPrefix;
+    if (prefix === null || prefix === "/") continue;
+    const firstSegment = prefix.split("/")[1];
+    if (firstSegment === pageSlug) {
+      return { collectionSlug: def.slug, detailUrlPrefix: prefix };
+    }
+  }
+  return null;
+}
+
+/**
  * Format a `RoutingConflict` for inclusion in an error message.
  * Surfaces enough context that the artist (or developer) can fix it
  * without grepping schemas.

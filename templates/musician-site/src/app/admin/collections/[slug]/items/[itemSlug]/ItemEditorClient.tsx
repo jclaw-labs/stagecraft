@@ -12,6 +12,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { ItemEditor, type ReferenceOptions } from "@/components/admin/ItemEditor";
 import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
+import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 
 import type { CollectionDef, Item } from "@/lib/collections";
 
@@ -37,6 +38,7 @@ export function ItemEditorClient({
     () => JSON.stringify(item) !== initialSnapshot,
     [item, initialSnapshot],
   );
+  useBeforeUnloadIfDirty(isDirty);
 
   const save = useCallback(async () => {
     setStatus("saving");

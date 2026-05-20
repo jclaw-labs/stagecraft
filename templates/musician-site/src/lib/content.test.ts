@@ -420,3 +420,31 @@ describe("write* + read* round-trip through disk", () => {
     expect(out.colors.primary).toBe("#abcdef");
   });
 });
+
+describe("ensurePrebakedCollections", () => {
+  it("writes every PREBAKED_COLLECTIONS entry to disk on first access", async () => {
+    // Triggering any page read fires the bootstrap.
+    await readPageOrNull("home");
+
+    // Every key in `PREBAKED_COLLECTIONS` should now have a
+    // `_collection.json` on disk. Before this fix, only pages / site /
+    // header / appearance got bootstrapped — tour-dates, releases,
+    // posts, store-items, photos, and videos were unreachable on a
+    // fresh artist site because `listCollectionSlugs()` reads from
+    // disk and ignored the registry.
+    const { PREBAKED_COLLECTIONS } = await import("./collections/seeds");
+    for (const slug of Object.keys(PREBAKED_COLLECTIONS)) {
+      const defPath = path.join(
+        TMP_CONTENT_DIR,
+        "collections",
+        slug,
+        "_collection.json",
+      );
+      const exists = await fs
+        .access(defPath)
+        .then(() => true)
+        .catch(() => false);
+      expect(exists, `${slug}: _collection.json not bootstrapped`).toBe(true);
+    }
+  });
+});
