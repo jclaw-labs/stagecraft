@@ -1,19 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { RequestError } from "@octokit/request-error";
 
 const getRef = vi.fn();
 const getCommit = vi.fn();
 const createBlob = vi.fn();
 const createTree = vi.fn();
 const createCommit = vi.fn();
+const createRef = vi.fn();
 const updateRef = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
-    git = { getRef, getCommit, createBlob, createTree, createCommit, updateRef };
+    git = { getRef, getCommit, createBlob, createTree, createCommit, createRef, updateRef };
   },
 }));
 
-import { commitFiles } from "./git-commit";
+import { commitFiles, ensureBranchExists, squashBranchInto } from "./git-commit";
 
 beforeEach(() => {
   getRef.mockReset();
@@ -21,6 +23,7 @@ beforeEach(() => {
   createBlob.mockReset();
   createTree.mockReset();
   createCommit.mockReset();
+  createRef.mockReset();
   updateRef.mockReset();
 });
 
@@ -193,5 +196,142 @@ describe("commitFiles", () => {
         files: [{ path: "a.txt", content: "x" }],
       }),
     ).rejects.toThrow("404");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureBranchExists (ADR-010)
+// ---------------------------------------------------------------------------
+
+function notFoundError(): Error {
+  // The ensureBranchExists "missing branch" path keys off
+  // `cause instanceof RequestError && cause.status === 404`, so the
+  // test must supply that exact shape. RequestError lives in
+  // @octokit/request-error (not re-exported from @octokit/rest).
+  return new RequestError("Not Found", 404, {
+    request: { method: "GET", url: "x", headers: {} },
+    response: { status: 404, url: "x", headers: {}, data: {} },
+  });
+}
+
+describe("ensureBranchExists", () => {
+  it("no-op when the branch already exists", async () => {
+    getRef.mockResolvedValue({ data: { object: { sha: "sha" } } });
+    await ensureBranchExists({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      fromBranch: "main",
+    });
+    expect(getRef).toHaveBeenCalledTimes(1);
+    expect(getRef).toHaveBeenCalledWith({ owner: "o", repo: "r", ref: "heads/draft" });
+    expect(createRef).not.toHaveBeenCalled();
+  });
+
+  it("creates the branch from fromBranch's HEAD when missing", async () => {
+    getRef
+      .mockRejectedValueOnce(notFoundError()) // first: heads/draft → 404
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } }); // second: heads/main
+    createRef.mockResolvedValue({ data: {} });
+
+    await ensureBranchExists({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      fromBranch: "main",
+    });
+    expect(createRef).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      ref: "refs/heads/draft",
+      sha: "main-head",
+    });
+  });
+
+  it("propagates non-404 errors from the first getRef", async () => {
+    const boom = new Error("rate limit");
+    getRef.mockRejectedValue(boom);
+    await expect(
+      ensureBranchExists({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        fromBranch: "main",
+      }),
+    ).rejects.toBe(boom);
+    expect(createRef).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// squashBranchInto (ADR-010)
+// ---------------------------------------------------------------------------
+
+describe("squashBranchInto", () => {
+  it("creates a new commit on toBranch with fromBranch's tree, then FFs fromBranch", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } }) // fromBranch
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } }); // toBranch
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree-sha" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    updateRef.mockResolvedValue({ data: {} });
+
+    const result = await squashBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      fromBranch: "draft",
+      toBranch: "main",
+      message: "Publish from draft",
+      author: { name: "A", email: "a@e.com" },
+    });
+
+    expect(result).toEqual({ commitSha: "squash-sha", alreadyInSync: false });
+    // Squash commit: parent = main's current HEAD, tree = draft's tree.
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        message: "Publish from draft",
+        tree: "draft-tree-sha",
+        parents: ["main-head"],
+        author: { name: "A", email: "a@e.com" },
+      }),
+    );
+    // Both refs end at the new commit. Order: main first (the
+    // user-visible deploy ref), then draft FF's to match.
+    expect(updateRef).toHaveBeenNthCalledWith(1, {
+      owner: "o",
+      repo: "r",
+      ref: "heads/main",
+      sha: "squash-sha",
+    });
+    expect(updateRef).toHaveBeenNthCalledWith(2, {
+      owner: "o",
+      repo: "r",
+      ref: "heads/draft",
+      sha: "squash-sha",
+    });
+  });
+
+  it("returns alreadyInSync without creating a commit when the refs match", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } });
+    const result = await squashBranchInto({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      fromBranch: "draft",
+      toBranch: "main",
+      message: "noop",
+    });
+    expect(result).toEqual({ commitSha: "same", alreadyInSync: true });
+    expect(getCommit).not.toHaveBeenCalled();
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(updateRef).not.toHaveBeenCalled();
   });
 });

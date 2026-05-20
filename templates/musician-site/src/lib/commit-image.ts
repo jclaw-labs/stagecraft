@@ -1,7 +1,13 @@
-import { commitFiles, type FileToCommit } from "./git-commit";
+import { type FileToCommit } from "./git-commit";
 import { generateImageVariants, variantFilename, type ProcessImageInput } from "./image";
 import { type ImageMetadata } from "./image-types";
-import { fetchPublishToken, isPlatformConfigured, PublishError, readEnv } from "./publish";
+import {
+  commitThroughDraft,
+  fetchPublishToken,
+  isPlatformConfigured,
+  PublishError,
+  readEnv,
+} from "./publish";
 
 /**
  * Layout under `public/images/` that both the local-disk and broker paths
@@ -68,11 +74,15 @@ export async function commitUploadedImage(args: {
 
   let commitSha: string;
   try {
-    commitSha = await commitFiles({
+    // Route through the draft branch (ADR-010). Images upload as one
+    // commit on draft + immediate squash to main, matching the rest
+    // of the save flow. The draft commit carries `[skip ci]` so the
+    // deploy only fires for the squash commit on main.
+    commitSha = await commitThroughDraft({
       token,
       owner,
       repo,
-      branch: env.branch,
+      mainBranch: env.branch,
       message: `Upload image ${generated.metadata.contentSlug}/${generated.metadata.id}`,
       files,
       author: { name: args.authorName ?? "Artist", email: args.authorEmail },
