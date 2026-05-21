@@ -31,16 +31,19 @@
 
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 
+import type { BlockProps } from "./config";
 import { puckConfig } from "./config";
 
 /**
  * Component names whose default render does network I/O or is
  * otherwise unsuitable for a thumbnail-scale preview. These fall
- * back to a static name pill instead of a live render.
+ * back to a static name pill instead of a live render. Typed against
+ * `BlockProps` so renaming a block surfaces here at compile time
+ * instead of silently letting the iframe load.
  */
-const STATIC_PREVIEW_BLOCKS = new Set(["Embed"]);
+const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>(["Embed"]);
 
 export function DrawerItemPreview({
   name,
@@ -58,21 +61,22 @@ export function DrawerItemPreview({
 }
 
 function PreviewBox({ name }: { name: string }) {
-  if (STATIC_PREVIEW_BLOCKS.has(name)) {
+  if (STATIC_PREVIEW_BLOCKS.has(name as keyof BlockProps)) {
     return <StaticFallback name={name} />;
   }
   const component = (
     puckConfig.components as unknown as Record<
       string,
-      { render?: (props: unknown) => ReactNode; defaultProps?: unknown }
+      { render?: ComponentType<object>; defaultProps?: object }
     >
   )[name];
   if (!component?.render || !component.defaultProps) {
     return <StaticFallback name={name} />;
   }
+  const Component = component.render;
   let rendered: ReactNode;
   try {
-    rendered = component.render(component.defaultProps);
+    rendered = <Component {...component.defaultProps} />;
   } catch {
     return <StaticFallback name={name} />;
   }
