@@ -269,11 +269,34 @@ template.
 ```bash
 npm run typecheck
 npm run lint
-npm run test
+npm run test       # vitest unit + component tests
+npm run test:e2e   # Playwright admin e2e (needs `npx playwright install chromium` first)
 npm run build
 ```
 
 Run before committing.
+
+## E2E tests (Playwright)
+
+The admin surface — wizard completion, danger-zone reset — has
+end-to-end coverage under `e2e/`. Specs drive the real Next dev
+server against an isolated content directory.
+
+| Path                          | Purpose                                                      |
+| ----------------------------- | ------------------------------------------------------------ |
+| `playwright.config.ts`        | Test runner config. Pins `STAGECRAFT_CONTENT_DIR` to a tmpdir so specs can wipe/seed without touching `src/content/`. Single worker — serial specs against one content dir. |
+| `e2e/setup/global-setup.ts`   | Signs in once via `/api/auth/dev-login`, saves `storageState.json`. Every spec arrives authenticated. |
+| `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state) and `seedCompletedSite` (post-wizard state). Specs call these from `beforeEach`. |
+| `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |
+| `e2e/reset.spec.ts`           | Three-stage danger-zone confirm (idle → warned → confirming) + the type-to-confirm gating + the post-reset return to `/admin/welcome`. |
+
+**Adding a new spec.** New admin surfaces follow the same pattern:
+`beforeEach` calls one of the seed helpers to put the dev server's
+content dir in a known state, then drive the UI. New specs go under
+`e2e/` and pick up the auth + config automatically. The on-disk
+field-id strings in `seed.ts` (`fld_site_*`, `fld_pages_*`) are the
+contract with the schema; if those change, update both sides in the
+same commit.
 
 ## Authentication (ADR-007 §4)
 

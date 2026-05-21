@@ -3,3 +3,8 @@ node_modules
 out
 *.tsbuildinfo
 .env*.local
+
+# Playwright (e2e suite)
+e2e/.auth/
+playwright-report/
+test-results/
