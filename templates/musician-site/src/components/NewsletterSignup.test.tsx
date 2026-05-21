@@ -17,6 +17,7 @@ import {
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
   NewsletterSignup,
+  type NewsletterService,
 } from "./NewsletterSignup";
 
 function renderForm(
@@ -61,13 +62,26 @@ describe("NewsletterSignup — form structure", () => {
     expect(html).toContain('action="https://buttondown.email/api/whatever"');
   });
 
-  it("renders an `EMAIL`-named required email input", () => {
-    // `EMAIL` (uppercase) is Mailchimp's expected merge-field name
-    // for the subscriber address. ConvertKit / Buttondown accept it
-    // too. Using uppercase keeps Mailchimp working without per-
-    // service field-name dispatch.
+  it("renders a required email input with the service-correct field name", () => {
+    // Each provider's form handler reads a specific field name.
+    // POSTing the wrong name silently succeeds (no-cors response
+    // is opaque) but the subscriber never lands in the list —
+    // exactly the kind of failure mode the artist won't notice
+    // until checking their dashboard. Lock the mapping here.
+    const cases: Array<[NewsletterService, string]> = [
+      ["mailchimp", "EMAIL"],
+      ["convertkit", "email_address"],
+      ["buttondown", "email"],
+      ["generic", "email"],
+    ];
+    for (const [service, expectedName] of cases) {
+      const html = renderForm({ service });
+      expect(html, `${service} should POST as name="${expectedName}"`).toMatch(
+        new RegExp(`<input[^>]+name="${expectedName}"`),
+      );
+    }
+    // type / required don't vary by service.
     const html = renderForm();
-    expect(html).toMatch(/<input[^>]+name="EMAIL"/);
     expect(html).toMatch(/<input[^>]+type="email"/);
     expect(html).toMatch(/<input[^>]+required/);
   });

@@ -55,11 +55,35 @@ export const NEWSLETTER_SERVICE_LABELS: Record<NewsletterService, string> = {
   generic: "Generic (custom)",
 };
 
+/**
+ * Per-service field name for the subscriber's email. Each provider's
+ * form handler reads a specific field name — POSTing the wrong name
+ * silently succeeds (no-cors response is opaque) but the subscriber
+ * never lands in the list, which the artist won't notice until
+ * checking their dashboard.
+ *
+ *   - Mailchimp:    `EMAIL`         (their merge-field convention)
+ *   - ConvertKit:   `email_address` (form-embed convention)
+ *   - Buttondown:   `email`         (embed + API)
+ *   - Generic:      `email`         (most permissive default; the
+ *                                   artist's "generic" provider chose
+ *                                   their own field name and the
+ *                                   actionUrl handler reads it)
+ *
+ * Adding a new service: extend `NEWSLETTER_SERVICES` + record the
+ * field name here. The dispatch table is the single source of truth.
+ */
+const EMAIL_FIELD_NAME: Record<NewsletterService, string> = {
+  mailchimp: "EMAIL",
+  convertkit: "email_address",
+  buttondown: "email",
+  generic: "email",
+};
+
 type Status =
   | { kind: "idle" }
   | { kind: "sending" }
-  | { kind: "success"; message: string }
-  | { kind: "error"; message: string };
+  | { kind: "success"; message: string };
 
 export type NewsletterSignupProps = {
   service: NewsletterService;
@@ -152,12 +176,19 @@ export function NewsletterSignup({
       </div>
 
       {service === "mailchimp" ? (
-        // Mailchimp's bot-trap convention is an audience-suffixed
-        // `b_<id>_<list>` field. We emit a generic placeholder
-        // name without parsing actionUrl — best-effort, same as
-        // legacy template. Real Mailchimp embed forms include this
-        // automatically; the artist's pasted action URL contains
-        // the suffix, but we'd need to parse to mirror it exactly.
+        // Parity-only placeholder. Mailchimp's real bot trap is an
+        // audience-suffixed `b_<id>_<list>` field that we'd need to
+        // derive by parsing `actionUrl`. The generic placeholder
+        // below gets POSTed and silently ignored by Mailchimp —
+        // zero protection at the provider end. The actual bot
+        // defense is the universal `_gotcha` checked client-side
+        // above, before the POST fires.
+        //
+        // Kept because the legacy template emitted it (same
+        // placebo), so artists migrating expect to see it in the
+        // generated markup. Real mitigation: parse actionUrl's
+        // `?u=<id>&id=<list>` query params and synthesise the
+        // suffixed name. Tracked as a follow-up.
         <div aria-hidden="true" style={screenReaderOnly}>
           <input
             type="text"
@@ -175,7 +206,7 @@ export function NewsletterSignup({
         </label>
         <input
           id={emailId}
-          name="EMAIL"
+          name={EMAIL_FIELD_NAME[service]}
           type="email"
           required
           autoComplete="email"
@@ -187,13 +218,14 @@ export function NewsletterSignup({
         </button>
       </div>
 
+      {/* Status union has only `success` today — the no-cors fetch is
+          opaque, so an "error" state isn't reachable from a failed
+          POST (we can't distinguish failure from success). Future:
+          if we move ConvertKit / Buttondown to a real CORS fetch
+          (their APIs support it), reintroduce an `error` kind and
+          render it here. */}
       {status.kind === "success" ? (
         <div role="status" aria-live="polite" style={statusSuccessStyle}>
-          {status.message}
-        </div>
-      ) : null}
-      {status.kind === "error" ? (
-        <div role="status" aria-live="polite" style={statusErrorStyle}>
           {status.message}
         </div>
       ) : null}
@@ -286,11 +318,6 @@ const statusBaseStyle: CSSProperties = {
 const statusSuccessStyle: CSSProperties = {
   ...statusBaseStyle,
   color: "var(--color-text-emphasis)",
-};
-
-const statusErrorStyle: CSSProperties = {
-  ...statusBaseStyle,
-  color: "var(--color-text-error)",
 };
 
 const placeholderStyle: CSSProperties = {
