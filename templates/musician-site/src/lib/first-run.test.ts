@@ -157,6 +157,8 @@ describe("checkIsFirstRun (via readSiteConfig.hasCompletedFirstRun)", () => {
         contactEmail: "rt@example.com",
         copyrightName: "",
         isFooterHidden: false,
+        favicon: null,
+        pageBackground: null,
         pageOrder: [],
         hiddenFromNav: [],
         hasCompletedFirstRun: true,

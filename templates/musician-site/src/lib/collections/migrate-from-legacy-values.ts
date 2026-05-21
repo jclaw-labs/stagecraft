@@ -114,6 +114,20 @@ export function siteConfigToItemValues(config: SiteConfig): Item["values"] {
       value: config.hasCompletedFirstRun,
     },
   };
+  // Optional image fields: only write a value when present. Storing a
+  // null `image` value would fail the dynamic item schema (image's
+  // value is the full ImageMetadata, not nullable), and an absent
+  // value tells the renderer to fall back to defaults (template
+  // favicon, plain background).
+  if (config.favicon) {
+    values[SITE_FIELD_IDS.favicon] = { type: "image", value: config.favicon };
+  }
+  if (config.pageBackground) {
+    values[SITE_FIELD_IDS.pageBackground] = {
+      type: "image",
+      value: config.pageBackground,
+    };
+  }
   for (const platform of SOCIAL_PLATFORMS) {
     const url = config.socialLinks[platform];
     // Empty social links are omitted so optional URL fields don't
@@ -141,6 +155,8 @@ export function siteConfigFromItem(item: Item | null): SiteConfig {
       getString(item, SITE_FIELD_IDS.contactEmail) ?? DEFAULT_SITE_CONFIG.contactEmail,
     copyrightName: getString(item, SITE_FIELD_IDS.copyrightName) ?? "",
     isFooterHidden: getBoolean(item, SITE_FIELD_IDS.isFooterHidden) ?? false,
+    favicon: getImageOrNull(item, SITE_FIELD_IDS.favicon),
+    pageBackground: getImageOrNull(item, SITE_FIELD_IDS.pageBackground),
     // Absent flag on a pre-existing site → treat as not-yet-completed
     // so older repos see the wizard on next visit. New repos write the
     // field explicitly through the wizard or the dev seed.
@@ -323,4 +339,9 @@ function getBoolean(item: Item, fieldId: string): boolean | null {
 function getNumber(item: Item, fieldId: string): number | null {
   const v = item.values[fieldId];
   return v && v.type === "number" ? v.value : null;
+}
+
+function getImageOrNull(item: Item, fieldId: string): ImageMetadata | null {
+  const v = item.values[fieldId];
+  return v && v.type === "image" ? v.value : null;
 }

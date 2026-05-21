@@ -76,6 +76,13 @@ export const siteConfigSchema = z.object({
   contactEmail: z.string().email("Contact email must be a valid email"),
   copyrightName: z.string().default(""),
   isFooterHidden: z.boolean().default(false),
+  // Site-wide chrome customisation — parity with legacy
+  // `siteConfig.favicon` / `siteConfig.pageBackground`. Both are
+  // optional (most sites use the default favicon + a plain
+  // background) and both round-trip the full `ImageMetadata` shape
+  // so the renderer can pick a variant and the LQIP placeholder.
+  favicon: imageMetadataSchema.nullable().default(null),
+  pageBackground: imageMetadataSchema.nullable().default(null),
   // Canonical order of pages in the admin Pages list AND in the public
   // header nav. Slugs not present here get appended alphabetically when
   // surfaced, so a freshly-created page shows up at the end of the list
@@ -103,6 +110,8 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   contactEmail: "contact@example.com",
   copyrightName: "",
   isFooterHidden: false,
+  favicon: null,
+  pageBackground: null,
   pageOrder: [],
   hiddenFromNav: [],
   hasCompletedFirstRun: false,

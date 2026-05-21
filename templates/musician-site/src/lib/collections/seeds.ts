@@ -162,6 +162,18 @@ export const siteCollectionDef: CollectionDef = {
     },
     { id: SITE_FIELD_IDS.copyrightName, key: "copyrightName", type: "text", required: false },
     { id: SITE_FIELD_IDS.isFooterHidden, key: "isFooterHidden", type: "boolean" },
+    // Site-wide chrome customisation — parity with the legacy
+    // template. Favicon overrides the default `/favicons/favicon.svg`
+    // in `<link rel="icon">`; pageBackground paints behind every
+    // page's content. Both go through the standard image upload
+    // pipeline (sharp variants + LQIP).
+    { id: SITE_FIELD_IDS.favicon, key: "favicon", type: "image", required: false },
+    {
+      id: SITE_FIELD_IDS.pageBackground,
+      key: "pageBackground",
+      type: "image",
+      required: false,
+    },
     // First-run completion flag. systemLocked because the welcome
     // wizard and reset flow are the only writers; the artist
     // shouldn't see it as an editable field in the schema editor.
