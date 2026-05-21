@@ -293,10 +293,10 @@ server against an isolated content directory.
 **Adding a new spec.** New admin surfaces follow the same pattern:
 `beforeEach` calls one of the seed helpers to put the dev server's
 content dir in a known state, then drive the UI. New specs go under
-`e2e/` and pick up the auth + config automatically. The on-disk
-field-id strings in `seed.ts` (`fld_site_*`, `fld_pages_*`) are the
-contract with the schema; if those change, update both sides in the
-same commit.
+`e2e/` and pick up the auth + config automatically. Field IDs in
+`seed.ts` are imported from `src/lib/collections/field-ids.ts` (the
+SSOT), so a schema rename propagates through TS rather than via
+hand-mirrored strings.
 
 ## Authentication (ADR-007 §4)
 

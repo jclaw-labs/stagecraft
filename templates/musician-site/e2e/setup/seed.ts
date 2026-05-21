@@ -43,7 +43,12 @@ export async function wipeContentDir(): Promise<void> {
   try {
     entries = await fs.readdir(COLLECTIONS_DIR);
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (
+      cause instanceof Error &&
+      (cause as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return;
+    }
     throw cause;
   }
   await Promise.all(
