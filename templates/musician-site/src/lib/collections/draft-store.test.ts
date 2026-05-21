@@ -405,6 +405,55 @@ describe("listItemsInOrderFromDraft", () => {
     const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
     expect(result.map((i) => i.slug)).toEqual(["paris", "berlin"]);
   });
+
+  it("degrades to slug order when fieldSort references a field absent from items (schema drift)", async () => {
+    // The def's fieldId is valid (passes schema validation at parse
+    // time) but a cross-version case can leave items lacking that
+    // field — e.g. the def loaded at commit A where the field was
+    // renamed; items at commit B still have the old key.
+    // `scalarSortKey(undefined)` returns null → all items sort to
+    // the end → slug-tiebreak takes over → pure alphabetic. Pin the
+    // defensive behaviour so it isn't accidentally changed to a
+    // crash by a future refactor.
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "fieldSort", fieldId: "f_nonexistent_field", direction: "asc" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "paris.json", type: "file" },
+          { name: "amsterdam.json", type: "file" },
+          { name: "berlin.json", type: "file" },
+        ]);
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: `item_${path}` });
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["amsterdam", "berlin", "paris"]);
+  });
+
+  it("throws a typed DraftReadError when `_order.json` is malformed", async () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "manual" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([{ name: "paris.json", type: "file" }]);
+      }
+      if (path.endsWith("/items/_order.json")) {
+        // Malformed shape — orderFileSchema expects string[].
+        return fileResponse({ wat: "this is not an array" });
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: "item_paris" });
+    });
+    await expect(
+      listItemsInOrderFromDraft(CTX, "tour-dates", def),
+    ).rejects.toMatchObject({ name: "DraftReadError", code: "github-failed" });
+  });
 });
 
 // ---------------------------------------------------------------------------

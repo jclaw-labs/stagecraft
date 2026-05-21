@@ -61,9 +61,8 @@ import {
   collectionDefRepoPath,
   itemRepoPath,
   orderRepoPath,
-  sortByField,
-  sortByManualOrder,
 } from "./store";
+import { sortByField, sortByManualOrder } from "./sort-key";
 
 // ---------------------------------------------------------------------------
 // Context + cache
@@ -433,17 +432,31 @@ export async function listItemsInOrderFromDraft(
     )
   ).filter((item): item is Item => item !== null);
 
-  // Match store.ts's defaultSort semantics. Pure helpers
-  // (`sortByManualOrder` / `sortByField`) live in store.ts and get
-  // imported here — the sort logic is filesystem-agnostic and only
-  // operates on the already-fetched items.
+  // Match store.ts's defaultSort semantics. The sort helpers
+  // (`sortByManualOrder` / `sortByField`) live in `sort-key.ts`
+  // alongside `compareItemsByField` — filesystem-agnostic and shared
+  // between both stores.
   if (def.defaultSort?.mode === "manual") {
     const rawOrder = await getJsonFileAtSha<unknown>(
       ctx,
       headSha,
       orderRepoPath(collectionSlug),
     );
-    const order = rawOrder === null ? null : orderFileSchema.parse(rawOrder);
+    let order: string[] | null = null;
+    if (rawOrder !== null) {
+      // Wrap the parse so a malformed `_order.json` surfaces as a typed
+      // DraftReadError the facade can pattern-match on (same contract
+      // as the other GitHub-fetched errors in this module).
+      try {
+        order = orderFileSchema.parse(rawOrder);
+      } catch (cause) {
+        throw new DraftReadError(
+          "github-failed",
+          `draft-store: malformed _order.json in "${collectionSlug}"`,
+          cause,
+        );
+      }
+    }
     return sortByManualOrder(items, order);
   }
   if (def.defaultSort?.mode === "fieldSort") {

@@ -469,6 +469,14 @@ function matchesMimeFilter(mime: string, filters: string[]): boolean {
 // 4. CollectionDef
 // ---------------------------------------------------------------------------
 
+/**
+ * Canonical sort modes — single source of truth per CLAUDE.md §1 / §6.
+ * Schema literals, runtime discrimination in `store.ts` /
+ * `draft-store.ts`, and any future editor UI all read from here.
+ */
+export const COLLECTION_SORT_MODES = ["manual", "fieldSort"] as const;
+export type CollectionSortMode = (typeof COLLECTION_SORT_MODES)[number];
+
 const collectionSortSchema = z.union([
   z.object({ mode: z.literal("manual") }),
   z.object({
