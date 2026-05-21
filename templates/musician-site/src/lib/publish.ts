@@ -19,6 +19,7 @@ import {
 } from "./fs-helpers";
 import {
   commitFiles,
+  ConcurrentEditError,
   ensureBranchExists,
   mergeBranchInto,
   squashBranchInto,
@@ -39,7 +40,12 @@ export class PublishError extends Error {
       | "broker-unreachable"
       | "broker-rejected"
       | "github-failed"
-      | "no-platform-configured",
+      | "no-platform-configured"
+      // ADR-010 §6: `commitFiles` exhausted its retry budget on a
+      // stale-ref race. Distinct from `github-failed` so the editor
+      // can surface a "someone else just saved" UX. Mirrored in the
+      // structured envelope (`publishErrorSchema` in publish-types.ts).
+      | "concurrent-edit",
     message: string,
   ) {
     super(message);
@@ -402,6 +408,21 @@ async function commitToDraft(args: CommitToDraftArgs): Promise<string> {
       author,
     });
   } catch (cause) {
+    // The retry-on-stale-ref loop inside `commitFiles` exhausted; map
+    // to the distinct `concurrent-edit` code so the editor can show
+    // a "someone else just saved" UX instead of a generic GitHub
+    // failure. Carries the underlying message so logs keep the
+    // forensic detail (last attempted parent SHA, attempt count).
+    //
+    // Asymmetry: the concurrent-edit path doesn't prepend a
+    // "commit to draft:" step label like the generic path does. The
+    // ConcurrentEditError message already names the ref (`heads/draft:
+    // 3 attempts exhausted...`), so the step is implicit; a prefix
+    // would read as "commit to draft: Concurrent edit on heads/draft"
+    // which duplicates the ref.
+    if (cause instanceof ConcurrentEditError) {
+      throw new PublishError("concurrent-edit", cause.message);
+    }
     throw new PublishError("github-failed", `commit to draft: ${String(cause)}`);
   }
 }

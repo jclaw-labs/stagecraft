@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import { publishDraftToMain, PublishError } from "@/lib/publish";
+import { publishErrorHttpStatus } from "@/lib/publish-types";
 
 const requestSchema = z
   .object({
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
     });
   } catch (cause) {
     if (cause instanceof PublishError) {
-      const status = cause.code === "broker-rejected" ? 502 : 500;
+      const status = publishErrorHttpStatus(cause.code);
       return err(status, cause.code, cause.message);
     }
     return err(500, "github-failed", String(cause));

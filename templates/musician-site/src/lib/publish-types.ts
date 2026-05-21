@@ -48,6 +48,37 @@ export const publishErrorSchema = z.object({
     "github-failed",
     "validation-failed",
     "no-platform-configured",
+    // ADR-010 §6: emitted when commitFiles' bounded retry-on-stale-
+    // ref loop exhausts. Distinct from `github-failed` so the editor
+    // can surface a "someone else just saved — refresh to see latest"
+    // message and offer a Reload action instead of a generic error.
+    "concurrent-edit",
   ]),
 });
 export type PublishError = z.infer<typeof publishErrorSchema>;
+
+/**
+ * Map a `PublishError` code to the HTTP status the failure-response
+ * routes should return. Centralises the mapping so the three routes
+ * that emit structured failures (`/api/publish`, `/api/publish-draft`,
+ * `/api/upload-image`) can't drift apart on which code is which
+ * status.
+ *
+ * - `broker-rejected` → 502 (upstream said no)
+ * - `concurrent-edit` → 409 (recoverable client-side: refresh + retry)
+ * - everything else  → 500 (generic server-side failure)
+ *
+ * Save routes that already absorb publish failures into a 200-OK +
+ * `publishWarning` envelope (the local-write-succeeded path) don't
+ * use this helper — their response doesn't have a status to map.
+ */
+export function publishErrorHttpStatus(code: PublishError["code"]): number {
+  switch (code) {
+    case "broker-rejected":
+      return 502;
+    case "concurrent-edit":
+      return 409;
+    default:
+      return 500;
+  }
+}
