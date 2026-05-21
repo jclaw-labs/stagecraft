@@ -21,7 +21,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import {
@@ -91,26 +91,29 @@ export function FilterField({
   // first clause re-keys every row by index and remounts the inputs,
   // dropping focus mid-edit on rows the artist wasn't touching. The
   // counter ref is per-FilterField so two inspectors don't collide.
+  // `freshId` is wrapped in useCallback so it's a stable reference —
+  // safe to list in effect deps without re-running the effect every
+  // render.
   const idCounterRef = useRef(0);
-  const freshId = () => `c${++idCounterRef.current}`;
+  const freshId = useCallback(() => `c${++idCounterRef.current}`, []);
   const [clauseIds, setClauseIds] = useState<string[]>(() => clauses.map(freshId));
 
   // Resync ids when an external value change (raw-JSON edit, undo/
   // redo, programmatic reset) reshapes the clauses array. Internal
   // changes go through the emit helpers below, which keep ids in
-  // lockstep with clauses and therefore never trigger this. Ids that
-  // line up by position survive; the rest are minted fresh, which is
-  // the best we can do without a structural identity on FilterClause.
+  // lockstep with clauses and therefore never trigger the mint path.
+  // Ids that line up by position survive; the rest are minted fresh.
+  // `freshId` is called outside the setState updater on purpose —
+  // strict mode double-invokes updaters in dev to catch impurities,
+  // and minting an id mutates `idCounterRef`.
   useEffect(() => {
-    setClauseIds((current) =>
-      current.length === clauses.length
-        ? current
-        : clauses.map((_, i) => current[i] ?? freshId()),
-    );
-    // freshId is intentionally not in deps — it's a stable closure
-    // over the ref, recreating it would cause an infinite loop.
+    if (clauseIds.length === clauses.length) return;
+    setClauseIds(clauses.map((_, i) => clauseIds[i] ?? freshId()));
+    // `clauses` itself is a fresh array each render (derived from
+    // `value` via readFilter); only its length matters for triggering
+    // the resync, so we don't subscribe to identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clauses.length]);
+  }, [clauses.length, clauseIds, freshId]);
 
   // Raw-JSON pane local state. Mirrors the v1 textarea's
   // text-vs-parse split so the artist can type partial JSON without
@@ -222,7 +225,7 @@ export function FilterField({
               // Synthetic id per clause keeps row controls stably keyed
               // when neighbours are removed mid-edit. Falls back to the
               // index only during the single render between an external
-              // value change and the resync effect below.
+              // value change and the resync effect above.
               key={clauseIds[i] ?? `i${i}`}
               clause={clause}
               onChange={(next) => handleChangeClause(i, next)}
