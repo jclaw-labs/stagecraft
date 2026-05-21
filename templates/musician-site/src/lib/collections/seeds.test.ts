@@ -5,6 +5,9 @@
  * them now so the seeds are valid the moment they ship.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { collectionDefSchema } from "./schema";
@@ -151,6 +154,35 @@ describe("prebaked CollectionDefs", () => {
       const locked = def.fields.filter((f) => f.systemLocked);
       expect(locked.length, `${def.slug}: no systemLocked fields`).toBeGreaterThan(0);
     }
+  });
+
+  it("no `*_FIELD_IDS` constants are declared in seeds.ts (client-bundle discipline)", () => {
+    // `seeds.ts` imports `CURRENT_COLLECTION_SCHEMA_VERSION` as a
+    // value from `schema.ts`, which pulls `node:crypto` into any
+    // bundle reaching it. Field-id constants need to live in
+    // `field-ids.ts` (client-safe) so `"use client"` components can
+    // import them without poisoning the bundle. `seeds.ts` re-exports
+    // them for source-compat; the source of truth is `field-ids.ts`.
+    //
+    // This regex test guards against the recurrence pattern: someone
+    // adds a new `*_FIELD_IDS` next to the seed `CollectionDef` it
+    // describes. CI catches it before the next `"use client"` chain
+    // reaches the new constant.
+    const seedsPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "seeds.ts",
+    );
+    const source = readFileSync(seedsPath, "utf8");
+    // Match `export const SOMETHING_FIELD_IDS = ...` at the start of
+    // a line (i.e. an in-file declaration, not a re-export).
+    const inFileDeclarations = source.matchAll(
+      /^export const ([A-Z_]+_FIELD_IDS)\s*=/gm,
+    );
+    const offenders = [...inFileDeclarations].map((m) => m[1]);
+    expect(
+      offenders,
+      `seeds.ts must not declare *_FIELD_IDS in-file; move them to field-ids.ts. Found: ${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("videos.embedUrl is text so the upload source can store a public/ path", () => {

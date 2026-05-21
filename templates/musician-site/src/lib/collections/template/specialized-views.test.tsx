@@ -23,7 +23,7 @@ import {
 import {
   PHOTOS_FIELD_IDS,
   VIDEOS_FIELD_IDS,
-} from "../seeds";
+} from "../field-ids";
 import type { Item } from "../schema";
 import { asImageId, type ImageMetadata } from "@/lib/image-types";
 

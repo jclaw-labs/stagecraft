@@ -28,7 +28,11 @@ import {
   PAGES_FIELD_IDS,
   PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
+  POSTS_FIELD_IDS,
+  RELEASES_FIELD_IDS,
   SITE_FIELD_IDS,
+  STORE_ITEMS_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "./field-ids";
 export {
@@ -37,7 +41,11 @@ export {
   PAGES_FIELD_IDS,
   PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
+  POSTS_FIELD_IDS,
+  RELEASES_FIELD_IDS,
   SITE_FIELD_IDS,
+  STORE_ITEMS_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 };
 
@@ -348,15 +356,6 @@ const TOUR_DATE_STATUS_LABELS: Record<(typeof TOUR_DATE_STATUSES)[number], strin
   free: "Free",
 };
 
-export const TOUR_DATES_FIELD_IDS = {
-  date: "fld_tour_dates_date",
-  venue: "fld_tour_dates_venue",
-  city: "fld_tour_dates_city",
-  country: "fld_tour_dates_country",
-  status: "fld_tour_dates_status",
-  ticketUrl: "fld_tour_dates_ticketUrl",
-  notes: "fld_tour_dates_notes",
-} as const;
 
 export const tourDatesCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
@@ -440,15 +439,6 @@ const RELEASE_TYPE_LABELS: Record<(typeof RELEASE_TYPES)[number], string> = {
   single: "Single",
 };
 
-export const RELEASES_FIELD_IDS = {
-  title: "fld_releases_title",
-  coverImage: "fld_releases_coverImage",
-  releaseType: "fld_releases_releaseType",
-  releaseDate: "fld_releases_releaseDate",
-  description: "fld_releases_description",
-  body: "fld_releases_body",
-} as const;
-
 export const releasesCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
   slug: "releases",
@@ -528,15 +518,6 @@ const POST_CATEGORY_LABELS: Record<(typeof POST_CATEGORIES)[number], string> = {
   interview: "Interview",
   essay: "Essay",
 };
-
-export const POSTS_FIELD_IDS = {
-  title: "fld_posts_title",
-  coverImage: "fld_posts_coverImage",
-  publishedAt: "fld_posts_publishedAt",
-  category: "fld_posts_category",
-  summary: "fld_posts_summary",
-  body: "fld_posts_body",
-} as const;
 
 export const postsCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
@@ -625,16 +606,6 @@ const STORE_CURRENCY_LABELS: Record<(typeof STORE_CURRENCIES)[number], string> =
   AUD: "AUD — Australian Dollar",
   JPY: "JPY — Japanese Yen",
 };
-
-export const STORE_ITEMS_FIELD_IDS = {
-  title: "fld_store_items_title",
-  image: "fld_store_items_image",
-  kind: "fld_store_items_kind",
-  price: "fld_store_items_price",
-  currency: "fld_store_items_currency",
-  description: "fld_store_items_description",
-  externalUrl: "fld_store_items_externalUrl",
-} as const;
 
 export const storeItemsCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,

@@ -88,6 +88,44 @@ export const VIDEOS_FIELD_IDS = {
   publishedAt: "fld_videos_publishedAt",
 } as const;
 
+export const TOUR_DATES_FIELD_IDS = {
+  date: "fld_tour_dates_date",
+  venue: "fld_tour_dates_venue",
+  city: "fld_tour_dates_city",
+  country: "fld_tour_dates_country",
+  status: "fld_tour_dates_status",
+  ticketUrl: "fld_tour_dates_ticketUrl",
+  notes: "fld_tour_dates_notes",
+} as const;
+
+export const RELEASES_FIELD_IDS = {
+  title: "fld_releases_title",
+  coverImage: "fld_releases_coverImage",
+  releaseType: "fld_releases_releaseType",
+  releaseDate: "fld_releases_releaseDate",
+  description: "fld_releases_description",
+  body: "fld_releases_body",
+} as const;
+
+export const POSTS_FIELD_IDS = {
+  title: "fld_posts_title",
+  coverImage: "fld_posts_coverImage",
+  publishedAt: "fld_posts_publishedAt",
+  category: "fld_posts_category",
+  summary: "fld_posts_summary",
+  body: "fld_posts_body",
+} as const;
+
+export const STORE_ITEMS_FIELD_IDS = {
+  title: "fld_store_items_title",
+  image: "fld_store_items_image",
+  kind: "fld_store_items_kind",
+  price: "fld_store_items_price",
+  currency: "fld_store_items_currency",
+  description: "fld_store_items_description",
+  externalUrl: "fld_store_items_externalUrl",
+} as const;
+
 /**
  * Slug of the photos collection. Carved out as a const because
  * `suggest-slug.ts` special-cases this collection, and a bare
