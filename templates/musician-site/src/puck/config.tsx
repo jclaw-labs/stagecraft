@@ -3,12 +3,12 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
 import { Image as PublicImage } from "@/components/Image";
+import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
-  NewsletterSignup,
   type NewsletterService,
-} from "@/components/NewsletterSignup";
+} from "@/components/newsletter-types";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";

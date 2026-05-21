@@ -2,6 +2,24 @@
 
 import { useId, useState, type CSSProperties, type FormEvent } from "react";
 
+import {
+  EMAIL_FIELD_NAME,
+  NEWSLETTER_SERVICES,
+  NEWSLETTER_SERVICE_LABELS,
+  type NewsletterService,
+} from "./newsletter-types";
+
+// Re-export for source-compat with callers (puck/config.tsx and the
+// existing test file) that imported these from this module before
+// they were extracted into the server-safe sibling. New consumers
+// should import from `./newsletter-types` directly.
+export {
+  EMAIL_FIELD_NAME,
+  NEWSLETTER_SERVICES,
+  NEWSLETTER_SERVICE_LABELS,
+  type NewsletterService,
+};
+
 /**
  * Public newsletter-signup form rendered inside the Puck
  * `NewsletterSignup` block.
@@ -39,46 +57,6 @@ import { useId, useState, type CSSProperties, type FormEvent } from "react";
  * form sits inside whatever Section / column the artist drops it
  * into without dragging in a stylesheet.
  */
-
-export const NEWSLETTER_SERVICES = [
-  "mailchimp",
-  "convertkit",
-  "buttondown",
-  "generic",
-] as const;
-export type NewsletterService = (typeof NEWSLETTER_SERVICES)[number];
-
-export const NEWSLETTER_SERVICE_LABELS: Record<NewsletterService, string> = {
-  mailchimp: "Mailchimp",
-  convertkit: "ConvertKit / Kit",
-  buttondown: "Buttondown",
-  generic: "Generic (custom)",
-};
-
-/**
- * Per-service field name for the subscriber's email. Each provider's
- * form handler reads a specific field name — POSTing the wrong name
- * silently succeeds (no-cors response is opaque) but the subscriber
- * never lands in the list, which the artist won't notice until
- * checking their dashboard.
- *
- *   - Mailchimp:    `EMAIL`         (their merge-field convention)
- *   - ConvertKit:   `email_address` (form-embed convention)
- *   - Buttondown:   `email`         (embed + API)
- *   - Generic:      `email`         (most permissive default; the
- *                                   artist's "generic" provider chose
- *                                   their own field name and the
- *                                   actionUrl handler reads it)
- *
- * Adding a new service: extend `NEWSLETTER_SERVICES` + record the
- * field name here. The dispatch table is the single source of truth.
- */
-const EMAIL_FIELD_NAME: Record<NewsletterService, string> = {
-  mailchimp: "EMAIL",
-  convertkit: "email_address",
-  buttondown: "email",
-  generic: "email",
-};
 
 type Status =
   | { kind: "idle" }
