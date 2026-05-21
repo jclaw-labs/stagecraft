@@ -37,13 +37,30 @@ import type { BlockProps } from "./config";
 import { puckConfig } from "./config";
 
 /**
- * Component names whose default render does network I/O or is
- * otherwise unsuitable for a thumbnail-scale preview. These fall
- * back to a static name pill instead of a live render. Typed against
+ * Component names whose default render does network I/O and is
+ * unsuitable for a thumbnail-scale preview. These fall back to a
+ * static name pill instead of a live render. Typed against
  * `BlockProps` so renaming a block surfaces here at compile time
  * instead of silently letting the iframe load.
+ *
+ * Slot containers (Section, Columns) are detected automatically by
+ * scanning `fields` for `{ type: "slot" }` — their `defaultProps`
+ * carry the slot as a raw `[]` which React rejects when the render
+ * does `<Children />`. Detecting the shape is more durable than
+ * maintaining a parallel list.
  */
 const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>(["Embed"]);
+
+type ConfigComponent = {
+  render?: ComponentType<object>;
+  defaultProps?: object;
+  fields?: Record<string, { type?: string } | undefined>;
+};
+
+function hasSlotField(component: ConfigComponent): boolean {
+  if (!component.fields) return false;
+  return Object.values(component.fields).some((field) => field?.type === "slot");
+}
 
 export function DrawerItemPreview({
   name,
@@ -65,12 +82,15 @@ function PreviewBox({ name }: { name: string }) {
     return <StaticFallback name={name} />;
   }
   const component = (
-    puckConfig.components as unknown as Record<
-      string,
-      { render?: ComponentType<object>; defaultProps?: object }
-    >
+    puckConfig.components as unknown as Record<string, ConfigComponent>
   )[name];
   if (!component?.render || !component.defaultProps) {
+    return <StaticFallback name={name} />;
+  }
+  if (hasSlotField(component)) {
+    // Slot-container render expects Puck to have replaced the slot
+    // value with a render function before calling. Raw defaultProps
+    // hands the render an empty array, and `<Children />` throws.
     return <StaticFallback name={name} />;
   }
   const Component = component.render;
@@ -101,9 +121,17 @@ const containerStyle: CSSProperties = {
   gap: "var(--space-1)",
 };
 
+// Scale the natural-size block render down so a typical heading / section
+// intro fits in the preview box. The compensating width/height reverses
+// the scale so layout still computes against the natural box (otherwise
+// text wraps at the shrunk width). The two values are mathematically
+// linked — keep them derived from PREVIEW_SCALE so they can't drift.
+const PREVIEW_SCALE = 0.4;
+const PREVIEW_COMPENSATION = `${100 / PREVIEW_SCALE}%`;
+
 const previewBoxStyle: CSSProperties = {
   width: "100%",
-  height: "5rem",
+  height: "var(--space-20)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-sm)",
   overflow: "hidden",
@@ -113,21 +141,17 @@ const previewBoxStyle: CSSProperties = {
 };
 
 const scaledStyle: CSSProperties = {
-  // Scale down the natural-size render so a typical heading / section
-  // intro fits in the 5rem preview height. transform-origin top-left
-  // pins the visible portion to the top of the component's render.
-  // The compensating width/height reverses the scale so layout still
-  // computes against the natural box (otherwise text wraps at the
-  // shrunk width).
-  transform: "scale(0.4)",
+  // transform-origin top-left pins the visible portion to the top of
+  // the component's render so the preview shows its first lines.
+  transform: `scale(${PREVIEW_SCALE})`,
   transformOrigin: "top left",
-  width: "250%",
-  height: "250%",
+  width: PREVIEW_COMPENSATION,
+  height: PREVIEW_COMPENSATION,
 };
 
 const fallbackBoxStyle: CSSProperties = {
   width: "100%",
-  height: "5rem",
+  height: "var(--space-20)",
   border: "1px dashed var(--color-border)",
   borderRadius: "var(--radius-sm)",
   background: "var(--color-surface)",

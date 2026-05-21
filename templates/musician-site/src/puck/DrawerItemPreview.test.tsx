@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { DrawerItemPreview } from "./DrawerItemPreview";
+
+/**
+ * The override's contract: for any drawer item, render Puck's default
+ * label + drag affordance (the `children`) below a preview box that
+ * either live-renders the block's defaultProps or falls back to a
+ * static name pill. These tests lock the fallback policy — see the
+ * comment at the top of `DrawerItemPreview.tsx` for the rationale.
+ */
+
+function render(name: string) {
+  return renderToStaticMarkup(
+    <DrawerItemPreview name={name}>
+      <span data-testid="puck-child">child</span>
+    </DrawerItemPreview>,
+  );
+}
+
+describe("<DrawerItemPreview>", () => {
+  it("always renders Puck's children (label + drag affordance)", () => {
+    expect(render("Heading")).toContain("puck-child");
+    expect(render("Embed")).toContain("puck-child");
+    expect(render("DoesNotExist")).toContain("puck-child");
+  });
+
+  it("falls back to a static name pill for Embed (its render does iframe I/O)", () => {
+    const html = render("Embed");
+    // Static pill shows the block name verbatim.
+    expect(html).toContain(">Embed<");
+    // Live render would have emitted the iframe from defaultProps.
+    expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("open.spotify.com");
+  });
+
+  it("falls back to a static name pill for unregistered block names", () => {
+    const html = render("DoesNotExist");
+    expect(html).toContain(">DoesNotExist<");
+  });
+
+  it("live-renders a pure block (Heading) from its defaultProps", () => {
+    const html = render("Heading");
+    // Heading's defaultProps: { text: "Heading", level: "h2", textAlign: "start" }
+    expect(html).toContain("<h2");
+    expect(html).toContain(">Heading</h2>");
+  });
+
+  it("falls back to a static pill for slot containers (Section, Columns)", () => {
+    // Section + Columns have `children: { type: "slot" }` fields;
+    // defaultProps carries the slot as `[]`, and the render does
+    // `<Children />` which throws when handed an array. Detecting
+    // the slot at config-introspection time avoids the throw.
+    const sectionHtml = render("Section");
+    expect(sectionHtml).toContain(">Section<");
+    expect(sectionHtml).not.toContain("<section");
+
+    const columnsHtml = render("Columns");
+    expect(columnsHtml).toContain(">Columns<");
+    // Live-rendered Columns would emit a grid container.
+    expect(columnsHtml).not.toMatch(/display:\s*grid/);
+  });
+
+  it("live-renders ContactForm (a hooks-using block) without crashing", () => {
+    // ContactForm uses useState; the render-as-component path
+    // (`<Component {...defaultProps} />` vs `component.render(defaultProps)`)
+    // is what makes this work — calling the render as a plain function
+    // would mis-bind hook state to PreviewBox.
+    expect(() => render("ContactForm")).not.toThrow();
+    const html = render("ContactForm");
+    expect(html).toContain('name="email"');
+  });
+});
