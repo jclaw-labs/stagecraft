@@ -61,6 +61,8 @@ import {
   collectionDefRepoPath,
   itemRepoPath,
   orderRepoPath,
+  sortByField,
+  sortByManualOrder,
 } from "./store";
 
 // ---------------------------------------------------------------------------
@@ -404,22 +406,10 @@ export async function listItemsInOrderFromDraft(
   collectionSlug: string,
   def: CollectionDef,
 ): Promise<Item[]> {
-  // store.ts's listItemsInOrder respects def.defaultSort ("manual" /
-  // "fieldSort"). The draft variant doesn't yet — fail loud rather
-  // than silently render the wrong order. The facade-migration PR
-  // will port the sort + _order.json read paths; until then, callers
-  // for sorted collections should keep using the FS store.
-  if (def.defaultSort && def.defaultSort.mode !== null) {
-    throw new DraftReadError(
-      "github-failed",
-      `draft-store: listItemsInOrderFromDraft does not yet handle defaultSort.mode="${def.defaultSort.mode}". ` +
-        "Port the sort logic before migrating this caller (see ADR-010 PR 4b).",
-    );
-  }
-
   // Amortise the SHA fetch: one getRef for the whole list operation,
-  // pinned through every per-item read. Without this, listing N items
-  // costs N+1 getRef calls (~50ms each — 25s for 500 items).
+  // pinned through every per-item read (and the _order.json read on
+  // the manual path). Without this, listing N items costs N+1 getRef
+  // calls (~50ms each — 25s for 500 items).
   const headSha = await resolveHeadSha(ctx);
   const slugs = await listDirSlugsAtSha(
     ctx,
@@ -443,6 +433,25 @@ export async function listItemsInOrderFromDraft(
     )
   ).filter((item): item is Item => item !== null);
 
+  // Match store.ts's defaultSort semantics. Pure helpers
+  // (`sortByManualOrder` / `sortByField`) live in store.ts and get
+  // imported here — the sort logic is filesystem-agnostic and only
+  // operates on the already-fetched items.
+  if (def.defaultSort?.mode === "manual") {
+    const rawOrder = await getJsonFileAtSha<unknown>(
+      ctx,
+      headSha,
+      orderRepoPath(collectionSlug),
+    );
+    const order = rawOrder === null ? null : orderFileSchema.parse(rawOrder);
+    return sortByManualOrder(items, order);
+  }
+  if (def.defaultSort?.mode === "fieldSort") {
+    return sortByField(items, def.defaultSort.fieldId, def.defaultSort.direction);
+  }
+  // `defaultSort: null` → alphabetic. `listDirSlugsAtSha` returns
+  // slugs sorted, and we walk them in order, so the resulting
+  // `items` array is already in slug order. No re-sort needed.
   return items;
 }
 

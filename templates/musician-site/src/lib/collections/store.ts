@@ -378,7 +378,14 @@ export async function listItemsInOrder(
   return items.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
-function sortByManualOrder(items: Item[], order: string[] | null): Item[] {
+/**
+ * Sort items by an explicit slug-order array (typically loaded from
+ * `_order.json`). Items absent from `order` fall to the end in
+ * alphabetical slug order; a null/missing order file degrades to
+ * pure alphabetic. Exported so draft-store can reuse the same logic
+ * against GitHub-fetched items.
+ */
+export function sortByManualOrder(items: Item[], order: string[] | null): Item[] {
   if (order === null) return items.sort((a, b) => a.slug.localeCompare(b.slug));
   const orderIndex = new Map(order.map((slug, idx) => [slug, idx] as const));
   return [...items].sort((a, b) => {
@@ -391,7 +398,12 @@ function sortByManualOrder(items: Item[], order: string[] | null): Item[] {
   });
 }
 
-function sortByField(
+/**
+ * Sort items by a single field's scalar key. Null / missing values
+ * sort to the end regardless of direction; ties break on slug.
+ * Exported so draft-store can reuse against GitHub-fetched items.
+ */
+export function sortByField(
   items: Item[],
   fieldId: string,
   direction: "asc" | "desc",
