@@ -108,23 +108,54 @@ describe("(public) layout — generateMetadata", () => {
 });
 
 describe("(public) layout — pageBackground render", () => {
-  it("renders the background-image style on the wrapper when set", async () => {
+  it("renders a fixed-position underlay div with the largest variant URL when set", async () => {
+    // Fixture width is 256 — smaller than the smallest sharp variant
+    // (400) — so the underlay should fall back to the original.
     await writeSite({ pageBackground: true });
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
+    expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('background-image:url(&quot;/images/site/abc1234567890def/original.png&quot;)');
-    // cover-fit, centered, fixed-attachment defaults — locked here
-    // so a refactor of the wrapper style doesn't silently change the
-    // legacy parity behaviour.
+    // Underlay choices locked here: fixed positioning (works on iOS,
+    // unlike background-attachment:fixed), cover-fit, color fallback
+    // for slow / failed loads, no pointer events so it can't
+    // intercept clicks.
+    expect(html).toContain("position:fixed");
     expect(html).toContain("background-size:cover");
     expect(html).toContain("background-position:center");
-    expect(html).toContain("background-attachment:fixed");
+    expect(html).toContain("background-color:var(--color-background)");
+    expect(html).toContain("pointer-events:none");
+    // background-attachment:fixed was the v0 approach; replaced by
+    // the fixed-positioned underlay because iOS Safari treats the
+    // attachment as `scroll`. Lock the regression out.
+    expect(html).not.toContain("background-attachment:fixed");
   });
 
-  it("omits the background-image style when pageBackground is null", async () => {
+  it("picks the largest sharp variant (.webp) when source width allows it", async () => {
+    // Simulate a hero-sized upload (2000w). The sharp pipeline emits
+    // 400/800/1600 widths whenever source ≥ variant; the largest
+    // eligible here is 1600.
+    const heroSite = siteItemWith({});
+    heroSite.values[SITE_FIELD_IDS.pageBackground] = {
+      type: "image",
+      value: { ...IMAGE_FIXTURE, width: 2000, height: 1125, originalExt: "jpg" },
+    };
+    await fs.writeFile(SITE_ITEM_PATH, JSON.stringify(heroSite, null, 2), "utf-8");
+    const tree = await PublicLayout({ children: null });
+    const html = renderToStaticMarkup(tree);
+    expect(html).toContain('background-image:url(&quot;/images/site/abc1234567890def/1600.webp&quot;)');
+    // Original isn't referenced when a variant exists — proves the
+    // variant-aware fallback ordering.
+    expect(html).not.toContain("original.jpg");
+  });
+
+  it("omits the underlay entirely when pageBackground is null", async () => {
     await writeSite({ pageBackground: false });
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
+    // Underlay div has the only `aria-hidden="true"` in the layout
+    // output today; absence is the cleanest signal.
+    expect(html).not.toContain('aria-hidden="true"');
     expect(html).not.toContain("background-image");
   });
 });

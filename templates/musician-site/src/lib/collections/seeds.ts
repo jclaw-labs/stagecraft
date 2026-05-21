@@ -166,13 +166,22 @@ export const siteCollectionDef: CollectionDef = {
     // template. Favicon overrides the default `/favicons/favicon.svg`
     // in `<link rel="icon">`; pageBackground paints behind every
     // page's content. Both go through the standard image upload
-    // pipeline (sharp variants + LQIP).
-    { id: SITE_FIELD_IDS.favicon, key: "favicon", type: "image", required: false },
+    // pipeline (sharp variants + LQIP). systemLocked because
+    // `(public)/layout.tsx` reads these by id; deleting them via the
+    // schema editor would silently break the layout.
+    {
+      id: SITE_FIELD_IDS.favicon,
+      key: "favicon",
+      type: "image",
+      required: false,
+      systemLocked: true,
+    },
     {
       id: SITE_FIELD_IDS.pageBackground,
       key: "pageBackground",
       type: "image",
       required: false,
+      systemLocked: true,
     },
     // First-run completion flag. systemLocked because the welcome
     // wizard and reset flow are the only writers; the artist

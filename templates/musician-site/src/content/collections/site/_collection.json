@@ -45,12 +45,14 @@
     {
       "id": "fld_site_favicon",
       "key": "favicon",
+      "systemLocked": true,
       "type": "image",
       "required": false
     },
     {
       "id": "fld_site_pageBackground",
       "key": "pageBackground",
+      "systemLocked": true,
       "type": "image",
       "required": false
     },
