@@ -66,4 +66,38 @@ describe("<Image>", () => {
     expect(html).toMatch(/loading="lazy"/);
     expect(html).toMatch(/decoding="async"/);
   });
+
+  // ---------------------------------------------------------------------------
+  // Vector / icon formats bypass the sharp variant pipeline. The component
+  // renders a bare `<img src=original>` rather than `<picture>` with srcSets
+  // pointing at variants that don't exist on disk. The favicon upload UI
+  // accepts these formats (#162 follow-up); these tests lock the public
+  // renderer's response.
+  // ---------------------------------------------------------------------------
+
+  it("renders no <source> srcSet for SVG (variants don't exist on disk)", () => {
+    // The `<picture>` wrapper is kept so Next's `no-img-element` lint
+    // rule stays happy — but vector formats have no sized variants,
+    // so the wrapper carries no `<source>` children.
+    const svg: ImageMetadata = { ...fixture, originalExt: "svg" };
+    const html = renderImage(svg);
+    expect(html).not.toMatch(/<source/);
+    expect(html).not.toMatch(/srcSet=|srcset=/i);
+    expect(html).toContain("/original.svg");
+  });
+
+  it("renders no <source> srcSet for ICO", () => {
+    const ico: ImageMetadata = { ...fixture, originalExt: "ico" };
+    const html = renderImage(ico);
+    expect(html).not.toMatch(/<source/);
+    expect(html).toContain("/original.ico");
+  });
+
+  it("preserves alt + lazy / async on the vector branch", () => {
+    const svg: ImageMetadata = { ...fixture, originalExt: "svg" };
+    const html = renderImage(svg);
+    expect(html).toMatch(/alt="A photo"/);
+    expect(html).toMatch(/loading="lazy"/);
+    expect(html).toMatch(/decoding="async"/);
+  });
 });

@@ -103,7 +103,7 @@ export function ImagePickerField({ value, onChange }: Props) {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/avif"
+        accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml,image/vnd.microsoft.icon,image/x-icon"
         onChange={(e) => {
           const f = e.target.files?.[0] ?? null;
           setPendingFile(f);
