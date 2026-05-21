@@ -40,6 +40,13 @@ export const SITE_FIELD_IDS = {
   copyrightName: "fld_site_copyrightName",
   isFooterHidden: "fld_site_isFooterHidden",
   hasCompletedFirstRun: "fld_site_hasCompletedFirstRun",
+  // Site-wide chrome customisation — parity with the legacy
+  // template's `siteConfig.favicon` / `siteConfig.pageBackground`.
+  // Both go through the standard image pipeline (sharp variants +
+  // LQIP); favicons that don't need bigger variants just don't get
+  // upsized (sharp skips widths > source width).
+  favicon: "fld_site_favicon",
+  pageBackground: "fld_site_pageBackground",
   social: (platform: SocialPlatform) => socialFieldId(platform),
 } as const;
 

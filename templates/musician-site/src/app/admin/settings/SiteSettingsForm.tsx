@@ -3,6 +3,7 @@
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import {
   CheckboxField,
+  Field,
   FieldGroup,
   TextField,
 } from "@/components/admin/form";
@@ -15,6 +16,7 @@ import {
   type SiteConfig,
   type SocialPlatform,
 } from "@/lib/site-config-types";
+import { ImagePickerField } from "@/puck/ImagePickerField";
 
 import { DangerZone } from "./DangerZone";
 
@@ -126,6 +128,30 @@ export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props
             placeholder={`https://${platform === "appleMusic" ? "music.apple.com" : platform + ".com"}/...`}
           />
         ))}
+      </FieldGroup>
+
+      <FieldGroup
+        title="Branding"
+        description="Site-wide chrome — favicon shown in browser tabs and a background image painted behind every page."
+      >
+        <Field
+          label="Favicon"
+          description="Square image (256×256+ works well). Replaces the default Stagecraft icon in browser tabs and bookmarks. Leave empty to keep the default."
+        >
+          <ImagePickerField
+            value={form.value.favicon}
+            onChange={(next) => setField("favicon", next)}
+          />
+        </Field>
+        <Field
+          label="Page background"
+          description="Painted behind every public page with cover-fit centering and fixed scroll. Set a high-contrast image and lean on the appearance colors for legibility. Leave empty for a plain background."
+        >
+          <ImagePickerField
+            value={form.value.pageBackground}
+            onChange={(next) => setField("pageBackground", next)}
+          />
+        </Field>
       </FieldGroup>
 
       <FieldGroup
