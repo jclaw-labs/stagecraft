@@ -40,7 +40,7 @@ import {
   type Item,
   type ItemFile,
 } from "./schema";
-import { scalarSortKey } from "./sort-key";
+import { sortByField, sortByManualOrder } from "./sort-key";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -376,35 +376,6 @@ export async function listItemsInOrder(
     return sortByField(items, def.defaultSort.fieldId, def.defaultSort.direction);
   }
   return items.sort((a, b) => a.slug.localeCompare(b.slug));
-}
-
-function sortByManualOrder(items: Item[], order: string[] | null): Item[] {
-  if (order === null) return items.sort((a, b) => a.slug.localeCompare(b.slug));
-  const orderIndex = new Map(order.map((slug, idx) => [slug, idx] as const));
-  return [...items].sort((a, b) => {
-    const aIdx = orderIndex.get(a.slug);
-    const bIdx = orderIndex.get(b.slug);
-    if (aIdx !== undefined && bIdx !== undefined) return aIdx - bIdx;
-    if (aIdx !== undefined) return -1;
-    if (bIdx !== undefined) return 1;
-    return a.slug.localeCompare(b.slug);
-  });
-}
-
-function sortByField(
-  items: Item[],
-  fieldId: string,
-  direction: "asc" | "desc",
-): Item[] {
-  return [...items].sort((a, b) => {
-    const aValue = scalarSortKey(a.values[fieldId]);
-    const bValue = scalarSortKey(b.values[fieldId]);
-    if (aValue === null && bValue === null) return a.slug.localeCompare(b.slug);
-    if (aValue === null) return 1;
-    if (bValue === null) return -1;
-    const cmp = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-    return direction === "asc" ? cmp : -cmp;
-  });
 }
 
 // ---------------------------------------------------------------------------

@@ -188,10 +188,10 @@ describe("listItemSlugsFromDraft", () => {
 // ---------------------------------------------------------------------------
 
 describe("listItemsInOrderFromDraft", () => {
-  // tourDatesDef has defaultSort: { mode: "fieldSort" }, which the
-  // draft variant doesn't yet support. The basic happy-path tests
-  // use a def whose defaultSort is null so they exercise the slug-
-  // order fallback; the sort guard gets its own test below.
+  // tourDatesDef has defaultSort: { mode: "fieldSort" } — most tests
+  // override to `defaultSort: null` to isolate the slug-order
+  // fallback path. The fieldSort + manual paths get their own tests
+  // further down.
   const tourDatesDefSlugOrder = (): CollectionDef => ({
     ...tourDatesDef(),
     defaultSort: null,
@@ -255,15 +255,204 @@ describe("listItemsInOrderFromDraft", () => {
     expect(getRef).toHaveBeenCalledTimes(1);
   });
 
-  it("throws a typed error when defaultSort.mode is non-null (silent wrong-order guard)", async () => {
-    // store.ts's listItemsInOrder respects defaultSort; the draft
-    // variant doesn't yet. Throw loudly instead of silently
-    // alphabetising — facade-migration callers will surface the
-    // failure rather than render the wrong order in production.
+  it("sorts by `_order.json` when defaultSort.mode === 'manual'", async () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "manual" },
+    };
     getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "berlin.json", type: "file" },
+          { name: "paris.json", type: "file" },
+          { name: "tokyo.json", type: "file" },
+        ]);
+      }
+      if (path.endsWith("/items/_order.json")) {
+        return fileResponse(["tokyo", "berlin", "paris"]);
+      }
+      if (path.endsWith("paris.json")) return fileResponse({ ...PARIS_ITEM_FILE, id: "item_paris" });
+      if (path.endsWith("berlin.json")) return fileResponse({ ...PARIS_ITEM_FILE, id: "item_berlin" });
+      if (path.endsWith("tokyo.json")) return fileResponse({ ...PARIS_ITEM_FILE, id: "item_tokyo" });
+      throw notFound();
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["tokyo", "berlin", "paris"]);
+  });
+
+  it("appends unordered items alphabetically when manual `_order.json` only partially covers them", async () => {
+    // The `_order.json` knows about tokyo + berlin but a new item
+    // (paris) was added without re-saving the order. The unknown
+    // item falls to the end in alphabetic position — same contract
+    // store.ts's listItemsInOrder honours.
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "manual" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "amsterdam.json", type: "file" },
+          { name: "berlin.json", type: "file" },
+          { name: "tokyo.json", type: "file" },
+        ]);
+      }
+      if (path.endsWith("/items/_order.json")) {
+        return fileResponse(["tokyo", "berlin"]);
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: `item_${path}` });
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["tokyo", "berlin", "amsterdam"]);
+  });
+
+  it("falls back to alphabetic when manual mode has no `_order.json` on disk", async () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "manual" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "berlin.json", type: "file" },
+          { name: "amsterdam.json", type: "file" },
+        ]);
+      }
+      if (path.endsWith("/items/_order.json")) throw notFound();
+      return fileResponse({ ...PARIS_ITEM_FILE, id: `item_${path}` });
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["amsterdam", "berlin"]);
+  });
+
+  it("sorts by field value (asc) when defaultSort.mode === 'fieldSort'", async () => {
+    // tourDatesDef's defaultSort is { mode: "fieldSort", fieldId:
+    // "f_date", direction: "asc" } — so we go through the same code
+    // path the public site relies on. Berlin earlier than Paris by
+    // date, so berlin sorts first regardless of slug order.
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "paris.json", type: "file" },
+          { name: "berlin.json", type: "file" },
+        ]);
+      }
+      if (path.endsWith("paris.json")) {
+        return fileResponse({
+          ...PARIS_ITEM_FILE,
+          id: "item_paris",
+          values: {
+            ...PARIS_ITEM_FILE.values,
+            f_date: { type: "date", value: "2026-07-15" },
+          },
+        });
+      }
+      if (path.endsWith("berlin.json")) {
+        return fileResponse({
+          ...PARIS_ITEM_FILE,
+          id: "item_berlin",
+          values: {
+            ...PARIS_ITEM_FILE.values,
+            f_date: { type: "date", value: "2026-05-01" },
+          },
+        });
+      }
+      throw notFound();
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", tourDatesDef());
+    expect(result.map((i) => i.slug)).toEqual(["berlin", "paris"]);
+  });
+
+  it("respects `direction: 'desc'` on fieldSort", async () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "fieldSort", fieldId: "f_date", direction: "desc" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "paris.json", type: "file" },
+          { name: "berlin.json", type: "file" },
+        ]);
+      }
+      if (path.endsWith("paris.json")) {
+        return fileResponse({
+          ...PARIS_ITEM_FILE,
+          id: "item_paris",
+          values: {
+            ...PARIS_ITEM_FILE.values,
+            f_date: { type: "date", value: "2026-07-15" },
+          },
+        });
+      }
+      if (path.endsWith("berlin.json")) {
+        return fileResponse({
+          ...PARIS_ITEM_FILE,
+          id: "item_berlin",
+          values: {
+            ...PARIS_ITEM_FILE.values,
+            f_date: { type: "date", value: "2026-05-01" },
+          },
+        });
+      }
+      throw notFound();
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["paris", "berlin"]);
+  });
+
+  it("degrades to slug order when fieldSort references a field absent from items (schema drift)", async () => {
+    // The def's fieldId is valid (passes schema validation at parse
+    // time) but a cross-version case can leave items lacking that
+    // field — e.g. the def loaded at commit A where the field was
+    // renamed; items at commit B still have the old key.
+    // `scalarSortKey(undefined)` returns null → all items sort to
+    // the end → slug-tiebreak takes over → pure alphabetic. Pin the
+    // defensive behaviour so it isn't accidentally changed to a
+    // crash by a future refactor.
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "fieldSort", fieldId: "f_nonexistent_field", direction: "asc" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "paris.json", type: "file" },
+          { name: "amsterdam.json", type: "file" },
+          { name: "berlin.json", type: "file" },
+        ]);
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: `item_${path}` });
+    });
+    const result = await listItemsInOrderFromDraft(CTX, "tour-dates", def);
+    expect(result.map((i) => i.slug)).toEqual(["amsterdam", "berlin", "paris"]);
+  });
+
+  it("throws a typed DraftReadError when `_order.json` is malformed", async () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      defaultSort: { mode: "manual" },
+    };
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([{ name: "paris.json", type: "file" }]);
+      }
+      if (path.endsWith("/items/_order.json")) {
+        // Malformed shape — orderFileSchema expects string[].
+        return fileResponse({ wat: "this is not an array" });
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: "item_paris" });
+    });
     await expect(
-      listItemsInOrderFromDraft(CTX, "tour-dates", tourDatesDef()),
-    ).rejects.toThrow(/defaultSort\.mode/);
+      listItemsInOrderFromDraft(CTX, "tour-dates", def),
+    ).rejects.toMatchObject({ name: "DraftReadError", code: "github-failed" });
   });
 });
 
