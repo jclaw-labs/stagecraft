@@ -101,9 +101,17 @@ const containerStyle: CSSProperties = {
   gap: "var(--space-1)",
 };
 
+// Scale the natural-size block render down so a typical heading / section
+// intro fits in the preview box. The compensating width/height reverses
+// the scale so layout still computes against the natural box (otherwise
+// text wraps at the shrunk width). The two values are mathematically
+// linked — keep them derived from PREVIEW_SCALE so they can't drift.
+const PREVIEW_SCALE = 0.4;
+const PREVIEW_COMPENSATION = `${100 / PREVIEW_SCALE}%`;
+
 const previewBoxStyle: CSSProperties = {
   width: "100%",
-  height: "5rem",
+  height: "var(--space-20)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-sm)",
   overflow: "hidden",
@@ -113,21 +121,17 @@ const previewBoxStyle: CSSProperties = {
 };
 
 const scaledStyle: CSSProperties = {
-  // Scale down the natural-size render so a typical heading / section
-  // intro fits in the 5rem preview height. transform-origin top-left
-  // pins the visible portion to the top of the component's render.
-  // The compensating width/height reverses the scale so layout still
-  // computes against the natural box (otherwise text wraps at the
-  // shrunk width).
-  transform: "scale(0.4)",
+  // transform-origin top-left pins the visible portion to the top of
+  // the component's render so the preview shows its first lines.
+  transform: `scale(${PREVIEW_SCALE})`,
   transformOrigin: "top left",
-  width: "250%",
-  height: "250%",
+  width: PREVIEW_COMPENSATION,
+  height: PREVIEW_COMPENSATION,
 };
 
 const fallbackBoxStyle: CSSProperties = {
   width: "100%",
-  height: "5rem",
+  height: "var(--space-20)",
   border: "1px dashed var(--color-border)",
   borderRadius: "var(--radius-sm)",
   background: "var(--color-surface)",
