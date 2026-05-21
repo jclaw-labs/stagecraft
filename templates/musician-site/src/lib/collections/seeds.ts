@@ -29,6 +29,7 @@ import {
   PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
+  VIDEOS_FIELD_IDS,
 } from "./field-ids";
 export {
   APPEARANCE_FIELD_IDS,
@@ -37,6 +38,7 @@ export {
   PHOTOS_COLLECTION_SLUG,
   PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
+  VIDEOS_FIELD_IDS,
 };
 
 import {
@@ -771,15 +773,6 @@ const VIDEO_SOURCE_LABELS: Record<(typeof VIDEO_SOURCES)[number], string> = {
   vimeo: "Vimeo",
   upload: "Self-hosted",
 };
-
-export const VIDEOS_FIELD_IDS = {
-  title: "fld_videos_title",
-  source: "fld_videos_source",
-  embedUrl: "fld_videos_embedUrl",
-  thumbnail: "fld_videos_thumbnail",
-  description: "fld_videos_description",
-  publishedAt: "fld_videos_publishedAt",
-} as const;
 
 export const videosCollectionDef: CollectionDef = {
   schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,

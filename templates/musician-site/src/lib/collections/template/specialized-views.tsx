@@ -27,10 +27,14 @@ import {
   getSelectOrNull,
   getTextOrNull,
 } from "../accessors";
+// Import directly from the client-safe `field-ids` submodule, not via
+// `seeds.ts`'s re-export — `seeds.ts` pulls `schema.ts → node:crypto`
+// into the bundle, which webpack rejects when this module ends up
+// inside a `"use client"` chain (TemplateEditorClient).
 import {
   PHOTOS_FIELD_IDS,
   VIDEOS_FIELD_IDS,
-} from "../seeds";
+} from "../field-ids";
 import type { Item } from "../schema";
 
 // ---------------------------------------------------------------------------

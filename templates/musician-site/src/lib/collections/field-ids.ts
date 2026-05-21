@@ -79,6 +79,15 @@ export const PHOTOS_FIELD_IDS = {
   credit: "fld_photos_credit",
 } as const;
 
+export const VIDEOS_FIELD_IDS = {
+  title: "fld_videos_title",
+  source: "fld_videos_source",
+  embedUrl: "fld_videos_embedUrl",
+  thumbnail: "fld_videos_thumbnail",
+  description: "fld_videos_description",
+  publishedAt: "fld_videos_publishedAt",
+} as const;
+
 /**
  * Slug of the photos collection. Carved out as a const because
  * `suggest-slug.ts` special-cases this collection, and a bare
