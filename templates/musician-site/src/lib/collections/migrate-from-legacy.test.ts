@@ -123,6 +123,63 @@ describe("site: config ↔ item round-trip", () => {
     expect(siteConfigFromItem(null)).toEqual(DEFAULT_SITE_CONFIG);
   });
 
+  it("round-trips favicon + pageBackground when set, omits the values when null", async () => {
+    const { asImageId } = await import("@/lib/image-types");
+    const fixtureImage = {
+      id: asImageId("abc1234567890def"),
+      alt: "Logo",
+      width: 256,
+      height: 256,
+      placeholderDataUri: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4TAo=",
+      contentSlug: "site",
+      originalExt: "png" as const,
+    };
+
+    // When BOTH set: round-trip through the value map.
+    const withImages = siteConfigToItemValues({
+      ...DEFAULT_SITE_CONFIG,
+      favicon: fixtureImage,
+      pageBackground: { ...fixtureImage, alt: "Stage" },
+    });
+    expect(withImages[SITE_FIELD_IDS.favicon]).toEqual({
+      type: "image",
+      value: fixtureImage,
+    });
+    expect(withImages[SITE_FIELD_IDS.pageBackground]).toEqual({
+      type: "image",
+      value: { ...fixtureImage, alt: "Stage" },
+    });
+
+    // When BOTH null: keys absent from the value map (the dynamic
+    // item schema's image type isn't nullable; an explicit null
+    // would fail validation at write time).
+    const empty = siteConfigToItemValues(DEFAULT_SITE_CONFIG);
+    expect(empty[SITE_FIELD_IDS.favicon]).toBeUndefined();
+    expect(empty[SITE_FIELD_IDS.pageBackground]).toBeUndefined();
+
+    // Full round-trip via fromItem: image values reconstructed.
+    const round = siteConfigFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: withImages,
+    });
+    expect(round.favicon).toEqual(fixtureImage);
+    expect(round.pageBackground?.alt).toBe("Stage");
+
+    // From an item without those keys: nulls (matches DEFAULT_SITE_CONFIG).
+    const fallback = siteConfigFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: empty,
+    });
+    expect(fallback.favicon).toBeNull();
+    expect(fallback.pageBackground).toBeNull();
+  });
+
   it("drops pageOrder / hiddenFromNav (moved to pages collection)", () => {
     const round = siteConfigFromItem({
       id: "i",

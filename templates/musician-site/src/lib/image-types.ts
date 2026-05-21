@@ -11,8 +11,36 @@ export const ALLOWED_INPUT_MIME_TYPES = [
   "image/png",
   "image/webp",
   "image/avif",
+  // Vector / icon formats — bypass the sharp variant pipeline. Sharp
+  // can rasterise SVG and can't parse ICO at all; either way, the
+  // responsive `<picture>` srcSet doesn't apply (browsers handle
+  // these natively at any size). Stored as the original upload only.
+  "image/svg+xml",
+  "image/vnd.microsoft.icon",
+  "image/x-icon",
 ] as const;
 export type AllowedInputMimeType = (typeof ALLOWED_INPUT_MIME_TYPES)[number];
+
+/**
+ * MIME types that skip the sharp pipeline entirely — no variants, no
+ * LQIP placeholder generation, original file written as-is. Renderers
+ * (`Image.tsx`, `(public)/layout.tsx`) consult `isVectorFormat(ext)`
+ * before deciding whether to look for variants.
+ */
+export const VECTOR_INPUT_MIME_TYPES = [
+  "image/svg+xml",
+  "image/vnd.microsoft.icon",
+  "image/x-icon",
+] as const;
+export type VectorInputMimeType = (typeof VECTOR_INPUT_MIME_TYPES)[number];
+
+export function isVectorMime(mime: string): mime is VectorInputMimeType {
+  return (VECTOR_INPUT_MIME_TYPES as readonly string[]).includes(mime);
+}
+
+export function isVectorExt(ext: ImageMetadata["originalExt"]): boolean {
+  return ext === "svg" || ext === "ico";
+}
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
@@ -27,7 +55,7 @@ export const imageMetadataSchema = z.object({
   height: z.number().int().positive(),
   placeholderDataUri: z.string().regex(/^data:image\/webp;base64,/),
   contentSlug: z.string().min(1),
-  originalExt: z.enum(["jpg", "jpeg", "png", "webp", "avif"]),
+  originalExt: z.enum(["jpg", "jpeg", "png", "webp", "avif", "svg", "ico"]),
 });
 
 export type ImageMetadata = z.infer<typeof imageMetadataSchema>;

@@ -16,13 +16,21 @@ const {
   resetBranchToMock: vi.fn(),
   squashBranchIntoMock: vi.fn(),
 }));
-vi.mock("./git-commit", () => ({
-  commitFiles: commitFilesMock,
-  ensureBranchExists: ensureBranchExistsMock,
-  mergeBranchInto: mergeBranchIntoMock,
-  resetBranchTo: resetBranchToMock,
-  squashBranchInto: squashBranchIntoMock,
-}));
+vi.mock("./git-commit", async () => {
+  // Partial mock: stub the side-effecting functions but pass through
+  // the real exports (notably the `ConcurrentEditError` class, which
+  // publish.ts uses for `instanceof` discrimination — a synthetic
+  // class would fail that check at runtime).
+  const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
+  return {
+    ...actual,
+    commitFiles: commitFilesMock,
+    ensureBranchExists: ensureBranchExistsMock,
+    mergeBranchInto: mergeBranchIntoMock,
+    resetBranchTo: resetBranchToMock,
+    squashBranchInto: squashBranchIntoMock,
+  };
+});
 
 import {
   discardDraft,
@@ -33,6 +41,7 @@ import {
   PublishError,
   saveToDraft,
 } from "./publish";
+import { ConcurrentEditError } from "./git-commit";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
 
 /** Spread into in-line item-file literals so tests don't repeat them. */
@@ -269,6 +278,36 @@ describe("publishPage — broker + GitHub path", () => {
     await expect(
       publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
     ).rejects.toMatchObject({ code: "github-failed" });
+  });
+
+  it("maps ConcurrentEditError from commitFiles to concurrent-edit (not github-failed)", async () => {
+    // ADR-010 §6: `commitFiles` exhausted its retry-on-stale-ref
+    // budget. publish.ts catches the typed error and emits the
+    // distinct `concurrent-edit` code so the editor can show a
+    // "someone else just saved" UX rather than a generic GitHub
+    // failure. Forensic detail from the inner error survives in
+    // `message`.
+    configurePlatform();
+    const inner = new ConcurrentEditError(
+      "heads/draft",
+      3,
+      "head-3-sha",
+      new Error("stale 422"),
+    );
+    commitFilesMock.mockRejectedValue(inner);
+    const promise = publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "a@e.com",
+    });
+    await expect(promise).rejects.toBeInstanceOf(PublishError);
+    await expect(promise).rejects.toMatchObject({ code: "concurrent-edit" });
+    // The underlying ConcurrentEditError's message (which includes
+    // ref + attempts + last attempted parent SHA) flows through so
+    // log forensics still works.
+    await expect(promise).rejects.toMatchObject({
+      message: expect.stringContaining("heads/draft"),
+    });
   });
 
   it("includes a Stagecraft-Publish-Id trailer in the commit message", async () => {

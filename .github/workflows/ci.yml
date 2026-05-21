@@ -87,6 +87,36 @@ jobs:
 
       - run: npm run build
 
+      # Cache the Playwright browser binaries — saves ~30-60s per run
+      # once warm. Keyed off package-lock so a Playwright version bump
+      # busts the cache and forces a fresh install.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('templates/musician-site/package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      # System deps for the cached-browser path (the binary cache hits
+      # but the OS deps don't persist across runners).
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: templates/musician-site/playwright-report/
+          retention-days: 7
+
   # Apply any pending Prisma migrations to the production Neon DB after
   # a PR merges to main. Runs only on push-to-main (not on PRs, where the
   # new migration always shows pending and would force a manual step).

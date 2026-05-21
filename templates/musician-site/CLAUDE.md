@@ -269,11 +269,34 @@ template.
 ```bash
 npm run typecheck
 npm run lint
-npm run test
+npm run test       # vitest unit + component tests
+npm run test:e2e   # Playwright admin e2e (needs `npx playwright install chromium` first)
 npm run build
 ```
 
 Run before committing.
+
+## E2E tests (Playwright)
+
+The admin surface — wizard completion, danger-zone reset — has
+end-to-end coverage under `e2e/`. Specs drive the real Next dev
+server against an isolated content directory.
+
+| Path                          | Purpose                                                      |
+| ----------------------------- | ------------------------------------------------------------ |
+| `playwright.config.ts`        | Test runner config. Pins `STAGECRAFT_CONTENT_DIR` to a tmpdir so specs can wipe/seed without touching `src/content/`. Single worker — serial specs against one content dir. |
+| `e2e/setup/global-setup.ts`   | Signs in once via `/api/auth/dev-login`, saves `storageState.json`. Every spec arrives authenticated. |
+| `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state) and `seedCompletedSite` (post-wizard state). Specs call these from `beforeEach`. |
+| `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |
+| `e2e/reset.spec.ts`           | Three-stage danger-zone confirm (idle → warned → confirming) + the type-to-confirm gating + the post-reset return to `/admin/welcome`. |
+
+**Adding a new spec.** New admin surfaces follow the same pattern:
+`beforeEach` calls one of the seed helpers to put the dev server's
+content dir in a known state, then drive the UI. New specs go under
+`e2e/` and pick up the auth + config automatically. Field IDs in
+`seed.ts` are imported from `src/lib/collections/field-ids.ts` (the
+SSOT), so a schema rename propagates through TS rather than via
+hand-mirrored strings.
 
 ## Authentication (ADR-007 §4)
 
@@ -307,11 +330,12 @@ Middleware (`src/middleware.ts`) gates `/admin/*` and `/api/save`. `/admin/login
 
 **Pipeline.** `POST /api/upload-image` accepts a multipart form with `file`, `contentSlug`, and `alt`. The handler:
 
-1. Validates MIME type (`jpeg`/`png`/`webp`/`avif`) and size (≤25 MB).
+1. Validates MIME type (raster: `jpeg`/`png`/`webp`/`avif`; vector / icon: `svg+xml`, `vnd.microsoft.icon`, `x-icon`) and size (≤25 MB).
 2. Computes a 16-char SHA-256 content hash → used as the image id.
 3. If the original already exists at the target path, skips processing (dedup; ADR-007 §6).
-4. Otherwise, runs `sharp().rotate()` (EXIF-correct) and emits variants `400/800/1600` in **webp + avif**, plus a tiny inline-base64 LQIP placeholder.
-5. Returns `ImageMetadata` (zod-validated).
+4. **Raster only:** runs `sharp().rotate()` (EXIF-correct) and emits variants `400/800/1600` in **webp + avif**, plus a tiny inline-base64 LQIP placeholder.
+5. **Vector / icon (SVG, ICO):** bypasses sharp entirely. The original is written byte-for-byte; no variants and no LQIP (sharp can rasterise SVG but the output wouldn't drive the `<picture>` srcSet flow, and sharp can't parse ICO at all). `isVectorExt(originalExt)` is the predicate consumers use to skip variant lookups. **Security note:** SVGs aren't sanitised — the upload endpoint is admin-only, so the practical attack surface is "the artist uploaded a `<script>`-bearing SVG knowingly." Contributor / fan-submitted uploads will need DOMPurify + `Content-Disposition: attachment` before that surface opens.
+6. Returns `ImageMetadata` (zod-validated).
 
 **On disk:**
 ```

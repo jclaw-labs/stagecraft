@@ -58,6 +58,25 @@ describe("buildFirstRunSeed", () => {
     );
   });
 
+  it("Section blocks ship populated `children` arrays (no headline/body string drop)", () => {
+    // Section moved from textarea body to a children slot. Brand-new
+    // artists land in the welcome flow; if a seed's Section still
+    // carried `headline`/`body` strings, Puck would render an empty
+    // <section> on first paint and the artist's first impression of
+    // the editor would be broken sample content.
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    const sections = seed.homePage.data.content.filter((c) => c.type === "Section");
+    expect(sections.length).toBeGreaterThan(0);
+    for (const section of sections) {
+      const props = (section as { props: Record<string, unknown> }).props;
+      expect(Array.isArray(props.children)).toBe(true);
+      expect((props.children as unknown[]).length).toBeGreaterThan(0);
+      // The pre-slot fields shouldn't sneak back in via copy-paste.
+      expect(props.headline).toBeUndefined();
+      expect(props.body).toBeUndefined();
+    }
+  });
+
   it("seeds exactly two tour dates with required fields populated", () => {
     const seed = buildFirstRunSeed("Test", "Home", NOW);
     expect(seed.tourDates).toHaveLength(2);

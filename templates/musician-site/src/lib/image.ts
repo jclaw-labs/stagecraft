@@ -11,11 +11,34 @@ import {
   type ImageVariantFormat,
   type ImageVariantWidth,
   asImageId,
+  isVectorExt,
 } from "./image-types";
 
 const PUBLIC_IMAGES_DIR = path.join(process.cwd(), "public/images");
 const HASH_LENGTH = 16;
 const PLACEHOLDER_WIDTH = 20;
+
+/**
+ * Static LQIP placeholder for vector / icon uploads. Sharp would
+ * rasterise SVG (slow + a couple of historical CVEs) and can't parse
+ * ICO at all, so we don't synthesise a real placeholder for these.
+ * The renderer's `<picture>` flow doesn't fire for vectors anyway —
+ * the value only has to satisfy `imageMetadataSchema`'s regex.
+ *
+ * 1×1 transparent webp.
+ */
+const VECTOR_PLACEHOLDER_DATA_URI =
+  "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA";
+
+/**
+ * Default width/height used in metadata for vector / icon uploads.
+ * Vectors are scalable; the value is advisory and only affects the
+ * variant-URL helper's eligibility check (which short-circuits for
+ * vector formats anyway). Picked at 1024 so a downstream consumer
+ * that hasn't yet learned about `isVectorExt` still picks a
+ * reasonable srcSet width if it falls through.
+ */
+const VECTOR_NOMINAL_DIMENSION = 1024;
 
 export type ProcessImageInput = {
   buffer: Buffer;
@@ -84,6 +107,38 @@ export async function generateImageVariants(
   input: ProcessImageInput,
 ): Promise<GenerateImageVariantsResult> {
   const id = computeImageId(input.buffer);
+
+  // Vector / icon formats bypass sharp entirely. The original file is
+  // stored as-is; no resize variants and no LQIP placeholder generation
+  // (sharp can rasterise SVG but the output wouldn't be useful for the
+  // variant `<picture>` flow, which doesn't fire for vectors). Default
+  // dimensions are advisory — `isVectorExt` keeps consumers off the
+  // variant code paths.
+  //
+  // Security note: SVGs are written byte-for-byte without sanitisation,
+  // so an uploaded SVG with `<script>` would run if a visitor opened
+  // its URL directly (top-level document context). The upload endpoint
+  // is admin-only — only the authenticated site owner can land content
+  // here — so the practical attack surface today is "the artist
+  // uploaded a malicious SVG knowingly." When contributor / fan-
+  // submitted uploads land in a future PR, this bypass needs a
+  // DOMPurify (SVG profile) pass + a `Content-Disposition: attachment`
+  // header on the response. Tracked in the parity audit.
+  if (isVectorExt(input.originalExt)) {
+    return {
+      metadata: {
+        id,
+        alt: input.alt,
+        width: VECTOR_NOMINAL_DIMENSION,
+        height: VECTOR_NOMINAL_DIMENSION,
+        placeholderDataUri: VECTOR_PLACEHOLDER_DATA_URI,
+        contentSlug: input.contentSlug,
+        originalExt: input.originalExt,
+      },
+      originalBuffer: input.buffer,
+      variants: [],
+    };
+  }
 
   const meta = await sharp(input.buffer).rotate().metadata();
   const width = meta.width ?? 0;
@@ -162,6 +217,21 @@ async function readImageMetadata(
   alt: string,
   originalExt: ImageMetadata["originalExt"],
 ): Promise<ImageMetadata> {
+  // Vector re-upload: skip sharp (won't parse ICO; would rasterise
+  // SVG). Mirrors the vector branch in `generateImageVariants` —
+  // the synthesised metadata must agree so dedup vs first-upload
+  // doesn't produce divergent `width` / `placeholderDataUri`.
+  if (isVectorExt(originalExt)) {
+    return {
+      id,
+      alt,
+      width: VECTOR_NOMINAL_DIMENSION,
+      height: VECTOR_NOMINAL_DIMENSION,
+      placeholderDataUri: VECTOR_PLACEHOLDER_DATA_URI,
+      contentSlug,
+      originalExt,
+    };
+  }
   const dir = imageDir(contentSlug, id);
   const buffer = await fs.readFile(path.join(dir, `original.${originalExt}`));
   const meta = await sharp(buffer).rotate().metadata();

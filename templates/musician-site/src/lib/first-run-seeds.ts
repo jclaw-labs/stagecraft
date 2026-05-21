@@ -107,11 +107,27 @@ function buildHomePageSeed(
         props: {
           id: "first-run-section-tagline",
           width: "lg",
-          headline: "New record. New tour. Same restless heart.",
-          body:
-            "Welcome to the new site — a home for the work, the road, " +
-            "and everything that happens between. Drift in for a while.",
           textAlign: "center",
+          children: [
+            {
+              type: "Heading",
+              props: {
+                id: "first-run-section-tagline-heading",
+                text: "New record. New tour. Same restless heart.",
+                level: "h2",
+                textAlign: "center",
+              },
+            },
+            {
+              type: "RichText",
+              props: {
+                id: "first-run-section-tagline-body",
+                text:
+                  "Welcome to the new site — a home for the work, the road, " +
+                  "and everything that happens between. Drift in for a while.",
+              },
+            },
+          ],
         },
       },
       {
@@ -119,12 +135,28 @@ function buildHomePageSeed(
         props: {
           id: "first-run-section-shows",
           width: "md",
-          headline: "On the road",
-          body:
-            "A few dates already on the books — there's a tour-dates " +
-            "block ready to drop here from the Insert menu. Edit the " +
-            "venues from the Tour Dates panel on the left.",
           textAlign: "start",
+          children: [
+            {
+              type: "Heading",
+              props: {
+                id: "first-run-section-shows-heading",
+                text: "On the road",
+                level: "h2",
+                textAlign: "start",
+              },
+            },
+            {
+              type: "RichText",
+              props: {
+                id: "first-run-section-shows-body",
+                text:
+                  "A few dates already on the books — there's a tour-dates " +
+                  "block ready to drop here from the Insert menu. Edit the " +
+                  "venues from the Tour Dates panel on the left.",
+              },
+            },
+          ],
         },
       },
       {
@@ -132,11 +164,27 @@ function buildHomePageSeed(
         props: {
           id: "first-run-section-listen",
           width: "md",
-          headline: "Latest release",
-          body:
-            "Add an Image block above (or a release record under " +
-            "Releases) and the home page starts to feel like home.",
           textAlign: "start",
+          children: [
+            {
+              type: "Heading",
+              props: {
+                id: "first-run-section-listen-heading",
+                text: "Latest release",
+                level: "h2",
+                textAlign: "start",
+              },
+            },
+            {
+              type: "RichText",
+              props: {
+                id: "first-run-section-listen-body",
+                text:
+                  "Add an Image block above (or a release record under " +
+                  "Releases) and the home page starts to feel like home.",
+              },
+            },
+          ],
         },
       },
     ],

@@ -12,6 +12,7 @@ import {
   uploadResponseSchema,
 } from "@/lib/image-types";
 import { isPlatformConfigured, PublishError } from "@/lib/publish";
+import { publishErrorHttpStatus } from "@/lib/publish-types";
 
 const fieldsSchema = z.object({
   contentSlug: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -23,6 +24,13 @@ const MIME_TO_EXT: Record<AllowedInputMimeType, ImageMetadata["originalExt"]> = 
   "image/png": "png",
   "image/webp": "webp",
   "image/avif": "avif",
+  // Vector / icon: stored as the original upload, no variants. Both
+  // ICO MIME aliases map to the same `ico` extension on disk — most
+  // browsers send "image/x-icon" but the IANA-registered type is
+  // "image/vnd.microsoft.icon"; accept both.
+  "image/svg+xml": "svg",
+  "image/vnd.microsoft.icon": "ico",
+  "image/x-icon": "ico",
 };
 
 function err(status: number, error: string) {
@@ -89,7 +97,7 @@ export async function POST(request: Request) {
       return NextResponse.json(uploadResponseSchema.parse({ ok: true, image: metadata }));
     } catch (cause) {
       if (cause instanceof PublishError) {
-        const status = cause.code === "broker-rejected" ? 502 : 500;
+        const status = publishErrorHttpStatus(cause.code);
         return err(status, `${cause.code}: ${cause.message}`);
       }
       return err(500, `github-failed: ${String(cause)}`);

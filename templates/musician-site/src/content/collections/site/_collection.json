@@ -7,16 +7,16 @@
     {
       "id": "fld_site_artistName",
       "key": "artistName",
+      "systemLocked": true,
       "type": "text",
-      "required": true,
-      "systemLocked": true
+      "required": true
     },
     {
       "id": "fld_site_siteTitle",
       "key": "siteTitle",
+      "systemLocked": true,
       "type": "text",
-      "required": true,
-      "systemLocked": true
+      "required": true
     },
     {
       "id": "fld_site_siteDescription",
@@ -27,9 +27,9 @@
     {
       "id": "fld_site_contactEmail",
       "key": "contactEmail",
+      "systemLocked": true,
       "type": "email",
-      "required": true,
-      "systemLocked": true
+      "required": true
     },
     {
       "id": "fld_site_copyrightName",
@@ -43,10 +43,24 @@
       "type": "boolean"
     },
     {
+      "id": "fld_site_favicon",
+      "key": "favicon",
+      "systemLocked": true,
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_site_pageBackground",
+      "key": "pageBackground",
+      "systemLocked": true,
+      "type": "image",
+      "required": false
+    },
+    {
       "id": "fld_site_hasCompletedFirstRun",
       "key": "hasCompletedFirstRun",
-      "type": "boolean",
-      "systemLocked": true
+      "systemLocked": true,
+      "type": "boolean"
     },
     {
       "id": "fld_site_social_instagram",

@@ -37,9 +37,25 @@
             "props": {
               "id": "section-1",
               "width": "md",
-              "headline": "Latest release",
-              "body": "Drop a tour-dates block, swap the headline, adjust the width — all from the editor.",
-              "textAlign": "start"
+              "textAlign": "start",
+              "children": [
+                {
+                  "type": "Heading",
+                  "props": {
+                    "id": "section-1-heading",
+                    "text": "Latest release",
+                    "level": "h2",
+                    "textAlign": "start"
+                  }
+                },
+                {
+                  "type": "RichText",
+                  "props": {
+                    "id": "section-1-body",
+                    "text": "Drop a tour-dates block, swap the headline, adjust the width — all from the editor."
+                  }
+                }
+              ]
             }
           }
         ],

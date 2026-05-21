@@ -22,8 +22,11 @@ async function cleanup() {
   await fs.rm(TEST_PUBLIC, { recursive: true, force: true });
 }
 
-beforeEach(() => {
-  cleanup();
+beforeEach(async () => {
+  // Await — fire-and-forget here races with the test's writes when
+  // multiple cases run back-to-back (e.g. the it.each over vector
+  // formats), producing ENOTEMPTY unhandled rejections.
+  await cleanup();
   getSessionMock.mockReset().mockResolvedValue({ email: "artist@example.com" });
   commitUploadedImageMock.mockReset();
   // Tests default to dev fallback (no platform env vars). Broker-path
@@ -117,6 +120,41 @@ describe("POST /api/upload-image", () => {
 
     const res = await POST(buildRequest(fd));
     expect(res.status).toBe(415);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Vector / icon uploads — the bypass path. Locks acceptance of the new
+  // MIME types so a future tightening of `ALLOWED_INPUT_MIME_TYPES` (for
+  // perf or security) surfaces as a route-test failure before an artist
+  // hits the broken upload UI.
+  // ---------------------------------------------------------------------------
+
+  it.each([
+    ["SVG", "image/svg+xml", "logo.svg", "svg" as const],
+    ["ICO (vnd.microsoft.icon)", "image/vnd.microsoft.icon", "favicon.ico", "ico" as const],
+    ["ICO (x-icon alias)", "image/x-icon", "favicon.ico", "ico" as const],
+  ])("dev fallback: accepts %s uploads and bypasses sharp", async (_label, mime, filename, ext) => {
+    // Minimal payload — the bypass branch doesn't parse SVG/ICO bytes,
+    // so a non-empty buffer is sufficient. Tests for actual content
+    // preservation live in image.test.ts.
+    const payload =
+      ext === "svg"
+        ? Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>', "utf-8")
+        : Buffer.from([0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0]);
+
+    const fd = new FormData();
+    fd.append("file", new Blob([new Uint8Array(payload)], { type: mime }), filename);
+    fd.append("contentSlug", TEST_SLUG);
+    fd.append("alt", "icon");
+
+    const res = await POST(buildRequest(fd));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const parsed = uploadResponseSchema.safeParse(body);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.image.originalExt).toBe(ext);
+    }
   });
 
   it("rejects invalid contentSlug", async () => {

@@ -1,4 +1,4 @@
-import type { Config } from "@measured/puck";
+import type { Config, Slot } from "@measured/puck";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
@@ -100,9 +100,8 @@ export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
   Section: {
     width: SectionWidth;
-    headline: string;
-    body: string;
     textAlign: TextAlignment;
+    children: Slot;
   };
   FullscreenSection: {
     headline: string;
@@ -115,9 +114,9 @@ export type BlockProps = {
   };
   Columns: {
     layout: ColumnLayout;
-    col1: string;
-    col2: string;
-    col3: string;
+    col1: Slot;
+    col2: Slot;
+    col3: Slot;
   };
   RichText: { text: string };
   Quote: { text: string; attribution: string };
@@ -134,9 +133,9 @@ export type BlockProps = {
 };
 
 /**
- * Render `text` as paragraphs separated by blank lines. Shared between
- * Section / Column body fields so consistent typesetting
- * is one change away.
+ * Render `text` as paragraphs separated by blank lines. Used by RichText
+ * and the FullscreenSection hero body (both still take a single textarea
+ * rather than a slot of nested blocks).
  */
 function renderParagraphs(text: string, key = "p"): ReactNode {
   return text
@@ -195,25 +194,33 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Section: {
+      // Section is a slot container — drop any blocks (Heading, RichText,
+      // Image, Columns, …) inside via Puck's drag-and-drop. The block
+      // owns the page-level chrome (max-width, padding, text-align)
+      // while the children own the content.
+      //
+      // A separate Section block lives in `buildEditorPuckConfig.tsx`
+      // for the template-editor surface. ADR-007 exempts Puck block
+      // configs from cross-system SSOT — the two intentionally diverge
+      // (template Section has `padding` instead of `textAlign`,
+      // outlines its bounds with a dashed border for editor clarity).
       fields: {
         width: {
           type: "select",
           options: SECTION_WIDTHS.map((v) => ({ label: v, value: v })),
         },
-        headline: { type: "text" },
-        body: { type: "textarea" },
         textAlign: {
           type: "select",
           options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
         },
+        children: { type: "slot" },
       },
       defaultProps: {
         width: "md",
-        headline: "Section title",
-        body: "Section body",
         textAlign: "start",
+        children: [],
       },
-      render: ({ width, headline, body, textAlign }) => (
+      render: ({ width, textAlign, children: Children }) => (
         <section
           style={{
             maxWidth: SECTION_WIDTH_MAX[width],
@@ -222,8 +229,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
             ...textAlignStyle(textAlign),
           }}
         >
-          {headline ? <h2>{headline}</h2> : null}
-          {body ? renderParagraphs(body, "section") : null}
+          <Children />
         </section>
       ),
     },
@@ -316,24 +322,30 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Columns: {
+      // Each column is a slot — drop any block into a column independently.
+      // The chosen `layout` decides how many columns render: 1-1 / 1-2 / 2-1
+      // emit two columns (col3 is ignored even if it has children);
+      // 1-1-1 emits all three. Keeping col3 as a real slot rather than a
+      // conditional one means the artist's content survives if they switch
+      // a 1-1-1 column back to 1-1 and then back again.
       fields: {
         layout: {
           type: "select",
           options: COLUMN_LAYOUTS.map((v) => ({ label: COLUMN_LAYOUT_LABELS[v], value: v })),
         },
-        col1: { type: "textarea" },
-        col2: { type: "textarea" },
-        col3: { type: "textarea" },
+        col1: { type: "slot" },
+        col2: { type: "slot" },
+        col3: { type: "slot" },
       },
       defaultProps: {
         layout: "1-1",
-        col1: "First column.",
-        col2: "Second column.",
-        col3: "",
+        col1: [],
+        col2: [],
+        col3: [],
       },
-      render: ({ layout, col1, col2, col3 }) => {
+      render: ({ layout, col1: Col1, col2: Col2, col3: Col3 }) => {
         const slotCount = COLUMN_LAYOUT_SLOT_COUNT[layout];
-        const slots = [col1, col2, col3].slice(0, slotCount);
+        const cols = [Col1, Col2, Col3].slice(0, slotCount);
         return (
           <div
             style={{
@@ -345,31 +357,38 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
               gap: "var(--space-6)",
             }}
           >
-            {slots.map((text, i) => (
-              <div key={i}>{renderParagraphs(text, `col-${i}`)}</div>
+            {cols.map((Col, i) => (
+              <div key={i}>
+                <Col />
+              </div>
             ))}
           </div>
         );
       },
     },
     RichText: {
+      // Layout-transparent: no max-width, no horizontal padding. The
+      // enclosing Section (or any other slot container) owns those —
+      // doubling them up here is the regression the slot-conversion
+      // PR exposed when RichText started showing up nested inside
+      // Section. Top-level RichText (outside any Section) now stretches
+      // to its parent's width; the seeded pages all wrap text in a
+      // Section, and the editor's Insert menu naturally pushes new
+      // text-style content into a container.
       fields: { text: { type: "textarea" } },
       defaultProps: {
         text: "Write your paragraph here.\n\nBlank lines start a new paragraph.",
       },
-      render: ({ text }) => (
-        <div
-          style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "0 auto",
-            padding: "0 var(--space-4)",
-          }}
-        >
-          {renderParagraphs(text, "rt")}
-        </div>
-      ),
+      render: ({ text }) => <div>{renderParagraphs(text, "rt")}</div>,
     },
     Quote: {
+      // Layout-transparent: no max-width, no horizontal centering. The
+      // enclosing Section (or any other slot container) owns horizontal
+      // layout. Left padding stays — it offsets the text from the
+      // `borderLeft` decoration, which is intrinsic to the block's
+      // identity, not a layout container. Top/bottom margins stay too
+      // (vertical breathing between adjacent blocks isn't owned by
+      // Section).
       fields: {
         text: { type: "textarea" },
         attribution: { type: "text" },
@@ -381,9 +400,8 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       render: ({ text, attribution }) => (
         <figure
           style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "var(--space-8) auto",
-            padding: "var(--space-6) var(--space-4)",
+            margin: "var(--space-8) 0",
+            padding: "var(--space-6) 0 var(--space-6) var(--space-4)",
             borderLeft: "4px solid var(--color-border-strong)",
             color: "var(--color-text-emphasis)",
             fontStyle: "italic",
@@ -436,6 +454,12 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       ),
     },
     Image: {
+      // Layout-transparent: no max-width, no horizontal centering, no
+      // horizontal padding. The enclosing Section (or other slot
+      // container) owns those — doubling them up was the regression
+      // the slot-conversion PR exposed for nested blocks. Top-level
+      // standalone Image stretches to its parent's width — same
+      // composition the RichText / Heading blocks follow.
       fields: {
         image: {
           type: "custom",
@@ -454,9 +478,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           return (
             <div
               style={{
-                maxWidth: "var(--max-width-content)",
-                margin: "0 auto",
-                padding: "var(--space-8) var(--space-4)",
+                padding: "var(--space-8) 0",
                 textAlign: "center",
                 color: "var(--color-text-muted)",
                 fontStyle: "italic",
@@ -472,13 +494,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
         // structurally assignable to ImageMetadata even though its runtime
         // shape is identical. Cast at the render boundary.
         return (
-          <figure
-            style={{
-              maxWidth: "var(--max-width-content)",
-              margin: "0 auto",
-              padding: "var(--space-4)",
-            }}
-          >
+          <figure style={{ margin: 0 }}>
             <PublicImage image={image as ImageMetadata} />
             {caption ? (
               <figcaption
@@ -497,6 +513,11 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Embed: {
+      // Layout-transparent: no max-width, no horizontal centering, no
+      // horizontal padding. Same reasoning as Image/Quote/RichText —
+      // the enclosing Section owns layout. The pasted iframe's own
+      // `width="100%"` (Spotify's default) already fills whatever
+      // container it lands in.
       fields: {
         html: { type: "textarea" },
       },
@@ -511,11 +532,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
         // who can store HTML. This is the same trade the legacy template's
         // `{% embed %}` made.
         <div
-          style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "var(--space-4) auto",
-            padding: "0 var(--space-4)",
-          }}
+          style={{ margin: "var(--space-4) 0" }}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ),
