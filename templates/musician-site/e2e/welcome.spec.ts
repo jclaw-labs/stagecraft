@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { wipeContentDir } from "./setup/seed";
+import { seedCompletedSite, wipeContentDir } from "./setup/seed";
 
 /**
  * End-to-end coverage for the first-run welcome wizard.
@@ -60,14 +60,16 @@ test.describe("welcome wizard", () => {
     // POST /api/welcome/complete + client-side router.replace() →
     // we land on /admin/pages with the seeded Home page visible.
     await expect(page).toHaveURL(/\/admin\/pages$/);
-    // PagesPanel renders one row per page; the seeded home is there.
-    await expect(page.getByText("Home")).toBeVisible();
+    // PagesPanel renders one row per page, each with a link into the
+    // editor at /admin/pages/<slug>. Lock onto the link's href so we
+    // don't accidentally match incidental "Home" text elsewhere on
+    // the page.
+    await expect(page.locator('a[href="/admin/pages/home"]')).toBeVisible();
   });
 
   test("a completed site bypasses the wizard on /admin", async ({ page }) => {
     // Seed with hasCompletedFirstRun=true before navigating; /admin
     // should jump straight to /admin/pages.
-    const { seedCompletedSite } = await import("./setup/seed");
     await seedCompletedSite("Returning Artist");
 
     await page.goto("/admin");

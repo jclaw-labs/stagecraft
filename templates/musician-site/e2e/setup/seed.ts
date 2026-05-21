@@ -7,23 +7,24 @@
  * in `test.beforeEach`, so a previous test's state can't leak in.
  *
  * Goes through raw fs writes rather than importing the runtime
- * `writeSingleton` helpers — Playwright runs in its own process tree
- * with no module resolver for `@/lib/...`, and the on-disk JSON shape
- * is the actual contract anyway. If `_collection.json` field ids
- * change, this file changes alongside.
+ * `writeSingleton` helpers — the on-disk JSON shape is the actual
+ * contract, and field-ids.ts (the SSOT for IDs) is client-bundle-safe
+ * so importing it here doesn't drag node-only modules into the
+ * Playwright test process tree any more than they already are.
  */
 
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import {
+  PAGES_FIELD_IDS,
+  SITE_FIELD_IDS,
+} from "../../src/lib/collections/field-ids";
 import { E2E_CONTENT_DIR } from "../../playwright.config";
 
 const COLLECTIONS_DIR = path.join(E2E_CONTENT_DIR, "collections");
 const SITE_ITEMS_DIR = path.join(COLLECTIONS_DIR, "site/items");
-const APPEARANCE_ITEMS_DIR = path.join(COLLECTIONS_DIR, "appearance/items");
-const HEADER_ITEMS_DIR = path.join(COLLECTIONS_DIR, "header/items");
 const PAGES_ITEMS_DIR = path.join(COLLECTIONS_DIR, "pages/items");
-const TOUR_DATES_ITEMS_DIR = path.join(COLLECTIONS_DIR, "tour-dates/items");
 
 /**
  * Wipe every item-file out of every collection so the next admin
@@ -31,19 +32,28 @@ const TOUR_DATES_ITEMS_DIR = path.join(COLLECTIONS_DIR, "tour-dates/items");
  * no tour dates. The `_collection.json` def files stay in place
  * (re-created by `ensurePrebakedCollections` on first read if
  * absent, but keeping them avoids the redundant write).
+ *
+ * Discovers collections by reading the collections dir at runtime
+ * rather than hard-coding a list, so a new prebaked collection added
+ * to `PREBAKED_COLLECTIONS` is wiped automatically.
  */
 export async function wipeContentDir(): Promise<void> {
   await fs.mkdir(E2E_CONTENT_DIR, { recursive: true });
-  // Remove every items/ directory under every collection.
-  for (const dir of [
-    SITE_ITEMS_DIR,
-    APPEARANCE_ITEMS_DIR,
-    HEADER_ITEMS_DIR,
-    PAGES_ITEMS_DIR,
-    TOUR_DATES_ITEMS_DIR,
-  ]) {
-    await fs.rm(dir, { recursive: true, force: true });
+  let entries: string[];
+  try {
+    entries = await fs.readdir(COLLECTIONS_DIR);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw cause;
   }
+  await Promise.all(
+    entries.map((slug) =>
+      fs.rm(path.join(COLLECTIONS_DIR, slug, "items"), {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
 }
 
 /**
@@ -52,10 +62,6 @@ export async function wipeContentDir(): Promise<void> {
  * email values that the reset spec confirms against. Used by the
  * reset spec's beforeEach so the wizard is skipped and we land in
  * /admin/pages.
- *
- * Item ids are stable across runs so a flaky test debugging
- * iteration produces a deterministic git diff if you commit the
- * content dir.
  */
 export async function seedCompletedSite(artistName: string): Promise<void> {
   await wipeContentDir();
@@ -65,16 +71,19 @@ export async function seedCompletedSite(artistName: string): Promise<void> {
     createdAt: "2026-05-20T00:00:00.000Z",
     updatedAt: "2026-05-20T00:00:00.000Z",
     values: {
-      fld_site_artistName: { type: "text", value: artistName },
-      fld_site_siteTitle: {
+      [SITE_FIELD_IDS.artistName]: { type: "text", value: artistName },
+      [SITE_FIELD_IDS.siteTitle]: {
         type: "text",
         value: `${artistName} — Official Website`,
       },
-      fld_site_siteDescription: { type: "longText", value: "" },
-      fld_site_contactEmail: { type: "email", value: "contact@example.com" },
-      fld_site_copyrightName: { type: "text", value: artistName },
-      fld_site_isFooterHidden: { type: "boolean", value: false },
-      fld_site_hasCompletedFirstRun: { type: "boolean", value: true },
+      [SITE_FIELD_IDS.siteDescription]: { type: "longText", value: "" },
+      [SITE_FIELD_IDS.contactEmail]: {
+        type: "email",
+        value: "contact@example.com",
+      },
+      [SITE_FIELD_IDS.copyrightName]: { type: "text", value: artistName },
+      [SITE_FIELD_IDS.isFooterHidden]: { type: "boolean", value: false },
+      [SITE_FIELD_IDS.hasCompletedFirstRun]: { type: "boolean", value: true },
     },
   };
   await fs.writeFile(
@@ -83,21 +92,21 @@ export async function seedCompletedSite(artistName: string): Promise<void> {
     "utf-8",
   );
 
-  // A throwaway page so the reset has something visible to delete.
-  // The reset spec doesn't assert on its content — only that
-  // /admin/pages shows at least one row before the reset and that
-  // the post-reset state lands the artist back at /admin/welcome.
+  // A throwaway page so /admin/pages has at least one row to render
+  // after the wizard is skipped. The reset spec navigates through
+  // /admin/settings, not through the pages list, so this is purely
+  // there to keep the steady-state admin shell happy.
   await fs.mkdir(PAGES_ITEMS_DIR, { recursive: true });
   const homeItem = {
     id: "item_e2e_pages_home",
     createdAt: "2026-05-20T00:00:00.000Z",
     updatedAt: "2026-05-20T00:00:00.000Z",
     values: {
-      fld_pages_title: { type: "text", value: "Home" },
-      fld_pages_isSplashPage: { type: "boolean", value: false },
-      fld_pages_isFooterHidden: { type: "boolean", value: false },
-      fld_pages_showInNav: { type: "boolean", value: true },
-      fld_pages_body: {
+      [PAGES_FIELD_IDS.title]: { type: "text", value: "Home" },
+      [PAGES_FIELD_IDS.isSplashPage]: { type: "boolean", value: false },
+      [PAGES_FIELD_IDS.isFooterHidden]: { type: "boolean", value: false },
+      [PAGES_FIELD_IDS.showInNav]: { type: "boolean", value: true },
+      [PAGES_FIELD_IDS.body]: {
         type: "puckContent",
         value: { content: [], root: { props: {} } },
       },

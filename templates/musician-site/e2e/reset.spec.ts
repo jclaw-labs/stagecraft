@@ -64,6 +64,12 @@ test.describe("danger-zone reset", () => {
     // After reset: /admin → /admin/welcome (flag is now false).
     await expect(page).toHaveURL(/\/admin\/welcome$/, { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: /set up your site/i })).toBeVisible();
+
+    // The site singleton was actually wiped, not just the flag flipped:
+    // step 1's artist-name field pre-fills empty (welcome page.tsx
+    // blanks the field when site.artistName matches the DEFAULT
+    // sentinel, which is what the reset route writes back).
+    await expect(page.getByLabel("Artist name")).toHaveValue("");
   });
 
   test("Cancel from the warned stage returns to idle without changing state", async ({

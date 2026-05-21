@@ -57,10 +57,9 @@ export default defineConfig({
       // STAGECRAFT_CONTENT_DIR isolates the dev server's filesystem
       // reads/writes — anything the wizard or reset writes lands in
       // this tmpdir instead of the checked-in src/content/. Wiping
-      // between tests is therefore safe.
+      // between tests is therefore safe. `next dev` already pins
+      // NODE_ENV=development so /api/auth/dev-login is reachable.
       STAGECRAFT_CONTENT_DIR: E2E_CONTENT_DIR,
-      // Force dev-mode so /api/auth/dev-login isn't 404'd.
-      NODE_ENV: "development",
     },
   },
 });
