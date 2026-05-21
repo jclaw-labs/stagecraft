@@ -341,10 +341,19 @@ async function CollectionItemBody({
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug: segments } = await params;
-  const slug = !segments || segments.length === 0
+  const rawSlug = !segments || segments.length === 0
     ? await cachedResolveRootPageSlug()
     : segments[0];
 
+  // Probes for routes that aren't valid page slugs (e.g. `/index.html`,
+  // `/favicon.ico` if no app/favicon, `/sitemap.xml`) reach this
+  // handler too. Skip the page lookup for anything that won't pass
+  // `pageSlugSchema` instead of letting `cachedReadPageOrNull` throw —
+  // the unhandled ZodError turns the 404 into a 500 and trips up
+  // probes (incl. Playwright's webServer readiness check).
+  const slug = rawSlug && pageSlugSchema.safeParse(rawSlug).success
+    ? rawSlug
+    : null;
   if (!slug) return { title: "Site" };
 
   const [site, pageData] = await Promise.all([
