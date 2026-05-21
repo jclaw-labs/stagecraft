@@ -25,6 +25,8 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
+import type { PublishError as PublishErrorPayload } from "@/lib/publish-types";
+
 import { useDeployStatus } from "./useDeployStatus";
 
 type Status =
@@ -72,37 +74,8 @@ export function PublishPendingChangesButton() {
         method: "POST",
         headers: { "content-type": "application/json" },
       });
-      const body = (await res.json().catch(() => null)) as
-        | { ok: true; commitSha: string | null; mode: string; alreadyInSync: boolean }
-        | { ok: false; code: string; error: string }
-        | null;
-      if (!res.ok || !body || !body.ok) {
-        // ADR-010 §6: a `concurrent-edit` code is a separate recovery
-        // path from a generic publish failure — surfacing it as the
-        // same red error toast would just retrain the artist to
-        // re-click Publish, which would race again.
-        if (body && "code" in body && body.code === "concurrent-edit") {
-          setStatus({ kind: "concurrent_edit" });
-          return;
-        }
-        const message =
-          (body && "error" in body && body.error) || `Publish failed (HTTP ${res.status})`;
-        setStatus({ kind: "error", message });
-        return;
-      }
-      if (body.alreadyInSync) {
-        setStatus({ kind: "noop" });
-        return;
-      }
-      if (body.mode === "local" || body.commitSha === null) {
-        // Dev fallback: no deploy to poll for; treat as immediately
-        // live. The artist's local dev server already serves the
-        // saved files.
-        setStatus({ kind: "live" });
-        return;
-      }
-      // Production: deploy is in flight; start polling.
-      setStatus({ kind: "in_flight", publishedAt: Date.now() });
+      const body = (await res.json().catch(() => null)) as PublishDraftResponseBody;
+      setStatus(statusForFetchResponse(res, body, Date.now()));
     } catch (cause) {
       setStatus({
         kind: "error",
@@ -136,7 +109,23 @@ export function PublishPendingChangesButton() {
         // whatever the other tab just committed. Reloading re-reads
         // from disk so the artist sees the merged state before they
         // try again.
-        <button type="button" onClick={() => window.location.reload()} style={buttonStyle}>
+        //
+        // Secondary (cancelButtonStyle) rather than primary (buttonStyle)
+        // so the action reads as visually distinct from the Publish
+        // button it replaces — the artist's task changed, not just the
+        // label.
+        //
+        // Data-loss safety net: any admin surface with in-progress
+        // edits is expected to mount `useBeforeUnloadIfDirty`, which
+        // triggers the browser's "Leave this page?" prompt on the
+        // upcoming `location.reload()`. Today's surfaces (every
+        // singleton panel via `useSettingsForm`, the Puck editor)
+        // satisfy that; new admin surfaces need to as well.
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          style={cancelButtonStyle}
+        >
           Reload
         </button>
       ) : (
@@ -256,12 +245,78 @@ function StatusLine({
   );
 }
 
+/**
+ * Successful `POST /api/publish-draft` shape, locked here as a
+ * literal type so the `body.mode` / `body.alreadyInSync` branches in
+ * `statusForFetchResponse` are checked against the actual response.
+ * The route doesn't currently emit a Zod schema for the success
+ * envelope; once it does, this type should consume that schema's
+ * `z.infer` instead.
+ */
+type PublishDraftSuccessBody = {
+  ok: true;
+  commitSha: string | null;
+  mode: string;
+  alreadyInSync: boolean;
+};
+
+/**
+ * Full response shape (success or failure), null if the body wasn't
+ * valid JSON. Reuses `PublishErrorPayload` so a rename or addition
+ * to the structured error enum fails this file at compile time.
+ */
+type PublishDraftResponseBody =
+  | PublishDraftSuccessBody
+  | PublishErrorPayload
+  | null;
+
+/**
+ * Pure dispatch from a `POST /api/publish-draft` response → `Status`.
+ * Extracted so the dispatch (in particular the
+ * `code === "concurrent-edit"` branch) is testable without a fetch
+ * mock; `fire()` is then a thin shell around it.
+ *
+ * Takes `now` as a parameter — the only side-effect-bearing input
+ * — so tests can pass a fixed timestamp and assert on the resulting
+ * `in_flight.publishedAt`.
+ */
+function statusForFetchResponse(
+  res: Response,
+  body: PublishDraftResponseBody,
+  now: number,
+): Status {
+  if (!res.ok || !body || !body.ok) {
+    // ADR-010 §6: a `concurrent-edit` code is a separate recovery
+    // path from a generic publish failure — surfacing it as the
+    // same red error toast would just retrain the artist to
+    // re-click Publish, which would race again.
+    if (body && "code" in body && body.code === "concurrent-edit") {
+      return { kind: "concurrent_edit" };
+    }
+    const message =
+      (body && "error" in body && body.error) || `Publish failed (HTTP ${res.status})`;
+    return { kind: "error", message };
+  }
+  if (body.alreadyInSync) {
+    return { kind: "noop" };
+  }
+  if (body.mode === "local" || body.commitSha === null) {
+    // Dev fallback: no deploy to poll for; treat as immediately
+    // live. The artist's local dev server already serves the
+    // saved files.
+    return { kind: "live" };
+  }
+  // Production: deploy is in flight; start polling.
+  return { kind: "in_flight", publishedAt: now };
+}
+
 // Exported for direct testing — `PublishPendingChangesButton`'s
 // status machine is driven by fetch responses + a polling hook, so
 // SSR snapshots of the button can't reach the concurrent-edit /
 // stalled / error states. Tests render `StatusLine` with a literal
-// status instead.
-export { StatusLine as __StatusLine };
+// status, and exercise `statusForFetchResponse` with literal
+// (Response, body) pairs.
+export { StatusLine as __StatusLine, statusForFetchResponse as __statusForFetchResponse };
 
 const containerStyle: CSSProperties = {
   display: "flex",

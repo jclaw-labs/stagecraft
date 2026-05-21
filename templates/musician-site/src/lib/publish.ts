@@ -413,6 +413,13 @@ async function commitToDraft(args: CommitToDraftArgs): Promise<string> {
     // a "someone else just saved" UX instead of a generic GitHub
     // failure. Carries the underlying message so logs keep the
     // forensic detail (last attempted parent SHA, attempt count).
+    //
+    // Asymmetry: the concurrent-edit path doesn't prepend a
+    // "commit to draft:" step label like the generic path does. The
+    // ConcurrentEditError message already names the ref (`heads/draft:
+    // 3 attempts exhausted...`), so the step is implicit; a prefix
+    // would read as "commit to draft: Concurrent edit on heads/draft"
+    // which duplicates the ref.
     if (cause instanceof ConcurrentEditError) {
       throw new PublishError("concurrent-edit", cause.message);
     }
