@@ -382,6 +382,13 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       render: ({ text }) => <div>{renderParagraphs(text, "rt")}</div>,
     },
     Quote: {
+      // Layout-transparent: no max-width, no horizontal centering. The
+      // enclosing Section (or any other slot container) owns horizontal
+      // layout. Left padding stays — it offsets the text from the
+      // `borderLeft` decoration, which is intrinsic to the block's
+      // identity, not a layout container. Top/bottom margins stay too
+      // (vertical breathing between adjacent blocks isn't owned by
+      // Section).
       fields: {
         text: { type: "textarea" },
         attribution: { type: "text" },
@@ -393,9 +400,8 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       render: ({ text, attribution }) => (
         <figure
           style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "var(--space-8) auto",
-            padding: "var(--space-6) var(--space-4)",
+            margin: "var(--space-8) 0",
+            padding: "var(--space-6) 0 var(--space-6) var(--space-4)",
             borderLeft: "4px solid var(--color-border-strong)",
             color: "var(--color-text-emphasis)",
             fontStyle: "italic",
@@ -448,6 +454,12 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       ),
     },
     Image: {
+      // Layout-transparent: no max-width, no horizontal centering, no
+      // horizontal padding. The enclosing Section (or other slot
+      // container) owns those — doubling them up was the regression
+      // the slot-conversion PR exposed for nested blocks. Top-level
+      // standalone Image stretches to its parent's width — same
+      // composition the RichText / Heading blocks follow.
       fields: {
         image: {
           type: "custom",
@@ -466,9 +478,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           return (
             <div
               style={{
-                maxWidth: "var(--max-width-content)",
-                margin: "0 auto",
-                padding: "var(--space-8) var(--space-4)",
+                padding: "var(--space-8) 0",
                 textAlign: "center",
                 color: "var(--color-text-muted)",
                 fontStyle: "italic",
@@ -484,13 +494,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
         // structurally assignable to ImageMetadata even though its runtime
         // shape is identical. Cast at the render boundary.
         return (
-          <figure
-            style={{
-              maxWidth: "var(--max-width-content)",
-              margin: "0 auto",
-              padding: "var(--space-4)",
-            }}
-          >
+          <figure style={{ margin: 0 }}>
             <PublicImage image={image as ImageMetadata} />
             {caption ? (
               <figcaption
