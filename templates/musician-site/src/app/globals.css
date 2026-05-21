@@ -84,3 +84,23 @@
   }
 }
 
+/* Collection-block specialised layouts. The `CollectionBlockRender`
+   wraps every iterated collection in
+   `<div data-collection-view="<slug>">`; per-slug grid layout lives
+   here so the tile components (specialized-views.tsx) stay
+   layout-agnostic. Falls back to vertical flow for any collection
+   without a registered grid below. */
+[data-collection-view="photos"],
+[data-collection-view="videos"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-4);
+  margin-block: var(--space-4);
+}
+
+/* Videos benefit from a slightly larger min-track because the
+   16:9 frame collapses below ~280px. */
+[data-collection-view="videos"] {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+

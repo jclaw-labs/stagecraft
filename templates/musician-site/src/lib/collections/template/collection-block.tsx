@@ -31,6 +31,7 @@ import { applyFilter } from "./filter";
 import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
 import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
+import { specialisedRendererFor } from "./specialized-views";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
@@ -166,25 +167,33 @@ function CollectionBlockItem({
   currentItem: Item;
 }): ReactNode {
   const template = sourceDef.itemTemplate;
-  if (!template) {
-    // No itemTemplate configured — render a minimal default:
-    // every scalar field rendered as plain text. Keeps the block
-    // useful out of the box, even before the artist authors a
-    // template. Detail-template editing comes online when the
-    // artist clicks "Edit item template" from the schema editor.
-    return <DefaultItemRender item={item} sourceDef={sourceDef} />;
+  if (template) {
+    // The artist authored an explicit itemTemplate — always wins
+    // over a specialised renderer. Recursive resolve: this item's
+    // template, walked with `item = iteratedItem` but `currentItem`
+    // carried through unchanged so §5.1's currentItemId /
+    // currentItemField FilterValue arms still reference the
+    // surrounding (outer) item.
+    const resolved = resolveTemplate(template as Template, item, {
+      registry: PRIMITIVE_BLOCKS,
+      currentItem,
+    });
+    // Use the cached PRIMITIVE_BLOCKS-only config so this doesn't rebuild
+    // once per iterated item.
+    return <Render config={templatePuckConfig} data={resolved} />;
   }
-  // Recursive resolve: this item's template, walked with `item =
-  // iteratedItem` but `currentItem` carried through unchanged so
-  // §5.1's currentItemId / currentItemField FilterValue arms still
-  // reference the surrounding (outer) item.
-  const resolved = resolveTemplate(template as Template, item, {
-    registry: PRIMITIVE_BLOCKS,
-    currentItem,
-  });
-  // Use the cached PRIMITIVE_BLOCKS-only config so this doesn't rebuild
-  // once per iterated item.
-  return <Render config={templatePuckConfig} data={resolved} />;
+  // Specialised renderer (photos / videos today) — hand-tuned per-
+  // slug layouts that match what the legacy template's PhotoGallery
+  // / VideoGallery blocks offered. Falls through to the default
+  // field-stack when no specialisation registered.
+  const specialised = specialisedRendererFor(sourceDef.slug);
+  if (specialised) {
+    return specialised({ item });
+  }
+  // No itemTemplate, no specialisation — render a minimal default:
+  // every scalar field rendered as plain text + image. Keeps the
+  // block useful out of the box for arbitrary collections.
+  return <DefaultItemRender item={item} sourceDef={sourceDef} />;
 }
 
 /**
