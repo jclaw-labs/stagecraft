@@ -8,6 +8,7 @@ import { useCallback, useState } from "react";
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { puckConfig } from "@/puck/config";
+import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { PageData } from "@/lib/content";
 
 type Props = {
@@ -97,6 +98,9 @@ export function Editor({ initialData, pageSlug, email }: Props) {
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}
       overrides={{
+        drawerItem: ({ name, children }) => (
+          <DrawerItemPreview name={name}>{children}</DrawerItemPreview>
+        ),
         headerActions: ({ children }) => (
           <>
             <Link
