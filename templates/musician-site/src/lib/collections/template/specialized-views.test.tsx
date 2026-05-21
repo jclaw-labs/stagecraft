@@ -259,4 +259,147 @@ describe("VideoTile", () => {
     const VideoTile = specialisedRendererFor("videos")!;
     expect(VideoTile({ item })).toBeNull();
   });
+
+  it("uses a source-specific title fallback when title is unset (a11y)", () => {
+    // Multiple videos with no title on a page would all render the
+    // same `title="Video"` on their iframes — screen readers can't
+    // disambiguate them. The source-specific fallback gives each
+    // iframe at least a category-distinct accessible name.
+    const renderWithoutTitle = (source: string) => {
+      const item: Item = {
+        id: "v",
+        slug: "v1",
+        ...TS,
+        values: {
+          [VIDEOS_FIELD_IDS.source]: { type: "select", value: source },
+          [VIDEOS_FIELD_IDS.embedUrl]: {
+            type: "text",
+            value:
+              source === "youtube"
+                ? "https://youtu.be/abc"
+                : source === "vimeo"
+                ? "https://vimeo.com/123"
+                : "/uploads/x.mp4",
+          },
+        },
+      };
+      return renderToStaticMarkup(<>{specialisedRendererFor("videos")!({ item })}</>);
+    };
+    expect(renderWithoutTitle("youtube")).toContain('title="YouTube video"');
+    expect(renderWithoutTitle("vimeo")).toContain('title="Vimeo video"');
+    // upload uses <video> not <iframe>; the fallback shows up in
+    // the visible <h3> title chrome instead.
+    expect(renderWithoutTitle("upload")).toContain("Hosted video");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dispatch through CollectionBlockItem — the actual consumer of the
+// specialised registry. Verifies the priority ordering documented at the
+// dispatch site (itemTemplate > specialised > default).
+// ---------------------------------------------------------------------------
+
+describe("CollectionBlockRender — specialised dispatch", () => {
+  /**
+   * The dispatch site (`CollectionBlockItem` inside collection-block.tsx)
+   * doesn't directly export; we exercise it via the public
+   * `CollectionBlockRender` which renders one item per child. A
+   * single-item render asserts the right tile component fires.
+   */
+  it("dispatches to the photos specialisation when the source slug is `photos`", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const item: Item = {
+      id: "p1",
+      slug: "p1",
+      ...TS,
+      values: {
+        [PHOTOS_FIELD_IDS.image]: { type: "image", value: IMAGE_FIXTURE },
+        [PHOTOS_FIELD_IDS.caption]: { type: "longText", value: "Soundcheck" },
+      },
+    };
+    const def = {
+      schemaVersion: 1 as const,
+      slug: "photos",
+      singularName: "photo",
+      pluralName: "photos",
+      fields: [],
+      slugSourceFieldId: null,
+      detailUrlPrefix: null,
+      defaultSort: null,
+      itemTemplate: null, // no override → specialisation fires
+      detailTemplate: null,
+      listTemplate: null,
+      isSingleton: false,
+    };
+    const html = renderToStaticMarkup(
+      <>
+        {CollectionBlockRender({
+          items: [item],
+          sourceDef: def,
+          hideFields: [],
+          currentItem: item,
+        })}
+      </>,
+    );
+    // PhotoTile-specific markers: <figure>, the original-link anchor.
+    expect(html).toMatch(/<figure/);
+    expect(html).toContain("Soundcheck");
+    expect(html).toContain('href="/images/home/abc1234567890def/original.jpg"');
+  });
+
+  it("respects an explicit `itemTemplate` over the specialisation", async () => {
+    // When the artist has authored a custom layout, the
+    // specialised renderer must NOT fire. This test verifies the
+    // dispatch priority documented at the dispatch site: a
+    // non-null itemTemplate routes through the template renderer
+    // path, not the registry.
+    const { CollectionBlockRender } = await import("./collection-block");
+    const item: Item = {
+      id: "p1",
+      slug: "p1",
+      ...TS,
+      values: {
+        [PHOTOS_FIELD_IDS.image]: { type: "image", value: IMAGE_FIXTURE },
+      },
+    };
+    const customTemplate = {
+      content: [
+        {
+          type: "Text",
+          props: {
+            id: "x",
+            content: { kind: "literal", value: "CUSTOM-TEMPLATE-MARKER" },
+          },
+        },
+      ],
+      root: { props: {} },
+    };
+    const def = {
+      schemaVersion: 1 as const,
+      slug: "photos",
+      singularName: "photo",
+      pluralName: "photos",
+      fields: [],
+      slugSourceFieldId: null,
+      detailUrlPrefix: null,
+      defaultSort: null,
+      itemTemplate: customTemplate, // present → wins over specialisation
+      detailTemplate: null,
+      listTemplate: null,
+      isSingleton: false,
+    };
+    const html = renderToStaticMarkup(
+      <>
+        {CollectionBlockRender({
+          items: [item],
+          sourceDef: def,
+          hideFields: [],
+          currentItem: item,
+        })}
+      </>,
+    );
+    // Custom-template marker rendered; PhotoTile markers absent.
+    expect(html).toContain("CUSTOM-TEMPLATE-MARKER");
+    expect(html).not.toMatch(/<figure/);
+  });
 });

@@ -104,3 +104,16 @@
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
+/* Constrain images inside the gallery grids — the public `<Image>`
+   component became layout-transparent in #164, so consumers own the
+   sizing. Without `max-width: 100%`, grid cells default to
+   `min-width: auto` which respects the image's intrinsic 1600px
+   width and overflows the viewport. `display: block` removes the
+   inline baseline whitespace below the figure / picture. */
+[data-collection-view="photos"] img,
+[data-collection-view="videos"] img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+

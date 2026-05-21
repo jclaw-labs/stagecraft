@@ -20,6 +20,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { Image } from "@/components/Image";
+import type { ImageMetadata } from "@/lib/image-types";
 import {
   getImageOrNull,
   getLongTextOrNull,
@@ -101,8 +102,17 @@ function PhotoTile({ item }: { item: Item }): ReactNode {
  * iframe.
  */
 function VideoTile({ item }: { item: Item }): ReactNode {
-  const title = getTextOrNull(item, VIDEOS_FIELD_IDS.title) ?? "Video";
   const source = getSelectOrNull(item, VIDEOS_FIELD_IDS.source);
+  // Source-specific title fallback so multiple untitled videos on a
+  // page get distinguishable screen-reader announcements rather than
+  // a chorus of "Video iframe, Video iframe...". The iframe's
+  // `title` attribute is the accessible name.
+  const titleFallback =
+    source === "youtube" ? "YouTube video"
+    : source === "vimeo" ? "Vimeo video"
+    : source === "upload" ? "Hosted video"
+    : "Video";
+  const title = getTextOrNull(item, VIDEOS_FIELD_IDS.title) ?? titleFallback;
   const embedUrl = getTextOrNull(item, VIDEOS_FIELD_IDS.embedUrl);
   const thumbnail = getImageOrNull(item, VIDEOS_FIELD_IDS.thumbnail);
   const description = getLongTextOrNull(item, VIDEOS_FIELD_IDS.description);
@@ -138,7 +148,7 @@ function VideoEmbed({
 }: {
   source: string | null;
   embedUrl: string;
-  thumbnail: { contentSlug: string; id: string; originalExt: string } | null;
+  thumbnail: ImageMetadata | null;
   title: string;
 }): ReactNode {
   if (source === "youtube") {
@@ -186,7 +196,9 @@ function VideoEmbed({
     );
   }
   // Unrecognised source or unparsable URL — link out instead of
-  // rendering a broken iframe.
+  // rendering a broken iframe. Arrow is decorative; `aria-hidden`
+  // so screen readers don't announce "north-east arrow" after
+  // "Watch."
   return (
     <a
       href={embedUrl}
@@ -194,7 +206,8 @@ function VideoEmbed({
       rel="noopener noreferrer"
       style={videoFallbackLinkStyle}
     >
-      Watch ↗
+      Watch{" "}
+      <span aria-hidden="true">↗</span>
     </a>
   );
 }
