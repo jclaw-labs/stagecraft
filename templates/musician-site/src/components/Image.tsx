@@ -31,20 +31,30 @@ export function Image({ image, sizes = "100vw", className }: Props) {
   // sized webp/avif files exist. Render the original directly; SVG /
   // ICO are scalable so the browser picks the right resolution
   // without `<picture>` srcSet help. Skip the LQIP placeholder too —
-  // vectors paint instantly anyway. The `<picture>` wrapper has no
-  // `<source>` children; it's there so Next's `no-img-element` lint
-  // rule (which exempts `<img>` inside `<picture>`) stays happy.
+  // vectors paint instantly anyway.
+  //
+  // Width / height are forwarded from the metadata (nominal
+  // 1024×1024 for vectors) so the browser reserves layout space
+  // before the image paints — without them, content reflows on slow
+  // SVG loads. CSS sizing (`max-width: 100%` etc.) still drives the
+  // visible dimensions; these attributes only fix the aspect ratio
+  // reservation.
+  //
+  // `<img>` rather than Next's `<Image>` because the bypass is
+  // explicit about the no-variant case; an eslint-disable is
+  // targeted and the rationale is right here.
   if (isVectorExt(image.originalExt)) {
     return (
-      <picture>
-        <img
-          src={originalPath(image)}
-          alt={image.alt}
-          loading="lazy"
-          decoding="async"
-          className={className}
-        />
-      </picture>
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={originalPath(image)}
+        alt={image.alt}
+        width={image.width}
+        height={image.height}
+        loading="lazy"
+        decoding="async"
+        className={className}
+      />
     );
   }
 

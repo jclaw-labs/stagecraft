@@ -307,11 +307,12 @@ Middleware (`src/middleware.ts`) gates `/admin/*` and `/api/save`. `/admin/login
 
 **Pipeline.** `POST /api/upload-image` accepts a multipart form with `file`, `contentSlug`, and `alt`. The handler:
 
-1. Validates MIME type (`jpeg`/`png`/`webp`/`avif`) and size (≤25 MB).
+1. Validates MIME type (raster: `jpeg`/`png`/`webp`/`avif`; vector / icon: `svg+xml`, `vnd.microsoft.icon`, `x-icon`) and size (≤25 MB).
 2. Computes a 16-char SHA-256 content hash → used as the image id.
 3. If the original already exists at the target path, skips processing (dedup; ADR-007 §6).
-4. Otherwise, runs `sharp().rotate()` (EXIF-correct) and emits variants `400/800/1600` in **webp + avif**, plus a tiny inline-base64 LQIP placeholder.
-5. Returns `ImageMetadata` (zod-validated).
+4. **Raster only:** runs `sharp().rotate()` (EXIF-correct) and emits variants `400/800/1600` in **webp + avif**, plus a tiny inline-base64 LQIP placeholder.
+5. **Vector / icon (SVG, ICO):** bypasses sharp entirely. The original is written byte-for-byte; no variants and no LQIP (sharp can rasterise SVG but the output wouldn't drive the `<picture>` srcSet flow, and sharp can't parse ICO at all). `isVectorExt(originalExt)` is the predicate consumers use to skip variant lookups. **Security note:** SVGs aren't sanitised — the upload endpoint is admin-only, so the practical attack surface is "the artist uploaded a `<script>`-bearing SVG knowingly." Contributor / fan-submitted uploads will need DOMPurify + `Content-Disposition: attachment` before that surface opens.
+6. Returns `ImageMetadata` (zod-validated).
 
 **On disk:**
 ```

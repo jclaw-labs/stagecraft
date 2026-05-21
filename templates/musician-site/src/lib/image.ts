@@ -114,6 +114,16 @@ export async function generateImageVariants(
   // variant `<picture>` flow, which doesn't fire for vectors). Default
   // dimensions are advisory — `isVectorExt` keeps consumers off the
   // variant code paths.
+  //
+  // Security note: SVGs are written byte-for-byte without sanitisation,
+  // so an uploaded SVG with `<script>` would run if a visitor opened
+  // its URL directly (top-level document context). The upload endpoint
+  // is admin-only — only the authenticated site owner can land content
+  // here — so the practical attack surface today is "the artist
+  // uploaded a malicious SVG knowingly." When contributor / fan-
+  // submitted uploads land in a future PR, this bypass needs a
+  // DOMPurify (SVG profile) pass + a `Content-Disposition: attachment`
+  // header on the response. Tracked in the parity audit.
   if (isVectorExt(input.originalExt)) {
     return {
       metadata: {
