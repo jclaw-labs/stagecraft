@@ -23,6 +23,7 @@ import {
   type DraftStoreContext,
 } from "./draft-store";
 import { tourDatesDef } from "./test-fixtures";
+import type { CollectionDef } from "./schema";
 
 const CTX: DraftStoreContext = {
   token: "t",
@@ -187,6 +188,15 @@ describe("listItemSlugsFromDraft", () => {
 // ---------------------------------------------------------------------------
 
 describe("listItemsInOrderFromDraft", () => {
+  // tourDatesDef has defaultSort: { mode: "fieldSort" }, which the
+  // draft variant doesn't yet support. The basic happy-path tests
+  // use a def whose defaultSort is null so they exercise the slug-
+  // order fallback; the sort guard gets its own test below.
+  const tourDatesDefSlugOrder = (): CollectionDef => ({
+    ...tourDatesDef(),
+    defaultSort: null,
+  });
+
   it("fetches each item file in parallel and returns them sorted by slug", async () => {
     getRef.mockResolvedValue(refResponse("sha-1"));
     reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
@@ -207,7 +217,7 @@ describe("listItemsInOrderFromDraft", () => {
     const result = await listItemsInOrderFromDraft(
       CTX,
       "tour-dates",
-      tourDatesDef(),
+      tourDatesDefSlugOrder(),
     );
     expect(result.map((i) => i.slug)).toEqual(["berlin-2026", "paris-2026"]);
     expect(result[0].id).toBe("item_berlin");
@@ -220,9 +230,40 @@ describe("listItemsInOrderFromDraft", () => {
     const result = await listItemsInOrderFromDraft(
       CTX,
       "tour-dates",
-      tourDatesDef(),
+      tourDatesDefSlugOrder(),
     );
     expect(result).toEqual([]);
+  });
+
+  it("amortises the SHA fetch — one getRef for N items, not N+1", async () => {
+    // Pre-PR this called getRef once per item; for 500 items that
+    // added ~25s of latency. Pin it here so a future refactor that
+    // re-introduces the per-item getRef shows up in CI.
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path.endsWith("/items")) {
+        return dirResponse([
+          { name: "a.json", type: "file" },
+          { name: "b.json", type: "file" },
+          { name: "c.json", type: "file" },
+        ]);
+      }
+      return fileResponse({ ...PARIS_ITEM_FILE, id: `item_${path}` });
+    });
+    await listItemsInOrderFromDraft(CTX, "tour-dates", tourDatesDefSlugOrder());
+    // One getRef for the list operation, regardless of item count.
+    expect(getRef).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws a typed error when defaultSort.mode is non-null (silent wrong-order guard)", async () => {
+    // store.ts's listItemsInOrder respects defaultSort; the draft
+    // variant doesn't yet. Throw loudly instead of silently
+    // alphabetising — facade-migration callers will surface the
+    // failure rather than render the wrong order in production.
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    await expect(
+      listItemsInOrderFromDraft(CTX, "tour-dates", tourDatesDef()),
+    ).rejects.toThrow(/defaultSort\.mode/);
   });
 });
 
@@ -372,5 +413,83 @@ describe("error propagation", () => {
     await expect(
       readCollectionDefFromDraft(CTX, "tour-dates"),
     ).rejects.toThrow("branch fetch failed");
+  });
+
+  it("surfaces a typed `branch-missing` error when the branch itself 404s", async () => {
+    // A fresh site without a draft branch yet — legitimate empty
+    // state, not an outage. The facade decides whether to fall back
+    // to main or surface a "no draft yet" UX.
+    getRef.mockRejectedValue(notFound());
+    await expect(
+      readCollectionDefFromDraft(CTX, "tour-dates"),
+    ).rejects.toMatchObject({ name: "DraftReadError", code: "branch-missing" });
+  });
+
+  it("surfaces a typed `too-large` error when a file exceeds the Contents API limit", async () => {
+    // Files >1 MB come back from getContent with `encoding: "none"`
+    // and empty `content`. Without the explicit check, we'd
+    // `JSON.parse("")` and throw a baffling SyntaxError. Typed
+    // error tells the facade to retry via Git Blob API (or fall
+    // back to the FS snapshot).
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockResolvedValue({
+      data: { type: "file", encoding: "none", content: "", size: 2_000_000, sha: "blob-sha" },
+    });
+    await expect(
+      readCollectionDefFromDraft(CTX, "tour-dates"),
+    ).rejects.toMatchObject({ name: "DraftReadError", code: "too-large" });
+  });
+
+  it("clears the cached promise when the fetcher throws (retry isn't stuck on a stale rejection)", async () => {
+    // Promise-cache foot-gun: if a failed fetcher's rejection sat
+    // in the cache, every subsequent reader would replay the error
+    // until the branch SHA moved. This test pins the cleanup that
+    // makes a retry succeed.
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockRejectedValueOnce(new Error("transient"));
+    await expect(
+      readCollectionDefFromDraft(CTX, "tour-dates"),
+    ).rejects.toThrow("transient");
+    // Second call: same SHA → cache still pinned, but the failed
+    // promise should be gone. Provide a real response and assert
+    // it lands without the error replaying.
+    reposGetContent.mockResolvedValueOnce(fileResponse(tourDatesDef()));
+    const result = await readCollectionDefFromDraft(CTX, "tour-dates");
+    expect(result?.slug).toBe("tour-dates");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency — two callers, one network roundtrip
+// ---------------------------------------------------------------------------
+
+describe("concurrency", () => {
+  it("dedupes two concurrent reads of the same path at the same SHA", async () => {
+    // Caching the promise (not the resolved value) lets the second
+    // caller await the first's in-flight fetcher rather than
+    // racing a duplicate request. Catches the pre-PR per-call
+    // duplicate-fetch behaviour under bursty admin reads after a
+    // save (when the SHA just moved).
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    let resolveContent: ((v: unknown) => void) | null = null;
+    reposGetContent.mockReturnValue(
+      new Promise((resolve) => {
+        resolveContent = resolve;
+      }),
+    );
+
+    const p1 = readCollectionDefFromDraft(CTX, "tour-dates");
+    const p2 = readCollectionDefFromDraft(CTX, "tour-dates");
+
+    // Both calls in flight against the same path. Only one
+    // getContent should have fired.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(reposGetContent).toHaveBeenCalledTimes(1);
+
+    resolveContent!(fileResponse(tourDatesDef()));
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1?.slug).toBe("tour-dates");
+    expect(r2?.slug).toBe("tour-dates");
   });
 });

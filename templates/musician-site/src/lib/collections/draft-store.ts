@@ -14,22 +14,34 @@
  * the next slice. The seam is `getReadStore()`-shaped at a higher
  * level once a caller wants to switch.
  *
- * **Cache.** Per-process `Map<branchKey, { sha, entries }>`. On each
- * fetch:
+ * **Cache.** Per-process `Map<branchKey, { sha, entries }>` where
+ * entries hold the in-flight `Promise` (not the resolved value) keyed
+ * by path. Two concurrent reads of the same path at the same SHA see
+ * the same promise — only one GitHub call fires. On each fetch:
  *   1. Cheap `getRef(heads/<branch>)` → current SHA.
  *   2. If different from the cached SHA, drop the branch's entries.
- *   3. If the path is in entries, serve from cache.
- *   4. Otherwise fetch from GitHub, cache, return.
+ *   3. If the path is in entries, await the cached promise.
+ *   4. Otherwise install a new promise and await it; cache result.
  *
  * Branch SHAs are stable across reads of the same tree, so once a
  * collection is warm, only the cheap SHA check fires until the artist
- * saves again. After a save, the branch SHA changes → entries drop →
- * next read repopulates lazily.
+ * saves again. List operations amortise: `listItemsInOrderFromDraft`
+ * fetches the SHA once and threads it through every per-item read,
+ * avoiding N+1 `getRef` calls.
  *
  * **Errors.** 404 on a path is "not present" — returned as `null` /
- * empty array, same as the FS layer. Other errors (rate limit,
- * outage) bubble; the caller decides whether to surface as a 5xx or
- * degrade to the baked-in FS snapshot.
+ * empty array, same as the FS layer. Other errors get wrapped in
+ * `DraftReadError` with a discriminated `code` so the facade can
+ * decide whether to surface 5xx or degrade to the baked-in FS
+ * snapshot. Branch-missing (404 on `getRef`) is its own code, since
+ * a fresh site without a `draft` branch yet is a legitimate empty
+ * state, not an outage.
+ *
+ * **Server-only.** Imports `@octokit/rest` and uses the `Buffer` Node
+ * global, so any attempt to import this from a `"use client"`
+ * component fails at build time. Sibling client-safe modules
+ * (`filter-schema.ts`, `field-classification.ts`, etc.) exist for
+ * the types/values shared with the editor surface.
  */
 
 import { Octokit } from "@octokit/rest";
@@ -40,7 +52,6 @@ import {
   collectionDefSchema,
   orderFileSchema,
   slugSchema,
-  ORDER_FILE_NAME,
   SINGLETON_ITEM_SLUG,
   type CollectionDef,
   type Item,
@@ -65,13 +76,65 @@ export type DraftStoreContext = {
   branch: string;
 };
 
-type Entry = unknown; // parsed JSON object or string[] for dir listings
-type BranchCache = { sha: string; entries: Map<string, Entry> };
+/**
+ * Typed errors so the facade can pattern-match on cause rather than
+ * `RequestError.status`. Mirrors `PublishError` in `publish.ts`.
+ */
+export class DraftReadError extends Error {
+  constructor(
+    public code:
+      | "branch-missing"
+      | "rate-limited"
+      | "auth-failed"
+      | "github-unreachable"
+      | "github-failed"
+      | "too-large",
+    message: string,
+    public cause?: unknown,
+  ) {
+    super(message);
+    this.name = "DraftReadError";
+  }
+}
+
+function wrapRequestError(cause: unknown, context: string): DraftReadError {
+  if (!(cause instanceof RequestError)) {
+    return new DraftReadError("github-unreachable", `${context}: ${String(cause)}`, cause);
+  }
+  if (cause.status === 401 || cause.status === 403) {
+    return new DraftReadError("auth-failed", `${context}: ${cause.message}`, cause);
+  }
+  if (cause.status === 429 || cause.message.toLowerCase().includes("rate limit")) {
+    return new DraftReadError("rate-limited", `${context}: ${cause.message}`, cause);
+  }
+  return new DraftReadError("github-failed", `${context}: ${cause.message}`, cause);
+}
+
+// In-flight promises keyed by path. Caching the promise (not the
+// resolved value) lets concurrent readers of the same path at the
+// same SHA share one GitHub call without a race-to-install-cache
+// foot-gun.
+type BranchCache = { sha: string; entries: Map<string, Promise<unknown>> };
 
 const caches = new Map<string, BranchCache>();
+const octokits = new Map<string, Octokit>();
 
 function cacheKey(ctx: DraftStoreContext): string {
   return `${ctx.owner}/${ctx.repo}@${ctx.branch}`;
+}
+
+function getOctokit(token: string): Octokit {
+  // Reuse one Octokit per token so its connection pool + throttle
+  // plugin state survives across calls. A per-call `new Octokit()`
+  // defeats both. Bounded by the number of distinct tokens the
+  // container ever sees, which is 1 in practice (the per-site
+  // broker-minted installation token).
+  let octokit = octokits.get(token);
+  if (!octokit) {
+    octokit = new Octokit({ auth: token });
+    octokits.set(token, octokit);
+  }
+  return octokit;
 }
 
 /**
@@ -80,6 +143,7 @@ function cacheKey(ctx: DraftStoreContext): string {
  */
 export function resetDraftStoreCache(): void {
   caches.clear();
+  octokits.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -87,52 +151,109 @@ export function resetDraftStoreCache(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Get-or-fetch one path's contents. Returns whatever the fetcher
- * yielded (object for `getContent` files, array for directory
- * listings, null for 404s). Callers wrap the typed parse on top.
+ * Resolve the current head SHA for `ctx.branch`. Wrapped errors
+ * include a `branch-missing` code when the branch itself 404s
+ * (fresh site without a draft branch — legit empty state, not an
+ * outage).
  */
-async function fetchCached<T>(
-  ctx: DraftStoreContext,
-  path: string,
-  fetcher: (octokit: Octokit) => Promise<T>,
-): Promise<T> {
-  const octokit = new Octokit({ auth: ctx.token });
+async function resolveHeadSha(ctx: DraftStoreContext): Promise<string> {
+  const octokit = getOctokit(ctx.token);
+  try {
+    const ref = await octokit.git.getRef({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      ref: `heads/${ctx.branch}`,
+    });
+    return ref.data.object.sha;
+  } catch (cause) {
+    if (cause instanceof RequestError && cause.status === 404) {
+      throw new DraftReadError(
+        "branch-missing",
+        `draft-store: branch "${ctx.branch}" does not exist on ${ctx.owner}/${ctx.repo}`,
+        cause,
+      );
+    }
+    throw wrapRequestError(cause, "draft-store: getRef");
+  }
+}
 
-  // Get the current branch SHA. If the cache is fresh (same SHA),
-  // serve from it. If stale (SHA changed), drop the branch's entries
-  // and refetch.
-  const ref = await octokit.git.getRef({
-    owner: ctx.owner,
-    repo: ctx.repo,
-    ref: `heads/${ctx.branch}`,
-  });
-  const headSha = ref.data.object.sha;
-
+/**
+ * Look up or install the per-branch cache pinned to `headSha`. If the
+ * stored SHA differs (branch has moved), drops the prior entries.
+ */
+function getBranchCache(ctx: DraftStoreContext, headSha: string): BranchCache {
   const key = cacheKey(ctx);
   let cache = caches.get(key);
   if (!cache || cache.sha !== headSha) {
     cache = { sha: headSha, entries: new Map() };
     caches.set(key, cache);
   }
+  return cache;
+}
 
-  if (cache.entries.has(path)) {
-    return cache.entries.get(path) as T;
+/**
+ * Get-or-fetch one path's contents at a pinned SHA. Returns whatever
+ * the fetcher yielded (object for `getContent` files, array for dir
+ * listings, null for 404s). Cache holds the promise so two concurrent
+ * callers at the same SHA + path share one network call.
+ *
+ * Pass `headSha` to amortise the `getRef` across a list/batch
+ * operation; pass `undefined` (or call `fetchCached`) to do the
+ * cheap `getRef` per call.
+ */
+async function fetchCachedAtSha<T>(
+  ctx: DraftStoreContext,
+  headSha: string,
+  path: string,
+  fetcher: (octokit: Octokit) => Promise<T>,
+): Promise<T> {
+  const cache = getBranchCache(ctx, headSha);
+  const existing = cache.entries.get(path);
+  if (existing) {
+    return (await existing) as T;
   }
+  // Install the promise BEFORE awaiting so a parallel call hits the
+  // cache mid-flight. `getOctokit` is sync, the fetcher does the
+  // I/O. If the fetcher rejects, drop the failed promise so a
+  // retry isn't stuck on a stale rejection.
+  const octokit = getOctokit(ctx.token);
+  const promise = fetcher(octokit);
+  cache.entries.set(path, promise);
+  try {
+    return await promise;
+  } catch (err) {
+    if (cache.entries.get(path) === promise) cache.entries.delete(path);
+    throw err;
+  }
+}
 
-  const value = await fetcher(octokit);
-  cache.entries.set(path, value);
-  return value;
+/**
+ * Public-facing single-path fetch: resolve the SHA then delegate.
+ * Used by individual reads (read*FromDraft); list operations pin the
+ * SHA once and pass it explicitly.
+ */
+async function fetchCached<T>(
+  ctx: DraftStoreContext,
+  path: string,
+  fetcher: (octokit: Octokit) => Promise<T>,
+): Promise<T> {
+  const headSha = await resolveHeadSha(ctx);
+  return fetchCachedAtSha(ctx, headSha, path, fetcher);
 }
 
 /**
  * Wrap a getContent call: return the decoded JSON object, or `null`
- * if the path doesn't exist on the branch. Other errors bubble.
+ * if the path doesn't exist on the branch. Files over GitHub's
+ * Contents API size limit (~1 MB) come back with `encoding: "none"`
+ * and an empty content string; we surface that as a typed
+ * `too-large` error rather than silently failing to parse.
  */
-async function getJsonFile<T>(
+async function getJsonFileAtSha<T>(
   ctx: DraftStoreContext,
+  headSha: string,
   path: string,
 ): Promise<T | null> {
-  return fetchCached(ctx, path, async (octokit) => {
+  return fetchCachedAtSha(ctx, headSha, path, async (octokit) => {
     try {
       const res = await octokit.repos.getContent({
         owner: ctx.owner,
@@ -140,13 +261,24 @@ async function getJsonFile<T>(
         path,
         ref: ctx.branch,
       });
-      // For files, getContent returns a single object with
-      // `type: "file"` and base64-encoded content. Arrays mean we
-      // accidentally hit a directory.
       const data = res.data;
       if (Array.isArray(data) || data.type !== "file") {
-        throw new Error(
-          `draft-store: getContent("${path}") returned non-file shape`,
+        throw new DraftReadError(
+          "github-failed",
+          `draft-store: getContent("${path}") returned non-file shape "${
+            Array.isArray(data) ? "array" : data.type
+          }"`,
+        );
+      }
+      // Above ~1 MB GitHub returns `encoding: "none"` with empty
+      // content and expects the caller to switch to the Git Blob
+      // API. We don't, today, so surface a typed error rather than
+      // a baffling `JSON.parse("")` SyntaxError. The facade can
+      // decide whether to fall back to the FS snapshot.
+      if (data.encoding !== "base64") {
+        throw new DraftReadError(
+          "too-large",
+          `draft-store: file "${path}" is too large for the Contents API (encoding=${data.encoding}, size=${data.size}); use the Git Blob API`,
         );
       }
       const content = Buffer.from(data.content, "base64").toString("utf-8");
@@ -155,9 +287,18 @@ async function getJsonFile<T>(
       if (cause instanceof RequestError && cause.status === 404) {
         return null;
       }
-      throw cause;
+      if (cause instanceof DraftReadError) throw cause;
+      throw wrapRequestError(cause, `draft-store: getContent("${path}")`);
     }
   });
+}
+
+async function getJsonFile<T>(
+  ctx: DraftStoreContext,
+  path: string,
+): Promise<T | null> {
+  const headSha = await resolveHeadSha(ctx);
+  return getJsonFileAtSha<T>(ctx, headSha, path);
 }
 
 /**
@@ -165,39 +306,53 @@ async function getJsonFile<T>(
  * `.json` file whose slug matches `slugSchema`. Returns an empty
  * array when the directory doesn't exist.
  */
+async function listDirSlugsAtSha(
+  ctx: DraftStoreContext,
+  headSha: string,
+  path: string,
+): Promise<string[]> {
+  const cached = await fetchCachedAtSha<string[] | null>(
+    ctx,
+    headSha,
+    `${path}/`,
+    async (octokit) => {
+      try {
+        const res = await octokit.repos.getContent({
+          owner: ctx.owner,
+          repo: ctx.repo,
+          path,
+          ref: ctx.branch,
+        });
+        if (!Array.isArray(res.data)) {
+          // The path exists but isn't a directory. Treat as empty.
+          return [];
+        }
+        const slugs: string[] = [];
+        for (const entry of res.data) {
+          if (entry.type !== "file") continue;
+          if (!entry.name.endsWith(".json")) continue;
+          const slug = entry.name.replace(/\.json$/, "");
+          if (slugSchema.safeParse(slug).success) slugs.push(slug);
+        }
+        slugs.sort();
+        return slugs;
+      } catch (cause) {
+        if (cause instanceof RequestError && cause.status === 404) {
+          return null;
+        }
+        throw wrapRequestError(cause, `draft-store: list("${path}")`);
+      }
+    },
+  );
+  return cached ?? [];
+}
+
 async function listDirSlugs(
   ctx: DraftStoreContext,
   path: string,
 ): Promise<string[]> {
-  const cached = await fetchCached<string[] | null>(ctx, `${path}/`, async (octokit) => {
-    try {
-      const res = await octokit.repos.getContent({
-        owner: ctx.owner,
-        repo: ctx.repo,
-        path,
-        ref: ctx.branch,
-      });
-      if (!Array.isArray(res.data)) {
-        // The path exists but isn't a directory. Treat as empty.
-        return [];
-      }
-      const slugs: string[] = [];
-      for (const entry of res.data) {
-        if (entry.type !== "file") continue;
-        if (!entry.name.endsWith(".json")) continue;
-        const slug = entry.name.replace(/\.json$/, "");
-        if (slugSchema.safeParse(slug).success) slugs.push(slug);
-      }
-      slugs.sort();
-      return slugs;
-    } catch (cause) {
-      if (cause instanceof RequestError && cause.status === 404) {
-        return null;
-      }
-      throw cause;
-    }
-  });
-  return cached ?? [];
+  const headSha = await resolveHeadSha(ctx);
+  return listDirSlugsAtSha(ctx, headSha, path);
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +404,37 @@ export async function listItemsInOrderFromDraft(
   collectionSlug: string,
   def: CollectionDef,
 ): Promise<Item[]> {
-  const slugs = await listItemSlugsFromDraft(ctx, collectionSlug);
+  // store.ts's listItemsInOrder respects def.defaultSort ("manual" /
+  // "fieldSort"). The draft variant doesn't yet — fail loud rather
+  // than silently render the wrong order. The facade-migration PR
+  // will port the sort + _order.json read paths; until then, callers
+  // for sorted collections should keep using the FS store.
+  if (def.defaultSort && def.defaultSort.mode !== null) {
+    throw new DraftReadError(
+      "github-failed",
+      `draft-store: listItemsInOrderFromDraft does not yet handle defaultSort.mode="${def.defaultSort.mode}". ` +
+        "Port the sort logic before migrating this caller (see ADR-010 PR 4b).",
+    );
+  }
+
+  // Amortise the SHA fetch: one getRef for the whole list operation,
+  // pinned through every per-item read. Without this, listing N items
+  // costs N+1 getRef calls (~50ms each — 25s for 500 items).
+  const headSha = await resolveHeadSha(ctx);
+  const slugs = await listDirSlugsAtSha(
+    ctx,
+    headSha,
+    `src/content/collections/${collectionSlug}/items`,
+  );
   const fileSchema = buildItemFileSchema(def.fields);
   const items = (
     await Promise.all(
       slugs.map(async (slug) => {
-        const raw = await getJsonFile<unknown>(ctx, itemRepoPath(collectionSlug, slug));
+        const raw = await getJsonFileAtSha<unknown>(
+          ctx,
+          headSha,
+          itemRepoPath(collectionSlug, slug),
+        );
         if (raw === null) return null;
         const file = fileSchema.parse(raw) as ItemFile;
         const item: Item = { ...file, slug };
@@ -263,12 +443,6 @@ export async function listItemsInOrderFromDraft(
     )
   ).filter((item): item is Item => item !== null);
 
-  // For listing order, fall back to slug order. The full
-  // _order.json / fieldSort handling lives in store.ts's
-  // listItemsInOrder and gets ported separately when callers
-  // need it — listItemSlugsFromDraft already returns slugs sorted
-  // alphabetically, which matches store.ts's "no defaultSort"
-  // case.
   return items;
 }
 
@@ -305,13 +479,9 @@ export async function listCollectionSlugsFromDraft(
         return slugs;
       } catch (cause) {
         if (cause instanceof RequestError && cause.status === 404) return null;
-        throw cause;
+        throw wrapRequestError(cause, "draft-store: list(collections)");
       }
     },
   );
   return cached ?? [];
 }
-
-// Suppress unused-import warning if a downstream caller doesn't need
-// `ORDER_FILE_NAME` — it's re-exported only for symmetry with store.ts.
-void ORDER_FILE_NAME;
