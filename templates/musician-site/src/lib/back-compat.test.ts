@@ -33,14 +33,19 @@ describe("Heading back-compat", () => {
 });
 
 describe("Section back-compat", () => {
-  it("renders an old payload that has no textAlign", () => {
+  it("renders an old payload that has no textAlign and no children", () => {
+    // Section moved from textarea body to a slot of nested blocks. Old
+    // payloads (pre-slot) shipped `headline` + `body` strings — those
+    // fields are now ignored, but the block must keep rendering
+    // (artists will re-author the content; we don't want a crash on
+    // first paint). Stub `children` to match what Puck's `<Render>`
+    // would hand the block at runtime.
     const html = renderBlock("Section", {
       width: "md",
-      headline: "Hello",
-      body: "World",
+      children: () => null,
     });
-    expect(html).toContain("Hello");
-    expect(html).toContain("World");
+    expect(html).toContain("<section");
+    expect(html).toMatch(/max-width:\s*var\(--max-width-content\)/);
   });
 });
 

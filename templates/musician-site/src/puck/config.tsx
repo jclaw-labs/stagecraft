@@ -1,4 +1,4 @@
-import type { Config } from "@measured/puck";
+import type { Config, Slot } from "@measured/puck";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
@@ -100,9 +100,8 @@ export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
   Section: {
     width: SectionWidth;
-    headline: string;
-    body: string;
     textAlign: TextAlignment;
+    children: Slot;
   };
   FullscreenSection: {
     headline: string;
@@ -115,9 +114,9 @@ export type BlockProps = {
   };
   Columns: {
     layout: ColumnLayout;
-    col1: string;
-    col2: string;
-    col3: string;
+    col1: Slot;
+    col2: Slot;
+    col3: Slot;
   };
   RichText: { text: string };
   Quote: { text: string; attribution: string };
@@ -134,9 +133,9 @@ export type BlockProps = {
 };
 
 /**
- * Render `text` as paragraphs separated by blank lines. Shared between
- * Section / Column body fields so consistent typesetting
- * is one change away.
+ * Render `text` as paragraphs separated by blank lines. Used by RichText
+ * and the FullscreenSection hero body (both still take a single textarea
+ * rather than a slot of nested blocks).
  */
 function renderParagraphs(text: string, key = "p"): ReactNode {
   return text
@@ -195,25 +194,27 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Section: {
+      // Section is a slot container — drop any blocks (Heading, RichText,
+      // Image, Columns, …) inside via Puck's drag-and-drop. The block
+      // owns the page-level chrome (max-width, padding, text-align)
+      // while the children own the content.
       fields: {
         width: {
           type: "select",
           options: SECTION_WIDTHS.map((v) => ({ label: v, value: v })),
         },
-        headline: { type: "text" },
-        body: { type: "textarea" },
         textAlign: {
           type: "select",
           options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
         },
+        children: { type: "slot" },
       },
       defaultProps: {
         width: "md",
-        headline: "Section title",
-        body: "Section body",
         textAlign: "start",
+        children: [],
       },
-      render: ({ width, headline, body, textAlign }) => (
+      render: ({ width, textAlign, children: Children }) => (
         <section
           style={{
             maxWidth: SECTION_WIDTH_MAX[width],
@@ -222,8 +223,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
             ...textAlignStyle(textAlign),
           }}
         >
-          {headline ? <h2>{headline}</h2> : null}
-          {body ? renderParagraphs(body, "section") : null}
+          <Children />
         </section>
       ),
     },
@@ -316,24 +316,30 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Columns: {
+      // Each column is a slot — drop any block into a column independently.
+      // The chosen `layout` decides how many columns render: 1-1 / 1-2 / 2-1
+      // emit two columns (col3 is ignored even if it has children);
+      // 1-1-1 emits all three. Keeping col3 as a real slot rather than a
+      // conditional one means the artist's content survives if they switch
+      // a 1-1-1 column back to 1-1 and then back again.
       fields: {
         layout: {
           type: "select",
           options: COLUMN_LAYOUTS.map((v) => ({ label: COLUMN_LAYOUT_LABELS[v], value: v })),
         },
-        col1: { type: "textarea" },
-        col2: { type: "textarea" },
-        col3: { type: "textarea" },
+        col1: { type: "slot" },
+        col2: { type: "slot" },
+        col3: { type: "slot" },
       },
       defaultProps: {
         layout: "1-1",
-        col1: "First column.",
-        col2: "Second column.",
-        col3: "",
+        col1: [],
+        col2: [],
+        col3: [],
       },
-      render: ({ layout, col1, col2, col3 }) => {
+      render: ({ layout, col1: Col1, col2: Col2, col3: Col3 }) => {
         const slotCount = COLUMN_LAYOUT_SLOT_COUNT[layout];
-        const slots = [col1, col2, col3].slice(0, slotCount);
+        const cols = [Col1, Col2, Col3].slice(0, slotCount);
         return (
           <div
             style={{
@@ -345,8 +351,10 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
               gap: "var(--space-6)",
             }}
           >
-            {slots.map((text, i) => (
-              <div key={i}>{renderParagraphs(text, `col-${i}`)}</div>
+            {cols.map((Col, i) => (
+              <div key={i}>
+                <Col />
+              </div>
             ))}
           </div>
         );
