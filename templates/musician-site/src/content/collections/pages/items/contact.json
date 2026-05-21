@@ -37,9 +37,16 @@
             "props": {
               "id": "section-contact-1",
               "width": "md",
-              "headline": "",
-              "body": "Have a question, booking inquiry, or just want to say hello? Fill out the form below and we'll get back to you.",
-              "textAlign": "start"
+              "textAlign": "start",
+              "children": [
+                {
+                  "type": "RichText",
+                  "props": {
+                    "id": "section-contact-1-body",
+                    "text": "Have a question, booking inquiry, or just want to say hello? Fill out the form below and we'll get back to you."
+                  }
+                }
+              ]
             }
           },
           {

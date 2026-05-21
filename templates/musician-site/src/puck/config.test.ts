@@ -67,6 +67,33 @@ describe("puckConfig", () => {
         expect(field.options.map((o) => o.value)).toEqual([...SECTION_WIDTHS]);
       }
     });
+
+    it("uses a slot for children (artists drop blocks inside, not a textarea body)", () => {
+      // Puck's `Config<T>` generic collapses BlockProps.Section's `children`
+      // slot through the same path as Image — cast for the runtime check.
+      const fields = (puckConfig.components.Section.fields ?? {}) as Record<
+        string,
+        { type?: string }
+      >;
+      expect(fields.children?.type).toBe("slot");
+      // Headline / body were removed when Section became a slot container —
+      // the artist drops a Heading and/or RichText block instead.
+      expect(fields.headline).toBeUndefined();
+      expect(fields.body).toBeUndefined();
+    });
+
+    it("renders a <section> with the configured max-width and calls the children slot", () => {
+      // Stub the slot component to a tag we can detect in the output.
+      const slot = () => "<<children-rendered>>" as unknown as React.ReactElement;
+      const html = render("Section", {
+        width: "md",
+        textAlign: "start",
+        children: slot,
+      });
+      expect(html).toContain("<section");
+      expect(html).toMatch(/max-width:\s*var\(--max-width-content\)/);
+      expect(html).toContain("&lt;&lt;children-rendered&gt;&gt;");
+    });
   });
 
   describe("RichText", () => {
@@ -200,34 +227,49 @@ describe("puckConfig", () => {
       }
     });
 
+    it("declares col1/col2/col3 as slots (each column accepts any block)", () => {
+      const fields = (puckConfig.components.Columns.fields ?? {}) as Record<
+        string,
+        { type?: string }
+      >;
+      expect(fields.col1?.type).toBe("slot");
+      expect(fields.col2?.type).toBe("slot");
+      expect(fields.col3?.type).toBe("slot");
+    });
+
     it("renders only the slots required by the chosen layout (2 for 1-1, 3 for 1-1-1)", () => {
+      // Stub each slot with a distinguishable marker so we can assert
+      // which columns the renderer actually invoked.
+      const stub = (label: string) =>
+        (() => label as unknown as React.ReactElement) as unknown;
       const html2 = render("Columns", {
         layout: "1-1",
-        col1: "A",
-        col2: "B",
-        col3: "C — should not render",
+        col1: stub("COL_A"),
+        col2: stub("COL_B"),
+        col3: stub("COL_C_HIDDEN"),
       });
-      expect(html2).toContain("A");
-      expect(html2).toContain("B");
-      expect(html2).not.toContain("should not render");
+      expect(html2).toContain("COL_A");
+      expect(html2).toContain("COL_B");
+      expect(html2).not.toContain("COL_C_HIDDEN");
 
       const html3 = render("Columns", {
         layout: "1-1-1",
-        col1: "A",
-        col2: "B",
-        col3: "C",
+        col1: stub("COL_A"),
+        col2: stub("COL_B"),
+        col3: stub("COL_C"),
       });
-      expect(html3).toContain("A");
-      expect(html3).toContain("B");
-      expect(html3).toContain("C");
+      expect(html3).toContain("COL_A");
+      expect(html3).toContain("COL_B");
+      expect(html3).toContain("COL_C");
     });
 
     it("uses CSS Grid with token-only spacing", () => {
+      const stub = () => null as unknown as React.ReactElement;
       const html = render("Columns", {
         layout: "1-2",
-        col1: "x",
-        col2: "y",
-        col3: "",
+        col1: stub,
+        col2: stub,
+        col3: stub,
       });
       expect(html).toMatch(/display:\s*grid/);
       expect(html).toMatch(/grid-template-columns:\s*1fr 2fr/);
