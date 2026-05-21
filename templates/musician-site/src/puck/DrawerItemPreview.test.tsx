@@ -11,7 +11,7 @@ import { DrawerItemPreview } from "./DrawerItemPreview";
  * comment at the top of `DrawerItemPreview.tsx` for the rationale.
  */
 
-function render(name: string) {
+function renderPreview(name: string) {
   return renderToStaticMarkup(
     <DrawerItemPreview name={name}>
       <span data-testid="puck-child">child</span>
@@ -21,13 +21,13 @@ function render(name: string) {
 
 describe("<DrawerItemPreview>", () => {
   it("always renders Puck's children (label + drag affordance)", () => {
-    expect(render("Heading")).toContain("puck-child");
-    expect(render("Embed")).toContain("puck-child");
-    expect(render("DoesNotExist")).toContain("puck-child");
+    expect(renderPreview("Heading")).toContain("puck-child");
+    expect(renderPreview("Embed")).toContain("puck-child");
+    expect(renderPreview("DoesNotExist")).toContain("puck-child");
   });
 
   it("falls back to a static name pill for Embed (its render does iframe I/O)", () => {
-    const html = render("Embed");
+    const html = renderPreview("Embed");
     // Static pill shows the block name verbatim.
     expect(html).toContain(">Embed<");
     // Live render would have emitted the iframe from defaultProps.
@@ -36,12 +36,12 @@ describe("<DrawerItemPreview>", () => {
   });
 
   it("falls back to a static name pill for unregistered block names", () => {
-    const html = render("DoesNotExist");
+    const html = renderPreview("DoesNotExist");
     expect(html).toContain(">DoesNotExist<");
   });
 
   it("live-renders a pure block (Heading) from its defaultProps", () => {
-    const html = render("Heading");
+    const html = renderPreview("Heading");
     // Heading's defaultProps: { text: "Heading", level: "h2", textAlign: "start" }
     expect(html).toContain("<h2");
     expect(html).toContain(">Heading</h2>");
@@ -52,11 +52,11 @@ describe("<DrawerItemPreview>", () => {
     // defaultProps carries the slot as `[]`, and the render does
     // `<Children />` which throws when handed an array. Detecting
     // the slot at config-introspection time avoids the throw.
-    const sectionHtml = render("Section");
+    const sectionHtml = renderPreview("Section");
     expect(sectionHtml).toContain(">Section<");
     expect(sectionHtml).not.toContain("<section");
 
-    const columnsHtml = render("Columns");
+    const columnsHtml = renderPreview("Columns");
     expect(columnsHtml).toContain(">Columns<");
     // Live-rendered Columns would emit a grid container.
     expect(columnsHtml).not.toMatch(/display:\s*grid/);
@@ -67,8 +67,8 @@ describe("<DrawerItemPreview>", () => {
     // (`<Component {...defaultProps} />` vs `component.render(defaultProps)`)
     // is what makes this work — calling the render as a plain function
     // would mis-bind hook state to PreviewBox.
-    expect(() => render("ContactForm")).not.toThrow();
-    const html = render("ContactForm");
+    expect(() => renderPreview("ContactForm")).not.toThrow();
+    const html = renderPreview("ContactForm");
     expect(html).toContain('name="email"');
   });
 });
