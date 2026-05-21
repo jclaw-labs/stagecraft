@@ -53,4 +53,14 @@ describe("<DrawerItemPreview>", () => {
     expect(html).toContain("Section title");
     expect(html).toContain("Section body");
   });
+
+  it("live-renders ContactForm (a hooks-using block) without crashing", () => {
+    // ContactForm uses useState; the render-as-component path
+    // (`<Component {...defaultProps} />` vs `component.render(defaultProps)`)
+    // is what makes this work — calling the render as a plain function
+    // would mis-bind hook state to PreviewBox.
+    expect(() => render("ContactForm")).not.toThrow();
+    const html = render("ContactForm");
+    expect(html).toContain('name="email"');
+  });
 });
