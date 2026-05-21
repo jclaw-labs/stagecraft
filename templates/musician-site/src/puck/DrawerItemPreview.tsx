@@ -10,19 +10,24 @@
  * Per-component policy:
  *
  * - **Live render from `defaultProps`** for primitives whose render
- *   is pure-markup (Heading, Section, Columns, RichText, Quote,
- *   Button, Image, Spacer, Divider, ContactForm). These render in a
- *   sandbox box scaled down by CSS transform; the artist sees the
- *   actual visual the block produces.
+ *   is pure markup at thumbnail scale (Heading, RichText, Quote,
+ *   Button, Image, ContactForm). These render in a sandbox box
+ *   scaled down by CSS transform; the artist sees the actual visual
+ *   the block produces.
  *
- * - **Static fallback** for components whose default render does
- *   network I/O (Embed has an `<iframe>` pointing at an example
- *   Spotify URL — loading it on every editor mount would hit
- *   Spotify needlessly). The fallback is a styled name pill.
+ * - **Static name-pill fallback** for blocks where a thumbnail-scale
+ *   live render would be useless or actively wrong — see
+ *   `STATIC_PREVIEW_BLOCKS` below for the per-block rationale.
  *
- * - Catch-all fallback: same static name pill if rendering throws,
- *   if `defaultProps` is missing, or if the component isn't in the
- *   registry. Defensive — a buggy block doesn't blow up the drawer.
+ * - **Slot containers** (Section, Columns) — detected at runtime by
+ *   scanning fields for `type: "slot"`. Their render does
+ *   `<Children />`, which throws when handed the raw `[]` from
+ *   `defaultProps` instead of Puck's slot-render function.
+ *
+ * - **Catch-all fallback** — same static name pill if rendering
+ *   throws, if `defaultProps` is missing, or if the component isn't
+ *   in the registry. Defensive — a buggy block doesn't blow up the
+ *   drawer.
  *
  * The preview box has `pointer-events: none` so it doesn't intercept
  * Puck's drag-to-canvas affordance; the surrounding row still
@@ -37,11 +42,19 @@ import type { BlockProps } from "./config";
 import { puckConfig } from "./config";
 
 /**
- * Component names whose default render does network I/O and is
- * unsuitable for a thumbnail-scale preview. These fall back to a
- * static name pill instead of a live render. Typed against
- * `BlockProps` so renaming a block surfaces here at compile time
- * instead of silently letting the iframe load.
+ * Component names that are unsuitable for a thumbnail-scale live
+ * preview. These fall back to a static name pill. Typed against
+ * `BlockProps` so renaming a block surfaces here at compile time.
+ *
+ *   - **Embed** — default render emits a Spotify `<iframe>`; loading
+ *     it on every editor mount would hit the network needlessly.
+ *   - **FullscreenSection** — render pins to `minHeight: 80vh` and
+ *     flex-centers content; at top-left scaled 0.55 in a 5rem box,
+ *     the preview is just empty hero whitespace.
+ *   - **Spacer** — render IS empty space (its purpose). Live preview
+ *     is honest but uninformative.
+ *   - **Divider** — render is a 1px `<hr>` whose line vanishes at
+ *     thumbnail scale.
  *
  * Slot containers (Section, Columns) are detected automatically by
  * scanning `fields` for `{ type: "slot" }` — their `defaultProps`
@@ -49,7 +62,12 @@ import { puckConfig } from "./config";
  * does `<Children />`. Detecting the shape is more durable than
  * maintaining a parallel list.
  */
-const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>(["Embed"]);
+const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>([
+  "Embed",
+  "FullscreenSection",
+  "Spacer",
+  "Divider",
+]);
 
 type ConfigComponent = {
   render?: ComponentType<object>;
@@ -126,7 +144,7 @@ const containerStyle: CSSProperties = {
 // the scale so layout still computes against the natural box (otherwise
 // text wraps at the shrunk width). The two values are mathematically
 // linked — keep them derived from PREVIEW_SCALE so they can't drift.
-const PREVIEW_SCALE = 0.4;
+const PREVIEW_SCALE = 0.55;
 const PREVIEW_COMPENSATION = `${100 / PREVIEW_SCALE}%`;
 
 const previewBoxStyle: CSSProperties = {

@@ -35,6 +35,16 @@ describe("<DrawerItemPreview>", () => {
     expect(html).not.toContain("open.spotify.com");
   });
 
+  it("falls back to a static pill for blocks whose live render is uninformative", () => {
+    // FullscreenSection scaled in a 5rem box is empty hero space;
+    // Spacer's render is empty by design; Divider's 1px <hr> vanishes
+    // at thumbnail scale. Verified visually before adding here.
+    for (const name of ["FullscreenSection", "Spacer", "Divider"]) {
+      const html = renderPreview(name);
+      expect(html).toContain(`>${name}<`);
+    }
+  });
+
   it("falls back to a static name pill for unregistered block names", () => {
     const html = renderPreview("DoesNotExist");
     expect(html).toContain(">DoesNotExist<");
