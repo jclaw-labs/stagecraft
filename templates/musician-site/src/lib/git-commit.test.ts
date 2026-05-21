@@ -22,6 +22,7 @@ import {
   ConcurrentEditError,
   ensureBranchExists,
   mergeBranchInto,
+  resetBranchTo,
   squashBranchInto,
 } from "./git-commit";
 
@@ -770,5 +771,114 @@ describe("mergeBranchInto", () => {
     expect(reposMerge).toHaveBeenCalledWith(
       expect.objectContaining({ commit_message: "Custom merge message" }),
     );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// resetBranchTo (ADR-010 §4 — discard the draft branch)
+// ---------------------------------------------------------------------------
+
+describe("resetBranchTo", () => {
+  function notFoundError(): Error {
+    return new RequestError("Not Found", 404, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 404, url: "x", headers: {}, data: {} },
+    });
+  }
+
+  it("force-updates the branch to mains HEAD when they differ", async () => {
+    getRef
+      // First call: toBranch (main) HEAD
+      .mockResolvedValueOnce({ data: { object: { sha: "main-sha" } } })
+      // Second call: the branch being reset (draft) HEAD
+      .mockResolvedValueOnce({ data: { object: { sha: "old-draft" } } });
+    updateRef.mockResolvedValue({ data: {} });
+
+    const result = await resetBranchTo({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      toBranch: "main",
+    });
+    expect(result).toEqual({
+      resetFromSha: "old-draft",
+      toSha: "main-sha",
+      alreadyInSync: false,
+    });
+    expect(updateRef).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref: "heads/draft",
+        sha: "main-sha",
+        force: true,
+      }),
+    );
+  });
+
+  it("reports alreadyInSync when the branches match (no updateRef call)", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "same" } } });
+    const result = await resetBranchTo({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      toBranch: "main",
+    });
+    expect(result).toEqual({
+      resetFromSha: "same",
+      toSha: "same",
+      alreadyInSync: true,
+    });
+    expect(updateRef).not.toHaveBeenCalled();
+  });
+
+  it("treats a missing source branch as alreadyInSync with null resetFromSha", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "main-sha" } } })
+      .mockRejectedValueOnce(notFoundError());
+    const result = await resetBranchTo({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "draft",
+      toBranch: "main",
+    });
+    expect(result).toEqual({
+      resetFromSha: null,
+      toSha: "main-sha",
+      alreadyInSync: true,
+    });
+    expect(updateRef).not.toHaveBeenCalled();
+  });
+
+  it("propagates non-404 errors when fetching the source branch", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "main-sha" } } })
+      .mockRejectedValueOnce(new Error("rate limit hit"));
+    await expect(
+      resetBranchTo({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        toBranch: "main",
+      }),
+    ).rejects.toThrow("rate limit hit");
+  });
+
+  it("propagates errors when fetching the target branch", async () => {
+    getRef.mockRejectedValue(new Error("main does not exist"));
+    await expect(
+      resetBranchTo({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        toBranch: "main",
+      }),
+    ).rejects.toThrow("main does not exist");
   });
 });
