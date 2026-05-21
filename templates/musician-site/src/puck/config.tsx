@@ -513,6 +513,11 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     Embed: {
+      // Layout-transparent: no max-width, no horizontal centering, no
+      // horizontal padding. Same reasoning as Image/Quote/RichText —
+      // the enclosing Section owns layout. The pasted iframe's own
+      // `width="100%"` (Spotify's default) already fills whatever
+      // container it lands in.
       fields: {
         html: { type: "textarea" },
       },
@@ -527,11 +532,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
         // who can store HTML. This is the same trade the legacy template's
         // `{% embed %}` made.
         <div
-          style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "var(--space-4) auto",
-            padding: "0 var(--space-4)",
-          }}
+          style={{ margin: "var(--space-4) 0" }}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ),

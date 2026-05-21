@@ -188,6 +188,15 @@ describe("puckConfig", () => {
       expect(withCaption).toContain("<figcaption");
       expect(withCaption).toContain("Live at the venue");
     });
+
+    it("is layout-transparent (no max-width or horizontal centering on the figure)", () => {
+      // The enclosing Section owns layout. A future refactor that
+      // accidentally restores a self-imposed container would re-double
+      // padding when the artist nests the block inside a Section.
+      const html = render("Image", { image: sampleImage, caption: "" });
+      expect(html).not.toMatch(/max-width/);
+      expect(html).not.toMatch(/margin:\s*[^;]*auto/);
+    });
   });
 
   describe("Spacer", () => {
@@ -290,6 +299,16 @@ describe("puckConfig", () => {
       const html = render("Quote", { text: "Wow.", attribution: "" });
       expect(html).not.toContain("<figcaption");
     });
+
+    it("is layout-transparent (no max-width or horizontal centering on the figure)", () => {
+      // Same contract as Image/Embed/RichText — the enclosing Section
+      // owns horizontal layout. Quote's left padding stays (intrinsic,
+      // offsets text from the borderLeft) but max-width and margin:auto
+      // must not return.
+      const html = render("Quote", { text: "Great show!", attribution: "Sarah" });
+      expect(html).not.toMatch(/max-width/);
+      expect(html).not.toMatch(/margin:\s*[^;]*auto/);
+    });
   });
 
   describe("FullscreenSection", () => {
@@ -333,6 +352,16 @@ describe("puckConfig", () => {
     it("inlines raw HTML so artist-pasted iframes render", () => {
       const html = render("Embed", { html: '<iframe src="x" data-hook></iframe>' });
       expect(html).toContain('<iframe src="x" data-hook>');
+    });
+
+    it("is layout-transparent (no max-width or horizontal centering on the wrapper)", () => {
+      // Same contract as Image/Quote/RichText — the enclosing Section
+      // owns horizontal layout. Without this, an Embed dropped inside
+      // a Section gets the double-padding regression the slot conversion
+      // exposed for the other blocks.
+      const html = render("Embed", { html: "<iframe></iframe>" });
+      expect(html).not.toMatch(/max-width/);
+      expect(html).not.toMatch(/margin:\s*[^;]*auto/);
     });
   });
 
