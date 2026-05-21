@@ -3,6 +3,12 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
 import { Image as PublicImage } from "@/components/Image";
+import {
+  NEWSLETTER_SERVICES,
+  NEWSLETTER_SERVICE_LABELS,
+  NewsletterSignup,
+  type NewsletterService,
+} from "@/components/NewsletterSignup";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
@@ -130,6 +136,14 @@ export type BlockProps = {
   Spacer: { size: SpacerSize };
   Divider: { inset: boolean };
   ContactForm: Record<string, never>;
+  NewsletterSignup: {
+    service: NewsletterService;
+    actionUrl: string;
+    title: string;
+    emailLabel: string;
+    submitLabel: string;
+    successMessage: string;
+  };
 };
 
 /**
@@ -577,6 +591,65 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       fields: {},
       defaultProps: {},
       render: () => <ContactForm />,
+    },
+    NewsletterSignup: {
+      // Single block (vs the legacy template's five composable
+      // sub-blocks) — most artists use email-only signup. Extension
+      // (name capture, preference dropdowns) lands in a follow-up if
+      // demand surfaces.
+      //
+      // Form submits cross-origin to the artist's chosen provider
+      // (Mailchimp / ConvertKit / Buttondown / generic). No server
+      // route on this template — the no-cors fetch in
+      // NewsletterSignup.tsx posts straight to the provider.
+      fields: {
+        service: {
+          type: "select",
+          label: "Newsletter provider",
+          options: NEWSLETTER_SERVICES.map((s) => ({
+            label: NEWSLETTER_SERVICE_LABELS[s],
+            value: s,
+          })),
+        },
+        actionUrl: {
+          type: "text",
+          label: "Form submission URL",
+        },
+        title: {
+          type: "text",
+          label: "Title (optional)",
+        },
+        emailLabel: {
+          type: "text",
+          label: "Email field label",
+        },
+        submitLabel: {
+          type: "text",
+          label: "Submit button label",
+        },
+        successMessage: {
+          type: "textarea",
+          label: "Success message",
+        },
+      },
+      defaultProps: {
+        service: "mailchimp" satisfies NewsletterService,
+        actionUrl: "",
+        title: "Stay in the loop",
+        emailLabel: "Email",
+        submitLabel: "Subscribe",
+        successMessage: "Thanks for subscribing! Check your inbox to confirm.",
+      },
+      render: ({ service, actionUrl, title, emailLabel, submitLabel, successMessage }) => (
+        <NewsletterSignup
+          service={service}
+          actionUrl={actionUrl}
+          title={title}
+          emailLabel={emailLabel}
+          submitLabel={submitLabel}
+          successMessage={successMessage}
+        />
+      ),
     },
   },
 };
