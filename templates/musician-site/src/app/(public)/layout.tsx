@@ -3,7 +3,11 @@ import type { Metadata } from "next";
 
 import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { readAppearance, readSiteConfig } from "@/lib/content";
-import { IMAGE_VARIANT_WIDTHS, type ImageMetadata } from "@/lib/image-types";
+import {
+  IMAGE_VARIANT_WIDTHS,
+  isVectorExt,
+  type ImageMetadata,
+} from "@/lib/image-types";
 
 /**
  * Public-site layout wrapper.
@@ -95,6 +99,10 @@ function imageOriginalUrl(image: ImageMetadata): string {
  * both formats so newer Safari benefits from avif.
  */
 function largestVariantUrl(image: ImageMetadata, format: "webp" | "avif"): string {
+  // Vector / icon uploads bypass the sharp variant pipeline — no
+  // sized webp/avif on disk. Serve the original; browsers handle SVG
+  // / ICO as a CSS background-image directly.
+  if (isVectorExt(image.originalExt)) return imageOriginalUrl(image);
   const eligible = IMAGE_VARIANT_WIDTHS.filter((w) => w <= image.width);
   if (eligible.length === 0) return imageOriginalUrl(image);
   const largest = Math.max(...eligible);

@@ -136,7 +136,7 @@ export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props
       >
         <Field
           label="Favicon"
-          description="Square image (256×256+ works well). Replaces the default Stagecraft icon in browser tabs and bookmarks. Leave empty to keep the default."
+          description="SVG (scales to every browser size), ICO, or a square 256×256+ PNG. Replaces the default Stagecraft icon in browser tabs and bookmarks. Browsers cache favicons aggressively — you may need a hard refresh to see your change. Leave empty to keep the default."
         >
           <ImagePickerField
             value={form.value.favicon}

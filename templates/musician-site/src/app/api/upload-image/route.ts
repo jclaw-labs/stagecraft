@@ -24,6 +24,13 @@ const MIME_TO_EXT: Record<AllowedInputMimeType, ImageMetadata["originalExt"]> = 
   "image/png": "png",
   "image/webp": "webp",
   "image/avif": "avif",
+  // Vector / icon: stored as the original upload, no variants. Both
+  // ICO MIME aliases map to the same `ico` extension on disk — most
+  // browsers send "image/x-icon" but the IANA-registered type is
+  // "image/vnd.microsoft.icon"; accept both.
+  "image/svg+xml": "svg",
+  "image/vnd.microsoft.icon": "ico",
+  "image/x-icon": "ico",
 };
 
 function err(status: number, error: string) {

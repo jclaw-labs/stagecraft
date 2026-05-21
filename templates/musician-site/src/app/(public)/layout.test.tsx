@@ -149,6 +149,30 @@ describe("(public) layout — pageBackground render", () => {
     expect(html).not.toContain("original.jpg");
   });
 
+  it("falls back to the original URL for vector formats (SVG / ICO have no variants)", async () => {
+    // Vectors bypass the sharp variant pipeline — no sized webp/avif
+    // on disk. `largestVariantUrl` should short-circuit on
+    // `isVectorExt` and serve the original.
+    const svgSite = siteItemWith({});
+    svgSite.values[SITE_FIELD_IDS.pageBackground] = {
+      type: "image",
+      value: {
+        ...IMAGE_FIXTURE,
+        width: 1024,
+        height: 1024,
+        originalExt: "svg",
+      },
+    };
+    await fs.writeFile(SITE_ITEM_PATH, JSON.stringify(svgSite, null, 2), "utf-8");
+    const tree = await PublicLayout({ children: null });
+    const html = renderToStaticMarkup(tree);
+    expect(html).toContain("/original.svg");
+    // Defensive: even though width 1024 > some sharp variants (400 /
+    // 800), the vector branch must short-circuit before that check.
+    expect(html).not.toContain("1600.webp");
+    expect(html).not.toContain("800.webp");
+  });
+
   it("omits the underlay entirely when pageBackground is null", async () => {
     await writeSite({ pageBackground: false });
     const tree = await PublicLayout({ children: null });
