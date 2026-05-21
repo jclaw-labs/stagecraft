@@ -198,6 +198,12 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       // Image, Columns, …) inside via Puck's drag-and-drop. The block
       // owns the page-level chrome (max-width, padding, text-align)
       // while the children own the content.
+      //
+      // A separate Section block lives in `buildEditorPuckConfig.tsx`
+      // for the template-editor surface. ADR-007 exempts Puck block
+      // configs from cross-system SSOT — the two intentionally diverge
+      // (template Section has `padding` instead of `textAlign`,
+      // outlines its bounds with a dashed border for editor clarity).
       fields: {
         width: {
           type: "select",
@@ -361,21 +367,19 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
       },
     },
     RichText: {
+      // Layout-transparent: no max-width, no horizontal padding. The
+      // enclosing Section (or any other slot container) owns those —
+      // doubling them up here is the regression the slot-conversion
+      // PR exposed when RichText started showing up nested inside
+      // Section. Top-level RichText (outside any Section) now stretches
+      // to its parent's width; the seeded pages all wrap text in a
+      // Section, and the editor's Insert menu naturally pushes new
+      // text-style content into a container.
       fields: { text: { type: "textarea" } },
       defaultProps: {
         text: "Write your paragraph here.\n\nBlank lines start a new paragraph.",
       },
-      render: ({ text }) => (
-        <div
-          style={{
-            maxWidth: "var(--max-width-content)",
-            margin: "0 auto",
-            padding: "0 var(--space-4)",
-          }}
-        >
-          {renderParagraphs(text, "rt")}
-        </div>
-      ),
+      render: ({ text }) => <div>{renderParagraphs(text, "rt")}</div>,
     },
     Quote: {
       fields: {

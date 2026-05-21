@@ -33,19 +33,30 @@ describe("Heading back-compat", () => {
 });
 
 describe("Section back-compat", () => {
-  it("renders an old payload that has no textAlign and no children", () => {
-    // Section moved from textarea body to a slot of nested blocks. Old
-    // payloads (pre-slot) shipped `headline` + `body` strings — those
-    // fields are now ignored, but the block must keep rendering
-    // (artists will re-author the content; we don't want a crash on
-    // first paint). Stub `children` to match what Puck's `<Render>`
-    // would hand the block at runtime.
+  it("renders an old headline/body payload as an empty section (data silently dropped)", () => {
+    // Section moved from textarea body to a slot of nested blocks. The
+    // contract for old on-disk payloads is:
+    //   - they MUST keep mounting (no crash on first paint)
+    //   - their `headline` + `body` strings DO NOT render — they get
+    //     silently dropped by the new render function, which only
+    //     consumes the `children` slot.
+    // We stub `children` to mimic what Puck's `<Render>` would hand
+    // the block at runtime (an empty SlotComponent for missing/empty
+    // slot fields). The point of the test isn't slot rendering — it's
+    // pinning down the silent-drop of `headline`/`body`, which protects
+    // against a future change that accidentally restores partial
+    // rendering of the dropped fields.
     const html = renderBlock("Section", {
       width: "md",
+      headline: "Hello",
+      body: "World",
+      textAlign: "start",
       children: () => null,
     });
     expect(html).toContain("<section");
     expect(html).toMatch(/max-width:\s*var\(--max-width-content\)/);
+    expect(html).not.toContain("Hello");
+    expect(html).not.toContain("World");
   });
 });
 
