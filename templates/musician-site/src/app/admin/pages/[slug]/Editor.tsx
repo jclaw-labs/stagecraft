@@ -294,24 +294,45 @@ function Dot() {
  *
  * Renders nothing; effect-only. Lives inside the `drawer` override
  * so it has Puck context (`usePuck`).
+ *
+ * Two subtleties:
+ *
+ * - The dispatch uses the functional form so it can read the
+ *   previous entry per category and preserve `expanded` (the
+ *   artist's manual collapse state). Replacing the whole entry
+ *   would wipe `expanded` on every keystroke.
+ * - `recordHistory: false` keeps these dispatches out of Puck's
+ *   undo stack. Without it, every filter keystroke adds an undo
+ *   entry — Ctrl-Z would walk back through the filter's
+ *   visibility flips before reaching the artist's actual content
+ *   edits.
  */
 function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
   const { dispatch } = usePuck();
   useEffect(() => {
     const q = filter.trim().toLowerCase();
-    const componentList: Record<
-      string,
-      { components?: string[]; title?: string; visible: boolean }
-    > = {};
-    for (const [key, cat] of Object.entries(puckConfig.categories ?? {})) {
-      componentList[key] = {
-        components: cat?.components ? [...cat.components] : undefined,
-        title: cat?.title,
-        visible:
-          !q || (cat?.components?.some((c) => c.toLowerCase().includes(q)) ?? true),
-      };
-    }
-    dispatch({ type: "setUi", ui: { componentList } });
+    dispatch({
+      type: "setUi",
+      recordHistory: false,
+      ui: (previous) => {
+        const next: typeof previous.componentList = {};
+        for (const [key, cat] of Object.entries(puckConfig.categories ?? {})) {
+          const prev = previous.componentList[key];
+          next[key] = {
+            // Preserve everything the artist has touched (expanded
+            // state, in particular), then overwrite the bits we own.
+            ...prev,
+            components: cat?.components ? [...cat.components] : undefined,
+            title: cat?.title,
+            visible:
+              !q ||
+              (cat?.components?.some((c) => c.toLowerCase().includes(q)) ??
+                true),
+          };
+        }
+        return { componentList: next };
+      },
+    });
   }, [filter, dispatch]);
   return null;
 }
