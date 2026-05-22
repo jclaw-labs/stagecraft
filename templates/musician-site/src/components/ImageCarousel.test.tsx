@@ -174,6 +174,34 @@ describe("ImageCarousel — ARIA structure", () => {
     expect(html).toMatch(/<figcaption/);
   });
 
+  it("falls back to image.caption when the slide caption is unset", () => {
+    // Two-layer caption model: per-slide is the override, the
+    // image-level caption (set once in the picker) is the default.
+    // Lets an artist reuse an image's caption across surfaces.
+    const html = render({
+      slides: [
+        {
+          image: { ...IMAGE_FIXTURE, caption: "From the image picker" },
+        },
+      ],
+    });
+    expect(html).toContain("From the image picker");
+    expect(html).toMatch(/<figcaption/);
+  });
+
+  it("per-slide caption overrides image.caption (override beats default)", () => {
+    const html = render({
+      slides: [
+        {
+          image: { ...IMAGE_FIXTURE, caption: "Image default" },
+          caption: "Slide override",
+        },
+      ],
+    });
+    expect(html).toContain("Slide override");
+    expect(html).not.toContain("Image default");
+  });
+
   it("wraps image + figcaption in a `<figure>` (figcaption outside figure is undefined HTML)", () => {
     // `<figcaption>` without a `<figure>` parent is semantically
     // meaningless — screen-reader handling diverges across engines.

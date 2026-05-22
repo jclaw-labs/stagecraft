@@ -7,17 +7,45 @@ import { processImage } from "@/lib/image";
 import {
   ALLOWED_INPUT_MIME_TYPES,
   MAX_UPLOAD_BYTES,
+  focalPointSchema,
   type AllowedInputMimeType,
+  type FocalPoint,
   type ImageMetadata,
   uploadResponseSchema,
 } from "@/lib/image-types";
 import { isPlatformConfigured, PublishError } from "@/lib/publish";
 import { publishErrorHttpStatus } from "@/lib/publish-types";
 
+/**
+ * Form fields parsed alongside the file. Caption / credit / focalPoint
+ * are optional editorial metadata threaded straight into the returned
+ * `ImageMetadata` — the upload endpoint accepts them so the picker
+ * can set them on first upload (rather than requiring a second-round
+ * save). FormData is string-only on the wire, so focalPoint arrives
+ * as a JSON string; we parse + revalidate.
+ */
 const fieldsSchema = z.object({
   contentSlug: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/),
   alt: z.string().max(500),
+  caption: z.string().max(500).optional(),
+  credit: z.string().max(200).optional(),
+  focalPointJson: z.string().optional(),
 });
+
+function parseFocalPoint(json: string | undefined): FocalPoint | undefined {
+  if (json === undefined || json === "") return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("focalPoint is not valid JSON");
+  }
+  const result = focalPointSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`focalPoint invalid: ${result.error.message}`);
+  }
+  return result.data;
+}
 
 const MIME_TO_EXT: Record<AllowedInputMimeType, ImageMetadata["originalExt"]> = {
   "image/jpeg": "jpg",
@@ -72,9 +100,19 @@ export async function POST(request: Request) {
   const fields = fieldsSchema.safeParse({
     contentSlug: formData.get("contentSlug"),
     alt: formData.get("alt") ?? "",
+    caption: formData.get("caption") ?? undefined,
+    credit: formData.get("credit") ?? undefined,
+    focalPointJson: formData.get("focalPoint") ?? undefined,
   });
   if (!fields.success) {
     return err(400, `invalid fields: ${fields.error.message}`);
+  }
+
+  let focalPoint: FocalPoint | undefined;
+  try {
+    focalPoint = parseFocalPoint(fields.data.focalPointJson);
+  } catch (cause) {
+    return err(400, `invalid fields: ${(cause as Error).message}`);
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -83,6 +121,9 @@ export async function POST(request: Request) {
     contentSlug: fields.data.contentSlug,
     alt: fields.data.alt,
     originalExt: MIME_TO_EXT[mime as AllowedInputMimeType],
+    caption: fields.data.caption || undefined,
+    credit: fields.data.credit || undefined,
+    focalPoint,
   };
 
   // Production: commit through the GitHub App broker. Local-disk writes

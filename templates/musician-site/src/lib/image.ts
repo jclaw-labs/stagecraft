@@ -6,6 +6,7 @@ import sharp from "sharp";
 import {
   IMAGE_VARIANT_FORMATS,
   IMAGE_VARIANT_WIDTHS,
+  type FocalPoint,
   type ImageId,
   type ImageMetadata,
   type ImageVariantFormat,
@@ -45,6 +46,10 @@ export type ProcessImageInput = {
   contentSlug: string;
   alt: string;
   originalExt: ImageMetadata["originalExt"];
+  /** Editorial metadata threaded straight into the returned ImageMetadata. */
+  caption?: string;
+  credit?: string;
+  focalPoint?: FocalPoint;
 };
 
 export type ProcessImageResult = {
@@ -134,6 +139,7 @@ export async function generateImageVariants(
         placeholderDataUri: VECTOR_PLACEHOLDER_DATA_URI,
         contentSlug: input.contentSlug,
         originalExt: input.originalExt,
+        ...editorialMetadata(input),
       },
       originalBuffer: input.buffer,
       variants: [],
@@ -177,10 +183,26 @@ export async function generateImageVariants(
       placeholderDataUri,
       contentSlug: input.contentSlug,
       originalExt: input.originalExt,
+      ...editorialMetadata(input),
     },
     originalBuffer: input.buffer,
     variants,
   };
+}
+
+/**
+ * Spread-helper for the optional editorial fields. Keeps the metadata
+ * literals above readable AND keeps `caption: undefined` out of the
+ * persisted JSON (zod's `.optional()` allows `undefined`, but a
+ * Puck/JSON.stringify roundtrip drops the key — we want the same
+ * shape on first write).
+ */
+function editorialMetadata(input: ProcessImageInput): Partial<ImageMetadata> {
+  const out: Partial<ImageMetadata> = {};
+  if (input.caption !== undefined) out.caption = input.caption;
+  if (input.credit !== undefined) out.credit = input.credit;
+  if (input.focalPoint !== undefined) out.focalPoint = input.focalPoint;
+  return out;
 }
 
 /**
@@ -194,7 +216,7 @@ export async function processImage(input: ProcessImageInput): Promise<ProcessIma
   const originalPath = path.join(dir, `original.${input.originalExt}`);
 
   if (await fileExists(originalPath)) {
-    const metadata = await readImageMetadata(input.contentSlug, id, input.alt, input.originalExt);
+    const metadata = await readImageMetadata(input);
     return { metadata, processed: false };
   }
 
@@ -211,12 +233,9 @@ export async function processImage(input: ProcessImageInput): Promise<ProcessIma
   return { metadata: generated.metadata, processed: true };
 }
 
-async function readImageMetadata(
-  contentSlug: string,
-  id: ImageId,
-  alt: string,
-  originalExt: ImageMetadata["originalExt"],
-): Promise<ImageMetadata> {
+async function readImageMetadata(input: ProcessImageInput): Promise<ImageMetadata> {
+  const { contentSlug, alt, originalExt } = input;
+  const id = computeImageId(input.buffer);
   // Vector re-upload: skip sharp (won't parse ICO; would rasterise
   // SVG). Mirrors the vector branch in `generateImageVariants` —
   // the synthesised metadata must agree so dedup vs first-upload
@@ -230,6 +249,7 @@ async function readImageMetadata(
       placeholderDataUri: VECTOR_PLACEHOLDER_DATA_URI,
       contentSlug,
       originalExt,
+      ...editorialMetadata(input),
     };
   }
   const dir = imageDir(contentSlug, id);
@@ -250,5 +270,6 @@ async function readImageMetadata(
     placeholderDataUri: `data:image/webp;base64,${placeholderBuffer.toString("base64")}`,
     contentSlug,
     originalExt,
+    ...editorialMetadata(input),
   };
 }
