@@ -325,12 +325,15 @@ function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
   const { dispatch } = usePuck();
   const hasDispatchedRef = useRef(false);
   useEffect(() => {
-    if (isVisibilityDispatchTrivial(filter) && !hasDispatchedRef.current) {
-      // Initial mount with empty filter: every category is visible
-      // by default. Dispatching the same state would round-trip
-      // through Puck's reducer for nothing.
-      return;
-    }
+    // Initial mount with empty filter: every category is visible
+    // by default in Puck's reducer. Dispatching the same state would
+    // round-trip for nothing. After the artist has typed at least
+    // once (`hasDispatchedRef.current` flips true), every dispatch
+    // matters — even an empty-filter one, because it has to restore
+    // visibility for categories the previous filter hid.
+    const isInitialMountNoOp =
+      isVisibilityDispatchTrivial(filter) && !hasDispatchedRef.current;
+    if (isInitialMountNoOp) return;
     hasDispatchedRef.current = true;
     dispatch({
       type: "setUi",
