@@ -4,6 +4,7 @@ import { createElement } from "react";
 
 import {
   BLOCK_DESCRIPTIONS,
+  newsletterUrlDescription,
   puckConfig,
   HEADING_LEVELS,
   SECTION_WIDTHS,
@@ -887,6 +888,77 @@ describe("puckConfig", () => {
       >;
       expect(defaults.hasNameField).toBe(false);
       expect(defaults.nameLabel).toBe("First name");
+    });
+  });
+
+  describe("newsletterUrlDescription (inspector helper text)", () => {
+    it("Mailchimp + empty URL → paste-hint pointing at the embed code", () => {
+      const hint = newsletterUrlDescription("mailchimp", "");
+      expect(hint.kind).toBe("info");
+      expect(hint.text).toMatch(/audience embed code/i);
+    });
+
+    it("Mailchimp + valid audience URL → ok hint confirming the honeypot will fire", () => {
+      const hint = newsletterUrlDescription(
+        "mailchimp",
+        "https://example.us21.list-manage.com/subscribe/post?u=abc123&id=def456",
+      );
+      expect(hint.kind).toBe("ok");
+      expect(hint.text).toMatch(/looks like a mailchimp/i);
+      expect(hint.text).toMatch(/honeypot/i);
+    });
+
+    it("Mailchimp + malformed URL → warn hint about reduced spam protection", () => {
+      const hint = newsletterUrlDescription(
+        "mailchimp",
+        "https://example.com/oops",
+      );
+      expect(hint.kind).toBe("warn");
+      expect(hint.text).toMatch(/doesn't look like/i);
+      // The hint must spell out the expected query params so the
+      // artist can correct the paste without leaving the inspector.
+      expect(hint.text).toContain("?u=USER_ID&id=LIST_ID");
+      // Must clarify that the signup still works — we don't want
+      // artists thinking their form is broken.
+      expect(hint.text).toMatch(/still submits/i);
+    });
+
+    it("non-Mailchimp services get a generic paste hint regardless of URL state", () => {
+      expect(newsletterUrlDescription("buttondown", "").text).toMatch(
+        /POST URL from your provider/i,
+      );
+      expect(
+        newsletterUrlDescription("convertkit", "https://example.com/subscribe").text,
+      ).toMatch(/POST URL from your provider/i);
+    });
+
+    it("`resolveFields` rebuilds actionUrl as a custom field carrying the current hint", () => {
+      // Spot-check the production hook: call resolveFields with a
+      // small data shape and confirm the returned actionUrl is a
+      // custom field — render is the only public surface of the
+      // hint, so we render it and assert the warning text appears.
+      const config = puckConfig.components.NewsletterSignup as unknown as {
+        resolveFields: (
+          data: { props: { service: string; actionUrl: string } },
+          params: { fields: Record<string, { type?: string }> },
+        ) => Record<string, { type?: string; render?: (p: { value: string; onChange: (n: string) => void }) => React.ReactElement }>;
+        fields: Record<string, { type?: string }>;
+      };
+      const out = config.resolveFields(
+        { props: { service: "mailchimp", actionUrl: "https://nope.example/" } },
+        { fields: config.fields },
+      );
+      expect(out.actionUrl?.type).toBe("custom");
+      // The render function should produce JSX that includes the
+      // warning text — render it to a static string and grep.
+      const html = renderToStaticMarkup(
+        out.actionUrl!.render!({ value: "https://nope.example/", onChange: () => {} }),
+      );
+      // `renderToStaticMarkup` HTML-escapes the apostrophe in
+      // "doesn't" to `&#x27;` — grep for a substring that doesn't
+      // span the apostrophe.
+      expect(html).toMatch(/look like a Mailchimp/i);
+      expect(html).toContain("?u=USER_ID");
     });
   });
 

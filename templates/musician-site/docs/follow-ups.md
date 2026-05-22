@@ -24,13 +24,15 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Newsletter signup
 
-- **Inspector validation hints.** When `service: mailchimp` is
-  selected but the `actionUrl` lacks `u` / `id` query params, the
-  `parseMailchimpAudienceHoneypotName` falls back to null (no
-  honeypot emitted) and the artist gets no signal. A Puck inspector
-  warning ("This URL doesn't look like a Mailchimp embed URL —
-  expected `?u=USER_ID&id=LIST_ID`") would catch the mistake at
-  authoring time. From #181.
+- **Per-service URL validation patterns.** The inspector hint
+  added in the Mailchimp validation PR only covers Mailchimp's
+  `?u=USER_ID&id=LIST_ID` shape; Buttondown / ConvertKit / generic
+  silently fall through to a paste hint. Each has its own URL
+  pattern (e.g. Buttondown's
+  `buttondown.email/api/emails/embed-subscribe/<slug>`), and a
+  per-service parser + matching hint would extend the same author-
+  time signal. Defer until artists ask. From newsletter-validation
+  PR review.
 - **Generic "additional fields" array.** Today `hasNameField`
   toggles a single first-name input. Artists may want phone, country,
   or a custom field. An `additionalFields: { label, name, type }[]`
