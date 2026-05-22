@@ -47,6 +47,9 @@ export function Editor({ initialData, pageSlug, email }: Props) {
   // the new baseline).
   const [isDirty, setIsDirty] = useState(false);
   useBeforeUnloadIfDirty(isDirty);
+  // Drawer block filter — typed into the search box above the
+  // component list. Trimmed + lowercased before compare.
+  const [drawerFilter, setDrawerFilter] = useState("");
 
   const onPublish = useCallback(
     async (data: PageData) => {
@@ -98,9 +101,52 @@ export function Editor({ initialData, pageSlug, email }: Props) {
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}
       overrides={{
-        drawerItem: ({ name, children }) => (
-          <DrawerItemPreview name={name}>{children}</DrawerItemPreview>
-        ),
+        drawer: ({ children }) => {
+          const q = drawerFilter.trim().toLowerCase();
+          const hasMatch =
+            !q ||
+            Object.keys(puckConfig.components).some((name) =>
+              name.toLowerCase().includes(q),
+            );
+          return (
+            <>
+              <DrawerSearchInput
+                value={drawerFilter}
+                onChange={setDrawerFilter}
+              />
+              {q && !hasMatch ? (
+                <p
+                  role="status"
+                  style={{
+                    margin: "0 0 var(--space-3) 0",
+                    color: "var(--color-text-muted)",
+                    fontSize: "var(--font-size-sm)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  No matching blocks.
+                </p>
+              ) : null}
+              {children}
+            </>
+          );
+        },
+        drawerItem: ({ name, children }) => {
+          const q = drawerFilter.trim().toLowerCase();
+          if (q && !name.toLowerCase().includes(q)) {
+            // Render but hide so Puck's drag machinery keeps its DOM
+            // references; removing items outright can confuse the
+            // drawer-list virtualisation. `inert` keeps keyboard
+            // focus out of the hidden item (a tabbable drag handle
+            // would otherwise still be reachable).
+            return (
+              <div style={{ display: "none" }} aria-hidden inert>
+                {children}
+              </div>
+            );
+          }
+          return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
+        },
         headerActions: ({ children }) => (
           <>
             <Link
@@ -228,6 +274,50 @@ function Dot() {
         height: "0.5rem",
         borderRadius: "50%",
         background: "var(--color-action)",
+      }}
+    />
+  );
+}
+
+/**
+ * Search-style input shown at the top of the component drawer. Lifted
+ * into its own component so its identity is stable across Editor
+ * re-renders — Puck re-creates the `overrides` object whenever its
+ * parent updates, and pulling this out of the inline override keeps
+ * the input from being reconciled away (which would lose focus
+ * mid-keystroke).
+ */
+function DrawerSearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <input
+      type="search"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && value) {
+          // Don't let the keystroke bubble to Puck's editor — it can
+          // catch Escape for "deselect block" or similar shortcuts.
+          e.stopPropagation();
+          onChange("");
+        }
+      }}
+      placeholder="Filter blocks…"
+      aria-label="Filter blocks"
+      style={{
+        width: "100%",
+        margin: "0 0 var(--space-3) 0",
+        padding: "var(--space-2) var(--space-3)",
+        fontSize: "var(--font-size-sm)",
+        border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--color-surface)",
+        color: "var(--color-text)",
       }}
     />
   );
