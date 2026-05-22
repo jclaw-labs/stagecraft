@@ -100,6 +100,54 @@ describe("<PageBackgroundUnderlay> — raster (picture + format negotiation)", (
   });
 });
 
+describe("<PageBackgroundUnderlay> — overlay tint", () => {
+  it("renders no overlay element by default (opacity 0)", () => {
+    // Default opacity is 0 — no tint, image shows through unchanged.
+    // No DOM cost for the overlay div on the typical artist site.
+    const html = renderToStaticMarkup(<PageBackgroundUnderlay image={image()} />);
+    // Only one `aria-hidden` element (the image); no second overlay div.
+    const matches = html.match(/aria-hidden="true"/g) ?? [];
+    expect(matches).toHaveLength(1);
+  });
+
+  it("emits a fixed-positioned overlay div when overlayOpacity > 0", () => {
+    // The overlay is a sibling `<div>` painted in the same z-plane
+    // (z-index: -1, fixed inset: 0) so it composites over the image
+    // without needing a higher z-index.
+    const html = renderToStaticMarkup(
+      <PageBackgroundUnderlay image={image()} overlayOpacity={0.4} />,
+    );
+    // Two aria-hidden elements: the image + the tint div.
+    const matches = html.match(/aria-hidden="true"/g) ?? [];
+    expect(matches).toHaveLength(2);
+    expect(html).toMatch(/background-color:black/);
+    expect(html).toContain("opacity:0.4");
+  });
+
+  it("paints the overlay even on the vector branch (consistent semantics)", () => {
+    const html = renderToStaticMarkup(
+      <PageBackgroundUnderlay image={image({ originalExt: "svg" })} overlayOpacity={0.3} />,
+    );
+    expect(html).toContain("opacity:0.3");
+    expect(html).toMatch(/background-color:black/);
+  });
+
+  it("overlay omitted at opacity 0 (no DOM cost for the common case)", () => {
+    const html = renderToStaticMarkup(
+      <PageBackgroundUnderlay image={image()} overlayOpacity={0} />,
+    );
+    expect(html).not.toMatch(/background-color:black/);
+  });
+
+  it("overlay div is decorative + non-interactive (aria-hidden + pointer-events: none)", () => {
+    const html = renderToStaticMarkup(
+      <PageBackgroundUnderlay image={image()} overlayOpacity={0.5} />,
+    );
+    // Clicks should pass through to the page content beneath.
+    expect(html).toContain("pointer-events:none");
+  });
+});
+
 describe("<PageBackgroundUnderlay> — vector (SVG / ICO)", () => {
   it("renders a bare <img> (no <picture>) for SVG", () => {
     // SVG bypasses the sharp variant pipeline (no .avif / .webp

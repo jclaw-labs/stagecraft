@@ -5,6 +5,7 @@ import {
   CheckboxField,
   Field,
   FieldGroup,
+  NumberField,
   TextField,
 } from "@/components/admin/form";
 import { SaveBar } from "@/components/admin/SaveBar";
@@ -152,6 +153,18 @@ export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props
             onChange={(next) => setField("pageBackground", next)}
           />
         </Field>
+        {form.value.pageBackground ? (
+          <NumberField
+            id="pageBackgroundOverlay"
+            label="Background tint opacity"
+            description="0 (default) shows the background image at full strength. Common values are 0.2–0.5 for legible text on bright / busy backgrounds. 1 fully covers the image."
+            value={form.value.pageBackgroundOverlay}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => setField("pageBackgroundOverlay", v)}
+          />
+        ) : null}
       </FieldGroup>
 
       <FieldGroup

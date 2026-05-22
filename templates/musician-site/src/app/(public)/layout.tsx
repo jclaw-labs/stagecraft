@@ -44,7 +44,12 @@ export default async function PublicLayout({ children }: { children: ReactNode }
 
   return (
     <div className="stagecraft-site">
-      {site.pageBackground ? <PageBackgroundUnderlay image={site.pageBackground} /> : null}
+      {site.pageBackground ? (
+        <PageBackgroundUnderlay
+          image={site.pageBackground}
+          overlayOpacity={site.pageBackgroundOverlay}
+        />
+      ) : null}
       <AppearanceStyles appearance={appearance} />
       {children}
       {/* Single page-level bootstrap that enhances any photo

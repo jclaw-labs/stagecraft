@@ -28,6 +28,15 @@ import { largestVariantUrl, originalImageUrl } from "@/lib/image-urls";
  * to the webp `<img>`. SVG / ICO uploads bypass the variant
  * pipeline so render a bare `<img>` pointing at the original.
  *
+ * Overlay tint
+ * ------------
+ * `overlayOpacity` (0..1) paints a black tint over the image for
+ * text-legibility on busy / bright backgrounds. 0 (default) means
+ * no overlay — the image shows through unchanged. Common values
+ * are 0.2-0.5 for typical use cases. Rendered as a sibling
+ * fixed-positioned `<div>` that sits at the same z-index as the
+ * image but later in DOM order, so it paints on top.
+ *
  * Accessibility
  * -------------
  * `aria-hidden` because the image is decorative; `alt=""` so screen
@@ -37,7 +46,23 @@ import { largestVariantUrl, originalImageUrl } from "@/lib/image-urls";
  * `--color-background` token so a slow / failed image load doesn't
  * flash white.
  */
-export function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
+export function PageBackgroundUnderlay({
+  image,
+  overlayOpacity = 0,
+}: {
+  image: ImageMetadata;
+  /** 0..1 tint opacity painted over the image. 0 means no overlay. */
+  overlayOpacity?: number;
+}) {
+  return (
+    <>
+      <PageBackgroundImage image={image} />
+      {overlayOpacity > 0 ? <PageBackgroundOverlay opacity={overlayOpacity} /> : null}
+    </>
+  );
+}
+
+function PageBackgroundImage({ image }: { image: ImageMetadata }) {
   if (isVectorExt(image.originalExt)) {
     // Vector / icon: no sharp variants on disk. Serve the original
     // directly. SVG / ICO render as background fine via the bare
@@ -76,6 +101,29 @@ export function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
       <source srcSet={avifUrl} type="image/avif" />
       <img src={webpUrl} alt="" aria-hidden="true" style={imgStyle} />
     </picture>
+  );
+}
+
+/**
+ * Black tint painted over the page-background image for text-
+ * legibility. Same fixed-positioning + z-index as the image so it
+ * sits in the same plane; later in DOM order so it paints on top
+ * (without needing a different z-index). `pointer-events: none` so
+ * clicks pass through to the page content.
+ */
+function PageBackgroundOverlay({ opacity }: { opacity: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: -1,
+        pointerEvents: "none",
+        backgroundColor: "black",
+        opacity,
+      }}
+    />
   );
 }
 

@@ -429,6 +429,7 @@ export const puckConfig: Config<
     isSplashPage: boolean;
     isFooterHidden: boolean;
     pageBackground: ImageMetadata | null;
+    pageBackgroundOverlay: number | null;
   }
 > = {
   // Per-page settings — surfaced in Puck's right-hand "Page" inspector when
@@ -463,12 +464,20 @@ export const puckConfig: Config<
           />
         ),
       },
+      pageBackgroundOverlay: {
+        type: "number",
+        label: "Background tint opacity (leave blank to inherit site)",
+        min: 0,
+        max: 1,
+        step: 0.05,
+      },
     },
     defaultProps: {
       title: "Untitled",
       isSplashPage: false,
       isFooterHidden: false,
       pageBackground: null,
+      pageBackgroundOverlay: null,
     },
   },
   // Group the component drawer by purpose instead of one flat list.

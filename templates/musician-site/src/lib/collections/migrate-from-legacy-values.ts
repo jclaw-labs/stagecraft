@@ -128,6 +128,15 @@ export function siteConfigToItemValues(config: SiteConfig): Item["values"] {
       value: config.pageBackground,
     };
   }
+  // Overlay opacity only meaningful when a background is set; even
+  // so, persist when non-zero (the renderer ignores it without a
+  // background, and round-tripping a zero is wasteful disk).
+  if (config.pageBackgroundOverlay > 0) {
+    values[SITE_FIELD_IDS.pageBackgroundOverlay] = {
+      type: "number",
+      value: config.pageBackgroundOverlay,
+    };
+  }
   for (const platform of SOCIAL_PLATFORMS) {
     const url = config.socialLinks[platform];
     // Empty social links are omitted so optional URL fields don't
@@ -157,6 +166,9 @@ export function siteConfigFromItem(item: Item | null): SiteConfig {
     isFooterHidden: getBoolean(item, SITE_FIELD_IDS.isFooterHidden) ?? false,
     favicon: getImageOrNull(item, SITE_FIELD_IDS.favicon),
     pageBackground: getImageOrNull(item, SITE_FIELD_IDS.pageBackground),
+    pageBackgroundOverlay: clampOverlayOpacity(
+      getNumber(item, SITE_FIELD_IDS.pageBackgroundOverlay),
+    ),
     // Absent flag on a pre-existing site → treat as not-yet-completed
     // so older repos see the wizard on next visit. New repos write the
     // field explicitly through the wizard or the dev seed.
@@ -344,4 +356,16 @@ function getNumber(item: Item, fieldId: string): number | null {
 function getImageOrNull(item: Item, fieldId: string): ImageMetadata | null {
   const v = item.values[fieldId];
   return v && v.type === "image" ? v.value : null;
+}
+
+/**
+ * Clamp a stored overlay opacity into 0..1 and substitute 0 for
+ * missing / out-of-range values. Defensive against hand-edited JSON
+ * carrying a stale or wild number.
+ */
+function clampOverlayOpacity(value: number | null): number {
+  if (value === null || !Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }

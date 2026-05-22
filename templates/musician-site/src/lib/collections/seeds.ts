@@ -193,6 +193,19 @@ export const siteCollectionDef: CollectionDef = {
       required: false,
       systemLocked: true,
     },
+    {
+      // 0..1 black-tint opacity over `pageBackground`. systemLocked
+      // because the renderer reads it by id; the schema editor
+      // shouldn't allow removing or renaming it. Optional /
+      // unconstrained min-max in the field def; the
+      // `clampOverlayOpacity` helper in migrate-from-legacy-values
+      // enforces 0..1 on read.
+      id: SITE_FIELD_IDS.pageBackgroundOverlay,
+      key: "pageBackgroundOverlay",
+      type: "number",
+      required: false,
+      systemLocked: true,
+    },
     // First-run completion flag. systemLocked because the welcome
     // wizard and reset flow are the only writers; the artist
     // shouldn't see it as an editable field in the schema editor.

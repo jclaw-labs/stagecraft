@@ -350,6 +350,7 @@ describe("extractPageRootProps", () => {
       isSplashPage: false,
       isFooterHidden: false,
       pageBackground: null,
+      pageBackgroundOverlay: null,
     });
   });
 
@@ -365,6 +366,7 @@ describe("extractPageRootProps", () => {
       isSplashPage: true,
       isFooterHidden: true,
       pageBackground: null,
+      pageBackgroundOverlay: null,
     });
   });
 
@@ -391,6 +393,26 @@ describe("extractPageRootProps", () => {
       root: { props: { title: "x", pageBackground: image } },
     } as PageData);
     expect(props.pageBackground).toEqual(image);
+  });
+
+  it("preserves pageBackgroundOverlay when set to a number 0..1", () => {
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackgroundOverlay: 0.45 } },
+    } as PageData);
+    expect(props.pageBackgroundOverlay).toBe(0.45);
+  });
+
+  it("treats out-of-range pageBackgroundOverlay as null (inherit site)", () => {
+    // The schema accepts 0..1; values outside that range fall back to
+    // null (inherit site default) rather than crashing the renderer.
+    for (const bad of [-0.1, 1.5, NaN, Infinity, "0.5"]) {
+      const props = extractPageRootProps({
+        content: [],
+        root: { props: { title: "x", pageBackgroundOverlay: bad } },
+      } as PageData);
+      expect(props.pageBackgroundOverlay).toBeNull();
+    }
   });
 
   it("treats a non-object pageBackground as null", () => {
