@@ -46,11 +46,13 @@ import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox";
  *
  * Re-scan on DOM updates
  * ----------------------
- * For v1 we attach handlers once on mount. Dynamic gallery
- * insertions after hydration (the gallery editor's preview pane,
- * say) wouldn't get handlers. The public site doesn't do dynamic
- * insertions, so this is acceptable; a MutationObserver-based
- * re-scan can land if the use case appears.
+ * A `MutationObserver` watching `document.body` picks up galleries
+ * inserted after the boot mounts (e.g. the gallery editor's preview
+ * pane, future client-side filters). New `[data-collection-view=
+ * "photos"]` nodes get a fresh click delegate; removed ones get
+ * their listener cleaned up so detached DOM doesn't keep references
+ * to the boot's state. Initial-mount scan is still the fast path
+ * (no observer round-trip on first paint).
  */
 export function PhotoLightboxBoot() {
   const [state, setState] = useState<
@@ -64,20 +66,65 @@ export function PhotoLightboxBoot() {
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const galleries = document.querySelectorAll<HTMLElement>(
-      '[data-collection-view="photos"]',
-    );
-    if (galleries.length === 0) return;
+    const GALLERY_SELECTOR = '[data-collection-view="photos"]';
+    // Track wired galleries so the observer can cleanly add /
+    // remove handlers as DOM changes. A WeakMap would suffice for
+    // GC of detached galleries, but `Map` lets the cleanup phase
+    // iterate every wired entry.
+    const wired = new Map<HTMLElement, () => void>();
 
-    const cleanups: Array<() => void> = [];
-    for (const gallery of galleries) {
-      cleanups.push(wireGallery(gallery, (next) => {
-        restoreFocusRef.current = document.activeElement as HTMLElement | null;
-        setState(next);
-      }));
+    function wire(gallery: HTMLElement) {
+      if (wired.has(gallery)) return;
+      wired.set(
+        gallery,
+        wireGallery(gallery, (next) => {
+          restoreFocusRef.current = document.activeElement as HTMLElement | null;
+          setState(next);
+        }),
+      );
     }
+
+    function unwire(gallery: HTMLElement) {
+      const cleanup = wired.get(gallery);
+      if (!cleanup) return;
+      cleanup();
+      wired.delete(gallery);
+    }
+
+    // Initial scan — typical static-site case where galleries are
+    // server-rendered into the initial HTML.
+    document.querySelectorAll<HTMLElement>(GALLERY_SELECTOR).forEach(wire);
+
+    // Watch the document for dynamically-inserted galleries. The
+    // observer fires on EVERY DOM change in the subtree (text
+    // inserts, React commits elsewhere on the page, etc.) — but
+    // each batch is cheap because we filter aggressively to our
+    // gallery selector.
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.matches(GALLERY_SELECTOR)) wire(node);
+          // The added node might CONTAIN a gallery (e.g. a section
+          // wrapper with a photo grid inside).
+          node.querySelectorAll<HTMLElement>(GALLERY_SELECTOR).forEach(wire);
+        }
+        for (const node of mutation.removedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (wired.has(node)) unwire(node);
+          // Removed wrappers may contain wired galleries; iterate
+          // the wired map to catch them. `node.querySelectorAll`
+          // works on detached subtrees too.
+          node.querySelectorAll<HTMLElement>(GALLERY_SELECTOR).forEach(unwire);
+        }
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true });
+
     return () => {
-      for (const cleanup of cleanups) cleanup();
+      observer.disconnect();
+      for (const cleanup of wired.values()) cleanup();
+      wired.clear();
     };
   }, []);
 
