@@ -21,11 +21,6 @@ something worth fixing that doesn't fit the current PR's scope.
   on touch screens would let users inspect detail. Browser native
   pinch-zoom on the page is suppressed by the body-scroll-lock; we'd
   need an explicit transform-based zoom inside the modal. From #183.
-- **MutationObserver re-scan for dynamic galleries.** Boot attaches
-  click delegation once on mount. Galleries inserted after hydration
-  (the gallery editor's preview pane, future client-side filters)
-  wouldn't get handlers. The public site doesn't do dynamic
-  insertions today, so this is acceptable. From #183.
 
 ## Newsletter signup
 
