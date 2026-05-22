@@ -1,0 +1,138 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RequestError } from "@octokit/request-error";
+
+const { compareCommitsWithBasehead } = vi.hoisted(() => ({
+  compareCommitsWithBasehead: vi.fn(),
+}));
+vi.mock("@octokit/rest", () => ({
+  Octokit: class {
+    repos = { compareCommitsWithBasehead };
+  },
+}));
+
+const { fetchPublishTokenMock } = vi.hoisted(() => ({
+  fetchPublishTokenMock: vi.fn(),
+}));
+vi.mock("./publish", async () => {
+  const actual = await vi.importActual<typeof import("./publish")>("./publish");
+  return { ...actual, fetchPublishToken: fetchPublishTokenMock };
+});
+
+import { getDraftChanges } from "./draft-changes";
+import { PublishError } from "./publish";
+
+const ORIGINAL_ENV = { ...process.env };
+
+beforeEach(() => {
+  compareCommitsWithBasehead.mockReset();
+  fetchPublishTokenMock.mockReset();
+  fetchPublishTokenMock.mockResolvedValue({
+    token: "ghs_test",
+    owner: "artist",
+    repo: "site",
+  });
+  process.env = {
+    ...ORIGINAL_ENV,
+    STAGECRAFT_SITE_ID: "site_abc",
+    STAGECRAFT_BROKER_SECRET: "secret_xyz",
+  };
+});
+
+afterEach(() => {
+  process.env = { ...ORIGINAL_ENV };
+});
+
+function compareResponse(files: Array<{ filename: string; status: string }> | null) {
+  return { data: { files: files ?? undefined } };
+}
+
+function notFound(): RequestError {
+  return new RequestError("Not Found", 404, {
+    request: { method: "GET", url: "x", headers: {} },
+    response: { status: 404, url: "x", headers: {}, data: {} },
+  });
+}
+
+describe("getDraftChanges", () => {
+  it("returns local + count=0 when the platform isn't configured", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    delete process.env.STAGECRAFT_BROKER_SECRET;
+    const result = await getDraftChanges();
+    expect(result).toEqual({ count: 0, mode: "local" });
+    expect(fetchPublishTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the file count from the compare API", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/home.json", status: "modified" },
+        { filename: "src/content/collections/pages/items/about.json", status: "added" },
+        { filename: "src/content/collections/photos/items/sunset.json", status: "removed" },
+      ]),
+    );
+    const result = await getDraftChanges();
+    expect(result).toEqual({ count: 3, mode: "github" });
+    expect(compareCommitsWithBasehead).toHaveBeenCalledWith({
+      owner: "artist",
+      repo: "site",
+      basehead: "main...draft",
+    });
+  });
+
+  it("returns count=0 when draft and main are in sync (empty files array)", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse([]));
+    const result = await getDraftChanges();
+    expect(result).toEqual({ count: 0, mode: "github" });
+  });
+
+  it("handles the API omitting `files` entirely (treated as zero)", async () => {
+    // The Octokit typing has `files?: Array<...>`. A response without
+    // any commits between base and head can come back without it.
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(null));
+    const result = await getDraftChanges();
+    expect(result).toEqual({ count: 0, mode: "github" });
+  });
+
+  it("returns count=0 when the draft branch doesn't exist yet (fresh site)", async () => {
+    // Saving the first item is what creates the branch — until then
+    // there's nothing to publish, by definition. The compare endpoint
+    // 404s on the head ref in that state; don't surface that as an
+    // error.
+    compareCommitsWithBasehead.mockRejectedValue(notFound());
+    const result = await getDraftChanges();
+    expect(result).toEqual({ count: 0, mode: "github" });
+  });
+
+  it("re-throws as DraftChangesError(github-failed) on non-404 GitHub errors", async () => {
+    const serverErr = new RequestError("Internal Server Error", 500, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 500, url: "x", headers: {}, data: {} },
+    });
+    compareCommitsWithBasehead.mockRejectedValue(serverErr);
+    await expect(getDraftChanges()).rejects.toMatchObject({
+      name: "DraftChangesError",
+      code: "github-failed",
+    });
+  });
+
+  it("re-throws as DraftChangesError(broker-unreachable) when the broker is offline", async () => {
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-unreachable", "platform down"),
+    );
+    await expect(getDraftChanges()).rejects.toMatchObject({
+      name: "DraftChangesError",
+      code: "broker-unreachable",
+    });
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("re-throws as DraftChangesError(broker-rejected) on bad per-site secret", async () => {
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-rejected", "unknown site"),
+    );
+    await expect(getDraftChanges()).rejects.toMatchObject({
+      name: "DraftChangesError",
+      code: "broker-rejected",
+    });
+  });
+});

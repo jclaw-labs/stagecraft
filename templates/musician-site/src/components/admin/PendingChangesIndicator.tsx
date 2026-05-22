@@ -1,11 +1,11 @@
 /**
  * Pre-action indicator in the admin sidebar.
  *
- * Sits above `PublishPendingChangesButton`. Fetches `/api/draft-status`
+ * Sits above `PublishPendingChangesButton`. Fetches `/api/draft-changes`
  * on mount and renders one of three states:
  *
- *   - hasPending=true   → "Unpublished changes" (emphasised)
- *   - hasPending=false  → "All published" (muted)
+ *   - count > 0    → "N unpublished changes" (emphasised, singular for N=1)
+ *   - count === 0  → "All published" (muted)
  *   - dev / unconfigured → nothing (no draft branch concept)
  *
  * Loading + fetch-error states render nothing — the indicator is
@@ -27,14 +27,14 @@ import type { CSSProperties } from "react";
 
 type Status =
   | { kind: "loading" }
-  | { kind: "pending" }
+  | { kind: "pending"; count: number }
   | { kind: "clean" }
   | { kind: "hidden" };
 
-type DraftStatusResponseBody =
+type DraftChangesResponseBody =
   | {
       ok: true;
-      status: { hasPending: boolean; mode: "local" | "github" };
+      status: { count: number; mode: "local" | "github" };
     }
   | { ok: false; code?: string; error?: string }
   | null;
@@ -47,12 +47,11 @@ export function PendingChangesIndicator() {
     async function load() {
       try {
         // `cache: "no-store"` so a save → navigate sequence doesn't
-        // serve a stale "All published" from the browser cache. The
-        // route handler itself returns dynamic JSON without
-        // cache-control headers, but default browser caching of GET
-        // responses can still bite.
-        const res = await fetch("/api/draft-status", { cache: "no-store" });
-        const body = (await res.json().catch(() => null)) as DraftStatusResponseBody;
+        // serve a stale count from the browser cache. The route
+        // handler also returns `cache-control: no-store` — both
+        // belts.
+        const res = await fetch("/api/draft-changes", { cache: "no-store" });
+        const body = (await res.json().catch(() => null)) as DraftChangesResponseBody;
         if (cancelled) return;
         if (!res.ok || !body || !body.ok) {
           // Don't surface fetch errors in chrome — the artist's
@@ -64,7 +63,11 @@ export function PendingChangesIndicator() {
           setStatus({ kind: "hidden" });
           return;
         }
-        setStatus({ kind: body.status.hasPending ? "pending" : "clean" });
+        setStatus(
+          body.status.count > 0
+            ? { kind: "pending", count: body.status.count }
+            : { kind: "clean" },
+        );
       } catch {
         if (cancelled) return;
         setStatus({ kind: "hidden" });
@@ -83,7 +86,9 @@ export function PendingChangesIndicator() {
   if (status.kind === "pending") {
     return (
       <div style={containerStyle} role="status" aria-live="polite">
-        <span style={pendingTextStyle}>Unpublished changes</span>
+        <span style={pendingTextStyle}>
+          {status.count} unpublished {status.count === 1 ? "change" : "changes"}
+        </span>
       </div>
     );
   }

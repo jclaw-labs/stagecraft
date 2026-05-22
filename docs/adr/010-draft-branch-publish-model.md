@@ -435,6 +435,38 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* when more than ~5 items are routinely pending
   between publishes.
 
+- **Pending-changes count caps at 300.** GitHub's compare API
+  truncates the `files` array at 300 entries; `PendingChangesIndicator`
+  reads the array length, so the count maxes out there. The
+  boolean "anything pending?" signal stays accurate because the
+  array is non-empty when any change exists. Fix is either "300+"
+  affordance or paging via `ahead_by` + per-commit walks.
+  *Trigger:* an artist reports the count looks wrong.
+
+- **Cleaner error messages in `lib/draft-changes`.** Both error
+  paths use `String(cause)`, which yields `"RequestError: Not
+  Found"` rather than just the message. The route handler hides
+  these from the indicator, so it's only visible in dev logs.
+  Fix is `cause instanceof Error ? cause.message : String(cause)`.
+  *Trigger:* the first time someone debugs a draft-changes error
+  from logs.
+
+- **Abort the indicator's fetch on unmount.** `PendingChangesIndicator`
+  uses a `cancelled` flag to gate the `setState` call — correct
+  for state safety — but the in-flight network request keeps
+  running until it resolves. An `AbortController` would cut the
+  bandwidth too. Negligible cost for a single status request;
+  worth it only if real load surfaces.
+  *Trigger:* perf profiling shows the wasted request matters.
+
+- **Cross-request broker-token cache.** Every admin nav re-mints a
+  fresh GitHub App installation token (`fetchPublishToken`). The
+  read-store dedupes per-request via `React.cache`, but each new
+  request pays the broker round-trip again. A short-TTL module-
+  level cache would amortise this across the artist's session.
+  *Trigger:* broker mint latency shows up as a real fraction of
+  admin page load times.
+
 ## Consequences
 
 - **ADR-007 §5 (Publishing) is superseded.** The "every save
