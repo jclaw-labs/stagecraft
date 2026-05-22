@@ -18,6 +18,7 @@
   "dependencies": {
     "@measured/puck": "^0.20.0",
     "@octokit/rest": "^22.0.1",
+    "isomorphic-dompurify": "^3.14.0",
     "jose": "^6.2.3",
     "next": "^15.1.0",
     "react": "^19.0.0",

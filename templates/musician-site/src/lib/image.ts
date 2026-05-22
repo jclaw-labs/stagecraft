@@ -14,6 +14,7 @@ import {
   asImageId,
   isVectorExt,
 } from "./image-types";
+import { sanitiseSvg } from "./svg-sanitise";
 
 const PUBLIC_IMAGES_DIR = path.join(process.cwd(), "public/images");
 const HASH_LENGTH = 16;
@@ -120,16 +121,24 @@ export async function generateImageVariants(
   // dimensions are advisory — `isVectorExt` keeps consumers off the
   // variant code paths.
   //
-  // Security note: SVGs are written byte-for-byte without sanitisation,
-  // so an uploaded SVG with `<script>` would run if a visitor opened
-  // its URL directly (top-level document context). The upload endpoint
-  // is admin-only — only the authenticated site owner can land content
-  // here — so the practical attack surface today is "the artist
-  // uploaded a malicious SVG knowingly." When contributor / fan-
-  // submitted uploads land in a future PR, this bypass needs a
-  // DOMPurify (SVG profile) pass + a `Content-Disposition: attachment`
-  // header on the response. Tracked in the parity audit.
+  // Security: SVGs run through DOMPurify (`sanitiseSvg`) before they
+  // land on disk. The SVG profile strips `<script>`, `<foreignObject>`,
+  // `on*` event handlers, and `javascript:` URLs. Forward-looking: a
+  // `Content-Disposition: attachment` header on raw SVG responses
+  // would also prevent top-level navigation rendering entirely (the
+  // attack vector where the artist clicks the bare image URL); that's
+  // a separate Next.js middleware change.
+  // ICO bytes are opaque binary; DOMPurify is XML-only, so the
+  // sanitiser is SVG-only. ICO has no known JS-execution vector
+  // through the standard `<link rel="icon">` surface.
   if (isVectorExt(input.originalExt)) {
+    // SVG: strip executable content before writing. ICO bytes are
+    // opaque binary with no known JS-execution vector through the
+    // standard `<link rel="icon">` surface, so we leave them alone.
+    // The id stays keyed off the raw input bytes — dedup keys on
+    // what the artist uploaded, not on the sanitised output.
+    const originalBuffer =
+      input.originalExt === "svg" ? sanitiseSvg(input.buffer) : input.buffer;
     return {
       metadata: {
         id,
@@ -141,7 +150,7 @@ export async function generateImageVariants(
         originalExt: input.originalExt,
         ...editorialMetadata(input),
       },
-      originalBuffer: input.buffer,
+      originalBuffer,
       variants: [],
     };
   }
