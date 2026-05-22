@@ -85,6 +85,54 @@ describe("PendingChangesIndicator", () => {
     });
   });
 
+  it("passes an AbortController signal so unmount cancels the fetch", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, status: { count: 0, mode: "github" } }),
+    );
+    render(<PendingChangesIndicator />);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts the in-flight fetch on unmount", async () => {
+    // Capture the signal the indicator passes so we can observe it
+    // flipping to aborted when the component unmounts.
+    let capturedSignal: AbortSignal | null = null;
+    fetchMock.mockImplementation((_url, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? null;
+      return new Promise(() => {}); // never resolves
+    });
+    const { unmount } = render(<PendingChangesIndicator />);
+    await waitFor(() => {
+      expect(capturedSignal).not.toBeNull();
+    });
+    expect(capturedSignal!.aborted).toBe(false);
+    unmount();
+    expect(capturedSignal!.aborted).toBe(true);
+  });
+
+  it("doesn't transition out of loading when the fetch throws AbortError", async () => {
+    // The unmount path rejects the pending fetch with an AbortError.
+    // The indicator should swallow it silently, not hide on it (a fast
+    // re-mount during navigation would otherwise see the wrong state).
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          // Reject on the next microtask so the component has time
+          // to register the cleanup before we throw.
+          queueMicrotask(() => reject(err));
+        }),
+    );
+    const { container } = render(<PendingChangesIndicator />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.firstChild).toBeNull();
+  });
+
   it("hides silently on a server error (don't surface load failures in chrome)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: "boom" }, { status: 500 }));
     const { container } = render(<PendingChangesIndicator />);

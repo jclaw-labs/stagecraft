@@ -490,14 +490,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* the first time someone debugs a draft-changes error
   from logs.
 
-- **Abort the indicator's fetch on unmount.** `PendingChangesIndicator`
-  uses a `cancelled` flag to gate the `setState` call — correct
-  for state safety — but the in-flight network request keeps
-  running until it resolves. An `AbortController` would cut the
-  bandwidth too. Negligible cost for a single status request;
-  worth it only if real load surfaces.
-  *Trigger:* perf profiling shows the wasted request matters.
-
 - **Cross-request broker-token cache.** Every admin nav re-mints a
   fresh GitHub App installation token (`fetchPublishToken`). The
   read-store dedupes per-request via `React.cache`, but each new
