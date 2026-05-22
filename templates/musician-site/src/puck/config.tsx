@@ -1,5 +1,5 @@
 import type { Config, Slot } from "@measured/puck";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
 import { ImageCarousel } from "@/components/ImageCarousel";
@@ -13,6 +13,7 @@ import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  parseMailchimpAudienceHoneypotName,
   type NewsletterService,
 } from "@/components/newsletter-types";
 import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
@@ -108,6 +109,132 @@ export const CARD_VARIANT_LABELS: Record<CardVariant, string> = {
   filled: "Filled (default surface)",
   outlined: "Outlined (transparent background)",
 };
+
+/**
+ * Inspector helper text + severity for the NewsletterSignup block's
+ * `actionUrl` field. Surfaces three states for Mailchimp authors —
+ * empty (paste hint), looks-valid (positive confirmation),
+ * looks-broken (warn about reduced spam protection). Other
+ * providers get a generic paste hint.
+ *
+ * Exported so the unit test asserts the message strings without
+ * having to drive Puck. Pure / synchronous; safe to call during
+ * the editor's render path.
+ */
+export function newsletterUrlDescription(
+  service: NewsletterService,
+  actionUrl: string,
+): { kind: "info" | "ok" | "warn"; text: string } {
+  if (service !== "mailchimp") {
+    return {
+      kind: "info",
+      text: "Paste the form's POST URL from your provider's embed code.",
+    };
+  }
+  if (!actionUrl) {
+    return {
+      kind: "info",
+      text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
+    };
+  }
+  if (parseMailchimpAudienceHoneypotName(actionUrl)) {
+    return {
+      kind: "ok",
+      text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+    };
+  }
+  return {
+    kind: "warn",
+    text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+  };
+}
+
+/**
+ * Puck custom field for the NewsletterSignup `actionUrl`, with a
+ * dynamic helper / warning rendered below the input. Returned by
+ * `resolveFields` per-call so the helper text refreshes whenever
+ * `service` or `actionUrl` changes.
+ *
+ * Why custom instead of `type: "text"`: Puck's TextField has no
+ * `description` / help-text slot. The custom render reproduces the
+ * native text input (single-line, controlled, blur-on-change) and
+ * appends a paragraph below — the input UX is intentionally minimal
+ * here because actionUrl is paste-only in practice.
+ */
+function newsletterUrlField(service: NewsletterService) {
+  return {
+    type: "custom" as const,
+    label: "Form submission URL",
+    // `value` updates live as the artist types — recompute the hint
+    // inside render so it tracks the current input. Pre-baking the
+    // hint outside the closure (at resolveFields time) would leave
+    // the warning stale on every keystroke because Puck reuses the
+    // existing custom-field render function and only updates its
+    // `value` prop.
+    render: ({
+      value,
+      onChange,
+    }: {
+      value: string;
+      onChange: (next: string) => void;
+    }): ReactElement => {
+      const current = typeof value === "string" ? value : "";
+      const hint = newsletterUrlDescription(service, current);
+      return (
+        <div style={newsletterUrlFieldStyle}>
+          <input
+            type="text"
+            value={current}
+            onChange={(e) => onChange(e.target.value)}
+            style={newsletterUrlInputStyle}
+          />
+          {/* `aria-live` so screen-reader users hear the warning /
+              confirmation cycle as they paste; sighted users get
+              the colour swap. `polite` rather than `assertive`
+              because nothing is broken — the message is advisory. */}
+          <p
+            role="status"
+            aria-live="polite"
+            style={newsletterUrlHintStyle(hint.kind)}
+          >
+            {hint.text}
+          </p>
+        </div>
+      );
+    },
+  };
+}
+
+const newsletterUrlFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+};
+
+const newsletterUrlInputStyle: CSSProperties = {
+  width: "100%",
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "var(--font-mono)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+
+function newsletterUrlHintStyle(kind: "info" | "ok" | "warn"): CSSProperties {
+  return {
+    margin: 0,
+    fontSize: "var(--font-size-xs)",
+    lineHeight: "var(--line-height-base)",
+    color:
+      kind === "warn"
+        ? "var(--color-text-error)"
+        : kind === "ok"
+          ? "var(--color-text-emphasis)"
+          : "var(--color-text-muted)",
+  };
+}
 
 // All visual values come from CSS custom properties (see app/globals.css).
 // CLAUDE.md §7 forbids raw hex/px/size values in inline styles.
@@ -1216,6 +1343,29 @@ export const puckConfig: Config<
       // (Mailchimp / ConvertKit / Buttondown / generic). No server
       // route on this template — the no-cors fetch in
       // NewsletterSignup.tsx posts straight to the provider.
+      //
+      // `resolveFields` rebuilds `actionUrl` as a custom field whose
+      // render adds an inline helper / warning beneath the input —
+      // Puck's stock `TextField` has no description / help-text slot.
+      // The helper surfaces three states for Mailchimp authors:
+      //   - empty → paste hint
+      //   - parseable → positive confirmation (per-audience honeypot
+      //     will activate)
+      //   - non-parseable → warning that the per-audience honeypot
+      //     can't be derived (falls back to the universal `_gotcha`).
+      // The signup keeps submitting either way; the warning just
+      // helps the artist paste the right URL up-front instead of
+      // discovering "spam protection isn't working" months later.
+      resolveFields: (data, { fields }) => ({
+        // `service` is the only sibling field the hint depends on —
+        // pass it through so the custom render can recompute the
+        // hint per-keystroke against the live `value`. The render
+        // function is reused across keystrokes (Puck only updates
+        // its `value` prop), so `service` has to be baked into the
+        // closure here.
+        ...fields,
+        actionUrl: newsletterUrlField(data.props.service),
+      }),
       fields: {
         service: {
           type: "select",
@@ -1225,10 +1375,11 @@ export const puckConfig: Config<
             value: s,
           })),
         },
-        actionUrl: {
-          type: "text",
-          label: "Form submission URL",
-        },
+        // Placeholder field — `resolveFields` above rebuilds this
+        // every render against the current `service`. Puck needs a
+        // value here at static-config parse time; the service arg
+        // doesn't matter (any value is replaced before display).
+        actionUrl: newsletterUrlField("mailchimp"),
         title: {
           type: "text",
           label: "Title (optional)",
