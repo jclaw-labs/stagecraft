@@ -86,38 +86,34 @@ export async function getDraftStatus(env: Env = readEnv()): Promise<DraftStatus>
 
   const octokit = new Octokit({ auth: token });
 
-  let draftSha: string;
-  try {
-    const draftRef = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${DRAFT_BRANCH}`,
-    });
-    draftSha = draftRef.data.object.sha;
-  } catch (cause) {
+  // Fetch both refs in parallel — one wall-clock round-trip instead
+  // of two. The draft 404 (fresh site) is distinguished from the
+  // main 404 (broken repo) below; everything else collapses to
+  // `github-failed`.
+  const [draftResult, mainResult] = await Promise.allSettled([
+    octokit.git.getRef({ owner, repo, ref: `heads/${DRAFT_BRANCH}` }),
+    octokit.git.getRef({ owner, repo, ref: `heads/${env.branch}` }),
+  ]);
+
+  if (draftResult.status === "rejected") {
     // Fresh site: no `draft` branch yet. Nothing pending, by
     // definition — saving the first item is what creates the
     // branch.
+    const cause = draftResult.reason;
     if (cause instanceof RequestError && cause.status === 404) {
       return { hasPending: false, mode: "github" };
     }
     throw new DraftStatusError("github-failed", `getRef draft: ${String(cause)}`);
   }
-
-  let mainSha: string;
-  try {
-    const mainRef = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${env.branch}`,
-    });
-    mainSha = mainRef.data.object.sha;
-  } catch (cause) {
-    throw new DraftStatusError("github-failed", `getRef main: ${String(cause)}`);
+  if (mainResult.status === "rejected") {
+    throw new DraftStatusError(
+      "github-failed",
+      `getRef main: ${String(mainResult.reason)}`,
+    );
   }
 
   return {
-    hasPending: draftSha !== mainSha,
+    hasPending: draftResult.value.data.object.sha !== mainResult.value.data.object.sha,
     mode: "github",
   };
 }

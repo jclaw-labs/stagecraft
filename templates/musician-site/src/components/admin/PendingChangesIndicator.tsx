@@ -4,7 +4,7 @@
  * Sits above `PublishPendingChangesButton`. Fetches `/api/draft-status`
  * on mount and renders one of three states:
  *
- *   - hasPending=true   → "Unpublished changes" (dot + emphasised)
+ *   - hasPending=true   → "Unpublished changes" (emphasised)
  *   - hasPending=false  → "All published" (muted)
  *   - dev / unconfigured → nothing (no draft branch concept)
  *
@@ -46,7 +46,12 @@ export function PendingChangesIndicator() {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/draft-status");
+        // `cache: "no-store"` so a save → navigate sequence doesn't
+        // serve a stale "All published" from the browser cache. The
+        // route handler itself returns dynamic JSON without
+        // cache-control headers, but default browser caching of GET
+        // responses can still bite.
+        const res = await fetch("/api/draft-status", { cache: "no-store" });
         const body = (await res.json().catch(() => null)) as DraftStatusResponseBody;
         if (cancelled) return;
         if (!res.ok || !body || !body.ok) {

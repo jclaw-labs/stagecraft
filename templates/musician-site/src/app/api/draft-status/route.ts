@@ -28,7 +28,13 @@ export async function GET() {
 
   try {
     const status = await getDraftStatus();
-    return NextResponse.json({ ok: true, status });
+    return NextResponse.json(
+      { ok: true, status },
+      // No-store so a save → navigate sequence isn't served a stale
+      // "All published" out of the browser's HTTP cache. The client
+      // also sets `cache: "no-store"` on its fetch — both belts.
+      { headers: { "cache-control": "no-store" } },
+    );
   } catch (cause) {
     if (cause instanceof DraftStatusError) {
       const httpStatus = cause.code === "broker-rejected" ? 502 : 500;
