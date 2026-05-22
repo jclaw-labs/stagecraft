@@ -27,17 +27,6 @@ something worth fixing that doesn't fit the current PR's scope.
   wouldn't get handlers. The public site doesn't do dynamic
   insertions today, so this is acceptable. From #183.
 
-## Image rendering
-
-- **AVIF support in `PageBackgroundUnderlay`.** The underlay
-  currently requests the largest `.webp` variant. The variant
-  pipeline emits both `.webp` and `.avif`; emitting a `<picture>`
-  underlay (avif first, webp fallback) would shave ~10% off the
-  background image transfer for Safari 16+ / Chrome / Firefox.
-  Touched in #179, deferred since `<img background-image:url(...)>`
-  doesn't accept multiple sources — needs a structural rework to
-  use a `<picture>` or a CSS `image-set()` declaration. From #179.
-
 ## Newsletter signup
 
 - **Inspector validation hints.** When `service: mailchimp` is

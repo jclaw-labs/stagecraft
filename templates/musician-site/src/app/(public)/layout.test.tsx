@@ -108,21 +108,23 @@ describe("(public) layout — generateMetadata", () => {
 });
 
 describe("(public) layout — pageBackground render", () => {
-  it("renders a fixed-position underlay div with the largest variant URL when set", async () => {
+  it("renders a fixed-position underlay with the largest variant URL when set", async () => {
     // Fixture width is 256 — smaller than the smallest sharp variant
     // (400) — so the underlay should fall back to the original.
+    // PNG is raster but has no avif/webp variants at width 256, so
+    // the `<picture>` flow degrades to the original.
     await writeSite({ pageBackground: true });
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain('background-image:url(&quot;/images/site/abc1234567890def/original.png&quot;)');
+    expect(html).toContain('src="/images/site/abc1234567890def/original.png"');
     // Underlay choices locked here: fixed positioning (works on iOS,
-    // unlike background-attachment:fixed), cover-fit, color fallback
-    // for slow / failed loads, no pointer events so it can't
-    // intercept clicks.
+    // unlike background-attachment:fixed), cover-fit via
+    // object-fit, color fallback for slow / failed loads, no
+    // pointer events so it can't intercept clicks.
     expect(html).toContain("position:fixed");
-    expect(html).toContain("background-size:cover");
-    expect(html).toContain("background-position:center");
+    expect(html).toContain("object-fit:cover");
+    expect(html).toContain("object-position:center");
     expect(html).toContain("background-color:var(--color-background)");
     expect(html).toContain("pointer-events:none");
     // background-attachment:fixed was the v0 approach; replaced by
@@ -131,10 +133,12 @@ describe("(public) layout — pageBackground render", () => {
     expect(html).not.toContain("background-attachment:fixed");
   });
 
-  it("picks the largest sharp variant (.webp) when source width allows it", async () => {
+  it("emits a <picture> with avif + webp for raster variants", async () => {
     // Simulate a hero-sized upload (2000w). The sharp pipeline emits
-    // 400/800/1600 widths whenever source ≥ variant; the largest
-    // eligible here is 1600.
+    // 400/800/1600 widths in both webp + avif whenever source ≥
+    // variant; the largest eligible here is 1600. Format negotiation
+    // via `<picture>` lets avif-capable browsers (Chrome 85+, Safari
+    // 16+) pick the smaller file.
     const heroSite = siteItemWith({});
     heroSite.values[SITE_FIELD_IDS.pageBackground] = {
       type: "image",
@@ -143,16 +147,21 @@ describe("(public) layout — pageBackground render", () => {
     await fs.writeFile(SITE_ITEM_PATH, JSON.stringify(heroSite, null, 2), "utf-8");
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
-    expect(html).toContain('background-image:url(&quot;/images/site/abc1234567890def/1600.webp&quot;)');
+    // Both variant URLs appear — `<source>` for avif, `<img src>`
+    // for the webp fallback.
+    expect(html).toContain('srcSet="/images/site/abc1234567890def/1600.avif"');
+    expect(html).toContain('src="/images/site/abc1234567890def/1600.webp"');
     // Original isn't referenced when a variant exists — proves the
     // variant-aware fallback ordering.
     expect(html).not.toContain("original.jpg");
   });
 
-  it("falls back to the original URL for vector formats (SVG / ICO have no variants)", async () => {
+  it("falls back to a bare <img> with the original URL for vector formats (SVG / ICO)", async () => {
     // Vectors bypass the sharp variant pipeline — no sized webp/avif
-    // on disk. `largestVariantUrl` should short-circuit on
-    // `isVectorExt` and serve the original.
+    // on disk. The underlay skips `<picture>` entirely and serves
+    // the original. Emitting a `<source type="image/avif">` pointing
+    // at an SVG would mis-declare the format and confuse the
+    // browser; the bare `<img>` is the right shape.
     const svgSite = siteItemWith({});
     svgSite.values[SITE_FIELD_IDS.pageBackground] = {
       type: "image",
@@ -167,6 +176,9 @@ describe("(public) layout — pageBackground render", () => {
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
     expect(html).toContain("/original.svg");
+    // No `<picture>` / `<source>` for vector branch.
+    expect(html).not.toMatch(/<picture/);
+    expect(html).not.toMatch(/<source/);
     // Defensive: even though width 1024 > some sharp variants (400 /
     // 800), the vector branch must short-circuit before that check.
     expect(html).not.toContain("1600.webp");
@@ -177,9 +189,9 @@ describe("(public) layout — pageBackground render", () => {
     await writeSite({ pageBackground: false });
     const tree = await PublicLayout({ children: null });
     const html = renderToStaticMarkup(tree);
-    // Underlay div has the only `aria-hidden="true"` in the layout
-    // output today; absence is the cleanest signal.
+    // Underlay element carries the only `aria-hidden="true"` in the
+    // layout output today; absence is the cleanest signal.
     expect(html).not.toContain('aria-hidden="true"');
-    expect(html).not.toContain("background-image");
+    expect(html).not.toContain("object-fit:cover");
   });
 });
