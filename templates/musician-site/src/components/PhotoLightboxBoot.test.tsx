@@ -120,6 +120,66 @@ describe("<PhotoLightboxBoot> — click delegation", () => {
     expect(screen.queryByTestId("photo-lightbox")).toBeNull();
   });
 
+  it("restores focus to the triggering tile after close", async () => {
+    // WAI-ARIA modal pattern: focus must return to where it was
+    // before open. Otherwise after Esc / close-button the user's
+    // focus lands somewhere unpredictable (often the body).
+    const gallery = mountGallery([{ url: "/a.jpg", alt: "A" }]);
+    render(<PhotoLightboxBoot />);
+    const tile = gallery.querySelector<HTMLAnchorElement>("[data-photo-tile]")!;
+    tile.focus();
+    expect(document.activeElement).toBe(tile);
+
+    fireEvent.click(tile);
+    expect(screen.getByTestId("photo-lightbox")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /close photo viewer/i }));
+    // Boot uses `queueMicrotask` to defer the refocus past the
+    // unmount; flush microtasks before asserting.
+    await Promise.resolve();
+    expect(document.activeElement).toBe(tile);
+  });
+
+  it("restores body scroll lock on close (not just on unmount)", async () => {
+    // The real lifecycle: lightbox opens → body locks → close →
+    // body restores. Unmounting is a separate path; the close
+    // case used to rely on it implicitly.
+    const gallery = mountGallery([{ url: "/a.jpg", alt: "A" }]);
+    render(<PhotoLightboxBoot />);
+    fireEvent.click(gallery.querySelector<HTMLAnchorElement>("[data-photo-tile]")!);
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.click(screen.getByRole("button", { name: /close photo viewer/i }));
+    await Promise.resolve();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("marks the layout wrapper as `inert` while the lightbox is open", async () => {
+    // The keyboard focus trap inside the modal handles Tab; the
+    // `inert` attribute on the page wrapper keeps assistive-tech
+    // virtual cursors (NVDA browsing mode, VoiceOver web rotor)
+    // from announcing background content. WAI-ARIA modal pattern.
+    const wrapper = document.createElement("div");
+    wrapper.className = "stagecraft-site";
+    document.body.appendChild(wrapper);
+    // Gallery inside the wrapper, like the real layout.
+    const gallery = document.createElement("div");
+    gallery.setAttribute("data-collection-view", "photos");
+    gallery.innerHTML = `<a href="/a.jpg" data-photo-tile data-photo-alt="A"><img alt="A"/></a>`;
+    wrapper.appendChild(gallery);
+
+    render(<PhotoLightboxBoot />);
+    // jsdom doesn't initialise `inert` to false — it's undefined
+    // until first assignment. Either way, we want it falsy here.
+    expect(wrapper.inert).toBeFalsy();
+
+    fireEvent.click(gallery.querySelector<HTMLAnchorElement>("[data-photo-tile]")!);
+    expect(wrapper.inert).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /close photo viewer/i }));
+    await Promise.resolve();
+    expect(wrapper.inert).toBeFalsy();
+  });
+
   it("wires each photos gallery separately (clicking gallery A doesn't open gallery B's images)", () => {
     // Pages with two photo galleries (e.g. a press page + a tour
     // photos page combined) should keep their image lists distinct.

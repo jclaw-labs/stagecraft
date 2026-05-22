@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox";
 
@@ -90,13 +91,41 @@ export function PhotoLightboxBoot() {
     });
   }
 
+  // While the lightbox is open, mark `.stagecraft-site` (the
+  // layout's wrapper around the page content) as `inert` so
+  // assistive tech doesn't traverse the background. The lightbox
+  // itself is portalled to `document.body`, so it sits OUTSIDE
+  // the inert subtree.
+  //
+  // The WAI-ARIA modal pattern requires the rest of the document
+  // to be unreachable from a screen-reader's virtual cursor while
+  // a modal is open — the keyboard focus trap inside the modal
+  // only helps Tab-key users; browsing-mode users (NVDA, JAWS,
+  // VoiceOver web rotor) can otherwise scroll past it.
+  useEffect(() => {
+    if (state.kind !== "open") return;
+    const wrapper = document.querySelector<HTMLElement>(".stagecraft-site");
+    if (!wrapper) return;
+    const hadInert = wrapper.inert;
+    wrapper.inert = true;
+    return () => {
+      wrapper.inert = hadInert;
+    };
+  }, [state.kind]);
+
   if (state.kind !== "open") return null;
-  return (
+  // Portal to document.body so the lightbox sits outside the
+  // inert wrapper. Without this, the modal would be a descendant
+  // of `.stagecraft-site` (which we just made inert) and become
+  // inert itself.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <PhotoLightbox
       images={state.images}
       initialIndex={state.initialIndex}
       onClose={handleClose}
-    />
+    />,
+    document.body,
   );
 }
 
