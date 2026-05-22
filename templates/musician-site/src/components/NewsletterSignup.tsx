@@ -101,6 +101,15 @@ export function NewsletterSignup({
   const nameId = `${baseId}-name`;
   const gotchaId = `${baseId}-gotcha`;
 
+  // Mailchimp's audience-suffixed honeypot. When the URL doesn't
+  // parse (custom domain, partial paste) this is null and the
+  // honeypot field is omitted entirely — the universal client-side
+  // `_gotcha` is the fallback. Computed once per render so the
+  // hidden wrapper doesn't render an empty div when the suffix
+  // can't be derived.
+  const mailchimpHoneypotName =
+    service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (status.kind === "sending") return;
@@ -167,29 +176,24 @@ export function NewsletterSignup({
         />
       </div>
 
-      {service === "mailchimp" ? (
+      {mailchimpHoneypotName ? (
         // Mailchimp's bot trap is a hidden field named `b_<u>_<id>`,
         // where `u` and `id` come from the embed URL's query string
         // (`?u=USER_ID&id=LIST_ID`). Real users leave it empty;
         // automation that scrapes the form often fills every input,
         // and Mailchimp's bot defense rejects submissions where it's
-        // non-empty. When the actionUrl doesn't parse (artist using
-        // a non-default custom domain or our regex doesn't match),
-        // we fall back to the universal client-side `_gotcha` above
-        // — strictly weaker but still functional.
+        // non-empty. When the actionUrl doesn't parse (custom
+        // domain, partial paste), `mailchimpHoneypotName` is null
+        // and the field is omitted entirely; the universal
+        // client-side `_gotcha` above is the fallback.
         <div aria-hidden="true" style={screenReaderOnly}>
-          {(() => {
-            const suffixedName = parseMailchimpAudienceHoneypotName(actionUrl);
-            return suffixedName ? (
-              <input
-                type="text"
-                name={suffixedName}
-                tabIndex={-1}
-                autoComplete="off"
-                defaultValue=""
-              />
-            ) : null;
-          })()}
+          <input
+            type="text"
+            name={mailchimpHoneypotName}
+            tabIndex={-1}
+            autoComplete="off"
+            defaultValue=""
+          />
         </div>
       ) : null}
 
