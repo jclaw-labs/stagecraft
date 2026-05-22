@@ -14,9 +14,8 @@ import { notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import {
   findField,
+  getRequestReadStore,
   itemSlugSchema,
-  readCollectionDef,
-  readItem,
   slugSchema,
 } from "@/lib/collections";
 
@@ -30,13 +29,18 @@ export default async function BodyEdit({ params }: { params: Promise<Params> }) 
   const parsedItemSlug = itemSlugSchema.safeParse(itemSlug);
   if (!parsedSlug.success || !parsedItemSlug.success) notFound();
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsedSlug.data)]);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsedSlug.data)),
+  ]);
   if (!def) notFound();
 
   const field = findField(def, fieldId);
   if (!field || field.type !== "puckContent") notFound();
 
-  const item = await readItem(parsedSlug.data, parsedItemSlug.data, def);
+  const store = await storePromise;
+  const item = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
   if (!item) notFound();
 
   return (

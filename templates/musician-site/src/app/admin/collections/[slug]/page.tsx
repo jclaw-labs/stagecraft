@@ -25,8 +25,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { findCustomSurface } from "@/components/admin/admin-surfaces";
 import { getSession } from "@/lib/auth";
 import {
-  listItemsInOrder,
-  readCollectionDef,
+  getRequestReadStore,
   SINGLETON_ITEM_SLUG,
   slugSchema,
 } from "@/lib/collections";
@@ -46,14 +45,19 @@ export default async function CollectionView({ params }: { params: Promise<Param
     redirect(customSurface.route);
   }
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   if (def.isSingleton) {
     redirect(`/admin/collections/${parsed.data}/items/${SINGLETON_ITEM_SLUG}`);
   }
 
-  const items = await listItemsInOrder(parsed.data, def);
+  const store = await storePromise;
+  const items = await store.listItemsInOrder(parsed.data, def);
 
   return (
     <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>

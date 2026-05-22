@@ -8,6 +8,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import {
   describeRoutingConflict,
+  getFsReadStore,
   listCollectionSlugs,
   readCollectionDef,
   readItem,
@@ -51,16 +52,19 @@ import { puckConfig } from "@/puck/config";
 // is request-scoped: stale data can't leak across requests.
 // ---------------------------------------------------------------------------
 
+// Public-renderer reads always hit the FS snapshot of `main` — visitors
+// see the deployed state, not the artist's draft. The shims below
+// resolve a per-request FS store internally so call sites stay clean.
 const cachedListCollectionSlugs = cache(listCollectionSlugs);
 const cachedReadCollectionDef = cache(readCollectionDef);
-const cachedReadSiteConfig = cache(readSiteConfig);
-const cachedReadHeaderConfig = cache(readHeaderConfig);
-const cachedListPageSummaries = cache(listPageSummaries);
-const cachedReadPageOrNull = cache(readPageOrNull);
+const cachedReadSiteConfig = cache(() => readSiteConfig(getFsReadStore()));
+const cachedReadHeaderConfig = cache(() => readHeaderConfig(getFsReadStore()));
+const cachedListPageSummaries = cache(() => listPageSummaries(getFsReadStore()));
+const cachedReadPageOrNull = cache((slug: string) => readPageOrNull(slug, getFsReadStore()));
 // resolveRootPageSlug calls listPageSummaries internally; wrap it at
 // this layer so root-URL requests don't trigger that read twice (once
 // per generateMetadata + render path).
-const cachedResolveRootPageSlug = cache(resolveRootPageSlug);
+const cachedResolveRootPageSlug = cache(() => resolveRootPageSlug(getFsReadStore()));
 
 /**
  * Load every collection's def in parallel, filter out nulls, and
@@ -107,7 +111,7 @@ export default async function CatchAllPage({ params }: Props) {
   // so we read slugs only instead of the heavier `listPageSummaries`
   // which loads every page's `puckContent` body just to extract the
   // title.
-  const pageSlugs = await listPageSlugs();
+  const pageSlugs = await listPageSlugs(getFsReadStore());
   const conflicts = validateCollectionRouting(allDefs, pageSlugs);
   if (conflicts.length > 0) {
     // A configuration error in the artist's repo. Fail loudly with a

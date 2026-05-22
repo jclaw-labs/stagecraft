@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getFsReadStore } from "@/lib/collections";
 import { readSiteConfig } from "@/lib/content";
 import { sendContactEmail } from "@/lib/email";
 
@@ -104,7 +105,10 @@ export async function POST(request: Request) {
     return err(503, "Contact form is not configured.");
   }
 
-  const site = await readSiteConfig();
+  // Public endpoint — reads the deployed (FS-snapshot-of-main) site
+  // config, same semantics as everything else visitors see. Artists
+  // must publish-to-main to change the contact email.
+  const site = await readSiteConfig(getFsReadStore());
   const submission = parsed.data;
   const subjectLine = submission.subject.length > 0
     ? `[Contact] ${submission.subject}`

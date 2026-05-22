@@ -58,7 +58,7 @@ vi.mock("./store", async () => {
   };
 });
 
-import { getReadStore } from "./read-store";
+import { getReadStore, getFsReadStore } from "./read-store";
 import { resetDraftStoreCache } from "./draft-store";
 import { PublishError } from "../publish";
 import { tourDatesDef } from "./test-fixtures";
@@ -162,6 +162,18 @@ describe("getReadStore — backend selection", () => {
     // visible rather than degrading to FS silently.
     fetchPublishTokenMock.mockRejectedValue(new Error("kaboom"));
     await expect(getReadStore()).rejects.toThrow("kaboom");
+  });
+});
+
+describe("getFsReadStore", () => {
+  it("returns a FS-mode store even when the platform IS configured", () => {
+    // Public-renderer code paths must read the deployed snapshot of
+    // `main`, not the artist's draft branch, regardless of whether
+    // the broker is reachable. `STAGECRAFT_SITE_ID` is set by the
+    // top-level beforeEach.
+    const store = getFsReadStore();
+    expect(store.mode).toBe("fs");
+    expect(fetchPublishTokenMock).not.toHaveBeenCalled();
   });
 });
 

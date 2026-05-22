@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { getRequestReadStore } from "@/lib/collections";
 import { deletePage, readPageOrNull } from "@/lib/content";
 import { PublishError, saveToDraft } from "@/lib/publish";
 import { pageSlugSchema } from "@/lib/site-config-types";
@@ -26,7 +27,8 @@ export async function DELETE(
   if (!parsed.success) return err(400, parsed.error.message);
   const slug = parsed.data;
 
-  const existing = await readPageOrNull(slug);
+  const store = await getRequestReadStore();
+  const existing = await readPageOrNull(slug, store);
   if (!existing) return err(404, `No page with slug "${slug}"`);
 
   await deletePage(slug);

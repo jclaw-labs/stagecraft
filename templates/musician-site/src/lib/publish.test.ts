@@ -42,7 +42,10 @@ import {
   saveToDraft,
 } from "./publish";
 import { ConcurrentEditError } from "./git-commit";
+import { getFsReadStore } from "./collections";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
+
+const store = getFsReadStore();
 
 /** Spread into in-line item-file literals so tests don't repeat them. */
 const TS = { createdAt: FIXTURE_TIMESTAMP, updatedAt: FIXTURE_TIMESTAMP };
@@ -148,6 +151,7 @@ describe("publishPage — dev fallback (no platform configured)", () => {
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "Test" } } },
       authorEmail: "a@e.com",
+      store,
     });
     expect(result.mode).toBe("local");
     expect(result.commitSha).toBeNull();
@@ -162,6 +166,7 @@ describe("publishPage — dev fallback (no platform configured)", () => {
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
+      store,
     });
     expect(commitFilesMock).not.toHaveBeenCalled();
   });
@@ -177,6 +182,7 @@ describe("publishPage — broker + GitHub path", () => {
       data: { content: [], root: { props: { title: "world" } } },
       authorEmail: "artist@example.com",
       authorName: "Real Artist",
+      store,
     });
 
     // Post-PR 3: publishPage is save-only. The reported SHA is the
@@ -211,6 +217,7 @@ describe("publishPage — broker + GitHub path", () => {
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
+      store,
     });
     expect(ensureBranchExistsMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "draft", fromBranch: "main" }),
@@ -224,6 +231,7 @@ describe("publishPage — broker + GitHub path", () => {
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
+      store,
     });
     const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
     expect(draftMessage).toContain("[skip ci]");
@@ -234,7 +242,7 @@ describe("publishPage — broker + GitHub path", () => {
   it("forwards Authorization Bearer secret to the broker", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
+    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toBe("https://platform.example.com/api/publish-token");
     expect(fetchCall[1].headers.authorization).toBe("Bearer broker-secret");
@@ -245,7 +253,7 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     process.env.STAGECRAFT_PLATFORM_URL = "https://platform.example.com/";
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
+    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toBe("https://platform.example.com/api/publish-token");
   });
@@ -254,21 +262,21 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) as unknown as typeof fetch;
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
+      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
     ).rejects.toMatchObject({ code: "broker-unreachable" });
   });
 
   it("throws broker-rejected when broker returns non-200", async () => {
     configurePlatform({ ok: false, status: 401, body: { ok: false } });
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
+      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
     ).rejects.toBeInstanceOf(PublishError);
   });
 
   it("throws broker-rejected when broker response is malformed", async () => {
     configurePlatform({ body: { ok: true, token: "x" } }); // missing repo + expiresAt
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
+      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
     ).rejects.toMatchObject({ code: "broker-rejected" });
   });
 
@@ -276,7 +284,7 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     commitFilesMock.mockRejectedValue(new Error("ref not found"));
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
+      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
     ).rejects.toMatchObject({ code: "github-failed" });
   });
 
@@ -299,6 +307,7 @@ describe("publishPage — broker + GitHub path", () => {
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
+      store,
     });
     await expect(promise).rejects.toBeInstanceOf(PublishError);
     await expect(promise).rejects.toMatchObject({ code: "concurrent-edit" });
@@ -313,7 +322,7 @@ describe("publishPage — broker + GitHub path", () => {
   it("includes a Stagecraft-Publish-Id trailer in the commit message", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
+    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
     // Post-PR 3: trailer lives on the draft commit (save event).
     // The squash commit is created later by the explicit Publish flow
     // and isn't reached by publishPage anymore.
@@ -326,7 +335,7 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     process.env.SITE_GIT_BRANCH = "develop";
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
+    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
     // Save still targets `draft`; the override changes only the
     // branch draft is based on (and what publishDraftToMain would
     // squash into, which publishPage no longer triggers).

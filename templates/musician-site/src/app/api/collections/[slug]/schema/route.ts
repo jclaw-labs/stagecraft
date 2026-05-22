@@ -30,9 +30,8 @@ import {
   collectionDefSchema,
   describeIssue,
   describeWarning,
-  listItemsInOrder,
+  getRequestReadStore,
   prepareItemFileWrite,
-  readCollectionDef,
   slugSchema,
   validateSchemaChange,
   type Item,
@@ -61,7 +60,8 @@ export async function PUT(request: Request, ctx: Ctx) {
     return err(400, "Body must be JSON");
   }
 
-  const oldDef = await readCollectionDef(parsedSlug.data);
+  const store = await getRequestReadStore();
+  const oldDef = await store.readCollectionDef(parsedSlug.data);
   if (!oldDef) return err(404, `Collection "${parsedSlug.data}" not found`);
 
   // Structural: must be a valid CollectionDef in its own right.
@@ -84,7 +84,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   }
 
   // Semantic: compare against existing items.
-  const items = await listItemsInOrder(parsedSlug.data, oldDef);
+  const items = await store.listItemsInOrder(parsedSlug.data, oldDef);
   const report = validateSchemaChange(oldDef, newDef, items);
   if (!report.ok) {
     return err(409, "Schema change blocked", {

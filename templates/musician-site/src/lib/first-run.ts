@@ -18,7 +18,7 @@
 
 import { cache } from "react";
 
-import { readSingleton } from "./collections";
+import { getRequestReadStore } from "./collections";
 import { SITE_FIELD_IDS, siteCollectionDef } from "./collections/seeds";
 
 /**
@@ -27,9 +27,15 @@ import { SITE_FIELD_IDS, siteCollectionDef } from "./collections/seeds";
  *
  * Pure read, no writes. The wizard's `POST /api/welcome/complete`
  * sets the flag to true; the reset endpoint flips it back to false.
+ *
+ * Reads through `getRequestReadStore` so the redirect sees the
+ * artist's draft branch in production — completing the wizard on
+ * container A and visiting `/admin` on container B both observe the
+ * same flag.
  */
 export const checkIsFirstRun = cache(async (): Promise<boolean> => {
-  const item = await readSingleton("site", siteCollectionDef);
+  const store = await getRequestReadStore();
+  const item = await store.readSingleton("site", siteCollectionDef);
   const flag = item?.values[SITE_FIELD_IDS.hasCompletedFirstRun];
   return !(flag?.type === "boolean" && flag.value === true);
 });

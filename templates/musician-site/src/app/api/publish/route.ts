@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { getRequestReadStore } from "@/lib/collections";
 import { PublishError, publishPage } from "@/lib/publish";
 import {
   type PublishError as PublishErrorPayload,
@@ -32,10 +33,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    const store = await getRequestReadStore();
     const result = await publishPage({
       pageSlug: parsed.data.pageSlug,
       data: parsed.data.data,
       authorEmail: session.email,
+      store,
     });
     return NextResponse.json(
       publishResponseSchema.parse({ ok: true, commitSha: result.commitSha }),

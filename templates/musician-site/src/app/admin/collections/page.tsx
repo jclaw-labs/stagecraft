@@ -10,12 +10,17 @@ import Link from "next/link";
 
 import { AdminShell } from "@/components/admin/AdminShell";
 import { getSession } from "@/lib/auth";
-import { listCollectionSlugs, readCollectionDef } from "@/lib/collections";
+import { getRequestReadStore } from "@/lib/collections";
 
 export default async function CollectionsIndex() {
-  const [session, slugs] = await Promise.all([getSession(), listCollectionSlugs()]);
+  const storePromise = getRequestReadStore();
+  const [session, slugs] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.listCollectionSlugs()),
+  ]);
+  const store = await storePromise;
   const defs = await Promise.all(
-    slugs.map(async (slug) => ({ slug, def: await readCollectionDef(slug) })),
+    slugs.map(async (slug) => ({ slug, def: await store.readCollectionDef(slug) })),
   );
 
   return (

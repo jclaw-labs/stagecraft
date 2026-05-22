@@ -11,7 +11,7 @@ import { notFound } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/AdminShell";
 import { getSession } from "@/lib/auth";
-import { readCollectionDef, slugSchema } from "@/lib/collections";
+import { getRequestReadStore, slugSchema } from "@/lib/collections";
 
 import { SchemaEditorClient } from "./SchemaEditorClient";
 
@@ -22,7 +22,10 @@ export default async function SchemaEditorPage({ params }: { params: Promise<Par
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
+  const [session, def] = await Promise.all([
+    getSession(),
+    getRequestReadStore().then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   return (

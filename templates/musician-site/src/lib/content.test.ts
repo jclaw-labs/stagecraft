@@ -27,11 +27,14 @@ import {
 } from "./collections/seeds";
 import {
   generateItemId,
+  getFsReadStore,
   SINGLETON_ITEM_SLUG,
   writeItem,
   writeOrder,
   writeSingleton,
 } from "./collections";
+
+const store = getFsReadStore();
 import {
   appearanceToItemValues,
   headerConfigToItemValues,
@@ -187,7 +190,7 @@ afterEach(async () => {
 
 async function createPage(slug: string, data: PageData) {
   createdSlugs.add(slug);
-  await writePage(slug, data);
+  await writePage(slug, data, store);
 }
 
 describe("emptyPageData", () => {
@@ -215,22 +218,22 @@ describe("readPage / writePage", () => {
     const data = emptyPageData("My Page");
     await createPage(slug, data);
 
-    const read = await readPage(slug);
+    const read = await readPage(slug, store);
     expect(read).toEqual(data);
   });
 
   it("readPage throws PageNotFoundError when the file is missing", async () => {
-    await expect(readPage(testSlug("missing"))).rejects.toBeInstanceOf(PageNotFoundError);
+    await expect(readPage(testSlug("missing"), store)).rejects.toBeInstanceOf(PageNotFoundError);
   });
 
   it("readPageOrNull returns null for missing files", async () => {
-    const out = await readPageOrNull(testSlug("missing"));
+    const out = await readPageOrNull(testSlug("missing"), store);
     expect(out).toBeNull();
   });
 
   it("rejects an invalid slug", async () => {
-    await expect(readPage("UPPER")).rejects.toThrow();
-    await expect(writePage("UPPER", emptyPageData("x"))).rejects.toThrow();
+    await expect(readPage("UPPER", store)).rejects.toThrow();
+    await expect(writePage("UPPER", emptyPageData("x"), store)).rejects.toThrow();
   });
 });
 
@@ -238,10 +241,10 @@ describe("deletePage", () => {
   it("removes the file when it exists", async () => {
     const slug = testSlug("delete-me");
     await createPage(slug, emptyPageData("Delete Me"));
-    expect(await readPageOrNull(slug)).not.toBeNull();
+    expect(await readPageOrNull(slug, store)).not.toBeNull();
 
     await deletePage(slug);
-    expect(await readPageOrNull(slug)).toBeNull();
+    expect(await readPageOrNull(slug, store)).toBeNull();
     createdSlugs.delete(slug);
   });
 
@@ -259,7 +262,7 @@ describe("listPageSummaries", () => {
     (splashData.root as { props: { isSplashPage: boolean } }).props.isSplashPage = true;
     await createPage(slugB, splashData);
 
-    const summaries = await listPageSummaries();
+    const summaries = await listPageSummaries(store);
     const ours = summaries.filter((s) => s.slug === slugA || s.slug === slugB);
 
     // Splash page (slugB) sorts before non-splash (slugA) regardless of
@@ -283,7 +286,7 @@ describe("listPageSummaries", () => {
 
     await writeOrder("pages", [slugs[1], slugs[2], slugs[0]]);
 
-    const summaries = await listPageSummaries();
+    const summaries = await listPageSummaries(store);
     const ours = summaries.filter((s) => slugs.includes(s.slug));
     expect(ours.map((s) => s.slug)).toEqual([slugs[1], slugs[2], slugs[0]]);
   });
@@ -298,7 +301,7 @@ describe("listPageSummaries", () => {
 
     await writeOrder("pages", [ordered]);
 
-    const summaries = await listPageSummaries();
+    const summaries = await listPageSummaries(store);
     const ours = summaries
       .filter((s) => [ordered, unorderedZ, unorderedM].includes(s.slug))
       .map((s) => s.slug);
@@ -314,7 +317,7 @@ describe("listPageSummaries", () => {
 
     await setHiddenFromNavLegacy([hidden]);
 
-    const summaries = await listPageSummaries();
+    const summaries = await listPageSummaries(store);
     expect(summaries.find((s) => s.slug === hidden)?.isHiddenFromNav).toBe(true);
     expect(summaries.find((s) => s.slug === visible)?.isHiddenFromNav).toBe(false);
   });
@@ -327,12 +330,12 @@ describe("resolveRootPageSlug", () => {
     (data.root as { props: { isSplashPage: boolean } }).props.isSplashPage = true;
     await createPage(slug, data);
 
-    expect(await resolveRootPageSlug()).toBe(slug);
+    expect(await resolveRootPageSlug(store)).toBe(slug);
   });
 
   it("returns 'home' when no splash but home.json exists", async () => {
     // home.json is checked into the repo, so this should hold by default.
-    expect(await resolveRootPageSlug()).toBe("home");
+    expect(await resolveRootPageSlug(store)).toBe("home");
   });
 });
 
@@ -370,19 +373,19 @@ describe("extractPageRootProps", () => {
 
 describe("singleton reads return defaults when no file exists", () => {
   it("readSiteConfig returns DEFAULT_SITE_CONFIG in a clean dir", async () => {
-    const cfg = await readSiteConfig();
+    const cfg = await readSiteConfig(store);
     expect(cfg.artistName).toBe(DEFAULT_SITE_CONFIG.artistName);
     expect(cfg.contactEmail).toMatch(/@/);
   });
 
   it("readHeaderConfig returns DEFAULT_HEADER_CONFIG", async () => {
-    const cfg = await readHeaderConfig();
+    const cfg = await readHeaderConfig(store);
     expect(cfg.headerMode).toBe(DEFAULT_HEADER_CONFIG.headerMode);
     expect(cfg.headerLayout).toBe(DEFAULT_HEADER_CONFIG.headerLayout);
   });
 
   it("readAppearance returns DEFAULT_APPEARANCE", async () => {
-    const cfg = await readAppearance();
+    const cfg = await readAppearance(store);
     expect(cfg.colors.primary).toBe(DEFAULT_APPEARANCE.colors.primary);
   });
 });
@@ -394,7 +397,7 @@ describe("write* + read* round-trip through disk", () => {
   it("siteConfigToItemValues + readSiteConfig round-trip", async () => {
     const cfg = { ...DEFAULT_SITE_CONFIG, artistName: "Test Artist" };
     await writeSiteSingleton(cfg);
-    const out = await readSiteConfig();
+    const out = await readSiteConfig(store);
     expect(out.artistName).toBe("Test Artist");
   });
 
@@ -405,7 +408,7 @@ describe("write* + read* round-trip through disk", () => {
       headerSubtitle: "Bandleader / Pianist",
     };
     await writeHeaderSingleton(cfg);
-    const out = await readHeaderConfig();
+    const out = await readHeaderConfig(store);
     expect(out.headerMode).toBe("transparent-static");
     expect(out.headerSubtitle).toBe("Bandleader / Pianist");
   });
@@ -416,7 +419,7 @@ describe("write* + read* round-trip through disk", () => {
       colors: { ...DEFAULT_APPEARANCE.colors, primary: "#abcdef" },
     };
     await writeAppearanceSingleton(cfg);
-    const out = await readAppearance();
+    const out = await readAppearance(store);
     expect(out.colors.primary).toBe("#abcdef");
   });
 });
@@ -424,7 +427,7 @@ describe("write* + read* round-trip through disk", () => {
 describe("ensurePrebakedCollections", () => {
   it("writes every PREBAKED_COLLECTIONS entry to disk on first access", async () => {
     // Triggering any page read fires the bootstrap.
-    await readPageOrNull("home");
+    await readPageOrNull("home", store);
 
     // Every key in `PREBAKED_COLLECTIONS` should now have a
     // `_collection.json` on disk. Before this fix, only pages / site /

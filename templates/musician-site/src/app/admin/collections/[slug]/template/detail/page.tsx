@@ -34,9 +34,7 @@ import { notFound } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import {
-  listCollectionSlugs,
-  listItemsInOrder,
-  readCollectionDef,
+  getRequestReadStore,
   slugSchema,
   type CollectionDef,
 } from "@/lib/collections";
@@ -55,15 +53,20 @@ export default async function DetailTemplateEditorPage({
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   // Singletons don't have detail pages — there's only one item, no
   // `<detailUrlPrefix>/<slug>` URL to render. Route 404s.
   if (def.isSingleton) notFound();
 
-  const allSlugs = await listCollectionSlugs();
-  const allDefs = await Promise.all(allSlugs.map((s) => readCollectionDef(s)));
+  const store = await storePromise;
+  const allSlugs = await store.listCollectionSlugs();
+  const allDefs = await Promise.all(allSlugs.map((s) => store.readCollectionDef(s)));
   const iterableDefs = allDefs.filter(
     (d): d is NonNullable<CollectionDef> => d !== null && !d.isSingleton,
   );
@@ -73,7 +76,7 @@ export default async function DetailTemplateEditorPage({
   // the current-collection slot as `previewItems` instead of issuing a
   // duplicate `listItemsInOrder` for the same slug.
   const iterableItemLists = await Promise.all(
-    iterableDefs.map((d) => listItemsInOrder(d.slug, d)),
+    iterableDefs.map((d) => store.listItemsInOrder(d.slug, d)),
   );
 
   const loadedCollections: LoadedCollections = Object.fromEntries(
