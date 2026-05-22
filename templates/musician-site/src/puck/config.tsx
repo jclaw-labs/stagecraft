@@ -83,6 +83,19 @@ export const EMBED_ASPECT_RATIO_LABELS: Record<EmbedAspectRatio, string> = {
   "1/1": "Square (1:1)",
 };
 
+// Card orientation — vertical (image on top, text below) for grids;
+// horizontal (image on side) for list layouts. The legacy template
+// also supports "icon" / variant / size axes; this v1 ships with just
+// orientation — artists who want richer compositions drop multiple
+// Cards in a Columns block.
+export const CARD_ORIENTATIONS = ["vertical", "horizontal"] as const;
+export type CardOrientation = (typeof CARD_ORIENTATIONS)[number];
+
+export const CARD_ORIENTATION_LABELS: Record<CardOrientation, string> = {
+  vertical: "Vertical (image on top)",
+  horizontal: "Horizontal (image on side)",
+};
+
 // All visual values come from CSS custom properties (see app/globals.css).
 // CLAUDE.md §7 forbids raw hex/px/size values in inline styles.
 const SECTION_WIDTH_MAX: Record<SectionWidth, string> = {
@@ -197,6 +210,14 @@ export type BlockProps = {
     html: string;
     aspectRatio: EmbedAspectRatio;
   };
+  Card: {
+    image: ImageMetadata | null;
+    title: string;
+    description: string;
+    href: string;
+    isExternal: boolean;
+    orientation: CardOrientation;
+  };
 };
 
 /**
@@ -215,7 +236,71 @@ function textAlignStyle(align: TextAlignment): CSSProperties {
   return { textAlign: align };
 }
 
-export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boolean; isFooterHidden: boolean }> = {
+// ---------------------------------------------------------------------------
+// Card styles
+// ---------------------------------------------------------------------------
+
+function cardContainerStyle(orientation: CardOrientation): CSSProperties {
+  return {
+    display: orientation === "horizontal" ? "grid" : "flex",
+    gridTemplateColumns: orientation === "horizontal" ? "1fr 2fr" : undefined,
+    flexDirection: orientation === "vertical" ? "column" : undefined,
+    gap: "var(--space-3)",
+    margin: "var(--space-4) 0",
+    padding: "var(--space-4)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-md)",
+    background: "var(--color-surface)",
+  };
+}
+
+function cardMediaStyle(orientation: CardOrientation): CSSProperties {
+  // Horizontal cards reserve a fixed aspect for the media cell so
+  // titles line up across a list. Vertical cards let the image take
+  // its intrinsic aspect — the surrounding Section / Columns owns
+  // overall width.
+  if (orientation === "horizontal") {
+    return {
+      aspectRatio: "4 / 3",
+      overflow: "hidden",
+      borderRadius: "var(--radius-sm)",
+    };
+  }
+  return {
+    overflow: "hidden",
+    borderRadius: "var(--radius-sm)",
+  };
+}
+
+const cardBodyStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-2)",
+};
+
+const cardTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-lg)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text)",
+};
+
+const cardDescriptionStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  lineHeight: "var(--line-height-base)",
+};
+
+export const puckConfig: Config<
+  BlockProps,
+  {
+    title: string;
+    isSplashPage: boolean;
+    isFooterHidden: boolean;
+    pageBackground: ImageMetadata | null;
+  }
+> = {
   // Per-page settings — surfaced in Puck's right-hand "Page" inspector when
   // no block is selected. These map to the on-disk `data.root.props` shape
   // and are read by the public renderer (Header / Footer / splash logic).
@@ -238,8 +323,23 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           { label: "Hide footer", value: true },
         ],
       },
+      pageBackground: {
+        type: "custom",
+        label: "Background image (overrides site-wide)",
+        render: ({ value, onChange }) => (
+          <ImagePickerField
+            value={(value as ImageMetadata | null) ?? null}
+            onChange={onChange}
+          />
+        ),
+      },
     },
-    defaultProps: { title: "Untitled", isSplashPage: false, isFooterHidden: false },
+    defaultProps: {
+      title: "Untitled",
+      isSplashPage: false,
+      isFooterHidden: false,
+      pageBackground: null,
+    },
   },
   components: {
     Heading: {
@@ -611,6 +711,112 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
             ) : null}
           </figure>
         );
+      },
+    },
+    Card: {
+      // Media + text tile. Vertical (image on top, default) for grid
+      // layouts; horizontal (image on side) for list rows. Whole card
+      // becomes a link when `href` is set.
+      //
+      // V1 scope: image + title + description + link. The legacy
+      // template's Card also supports variant / size / hover / file
+      // downloads / icon-mode media — out of scope here; artists who
+      // want richer compositions drop multiple Cards into a Columns
+      // block (or a Section + Heading + RichText combo).
+      fields: {
+        image: {
+          type: "custom",
+          label: "Image",
+          render: ({ value, onChange }) => (
+            <ImagePickerField
+              value={(value as ImageMetadata | null) ?? null}
+              onChange={(next) => onChange(next as ImageMetadata | null)}
+            />
+          ),
+        },
+        title: { type: "text", label: "Title" },
+        description: { type: "textarea", label: "Description" },
+        href: { type: "text", label: "Link URL (optional)" },
+        isExternal: {
+          type: "radio",
+          label: "Link target",
+          options: [
+            { label: "Same tab", value: false },
+            { label: "New tab", value: true },
+          ],
+        },
+        orientation: {
+          type: "select",
+          label: "Orientation",
+          options: CARD_ORIENTATIONS.map((v) => ({
+            label: CARD_ORIENTATION_LABELS[v],
+            value: v,
+          })),
+        },
+      },
+      defaultProps: {
+        image: null,
+        title: "Card title",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      },
+      render: ({ image, title, description, href, isExternal, orientation }) => {
+        const inner = (
+          <>
+            {image ? (
+              <div
+                className="stagecraft-card-media"
+                style={cardMediaStyle(orientation)}
+              >
+                <PublicImage
+                  image={image as ImageMetadata}
+                  sizes={
+                    orientation === "horizontal"
+                      ? "(max-width: 600px) 100vw, 33vw"
+                      : "(max-width: 600px) 100vw, 50vw"
+                  }
+                />
+              </div>
+            ) : null}
+            <div style={cardBodyStyle}>
+              {/* Title is a styled non-heading on purpose — a grid
+                  of 6 cards would otherwise emit 6 `<h3>`s into the
+                  document outline, which screen-reader users
+                  navigating by heading would have to skip past.
+                  Visual emphasis still reads as a title. Same
+                  choice the legacy template made. */}
+              <div style={cardTitleStyle}>{title}</div>
+              {description ? (
+                <p style={cardDescriptionStyle}>{description}</p>
+              ) : null}
+            </div>
+          </>
+        );
+
+        const containerStyle = cardContainerStyle(orientation);
+
+        if (href) {
+          // Whole card is a link. Drop the default underline (the
+          // title carries visual emphasis) but keep the link
+          // semantics for AT. The `stagecraft-card-link` class
+          // adds a subtle hover affordance (border shift + lift)
+          // — inline styles can't carry `:hover`, so the rule
+          // lives in globals.css.
+          return (
+            <a
+              href={href}
+              target={isExternal ? "_blank" : undefined}
+              rel={isExternal ? "noopener noreferrer" : undefined}
+              className="stagecraft-card-link"
+              style={{ ...containerStyle, textDecoration: "none", color: "inherit" }}
+            >
+              {inner}
+            </a>
+          );
+        }
+        return <article style={containerStyle}>{inner}</article>;
       },
     },
     Embed: {

@@ -345,7 +345,12 @@ describe("extractPageRootProps", () => {
       content: [],
       root: { props: { title: "x" } },
     } as PageData);
-    expect(props).toEqual({ title: "x", isSplashPage: false, isFooterHidden: false });
+    expect(props).toEqual({
+      title: "x",
+      isSplashPage: false,
+      isFooterHidden: false,
+      pageBackground: null,
+    });
   });
 
   it("preserves explicit values", () => {
@@ -355,7 +360,12 @@ describe("extractPageRootProps", () => {
         props: { title: "y", isSplashPage: true, isFooterHidden: true },
       },
     } as PageData);
-    expect(props).toEqual({ title: "y", isSplashPage: true, isFooterHidden: true });
+    expect(props).toEqual({
+      title: "y",
+      isSplashPage: true,
+      isFooterHidden: true,
+      pageBackground: null,
+    });
   });
 
   it("falls back to 'Untitled' when title is missing", () => {
@@ -364,6 +374,60 @@ describe("extractPageRootProps", () => {
       root: { props: {} },
     } as PageData);
     expect(props.title).toBe("Untitled");
+  });
+
+  it("preserves pageBackground when set", () => {
+    const image = {
+      id: "abc1234567890def",
+      alt: "bg",
+      width: 1600,
+      height: 1067,
+      placeholderDataUri: "data:image/webp;base64,AAAA",
+      contentSlug: "home",
+      originalExt: "jpg" as const,
+    };
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: image } },
+    } as PageData);
+    expect(props.pageBackground).toEqual(image);
+  });
+
+  it("treats a non-object pageBackground as null", () => {
+    // Defensive: malformed JSON shouldn't crash the page renderer.
+    // (Editor writes valid metadata; this guards manual JSON edits.)
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: "not-an-image" } },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
+  });
+
+  it("falls back to null for objects that don't match ImageMetadata", () => {
+    // The relevant failure mode: schema drift or hand-edited JSON
+    // ships a `pageBackground` that's an object but missing required
+    // fields. Earlier impl let this bubble to Zod's `.parse(...)`
+    // which threw — taking the public page renderer with it.
+    // safeParse-based validation now returns null instead.
+    const props = extractPageRootProps({
+      content: [],
+      root: {
+        props: { title: "x", pageBackground: { foo: "bar" } },
+      },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
+  });
+
+  it("treats an array pageBackground as null (typeof === 'object' guard)", () => {
+    // Arrays are objects in JS — without an Array.isArray check
+    // they'd pass typeof but fail the inner schema parse. We rely
+    // on safeParse to catch them, but the early return also dodges
+    // a needless parse for the obvious shape.
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: [] } },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
   });
 });
 

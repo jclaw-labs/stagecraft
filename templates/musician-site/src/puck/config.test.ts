@@ -28,6 +28,7 @@ describe("puckConfig", () => {
     expect(Object.keys(puckConfig.components).sort()).toEqual(
       [
         "Button",
+        "Card",
         "CenteredBlock",
         "Columns",
         "ContactForm",
@@ -510,6 +511,171 @@ describe("puckConfig", () => {
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["narrow", "regular"]);
       }
+    });
+  });
+
+  describe("Card", () => {
+    const IMAGE_FIXTURE = {
+      id: "abc1234567890def",
+      alt: "Album cover",
+      width: 1600,
+      height: 1600,
+      placeholderDataUri: "data:image/webp;base64,AAAA",
+      contentSlug: "home",
+      originalExt: "jpg" as const,
+    };
+
+    it("renders title + description", () => {
+      const html = render("Card", {
+        image: IMAGE_FIXTURE,
+        title: "Album Title",
+        description: "A summary",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).toContain("Album Title");
+      expect(html).toContain("A summary");
+      expect(html).toContain("<picture>");
+    });
+
+    it("renders the title as a styled non-heading (no <h3>)", () => {
+      // A grid of 6 cards would otherwise emit 6 <h3>s into the
+      // accessibility outline; screen-reader users navigating by
+      // heading would have to skip past every one. Visual emphasis
+      // still reads via the styled <div>. Same trade the legacy
+      // template made.
+      const html = render("Card", {
+        image: null,
+        title: "Title here",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).not.toMatch(/<h[1-6]/);
+      expect(html).toContain("Title here");
+    });
+
+    it("wraps the whole card in an <a> when href is set", () => {
+      const html = render("Card", {
+        image: null,
+        title: "Read more",
+        description: "",
+        href: "/posts/x",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      // Whole card is the link; no inner-only anchor.
+      expect(html).toMatch(/^<a[^>]+href="\/posts\/x"/);
+      // Link styling: explicit `text-decoration: none` so the title
+      // doesn't underline (the title carries visual emphasis on its
+      // own), and `color: inherit` so the heading colour wins over
+      // the browser default link blue.
+      expect(html).toMatch(/text-decoration:\s*none/);
+      expect(html).toMatch(/color:\s*inherit/);
+      // Class hook for the :hover affordance (lift + border + shadow)
+      // — inline styles can't carry pseudoclasses so the styling lives
+      // in globals.css, gated by this class.
+      expect(html).toContain('class="stagecraft-card-link"');
+    });
+
+    it("opens external links in a new tab", () => {
+      const html = render("Card", {
+        image: null,
+        title: "Buy",
+        description: "",
+        href: "https://store.example.com/x",
+        isExternal: true,
+        orientation: "vertical",
+      });
+      expect(html).toContain('target="_blank"');
+      expect(html).toContain('rel="noopener noreferrer"');
+    });
+
+    it("renders an <article> (no link) when href is empty", () => {
+      const html = render("Card", {
+        image: null,
+        title: "Bio",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).toMatch(/^<article/);
+      expect(html).not.toMatch(/<a\s/);
+    });
+
+    it("uses a 2-column grid for horizontal orientation", () => {
+      const html = render("Card", {
+        image: IMAGE_FIXTURE,
+        title: "x",
+        description: "y",
+        href: "",
+        isExternal: false,
+        orientation: "horizontal",
+      });
+      // CSS grid layout switches at the container level.
+      expect(html).toMatch(/grid-template-columns:\s*1fr\s+2fr/);
+      // And the media cell carries a fixed aspect so rows line up.
+      expect(html).toMatch(/aspect-ratio:\s*4\s*\/\s*3/);
+    });
+
+    it("vertical orientation is column-flex with no aspect-ratio on media", () => {
+      const html = render("Card", {
+        image: IMAGE_FIXTURE,
+        title: "x",
+        description: "y",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).toMatch(/flex-direction:\s*column/);
+      expect(html).not.toMatch(/aspect-ratio:\s*4/);
+    });
+
+    it("omits the media wrapper entirely when no image is picked", () => {
+      const html = render("Card", {
+        image: null,
+        title: "x",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).not.toContain("stagecraft-card-media");
+      expect(html).not.toContain("<picture>");
+    });
+
+    it("omits the description <p> when empty", () => {
+      const html = render("Card", {
+        image: null,
+        title: "x",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).not.toMatch(/<p[^>]*>\s*<\/p>/);
+    });
+
+    it("select options match CARD_ORIENTATIONS", () => {
+      const field = puckConfig.components.Card.fields?.orientation;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["vertical", "horizontal"]);
+      }
+    });
+  });
+
+  describe("root pageBackground", () => {
+    it("declares pageBackground as a custom root field with a null default", () => {
+      // The on-disk shape (`pageRootPropsSchema`) carries `pageBackground:
+      // ImageMetadata | null`; the Puck root field surfaces it through
+      // the same ImagePickerField the Image block uses.
+      const field = puckConfig.root?.fields?.pageBackground;
+      expect(field?.type).toBe("custom");
+      expect(puckConfig.root?.defaultProps?.pageBackground).toBeNull();
     });
   });
 

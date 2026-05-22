@@ -399,6 +399,11 @@ export const pageRootPropsSchema = z.object({
   title: z.string().min(1, "Page title is required").default("Untitled"),
   isSplashPage: z.boolean().default(false),
   isFooterHidden: z.boolean().default(false),
+  // Per-page override for the site-wide `siteConfig.pageBackground`.
+  // When set, paints over the site-wide underlay on this page only —
+  // the legacy template let each page declare its own. Optional, so
+  // most pages inherit the site-wide background unchanged.
+  pageBackground: imageMetadataSchema.nullable().default(null),
 });
 export type PageRootProps = z.infer<typeof pageRootPropsSchema>;
 

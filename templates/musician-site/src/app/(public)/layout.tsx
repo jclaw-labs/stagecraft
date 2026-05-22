@@ -1,14 +1,11 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Metadata } from "next";
 
 import { AppearanceStyles } from "@/components/AppearanceStyles";
+import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
 import { getFsReadStore } from "@/lib/collections";
 import { readAppearance, readSiteConfig } from "@/lib/content";
-import {
-  IMAGE_VARIANT_WIDTHS,
-  isVectorExt,
-  type ImageMetadata,
-} from "@/lib/image-types";
+import { type ImageMetadata } from "@/lib/image-types";
 
 /**
  * Public-site layout wrapper.
@@ -54,59 +51,10 @@ export default async function PublicLayout({ children }: { children: ReactNode }
 }
 
 /**
- * Fixed-positioned bg layer painted behind page content. `aria-hidden`
- * because it's decorative; `zIndex: -1` so the page paints over it
- * with normal flow. `backgroundColor` fallback matches the
- * appearance's `--color-background` token so a slow / failed image
- * load doesn't flash white. `pointerEvents: "none"` so the underlay
- * can't intercept clicks even if a future style positions it above
- * the flow.
- */
-function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
-  const style: CSSProperties = {
-    position: "fixed",
-    inset: 0,
-    zIndex: -1,
-    pointerEvents: "none",
-    backgroundColor: "var(--color-background)",
-    backgroundImage: `url("${largestVariantUrl(image, "webp")}")`,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-  };
-  return <div aria-hidden="true" style={style} />;
-}
-
-/**
  * Path to the original uploaded image on disk. Used for the favicon
  * field where a single URL is wanted rather than the responsive
  * `<picture>` srcSet the `Image` component emits.
  */
 function imageOriginalUrl(image: ImageMetadata): string {
   return `/images/${image.contentSlug}/${image.id}/original.${image.originalExt}`;
-}
-
-/**
- * Largest sharp-generated variant that exists for the image (the
- * pipeline only emits widths ≤ source width), falling back to the
- * original upload when none exist (small uploads like 256x256
- * favicons, ICO/SVG uploads bypassing sharp — once those are
- * supported).
- *
- * Used by the page-background underlay. webp is the chosen format
- * because the variant pipeline emits both webp and avif and webp is
- * universally supported as of 2024 — picking avif would be ~10%
- * smaller but lose Safari ≤16 / iOS ≤16 viewers, which still mattered
- * at the time of writing. Future: emit a `<picture>` underlay with
- * both formats so newer Safari benefits from avif.
- */
-function largestVariantUrl(image: ImageMetadata, format: "webp" | "avif"): string {
-  // Vector / icon uploads bypass the sharp variant pipeline — no
-  // sized webp/avif on disk. Serve the original; browsers handle SVG
-  // / ICO as a CSS background-image directly.
-  if (isVectorExt(image.originalExt)) return imageOriginalUrl(image);
-  const eligible = IMAGE_VARIANT_WIDTHS.filter((w) => w <= image.width);
-  if (eligible.length === 0) return imageOriginalUrl(image);
-  const largest = Math.max(...eligible);
-  return `/images/${image.contentSlug}/${image.id}/${largest}.${format}`;
 }
