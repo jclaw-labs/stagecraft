@@ -252,8 +252,17 @@ export function ImageCarousel({
       ) : null}
 
       {showDots ? (
+        // Group, not tablist. The legacy template used `role="tablist"`
+        // + `role="tab"` here, but the carousel's slides are
+        // `role="group" aria-roledescription="slide"` (the WAI-ARIA
+        // APG carousel pattern), not `role="tabpanel"`. A tab without
+        // a matching tabpanel is incomplete ARIA — assistive tech
+        // can't follow the relationship. Carousel-pattern dots are
+        // plain buttons (announced as "button, Go to slide 1") with
+        // `aria-current` flagging the active one — what pagination
+        // and pickers do generally.
         <ul
-          role="tablist"
+          role="group"
           aria-label="Slide indicators"
           style={dotListStyle}
         >
@@ -266,7 +275,6 @@ export function ImageCarousel({
                   onClick={() => scrollToSlide(index)}
                   aria-label={`Go to slide ${index + 1}`}
                   aria-current={isActive ? "true" : undefined}
-                  role="tab"
                   style={dotStyle(isActive)}
                 />
               </li>

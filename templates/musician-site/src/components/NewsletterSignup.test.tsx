@@ -119,19 +119,90 @@ describe("NewsletterSignup — anti-spam honeypots", () => {
     expect(html).toContain('aria-hidden="true"');
   });
 
-  it("emits Mailchimp's `b_<placeholder>` honeypot for service=mailchimp", () => {
-    // Mailchimp's real bot-trap is `b_<list>_<id>`; we emit a
-    // generic placeholder without parsing actionUrl. Same best-
-    // effort as the legacy template.
-    const html = renderForm({ service: "mailchimp" });
-    expect(html).toMatch(/name="b_subscribe_honeypot"/);
+  it("emits Mailchimp's audience-suffixed honeypot from the actionUrl when service=mailchimp", () => {
+    // Mailchimp's real bot trap is `b_<u>_<id>` where the suffix
+    // comes from the `?u=USER_ID&id=LIST_ID` query params. Earlier
+    // impl emitted a generic `b_subscribe_honeypot` placeholder
+    // that Mailchimp ignored at the provider end — zero protection.
+    // Parsing the URL gives the correct field name so Mailchimp's
+    // own bot defense fires on a non-empty value.
+    const html = renderForm({
+      service: "mailchimp",
+      actionUrl: "https://example.us1.list-manage.com/subscribe/post?u=abc123&id=xyz789",
+    });
+    expect(html).toMatch(/name="b_abc123_xyz789"/);
+  });
+
+  it("omits the b_* honeypot entirely when the actionUrl doesn't parse", () => {
+    // Custom-domain or partially-typed actionUrl: prefer no field
+    // over the wrong field. The universal `_gotcha` honeypot above
+    // is the client-side fallback.
+    const html = renderForm({
+      service: "mailchimp",
+      actionUrl: "https://artist.example/subscribe",
+    });
+    expect(html).not.toMatch(/name="b_/);
   });
 
   it("omits the b_* honeypot for non-Mailchimp services", () => {
     for (const service of ["convertkit", "buttondown", "generic"] as const) {
       const html = renderForm({ service });
-      expect(html).not.toMatch(/name="b_subscribe_honeypot"/);
+      expect(html).not.toMatch(/name="b_/);
     }
+  });
+});
+
+describe("NewsletterSignup — optional name field", () => {
+  it("omits the name field by default (email-only)", () => {
+    // Default off — most artist newsletters collect email-only.
+    // Without explicit `hasNameField`, the form has only the email
+    // input + honeypots.
+    const html = renderForm();
+    expect(html).not.toMatch(/name="FNAME"/);
+    expect(html).not.toMatch(/name="fields\[first_name\]"/);
+    expect(html).not.toMatch(/autocomplete="given-name"/);
+  });
+
+  it("renders the name field with Mailchimp's FNAME merge attribute", () => {
+    const html = renderForm({ service: "mailchimp", hasNameField: true });
+    expect(html).toMatch(/name="FNAME"/);
+    expect(html).toMatch(/autocomplete="given-name"/i);
+  });
+
+  it("uses the ConvertKit nested-fields attribute name", () => {
+    const html = renderForm({
+      service: "convertkit",
+      actionUrl: "https://app.convertkit.com/forms/12345/subscriptions",
+      hasNameField: true,
+    });
+    expect(html).toMatch(/name="fields\[first_name\]"/);
+  });
+
+  it("uses Buttondown's metadata bucket attribute name", () => {
+    const html = renderForm({
+      service: "buttondown",
+      actionUrl: "https://buttondown.email/api/emails/embed-subscribe/artist",
+      hasNameField: true,
+    });
+    expect(html).toMatch(/name="metadata\[name\]"/);
+  });
+
+  it("uses generic `name` for the generic service", () => {
+    const html = renderForm({
+      service: "generic",
+      actionUrl: "https://artist.example/subscribe",
+      hasNameField: true,
+    });
+    expect(html).toMatch(/name="name"/);
+  });
+
+  it("honours a custom nameLabel via the field label", () => {
+    const html = renderForm({
+      service: "mailchimp",
+      hasNameField: true,
+      nameLabel: "Your name",
+    });
+    expect(html).toContain("Your name");
   });
 });
 

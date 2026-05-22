@@ -679,6 +679,26 @@ describe("puckConfig", () => {
     });
   });
 
+  describe("NewsletterSignup — optional name field", () => {
+    it("exposes hasNameField + nameLabel as inspector fields", () => {
+      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+        string,
+        { type?: string }
+      >;
+      expect(fields.hasNameField?.type).toBe("radio");
+      expect(fields.nameLabel?.type).toBe("text");
+    });
+
+    it("defaults hasNameField to false (email-only) and nameLabel to 'First name'", () => {
+      const defaults = puckConfig.components.NewsletterSignup.defaultProps as Record<
+        string,
+        unknown
+      >;
+      expect(defaults.hasNameField).toBe(false);
+      expect(defaults.nameLabel).toBe("First name");
+    });
+  });
+
   describe("text alignment shared enum", () => {
     it("Heading exposes start/center/end via a select", () => {
       const field = puckConfig.components.Heading.fields?.textAlign;

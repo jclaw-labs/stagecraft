@@ -195,6 +195,8 @@ export type BlockProps = {
     emailLabel: string;
     submitLabel: string;
     successMessage: string;
+    hasNameField: boolean;
+    nameLabel: string;
   };
   ImageCarousel: {
     slides: Array<{ image: ImageMetadata | null; caption: string }>;
@@ -961,9 +963,9 @@ export const puckConfig: Config<
     },
     NewsletterSignup: {
       // Single block (vs the legacy template's five composable
-      // sub-blocks) — most artists use email-only signup. Extension
-      // (name capture, preference dropdowns) lands in a follow-up if
-      // demand surfaces.
+      // sub-blocks). The optional name field is the most-requested
+      // extension; richer per-service field configuration (preference
+      // dropdowns etc.) stays out of scope.
       //
       // Form submits cross-origin to the artist's chosen provider
       // (Mailchimp / ConvertKit / Buttondown / generic). No server
@@ -998,6 +1000,18 @@ export const puckConfig: Config<
           type: "textarea",
           label: "Success message",
         },
+        hasNameField: {
+          type: "radio",
+          label: "Collect first name",
+          options: [
+            { label: "Email only", value: false },
+            { label: "Email + name", value: true },
+          ],
+        },
+        nameLabel: {
+          type: "text",
+          label: "Name field label",
+        },
       },
       defaultProps: {
         service: "mailchimp" satisfies NewsletterService,
@@ -1006,8 +1020,19 @@ export const puckConfig: Config<
         emailLabel: "Email",
         submitLabel: "Subscribe",
         successMessage: "Thanks for subscribing! Check your inbox to confirm.",
+        hasNameField: false,
+        nameLabel: "First name",
       },
-      render: ({ service, actionUrl, title, emailLabel, submitLabel, successMessage }) => (
+      render: ({
+        service,
+        actionUrl,
+        title,
+        emailLabel,
+        submitLabel,
+        successMessage,
+        hasNameField,
+        nameLabel,
+      }) => (
         <NewsletterSignup
           service={service}
           actionUrl={actionUrl}
@@ -1015,6 +1040,8 @@ export const puckConfig: Config<
           emailLabel={emailLabel}
           submitLabel={submitLabel}
           successMessage={successMessage}
+          hasNameField={hasNameField}
+          nameLabel={nameLabel}
         />
       ),
     },
