@@ -161,8 +161,11 @@ export function PublishConfirmModal({
                 attribute; surfacing "N / 200" verbally on every
                 keypress would be noisy. The visible count is for
                 sighted users tracking proximity to the cap. */}
-            <span aria-hidden="true" style={counterStyle}>
-              {subject.length} / {MAX_COMMIT_SUBJECT_LENGTH}
+            <span
+              aria-hidden="true"
+              style={counterStyleFor(subject.length, MAX_COMMIT_SUBJECT_LENGTH)}
+            >
+              {`${subject.length} / ${MAX_COMMIT_SUBJECT_LENGTH}`}
             </span>
           </div>
           <input
@@ -383,10 +386,37 @@ const labelTextStyle: CSSProperties = {
   letterSpacing: "0.05em",
 };
 
+/**
+ * Counter colour ramp: muted at all values below 90% of the cap,
+ * emphasised text from 90% up, error-coloured at the cap so the
+ * artist sees why the input has stopped accepting characters.
+ *
+ * Thresholds are inclusive: 180 chars at max=200 is "near", 200 is
+ * "at". Below 180 stays default-muted so the counter is unobtrusive
+ * during normal use.
+ */
+function counterStyleFor(length: number, max: number): CSSProperties {
+  if (length >= max) return atLimitCounterStyle;
+  if (length >= Math.floor(max * 0.9)) return nearLimitCounterStyle;
+  return counterStyle;
+}
+
 const counterStyle: CSSProperties = {
   fontSize: "var(--font-size-xs)",
   color: "var(--color-text-faint)",
   fontVariantNumeric: "tabular-nums",
+};
+
+const nearLimitCounterStyle: CSSProperties = {
+  ...counterStyle,
+  color: "var(--color-text-emphasis)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+};
+
+const atLimitCounterStyle: CSSProperties = {
+  ...counterStyle,
+  color: "var(--color-text-error)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
 };
 
 const inputStyle: CSSProperties = {

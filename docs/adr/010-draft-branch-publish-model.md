@@ -422,14 +422,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* an artist asks for line breaks in the commit
   message.
 
-- **Visual emphasis when the subject counter approaches / hits
-  the limit.** The counter is muted at all values today. At
-  200 / 200 the input silently stops accepting characters (browser
-  enforces `maxLength`), which can confuse an artist who keeps
-  typing. A color shift to warning / error at ~90% and 100% would
-  fix this.
-  *Trigger:* an artist asks why their input stopped responding.
-
 - **Reset-to-default on the commit-subject input.** If the artist
   clears the field by mistake, the placeholder still hints at the
   default but there's no button to re-seed the typed default.
