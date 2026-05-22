@@ -587,6 +587,7 @@ describe("puckConfig", () => {
         variant: "filled" as const,
         fileUrl: "",
         sizeLabel: "",
+        isHoverable: false,
         ...overrides,
       };
     }
@@ -804,6 +805,57 @@ describe("puckConfig", () => {
       expect(html).toContain('href="/posts/x"');
       expect(html).not.toContain('href="/uploads/file.pdf"');
       expect(html).not.toContain(">Download<");
+    });
+
+    // ---------------------------------------------------------------------
+    // isHoverable — opt-in hover affordance for the <article> variant
+    // ---------------------------------------------------------------------
+
+    it("non-link cards stay static by default (no hover class)", () => {
+      // A grid of 6+ static cards with no isHoverable opt-in
+      // shouldn't all animate on mouseover — that's busy. The
+      // resting state is the conservative default.
+      const html = render("Card", cardProps({ title: "Bio" }));
+      expect(html).toMatch(/^<article/);
+      expect(html).not.toContain("stagecraft-card-hoverable");
+      expect(html).not.toContain("stagecraft-card-link");
+    });
+
+    it("non-link cards opt into hover via isHoverable=true (class hook)", () => {
+      // The class wires the same lift-on-hover affordance link-cards
+      // get, via the shared globals.css selector. Visual-only — no
+      // link semantics introduced; the element remains <article>.
+      const html = render(
+        "Card",
+        cardProps({ title: "Bio", isHoverable: true }),
+      );
+      expect(html).toMatch(/^<article/);
+      expect(html).toContain('class="stagecraft-card-hoverable"');
+    });
+
+    it("link cards ignore isHoverable (always get .stagecraft-card-link, never the article class)", () => {
+      // The hover affordance is part of the link semantics — there's
+      // no static / non-hover link variant. Setting isHoverable on a
+      // link card shouldn't add the article class (which would
+      // duplicate the styling).
+      const html = render(
+        "Card",
+        cardProps({
+          title: "Read more",
+          href: "/posts/x",
+          isHoverable: true,
+        }),
+      );
+      expect(html).toContain('class="stagecraft-card-link"');
+      expect(html).not.toContain("stagecraft-card-hoverable");
+    });
+
+    it("Puck field is a radio (off / on)", () => {
+      const field = puckConfig.components.Card.fields?.isHoverable;
+      expect(field?.type).toBe("radio");
+      if (field?.type === "radio") {
+        expect(field.options.map((o) => o.value)).toEqual([false, true]);
+      }
     });
   });
 

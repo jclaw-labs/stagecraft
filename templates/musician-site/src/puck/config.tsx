@@ -238,6 +238,13 @@ export type BlockProps = {
     fileUrl: string;
     /** Free-text label beside the download button (e.g. "2.3 MB"). */
     sizeLabel: string;
+    /**
+     * Opt the non-link `<article>` card into the same lift-on-hover
+     * affordance link-cards always get. Visual-only — no clickability
+     * implied (the card is still an `<article>` semantically).
+     * Honours `prefers-reduced-motion: reduce`.
+     */
+    isHoverable: boolean;
   };
 };
 
@@ -936,6 +943,14 @@ export const puckConfig: Config<
         },
         fileUrl: { type: "text", label: "Downloadable file URL (optional)" },
         sizeLabel: { type: "text", label: "Size label (e.g. '2.3 MB')" },
+        isHoverable: {
+          type: "radio",
+          label: "Hover affordance (non-link cards only)",
+          options: [
+            { label: "Static (default)", value: false },
+            { label: "Lift on hover", value: true },
+          ],
+        },
       },
       defaultProps: {
         image: null,
@@ -948,6 +963,7 @@ export const puckConfig: Config<
         variant: "filled",
         fileUrl: "",
         sizeLabel: "",
+        isHoverable: false,
       },
       render: ({
         image,
@@ -960,6 +976,7 @@ export const puckConfig: Config<
         variant,
         fileUrl,
         sizeLabel,
+        isHoverable,
       }) => {
         const inner = (
           <>
@@ -1022,7 +1039,22 @@ export const puckConfig: Config<
             </a>
           );
         }
-        return <article style={containerStyle}>{inner}</article>;
+        // Non-link `<article>` variant. `isHoverable` opts into the
+        // same lift-on-hover affordance link-cards always get —
+        // useful when a grid of cards wants visual feedback on
+        // mouseover without implying clickability. The CSS rule
+        // in globals.css attaches via the same `:hover` style that
+        // gates `.stagecraft-card-link`. Without the opt-in, the
+        // card stays static (the conservative default — animation
+        // on every card in a long list is busy).
+        return (
+          <article
+            className={isHoverable ? "stagecraft-card-hoverable" : undefined}
+            style={containerStyle}
+          >
+            {inner}
+          </article>
+        );
       },
     },
     Embed: {
