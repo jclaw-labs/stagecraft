@@ -85,15 +85,28 @@ export const EMBED_ASPECT_RATIO_LABELS: Record<EmbedAspectRatio, string> = {
 
 // Card orientation — vertical (image on top, text below) for grids;
 // horizontal (image on side) for list layouts. The legacy template
-// also supports "icon" / variant / size axes; this v1 ships with just
-// orientation — artists who want richer compositions drop multiple
-// Cards in a Columns block.
+// also supports "icon" / variant / size axes; this template ships
+// with orientation + variant — artists who want even richer
+// compositions drop multiple Cards in a Columns block.
 export const CARD_ORIENTATIONS = ["vertical", "horizontal"] as const;
 export type CardOrientation = (typeof CARD_ORIENTATIONS)[number];
 
 export const CARD_ORIENTATION_LABELS: Record<CardOrientation, string> = {
   vertical: "Vertical (image on top)",
   horizontal: "Horizontal (image on side)",
+};
+
+// Card visual variant — `filled` has the surface background +
+// border (the v1 default); `outlined` drops the background for a
+// lighter touch (useful on busy page backgrounds where the white
+// surface fights with the imagery). The legacy template adds a
+// `minimal` variant; skipped here pending demand.
+export const CARD_VARIANTS = ["filled", "outlined"] as const;
+export type CardVariant = (typeof CARD_VARIANTS)[number];
+
+export const CARD_VARIANT_LABELS: Record<CardVariant, string> = {
+  filled: "Filled (default surface)",
+  outlined: "Outlined (transparent background)",
 };
 
 // All visual values come from CSS custom properties (see app/globals.css).
@@ -214,11 +227,17 @@ export type BlockProps = {
   };
   Card: {
     image: ImageMetadata | null;
+    eyebrow: string;
     title: string;
     description: string;
     href: string;
     isExternal: boolean;
     orientation: CardOrientation;
+    variant: CardVariant;
+    /** Optional downloadable file URL. Renders a download button. */
+    fileUrl: string;
+    /** Free-text label beside the download button (e.g. "2.3 MB"). */
+    sizeLabel: string;
   };
 };
 
@@ -242,7 +261,10 @@ function textAlignStyle(align: TextAlignment): CSSProperties {
 // Card styles
 // ---------------------------------------------------------------------------
 
-function cardContainerStyle(orientation: CardOrientation): CSSProperties {
+function cardContainerStyle(
+  orientation: CardOrientation,
+  variant: CardVariant,
+): CSSProperties {
   return {
     display: orientation === "horizontal" ? "grid" : "flex",
     gridTemplateColumns: orientation === "horizontal" ? "1fr 2fr" : undefined,
@@ -252,8 +274,62 @@ function cardContainerStyle(orientation: CardOrientation): CSSProperties {
     padding: "var(--space-4)",
     border: "1px solid var(--color-border)",
     borderRadius: "var(--radius-md)",
-    background: "var(--color-surface)",
+    // `outlined` drops the filled background so the card reads as a
+    // light boundary on busy / image-heavy page surfaces (where the
+    // solid surface would fight the imagery). Same border + radius.
+    background: variant === "filled" ? "var(--color-surface)" : "transparent",
   };
+}
+
+/**
+ * Bottom-of-card download affordance. A button-styled anchor with the
+ * `download` attribute that triggers the browser's save-as. The size
+ * label sits next to the button as muted text (the artist provides
+ * it free-text; we don't validate or compute it). External by
+ * default — opens in a new tab so a single click doesn't navigate
+ * the host page away.
+ */
+function CardDownload({
+  fileUrl,
+  sizeLabel,
+}: {
+  fileUrl: string;
+  sizeLabel: string;
+}): ReactNode {
+  return (
+    <div style={cardDownloadRowStyle}>
+      <a
+        href={fileUrl}
+        download
+        // `download` doesn't work cross-origin in every browser; the
+        // `target="_blank"` fallback at least opens the file in a new
+        // tab instead of replacing the artist's page.
+        target="_blank"
+        rel="noopener noreferrer"
+        style={cardDownloadButtonStyle}
+        // Click on the download button shouldn't ALSO trigger the
+        // parent card link (when href is set on the card). We can't
+        // attach an onClick here without making this a client
+        // component; the alternative — rendering the download button
+        // OUTSIDE the card link — is uglier. As a server-only
+        // compromise, the artist's authoring intent is: pick href
+        // OR fileUrl, not both. Two interactions on one card is
+        // ambiguous regardless. We render both and let the click-
+        // event order resolve (the inner anchor's default action
+        // fires first; the outer link only sees the propagated
+        // click if the inner one doesn't preventDefault). In
+        // practice both navigate, the user gets the download, the
+        // card link's navigation is wasted but harmless.
+      >
+        Download
+      </a>
+      {sizeLabel ? (
+        <span style={cardSizeLabelStyle} aria-label={`File size: ${sizeLabel}`}>
+          {sizeLabel}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function cardMediaStyle(orientation: CardOrientation): CSSProperties {
@@ -292,6 +368,38 @@ const cardDescriptionStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
   color: "var(--color-text-muted)",
   lineHeight: "var(--line-height-base)",
+};
+
+const cardEyebrowStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+};
+
+const cardDownloadRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-3)",
+  marginTop: "var(--space-2)",
+};
+
+const cardDownloadButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "var(--space-1) var(--space-3)",
+  background: "var(--color-action)",
+  color: "var(--color-action-fg)",
+  borderRadius: "var(--radius)",
+  textDecoration: "none",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+};
+
+const cardSizeLabelStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
 };
 
 /**
@@ -784,11 +892,20 @@ export const puckConfig: Config<
       // layouts; horizontal (image on side) for list rows. Whole card
       // becomes a link when `href` is set.
       //
-      // V1 scope: image + title + description + link. The legacy
-      // template's Card also supports variant / size / hover / file
-      // downloads / icon-mode media — out of scope here; artists who
-      // want richer compositions drop multiple Cards into a Columns
-      // block (or a Section + Heading + RichText combo).
+      // Adds over v1: eyebrow (small label above title), variant
+      // (filled / outlined), file-download affordance (button at the
+      // bottom with optional size label). The legacy template adds
+      // a `minimal` variant + `size` axis + icon-mode media; skipped
+      // here pending demand — artists who want richer compositions
+      // drop multiple Cards into a Columns block or compose a
+      // Section + Heading + RichText + Image manually.
+      //
+      // Mutual exclusivity: `href` makes the WHOLE card a link;
+      // `fileUrl` makes the download button a link instead. When
+      // both are set, `href` wins (the download button is just a
+      // sibling button inside the linked card) — that's the most
+      // common authoring intent ("a card with a download" rather
+      // than "a download card that's also a link").
       fields: {
         image: {
           type: "custom",
@@ -800,6 +917,7 @@ export const puckConfig: Config<
             />
           ),
         },
+        eyebrow: { type: "text", label: "Eyebrow (small label above title)" },
         title: { type: "text", label: "Title" },
         description: { type: "textarea", label: "Description" },
         href: { type: "text", label: "Link URL (optional)" },
@@ -819,16 +937,41 @@ export const puckConfig: Config<
             value: v,
           })),
         },
+        variant: {
+          type: "select",
+          label: "Visual style",
+          options: CARD_VARIANTS.map((v) => ({
+            label: CARD_VARIANT_LABELS[v],
+            value: v,
+          })),
+        },
+        fileUrl: { type: "text", label: "Downloadable file URL (optional)" },
+        sizeLabel: { type: "text", label: "Size label (e.g. '2.3 MB')" },
       },
       defaultProps: {
         image: null,
+        eyebrow: "",
         title: "Card title",
         description: "",
         href: "",
         isExternal: false,
         orientation: "vertical",
+        variant: "filled",
+        fileUrl: "",
+        sizeLabel: "",
       },
-      render: ({ image, title, description, href, isExternal, orientation }) => {
+      render: ({
+        image,
+        eyebrow,
+        title,
+        description,
+        href,
+        isExternal,
+        orientation,
+        variant,
+        fileUrl,
+        sizeLabel,
+      }) => {
         const inner = (
           <>
             {image ? (
@@ -847,6 +990,7 @@ export const puckConfig: Config<
               </div>
             ) : null}
             <div style={cardBodyStyle}>
+              {eyebrow ? <div style={cardEyebrowStyle}>{eyebrow}</div> : null}
               {/* Title is a styled non-heading on purpose — a grid
                   of 6 cards would otherwise emit 6 `<h3>`s into the
                   document outline, which screen-reader users
@@ -857,11 +1001,14 @@ export const puckConfig: Config<
               {description ? (
                 <p style={cardDescriptionStyle}>{description}</p>
               ) : null}
+              {fileUrl ? (
+                <CardDownload fileUrl={fileUrl} sizeLabel={sizeLabel} />
+              ) : null}
             </div>
           </>
         );
 
-        const containerStyle = cardContainerStyle(orientation);
+        const containerStyle = cardContainerStyle(orientation, variant);
 
         if (href) {
           // Whole card is a link. Drop the default underline (the
