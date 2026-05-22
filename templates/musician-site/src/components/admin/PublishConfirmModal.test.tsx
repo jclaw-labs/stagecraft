@@ -55,6 +55,35 @@ describe("PublishConfirmModal", () => {
     expect(screen.getByText("Loading the change list…")).toBeTruthy();
   });
 
+  it("renders the rename source as 'previous → current' for renamed items", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 1,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "renamed" as const,
+              collectionSlug: "pages",
+              itemSlug: "about-us",
+              path: "src/content/collections/pages/items/about-us.json",
+              previousPath: "src/content/collections/pages/items/about.json",
+              previousItemSlug: "about",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · about → about-us")).toBeTruthy();
+    });
+  });
+
   it("renders the change list once the fetch resolves", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
