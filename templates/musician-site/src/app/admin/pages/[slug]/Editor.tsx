@@ -1,13 +1,13 @@
 "use client";
 
-import { Puck } from "@measured/puck";
+import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
-import { puckConfig } from "@/puck/config";
+import { BLOCK_DESCRIPTIONS, puckConfig } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { PageData } from "@/lib/content";
 
@@ -147,6 +147,12 @@ export function Editor({ initialData, pageSlug, email }: Props) {
           }
           return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
         },
+        fields: ({ children, itemSelector }) => (
+          <>
+            {itemSelector ? <BlockHelp /> : null}
+            {children}
+          </>
+        ),
         headerActions: ({ children }) => (
           <>
             <Link
@@ -320,6 +326,35 @@ function DrawerSearchInput({
         color: "var(--color-text)",
       }}
     />
+  );
+}
+
+/**
+ * One-line description of the selected block, surfaced above the
+ * inspector's field controls. Reads `selectedItem` from `usePuck` —
+ * `itemSelector` from the override args only tells us *that*
+ * something is selected, not what type. When nothing is selected
+ * (root focus or a stale selector), this renders nothing.
+ */
+function BlockHelp() {
+  const { selectedItem } = usePuck();
+  if (!selectedItem) return null;
+  const description =
+    BLOCK_DESCRIPTIONS[selectedItem.type as keyof typeof BLOCK_DESCRIPTIONS];
+  if (!description) return null;
+  return (
+    <p
+      role="note"
+      style={{
+        margin: "0 0 var(--space-4) 0",
+        color: "var(--color-text-muted)",
+        fontSize: "var(--font-size-sm)",
+        lineHeight: "var(--line-height-base)",
+        fontStyle: "italic",
+      }}
+    >
+      {description}
+    </p>
   );
 }
 
