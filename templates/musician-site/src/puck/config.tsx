@@ -2,6 +2,12 @@ import type { Config, Slot } from "@measured/puck";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
+import { ImageCarousel } from "@/components/ImageCarousel";
+import {
+  CAROUSEL_ASPECT_RATIOS,
+  CAROUSEL_ASPECT_RATIO_LABELS,
+  type CarouselAspectRatio,
+} from "@/components/image-carousel-types";
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
@@ -143,6 +149,12 @@ export type BlockProps = {
     emailLabel: string;
     submitLabel: string;
     successMessage: string;
+  };
+  ImageCarousel: {
+    slides: Array<{ image: ImageMetadata | null; caption: string }>;
+    aspectRatio: CarouselAspectRatio;
+    areArrowsHidden: boolean;
+    areDotsHidden: boolean;
   };
 };
 
@@ -650,6 +662,91 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           successMessage={successMessage}
         />
       ),
+    },
+    ImageCarousel: {
+      // Inline-photos mode only (vs the legacy template's collection-
+      // filter mode that pulled from the photos collection by
+      // `usageSlot`). The `usageSlot` field doesn't exist on the
+      // current ImageMetadata, and inline-photo authoring is the
+      // higher-bandwidth UX anyway. Collection-source mode lands when
+      // image-metadata-richness does.
+      //
+      // Each slide is `{ image: ImageMetadata, caption?: string }`.
+      // Slides without an image are filtered out at render time
+      // (artist dropped the block, added a row, hasn't picked yet).
+      fields: {
+        slides: {
+          type: "array",
+          label: "Slides",
+          arrayFields: {
+            image: {
+              type: "custom",
+              label: "Image",
+              render: ({ value, onChange }) => (
+                <ImagePickerField
+                  value={value as ImageMetadata | null}
+                  onChange={(next) => onChange(next as ImageMetadata)}
+                />
+              ),
+            },
+            caption: {
+              type: "text",
+              label: "Caption (optional)",
+            },
+          },
+          getItemSummary: (item, i) => {
+            const v = item as { image: ImageMetadata | null; caption: string };
+            return v.caption || v.image?.alt || `Slide ${(i ?? 0) + 1}`;
+          },
+        },
+        aspectRatio: {
+          type: "select",
+          label: "Aspect ratio",
+          options: CAROUSEL_ASPECT_RATIOS.map((r) => ({
+            label: CAROUSEL_ASPECT_RATIO_LABELS[r],
+            value: r,
+          })),
+        },
+        areArrowsHidden: {
+          type: "radio",
+          label: "Arrows",
+          options: [
+            { label: "Show", value: false },
+            { label: "Hide", value: true },
+          ],
+        },
+        areDotsHidden: {
+          type: "radio",
+          label: "Dot indicators",
+          options: [
+            { label: "Show", value: false },
+            { label: "Hide", value: true },
+          ],
+        },
+      },
+      defaultProps: {
+        slides: [],
+        aspectRatio: "16/9" satisfies CarouselAspectRatio,
+        areArrowsHidden: false,
+        areDotsHidden: false,
+      },
+      render: ({ slides, aspectRatio, areArrowsHidden, areDotsHidden }) => {
+        // Filter out slides with no image picked. The carousel
+        // tolerates an empty array (renders null); render-time
+        // filtering keeps the inspector pristine while the artist
+        // is mid-edit.
+        const usable = slides
+          .filter((s): s is { image: ImageMetadata; caption: string } => s.image !== null)
+          .map((s) => ({ image: s.image, caption: s.caption || undefined }));
+        return (
+          <ImageCarousel
+            slides={usable}
+            aspectRatio={aspectRatio}
+            areArrowsHidden={areArrowsHidden}
+            areDotsHidden={areDotsHidden}
+          />
+        );
+      },
     },
   },
 };
