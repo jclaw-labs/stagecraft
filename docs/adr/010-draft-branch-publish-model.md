@@ -436,14 +436,6 @@ The publish-token endpoint surface is unchanged.
   Closing and re-opening the modal works as a workaround.
   *Trigger:* an artist reports the workflow feels lossy.
 
-- **Shared 200-character limit between route + UI.** The
-  `maxLength={200}` on the input and `z.string().max(200)` in the
-  `publish-draft` route's `requestSchema` are duplicated. Both
-  fail in matching ways but a shared constant in
-  `publish-types.ts` would avoid silent drift if either side
-  changes.
-  *Trigger:* either limit changes.
-
 - **Diff preview: richer item labels.** The publish modal shows
   collection slugs + item slugs ("pages · about"). The artist's
   display name for the item (e.g., the `slugSourceFieldId`'s
