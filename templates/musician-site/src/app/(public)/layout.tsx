@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 
 import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
+import { PhotoLightboxBoot } from "@/components/PhotoLightboxBoot";
 import { getFsReadStore } from "@/lib/collections";
 import { readAppearance, readSiteConfig } from "@/lib/content";
 import { type ImageMetadata } from "@/lib/image-types";
@@ -46,6 +47,11 @@ export default async function PublicLayout({ children }: { children: ReactNode }
       {site.pageBackground ? <PageBackgroundUnderlay image={site.pageBackground} /> : null}
       <AppearanceStyles appearance={appearance} />
       {children}
+      {/* Single page-level bootstrap that enhances any photo
+          gallery on this page with a modal lightbox. Doesn't
+          render anything until a gallery tile is clicked; cheap
+          on pages without galleries. */}
+      <PhotoLightboxBoot />
     </div>
   );
 }

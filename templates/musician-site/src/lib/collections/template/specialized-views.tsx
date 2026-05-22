@@ -49,11 +49,14 @@ import type { Item } from "../schema";
  * Collection block's wrapper, which carries the grid layout via
  * `[data-collection-view="photos"]` CSS.
  *
- * Caption renders as `<figcaption>` when present. Without a real
- * lightbox (out of scope for v1 — would need client-side
- * interactivity), the tile links to the original upload so a click
- * opens the full-resolution image in a new tab. Cheap, accessible,
- * good-enough.
+ * Caption renders as `<figcaption>` when present. The anchor is the
+ * progressive-enhancement fallback: with JS disabled (or before the
+ * `PhotoLightboxBoot` client component hydrates), clicking opens the
+ * original in a new tab; with JS the boot intercepts the click,
+ * preventDefault, and dispatches an event that opens the lightbox
+ * modal in place. Data attributes on the anchor carry the
+ * lightbox-friendly metadata so the boot doesn't have to re-parse
+ * the figcaption text.
  */
 function PhotoTile({ item }: { item: Item }): ReactNode {
   const image = getImageOrNull(item, PHOTOS_FIELD_IDS.image);
@@ -75,6 +78,10 @@ function PhotoTile({ item }: { item: Item }): ReactNode {
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`Open ${image.alt || "photo"} at full size`}
+        data-photo-tile
+        data-photo-alt={image.alt}
+        data-photo-caption={caption ?? ""}
+        data-photo-credit={credit ?? ""}
       >
         <Image image={image} sizes="(max-width: 600px) 100vw, 33vw" />
       </a>

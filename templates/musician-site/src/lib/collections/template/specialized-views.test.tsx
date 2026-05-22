@@ -124,14 +124,38 @@ function renderPhoto(item: Item): string {
 }
 
 describe("PhotoTile", () => {
-  it("renders the image wrapped in a link to the original upload (lightbox-lite)", () => {
+  it("renders the image wrapped in a link to the original upload", () => {
     const html = renderPhoto(photoItem());
     // Image goes through the responsive `<picture>` renderer; the
-    // anchor opens the full-size original in a new tab. v1 stand-in
-    // for a real lightbox.
+    // anchor carries the original-file href. With JS, the
+    // `PhotoLightboxBoot` client component intercepts the click
+    // and opens the modal in place; without JS, the anchor falls
+    // back to opening the original in a new tab.
     expect(html).toContain("<picture>");
     expect(html).toContain('href="/images/home/abc1234567890def/original.jpg"');
     expect(html).toContain('target="_blank"');
+  });
+
+  it("exposes lightbox-friendly data attributes on the anchor", () => {
+    // The PhotoLightboxBoot client component reads these to build
+    // the modal's image list — declarative; no figcaption re-
+    // parsing.
+    const html = renderPhoto(
+      photoItem({ caption: "Soundcheck note", credit: "Photo by Jane" }),
+    );
+    expect(html).toMatch(/data-photo-tile/);
+    expect(html).toContain('data-photo-alt="A photo"');
+    expect(html).toContain('data-photo-caption="Soundcheck note"');
+    expect(html).toContain('data-photo-credit="Photo by Jane"');
+  });
+
+  it("emits empty-string data attributes when caption / credit are unset", () => {
+    // The boot reads `data-photo-caption ?? ""`; we emit the
+    // attribute with an empty value rather than omitting it so the
+    // shape stays uniform across tiles.
+    const html = renderPhoto(photoItem());
+    expect(html).toContain('data-photo-caption=""');
+    expect(html).toContain('data-photo-credit=""');
   });
 
   it("renders caption + credit when present", () => {
