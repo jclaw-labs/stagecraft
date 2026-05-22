@@ -31,19 +31,29 @@ describe("PendingChangesIndicator", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows 'Unpublished changes' when hasPending=true", async () => {
+  it("shows the plural count when count > 1", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, status: { hasPending: true, mode: "github" } }),
+      jsonResponse({ ok: true, status: { count: 3, mode: "github" } }),
     );
     render(<PendingChangesIndicator />);
     await waitFor(() => {
-      expect(screen.getByText("Unpublished changes")).toBeTruthy();
+      expect(screen.getByText("3 unpublished changes")).toBeTruthy();
     });
   });
 
-  it("shows 'All published' when hasPending=false on github", async () => {
+  it("uses the singular noun when count === 1", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, status: { hasPending: false, mode: "github" } }),
+      jsonResponse({ ok: true, status: { count: 1, mode: "github" } }),
+    );
+    render(<PendingChangesIndicator />);
+    await waitFor(() => {
+      expect(screen.getByText("1 unpublished change")).toBeTruthy();
+    });
+  });
+
+  it("shows 'All published' when count === 0 on github", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, status: { count: 0, mode: "github" } }),
     );
     render(<PendingChangesIndicator />);
     await waitFor(() => {
@@ -53,13 +63,26 @@ describe("PendingChangesIndicator", () => {
 
   it("renders nothing in dev / local mode (no draft branch concept)", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, status: { hasPending: false, mode: "local" } }),
+      jsonResponse({ ok: true, status: { count: 0, mode: "local" } }),
     );
     const { container } = render(<PendingChangesIndicator />);
     // Wait a tick for the effect's microtasks to settle. There's
     // nothing to assert as present; assert the indicator stays empty.
     await new Promise((r) => setTimeout(r, 0));
     expect(container.firstChild).toBeNull();
+  });
+
+  it("passes cache: no-store so a save → navigate doesn't get a stale response", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, status: { count: 0, mode: "github" } }),
+    );
+    render(<PendingChangesIndicator />);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/draft-changes",
+        expect.objectContaining({ cache: "no-store" }),
+      );
+    });
   });
 
   it("hides silently on a server error (don't surface load failures in chrome)", async () => {
