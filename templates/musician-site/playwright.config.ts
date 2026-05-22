@@ -50,7 +50,14 @@ export default defineConfig({
   globalSetup: "./e2e/setup/global-setup.ts",
   webServer: {
     command: `next dev --port ${PORT}`,
-    url: BASE_URL,
+    // Probe `/admin/login` for readiness, not the catch-all root. The
+    // public catch-all returns 404 against an empty content dir —
+    // which is precisely the state e2e specs start from — and
+    // Playwright's webServer treats 404 as "not ready" and waits
+    // forever. `/admin/login` is a static server-rendered route that
+    // returns 200 regardless of content, so it's a stable readiness
+    // signal.
+    url: `${BASE_URL}/admin/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {

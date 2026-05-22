@@ -31,7 +31,10 @@ test.describe("welcome wizard", () => {
 
     // Step 1 — artist name. Next stays disabled until the field is
     // non-empty, then advances to step 2.
-    const nextButton = page.getByRole("button", { name: "Next" });
+    // `exact: true` rules out Next.js 15.5+'s dev-tools button, which
+    // carries `aria-label="Open Next.js Dev Tools"` and otherwise
+    // matches the substring `name: "Next"`.
+    const nextButton = page.getByRole("button", { name: "Next", exact: true });
     await expect(nextButton).toBeDisabled();
     await page.getByLabel("Artist name").fill("Test Artist");
     await expect(nextButton).toBeEnabled();
@@ -41,12 +44,12 @@ test.describe("welcome wizard", () => {
     // accent so Next is already enabled.
     await expect(page.getByText(/Step\s+2\s+\/\s+4/)).toBeVisible();
     await expect(page.getByRole("heading", { name: /primary color/i })).toBeVisible();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 3 — wordmark. Optional; Next is enabled without an upload.
     await expect(page.getByText(/Step\s+3\s+\/\s+4/)).toBeVisible();
     await expect(page.getByRole("heading", { name: /wordmark/i })).toBeVisible();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 4 — first page title. Pre-fills with "Home"; submit is
     // labelled "Set up my site" on the final step.
@@ -60,11 +63,13 @@ test.describe("welcome wizard", () => {
     // POST /api/welcome/complete + client-side router.replace() →
     // we land on /admin/pages with the seeded Home page visible.
     await expect(page).toHaveURL(/\/admin\/pages$/);
-    // PagesPanel renders one row per page, each with a link into the
-    // editor at /admin/pages/<slug>. Lock onto the link's href so we
-    // don't accidentally match incidental "Home" text elsewhere on
-    // the page.
-    await expect(page.locator('a[href="/admin/pages/home"]')).toBeVisible();
+    // PagesPanel renders TWO links per row both pointing at
+    // /admin/pages/<slug>: the page title and the row's Edit button.
+    // Either one being visible proves the seeded row landed; pick the
+    // first match to satisfy Playwright's strict-mode locator.
+    await expect(
+      page.locator('a[href="/admin/pages/home"]').first(),
+    ).toBeVisible();
   });
 
   test("a completed site bypasses the wizard on /admin", async ({ page }) => {
