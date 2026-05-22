@@ -88,12 +88,23 @@ export const DEFAULT_FOCAL_POINT: FocalPoint = { x: 0.5, y: 0.5 };
  * entirely (the browser default `50% 50%` is the same as the focal
  * default, so emitting it would be visual no-op but reads as
  * intentional configuration).
+ *
+ * Rounds each axis to two decimal places. Without rounding, FP math
+ * leaks artifacts into the rendered CSS (`0.33 * 100` becomes
+ * "33.000000000000004"); browsers parse it but the inline style
+ * reads as a bug to anyone inspecting DevTools.
  */
 export function focalPointObjectPosition(
   focalPoint: FocalPoint | undefined,
 ): string | undefined {
   if (!focalPoint) return undefined;
-  return `${focalPoint.x * 100}% ${focalPoint.y * 100}%`;
+  return `${formatPercent(focalPoint.x)} ${formatPercent(focalPoint.y)}`;
+}
+
+function formatPercent(unit: number): string {
+  // Strip trailing zeros — `50.00%` reads worse than `50%`.
+  const rounded = Math.round(unit * 100 * 100) / 100;
+  return `${rounded}%`;
 }
 
 export const uploadResponseSchema = z.object({ ok: z.literal(true), image: imageMetadataSchema });

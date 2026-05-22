@@ -93,4 +93,19 @@ describe("focalPointObjectPosition", () => {
     expect(focalPointObjectPosition({ x: 1, y: 1 })).toBe("100% 100%");
     expect(focalPointObjectPosition(DEFAULT_FOCAL_POINT)).toBe("50% 50%");
   });
+
+  it("rounds FP artifacts out of the rendered CSS", () => {
+    // Without rounding, 0.33 * 100 → "33.000000000000004"; the
+    // browser parses it but the CSS leaks FP noise into DevTools.
+    expect(focalPointObjectPosition({ x: 0.33, y: 0.67 })).toBe("33% 67%");
+    expect(focalPointObjectPosition({ x: 0.1, y: 0.2 })).toBe("10% 20%");
+  });
+
+  it("keeps two-decimal precision for fine clicks", () => {
+    // The picker's `clamp01((event.clientX - rect.left) / rect.width)`
+    // can produce values like 0.5125 (a click at pixel 41 of an 80-
+    // pixel preview); we want that recorded faithfully, not snapped
+    // to a coarser grid.
+    expect(focalPointObjectPosition({ x: 0.5125, y: 0.25 })).toBe("51.25% 25%");
+  });
 });

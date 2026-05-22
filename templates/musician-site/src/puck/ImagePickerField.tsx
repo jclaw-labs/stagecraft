@@ -1,9 +1,16 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 
 import {
   DEFAULT_FOCAL_POINT,
+  isVectorExt,
   type FocalPoint,
   type ImageMetadata,
 } from "@/lib/image-types";
@@ -41,8 +48,15 @@ export function ImagePickerField({ value, onChange }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const previewSrc =
-    value && `/images/${value.contentSlug}/${value.id}/${Math.min(800, value.width)}.webp`;
+  // Vector / icon uploads have no `.webp` variants on disk (the sharp
+  // pipeline is bypassed for them), so the preview points to the
+  // original. Without this guard the preview 404s and the focal-point
+  // click target is non-functional for SVG/ICO uploads.
+  const previewSrc = value
+    ? isVectorExt(value.originalExt)
+      ? `/images/${value.contentSlug}/${value.id}/original.${value.originalExt}`
+      : `/images/${value.contentSlug}/${value.id}/${Math.min(800, value.width)}.webp`
+    : null;
 
   function reset() {
     setPendingFile(null);
@@ -105,6 +119,43 @@ export function ImagePickerField({ value, onChange }: Props) {
     onChange(next);
   }
 
+  // Keyboard nudge: arrow keys move the focal point in 5% steps; the
+  // current position is the starting anchor (default centre when
+  // unset). Shift modifier moves in 1% steps for precise placement.
+  // Enter / Space recenters. Lets keyboard-only artists set focal
+  // point without the mouse.
+  function handleFocalPointKeyDown(event: KeyboardEvent<HTMLImageElement>): void {
+    if (!value) return;
+    const current = value.focalPoint ?? DEFAULT_FOCAL_POINT;
+    const step = event.shiftKey ? 0.01 : 0.05;
+    let next: FocalPoint | null = null;
+    switch (event.key) {
+      case "ArrowLeft":
+        next = { x: clamp01(current.x - step), y: current.y };
+        break;
+      case "ArrowRight":
+        next = { x: clamp01(current.x + step), y: current.y };
+        break;
+      case "ArrowUp":
+        next = { x: current.x, y: clamp01(current.y - step) };
+        break;
+      case "ArrowDown":
+        next = { x: current.x, y: clamp01(current.y + step) };
+        break;
+      case "Enter":
+      case " ":
+        // Recenter — semantically the keyboard analogue of clicking
+        // the "Reset to center" button.
+        event.preventDefault();
+        handleFocalPointReset();
+        return;
+      default:
+        return;
+    }
+    event.preventDefault();
+    patchValue({ focalPoint: next });
+  }
+
   const focalPoint = value?.focalPoint;
 
   return (
@@ -112,16 +163,23 @@ export function ImagePickerField({ value, onChange }: Props) {
       {value && previewSrc ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           <div style={{ position: "relative" }}>
-            {/* Click anywhere on the preview to set the focal point.
-                `object-fit: contain` keeps the image's intrinsic
-                aspect ratio so the click coordinates map 1:1 onto
-                the source image — `cover` would distort the
-                relationship. */}
+            {/* Click anywhere on the preview to set the focal point;
+                or focus + arrow keys to nudge. The image acts as a
+                button-shaped control, hence `role="button"` +
+                `tabIndex={0}` + keyboard handler — without those a
+                keyboard-only artist can't set focal point at all.
+                Aria-label spells out the keyboard contract since
+                the visual cursor: crosshair affordance is mouse-
+                only. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewSrc}
               alt={value.alt}
               onClick={handleFocalPointClick}
+              onKeyDown={handleFocalPointKeyDown}
+              role="button"
+              tabIndex={0}
+              aria-label="Set focal point: click to place, or focus and use arrow keys to nudge (shift for finer steps, Enter to recenter)"
               style={{
                 display: "block",
                 maxWidth: "100%",
@@ -266,8 +324,9 @@ export function ImagePickerField({ value, onChange }: Props) {
 
 function FocalPointMarker({ focalPoint }: { focalPoint: FocalPoint }) {
   // Crosshair marker pinned at the focal-point coordinate.
-  // `translate(-50%, -50%)` centers the marker on its anchor so the
-  // visual centroid lines up with the click point.
+  // `transform: translate(-50%, -50%)` centers the marker on its
+  // anchor — decouples the centering offset from marker size, so
+  // resizing the marker doesn't require resyncing a magic value.
   // `pointer-events: none` so the marker doesn't swallow click
   // events meant for the underlying picker image.
   return (
@@ -275,12 +334,11 @@ function FocalPointMarker({ focalPoint }: { focalPoint: FocalPoint }) {
       aria-hidden="true"
       style={{
         position: "absolute",
-        left: `${focalPoint.x * 100}%`,
-        top: `${focalPoint.y * 100}%`,
+        left: `${roundPercent(focalPoint.x)}%`,
+        top: `${roundPercent(focalPoint.y)}%`,
+        transform: "translate(-50%, -50%)",
         width: "1.25rem",
         height: "1.25rem",
-        marginLeft: "-0.625rem",
-        marginTop: "-0.625rem",
         borderRadius: "50%",
         border: "2px solid var(--color-action-fg)",
         boxShadow: "0 0 0 2px var(--color-action), var(--shadow-md)",
@@ -290,6 +348,10 @@ function FocalPointMarker({ focalPoint }: { focalPoint: FocalPoint }) {
       data-testid="image-picker-focal-marker"
     />
   );
+}
+
+function roundPercent(unit: number): number {
+  return Math.round(unit * 100 * 100) / 100;
 }
 
 function clamp01(n: number): number {

@@ -167,6 +167,95 @@ describe("<ImagePickerField> — focal point picker", () => {
   });
 });
 
+describe("<ImagePickerField> — focal point keyboard control", () => {
+  // Keyboard-only artists need an alternative to the click picker.
+  // Arrow keys nudge the focal point in 5% steps (1% with shift);
+  // Enter / Space recenters. The preview image carries role=button +
+  // tabIndex=0 so a screen reader announces it as an interactive
+  // control rather than decoration.
+
+  it("renders the preview as a focusable button with descriptive aria-label", () => {
+    render(<ImagePickerField value={VALUE} onChange={vi.fn()} />);
+    const preview = screen.getByTestId("image-picker-preview");
+    expect(preview.getAttribute("role")).toBe("button");
+    expect(preview.getAttribute("tabIndex")).toBe("0");
+    expect(preview.getAttribute("aria-label")).toMatch(/focal point/i);
+  });
+
+  it("ArrowRight nudges focal x by +5% from default centre", () => {
+    const onChange = vi.fn();
+    render(<ImagePickerField value={VALUE} onChange={onChange} />);
+    const preview = screen.getByTestId("image-picker-preview");
+    fireEvent.keyDown(preview, { key: "ArrowRight" });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ focalPoint: { x: 0.55, y: 0.5 } }),
+    );
+  });
+
+  it("shift + arrow nudges by 1% (finer step)", () => {
+    const onChange = vi.fn();
+    render(<ImagePickerField value={VALUE} onChange={onChange} />);
+    const preview = screen.getByTestId("image-picker-preview");
+    fireEvent.keyDown(preview, { key: "ArrowUp", shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ focalPoint: { x: 0.5, y: 0.49 } }),
+    );
+  });
+
+  it("clamps keyboard nudges at the 0..1 boundary", () => {
+    const withFocal: ImageMetadata = {
+      ...VALUE,
+      focalPoint: { x: 0.02, y: 0.5 },
+    };
+    const onChange = vi.fn();
+    render(<ImagePickerField value={withFocal} onChange={onChange} />);
+    const preview = screen.getByTestId("image-picker-preview");
+    // 0.02 - 0.05 = -0.03, clamps to 0.
+    fireEvent.keyDown(preview, { key: "ArrowLeft" });
+    const last = onChange.mock.calls.at(-1)?.[0] as ImageMetadata;
+    expect(last.focalPoint?.x).toBe(0);
+  });
+
+  it("Enter recenters (removes the focalPoint key)", () => {
+    const withFocal: ImageMetadata = {
+      ...VALUE,
+      focalPoint: { x: 0.3, y: 0.7 },
+    };
+    const onChange = vi.fn();
+    render(<ImagePickerField value={withFocal} onChange={onChange} />);
+    const preview = screen.getByTestId("image-picker-preview");
+    fireEvent.keyDown(preview, { key: "Enter" });
+    const last = onChange.mock.calls.at(-1)?.[0] as ImageMetadata;
+    expect(last).not.toHaveProperty("focalPoint");
+  });
+});
+
+describe("<ImagePickerField> — preview path for vector uploads", () => {
+  it("uses the original SVG path for SVG previews (no .webp variant exists)", () => {
+    const svg: ImageMetadata = { ...VALUE, originalExt: "svg" };
+    render(<ImagePickerField value={svg} onChange={vi.fn()} />);
+    const preview = screen.getByTestId("image-picker-preview") as HTMLImageElement;
+    expect(preview.getAttribute("src")).toBe(
+      `/images/${svg.contentSlug}/${svg.id}/original.svg`,
+    );
+  });
+
+  it("uses the original ICO path for ICO previews", () => {
+    const ico: ImageMetadata = { ...VALUE, originalExt: "ico" };
+    render(<ImagePickerField value={ico} onChange={vi.fn()} />);
+    const preview = screen.getByTestId("image-picker-preview") as HTMLImageElement;
+    expect(preview.getAttribute("src")).toBe(
+      `/images/${ico.contentSlug}/${ico.id}/original.ico`,
+    );
+  });
+
+  it("still uses a .webp variant for raster uploads", () => {
+    render(<ImagePickerField value={VALUE} onChange={vi.fn()} />);
+    const preview = screen.getByTestId("image-picker-preview") as HTMLImageElement;
+    expect(preview.getAttribute("src")).toMatch(/\d+\.webp$/);
+  });
+});
+
 describe("<ImagePickerField> — empty state", () => {
   it("renders no preview / edit fields when value is null", () => {
     render(<ImagePickerField value={null} onChange={vi.fn()} />);
