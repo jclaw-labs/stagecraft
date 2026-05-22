@@ -459,11 +459,16 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* when more than ~10 items are routinely pending
   between publishes.
 
-- **Diff preview: rename source rendering.** `DraftChange` for
-  kind=item captures `previousPath` when GitHub reports
-  status=renamed, but the modal doesn't surface "old-slug →
-  new-slug" — it just shows the new path with status=renamed.
-  *Trigger:* renames become a common workflow.
+- **Diff preview: cross-collection rename context.** Renames within
+  one collection render as "X · old → new" (shipped). When GitHub's
+  rename heuristic detects a similarity across collections (file
+  manually moved from `collections/A/items/x.json` to
+  `collections/B/items/x.json`), the label reads "B · old → new"
+  and drops "A" — losing the source-collection context. Our actual
+  `renameItem` flow is single-collection so this only happens with
+  hand-moved files. Defer until a real workflow surfaces it.
+  *Trigger:* artists reporting confusion about cross-collection
+  moves in the diff.
 
 - **Per-item Publish (publish A but not B).** Today's model is
   "publish everything pending." Per-item Publish would need
