@@ -14,10 +14,13 @@
  * "Published" instantly but the live site doesn't update for ~60s,
  * which trips every first-time user.
  *
- * A small confirmation step gates the action: one click opens the
- * confirm; second click on "Publish" inside it actually fires. The
- * confirm is cancellable and prevents accidental publishes (e.g.,
- * the artist hits the button mid-edit by mistake).
+ * The confirm step is a modal (`PublishConfirmModal`) that lists the
+ * pending changes. One click on the sidebar button opens the modal;
+ * inside, "Publish" fires the API and "Cancel" / escape / click-
+ * backdrop dismisses. Modal stays open during the publish API call
+ * for visual continuity, then closes once `fire()` transitions
+ * status to `in_flight` / `live` / `error` and the deploy-status
+ * pill takes over.
  */
 
 "use client";
@@ -27,6 +30,7 @@ import type { CSSProperties } from "react";
 
 import type { PublishError as PublishErrorPayload } from "@/lib/publish-types";
 
+import { PublishConfirmModal } from "./PublishConfirmModal";
 import { useDeployStatus } from "./useDeployStatus";
 
 type Status =
@@ -97,14 +101,23 @@ export function PublishPendingChangesButton() {
     }
   }
 
+  // The modal sits on top of normal chrome while the artist is in the
+  // confirm step OR while the publish API call is in flight — the
+  // latter so the artist gets visual continuity (button doesn't
+  // "swap" out from under them) and a clear "Publishing…" affordance
+  // before the deploy-status pill takes over.
+  const isModalOpen = status.kind === "confirming" || status.kind === "publishing";
+
   return (
     <div style={containerStyle}>
-      {status.kind === "confirming" ? (
-        <Confirm
+      {isModalOpen ? (
+        <PublishConfirmModal
           onCancel={() => setStatus({ kind: "idle" })}
           onConfirm={fire}
+          isPublishing={status.kind === "publishing"}
         />
-      ) : status.kind === "concurrent_edit" ? (
+      ) : null}
+      {status.kind === "concurrent_edit" ? (
         // Reload, not republish: in-memory editor state diverges from
         // whatever the other tab just committed. Reloading re-reads
         // from disk so the artist sees the merged state before they
@@ -164,30 +177,6 @@ function buttonLabel(
     default:
       return "Publish changes";
   }
-}
-
-function Confirm({
-  onCancel,
-  onConfirm,
-}: {
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div style={confirmStyle}>
-      <p style={confirmCopyStyle}>
-        Publish all pending changes? This triggers a deploy.
-      </p>
-      <div style={confirmButtonsStyle}>
-        <button type="button" onClick={onCancel} style={cancelButtonStyle}>
-          Cancel
-        </button>
-        <button type="button" onClick={onConfirm} style={buttonStyle}>
-          Publish
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function StatusLine({
@@ -350,29 +339,6 @@ const cancelButtonStyle: CSSProperties = {
   color: "var(--color-text)",
   borderRadius: "var(--radius-sm)",
   cursor: "pointer",
-};
-
-const confirmStyle: CSSProperties = {
-  padding: "var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-sm)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-2)",
-};
-
-const confirmCopyStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text)",
-  lineHeight: "var(--line-height-base)",
-};
-
-const confirmButtonsStyle: CSSProperties = {
-  display: "flex",
-  gap: "var(--space-2)",
-  justifyContent: "flex-end",
 };
 
 const mutedStyle: CSSProperties = {
