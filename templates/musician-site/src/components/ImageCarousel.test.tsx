@@ -124,6 +124,17 @@ describe("ImageCarousel — multi-slide chrome", () => {
     expect(html).toContain('aria-current="true"');
   });
 
+  it("dot list keeps the implicit list semantic (no role override)", () => {
+    // `<ul>` already has implicit `role="list"`. Adding `role="group"`
+    // would override it; AT users navigating by list wouldn't find
+    // the indicator group. Keep the implicit semantic + `aria-label`
+    // — AT announces "list, Slide indicators, N items".
+    const html = render({ slides });
+    const dotListMatch = html.match(/<ul[^>]+aria-label="Slide indicators"[^>]*>/);
+    expect(dotListMatch).toBeTruthy();
+    expect(dotListMatch?.[0]).not.toMatch(/role=/);
+  });
+
   it("initial Prev button is disabled (first slide is active SSR)", () => {
     const html = render({ slides });
     // The disabled state on first paint reflects the start-of-track
