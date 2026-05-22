@@ -47,6 +47,9 @@ export function Editor({ initialData, pageSlug, email }: Props) {
   // the new baseline).
   const [isDirty, setIsDirty] = useState(false);
   useBeforeUnloadIfDirty(isDirty);
+  // Drawer block filter — typed into the search box above the
+  // component list. Trimmed + lowercased before compare.
+  const [drawerFilter, setDrawerFilter] = useState("");
 
   const onPublish = useCallback(
     async (data: PageData) => {
@@ -98,9 +101,26 @@ export function Editor({ initialData, pageSlug, email }: Props) {
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}
       overrides={{
-        drawerItem: ({ name, children }) => (
-          <DrawerItemPreview name={name}>{children}</DrawerItemPreview>
+        drawer: ({ children }) => (
+          <>
+            <DrawerSearchInput value={drawerFilter} onChange={setDrawerFilter} />
+            {children}
+          </>
         ),
+        drawerItem: ({ name, children }) => {
+          const q = drawerFilter.trim().toLowerCase();
+          if (q && !name.toLowerCase().includes(q)) {
+            // Render but hide so Puck's drag machinery keeps its DOM
+            // references; removing items outright can confuse the
+            // drawer-list virtualisation.
+            return (
+              <div style={{ display: "none" }} aria-hidden>
+                {children}
+              </div>
+            );
+          }
+          return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
+        },
         headerActions: ({ children }) => (
           <>
             <Link
@@ -228,6 +248,42 @@ function Dot() {
         height: "0.5rem",
         borderRadius: "50%",
         background: "var(--color-action)",
+      }}
+    />
+  );
+}
+
+/**
+ * Search-style input shown at the top of the component drawer. Lifted
+ * into its own component so its identity is stable across Editor
+ * re-renders — Puck re-creates the `overrides` object whenever its
+ * parent updates, and pulling this out of the inline override keeps
+ * the input from being reconciled away (which would lose focus
+ * mid-keystroke).
+ */
+function DrawerSearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <input
+      type="search"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Filter blocks…"
+      aria-label="Filter blocks"
+      style={{
+        width: "100%",
+        margin: "0 0 var(--space-3) 0",
+        padding: "var(--space-2) var(--space-3)",
+        fontSize: "var(--font-size-sm)",
+        border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--color-surface)",
+        color: "var(--color-text)",
       }}
     />
   );
