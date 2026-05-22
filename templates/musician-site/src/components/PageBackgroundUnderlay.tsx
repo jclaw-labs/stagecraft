@@ -120,6 +120,13 @@ function PageBackgroundOverlay({ opacity }: { opacity: number }) {
         inset: 0,
         zIndex: -1,
         pointerEvents: "none",
+        // CSS keyword (not a hex). The existing `--color-overlay`
+        // token has opacity baked in (rgba 0,0,0,0.55) which doesn't
+        // fit a tunable-opacity overlay; adding a single-use
+        // `--color-page-overlay-tint` token would just spread the
+        // intent across two files for no readability gain. CLAUDE.md
+        // §7 forbids "hex colors"; `black` is a keyword, the universal
+        // "darkening" primitive.
         backgroundColor: "black",
         opacity,
       }}
