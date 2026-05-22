@@ -3,13 +3,18 @@
 import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { BLOCK_DESCRIPTIONS, puckConfig } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { PageData } from "@/lib/content";
+
+import {
+  computeCategoryVisibility,
+  isVisibilityDispatchTrivial,
+} from "./drawer-visibility";
 
 type Props = {
   initialData: PageData;
@@ -295,43 +300,48 @@ function Dot() {
  * Renders nothing; effect-only. Lives inside the `drawer` override
  * so it has Puck context (`usePuck`).
  *
- * Two subtleties:
+ * Three subtleties:
  *
  * - The dispatch uses the functional form so it can read the
  *   previous entry per category and preserve `expanded` (the
  *   artist's manual collapse state). Replacing the whole entry
- *   would wipe `expanded` on every keystroke.
+ *   would wipe `expanded` on every keystroke. Logic lives in the
+ *   pure `computeCategoryVisibility` helper next to this file.
  * - `recordHistory: false` keeps these dispatches out of Puck's
  *   undo stack. Without it, every filter keystroke adds an undo
  *   entry — Ctrl-Z would walk back through the filter's
  *   visibility flips before reaching the artist's actual content
  *   edits.
+ * - On initial mount with an empty filter, the computed result
+ *   matches Puck's default initialisation (all categories
+ *   visible) so the dispatch is a state-equivalent no-op. The
+ *   ref-based short-circuit skips that one dispatch per drawer
+ *   mount. Once the artist has typed at least once
+ *   (`hasDispatchedRef.current` flips true), every empty-filter
+ *   case dispatches normally — that's when categories were just
+ *   hidden by a filter and need to come back to visible.
  */
 function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
   const { dispatch } = usePuck();
+  const hasDispatchedRef = useRef(false);
   useEffect(() => {
-    const q = filter.trim().toLowerCase();
+    if (isVisibilityDispatchTrivial(filter) && !hasDispatchedRef.current) {
+      // Initial mount with empty filter: every category is visible
+      // by default. Dispatching the same state would round-trip
+      // through Puck's reducer for nothing.
+      return;
+    }
+    hasDispatchedRef.current = true;
     dispatch({
       type: "setUi",
       recordHistory: false,
-      ui: (previous) => {
-        const next: typeof previous.componentList = {};
-        for (const [key, cat] of Object.entries(puckConfig.categories ?? {})) {
-          const prev = previous.componentList[key];
-          next[key] = {
-            // Preserve everything the artist has touched (expanded
-            // state, in particular), then overwrite the bits we own.
-            ...prev,
-            components: cat?.components ? [...cat.components] : undefined,
-            title: cat?.title,
-            visible:
-              !q ||
-              (cat?.components?.some((c) => c.toLowerCase().includes(q)) ??
-                true),
-          };
-        }
-        return { componentList: next };
-      },
+      ui: (previous) => ({
+        componentList: computeCategoryVisibility(
+          filter,
+          puckConfig.categories ?? {},
+          previous.componentList,
+        ),
+      }),
     });
   }, [filter, dispatch]);
   return null;

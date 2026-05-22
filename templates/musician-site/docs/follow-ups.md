@@ -77,26 +77,12 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Drawer search + categories
 
-- **Short-circuit the visibility dispatch when no filter is active.**
-  `DrawerCategoryVisibilitySync` currently dispatches `setUi` on every
-  mount and every filter change, even when `filter === ""` (the
-  branch where every category resolves to `visible: true` — a no-op
-  against Puck's initialisation). An early return on empty filter
-  would save one dispatch per drawer mount and per filter clear. Pure
-  perf nit; the unconditional path is correct and cheap. From #189
-  deep review.
 - **`Media` category split as it grows.** Currently holds Image,
   ImageCarousel, Embed, EmbedResponsive (visuals + iframes mixed).
   As ADR-009 collection blocks land (`<TourDatesList>`,
   `<ReleasesGrid>` etc.), this bucket will swell. Worth splitting
   into `Images` + `Embeds` if the count crosses ~8. From #173 deep
   review.
-- **Regression test for the drawer-filter category sync.** The
-  expanded-preservation + recordHistory:false fix shipped in #189
-  without a unit test — driving Puck's reducer is heavy and we
-  verified manually instead. Could be testable if the `(filter,
-  categories) → visibility-map` reduction is extracted into a pure
-  helper. From #189 deep review.
 
 ## Puck inspector
 
