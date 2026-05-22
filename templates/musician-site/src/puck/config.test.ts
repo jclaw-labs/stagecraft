@@ -35,6 +35,7 @@ describe("puckConfig", () => {
         "FullscreenSection",
         "Heading",
         "Image",
+        "ImageCarousel",
         "NewsletterSignup",
         "Quote",
         "RichText",
