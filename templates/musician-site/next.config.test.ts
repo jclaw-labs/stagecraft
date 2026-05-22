@@ -53,6 +53,18 @@ describe("next.config — static-asset headers", () => {
     expect(noSniff?.value).toBe("nosniff");
   });
 
+  it("sets Cache-Control: no-transform on SVGs (CDN-rewrite defense)", async () => {
+    // Some CDNs optimise SVG bytes by inlining as data URIs or
+    // stripping XML declarations; `no-transform` forbids that
+    // mutation. The sanitiser has already locked the content shape
+    // at write time — allowing an intermediate to mutate it would
+    // re-open the surface we just closed.
+    const rules = await config.headers!();
+    const svgRule = rules.find((r) => r.source.endsWith("original.svg"));
+    const cache = svgRule?.headers.find((h) => h.key === "Cache-Control");
+    expect(cache?.value).toBe("no-transform");
+  });
+
   it("does NOT match raster image paths (jpg / png / webp / avif)", async () => {
     // Cosmetic-sanity check: the rule's `source` literally ends in
     // `original.svg`, so non-SVG raster paths can't accidentally

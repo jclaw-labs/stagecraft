@@ -81,5 +81,87 @@ export function sanitiseSvg(buffer: Buffer): Buffer {
       "onblur",
     ],
   });
+
+  // Telemetry: log a structured warning when DOMPurify strips
+  // *meaningful* content. The artist sees a different SVG on the
+  // public site than the one they uploaded — "why did my drop-
+  // shadow disappear" support questions land in admin logs as a
+  // deliberate signal rather than a silent rewrite. The `removed`
+  // array is reset per `sanitize()` call so the snapshot here is
+  // just this call's removals.
+  //
+  // `console.warn` lands in Vercel / Netlify function logs in
+  // production and the dev server in local. A future improvement:
+  // return the removal summary alongside the buffer so the
+  // upload route can also surface it in the API response (the
+  // picker UI could then show "we stripped N items from your
+  // SVG"). Tracked in docs/follow-ups.md.
+  const removed = describeMeaningfulRemovals(DOMPurify.removed ?? []);
+  if (removed.length > 0) {
+    console.warn(
+      `sanitiseSvg: stripped ${removed.length} item(s) from SVG (${buffer.length} bytes): ${summariseRemovals(removed)}`,
+    );
+  }
+
   return Buffer.from(sanitisedString, "utf-8");
+}
+
+/**
+ * jsdom (DOMPurify's parser host) wraps a bare `<svg>` input in an
+ * implicit `<html><head /><body>...</body></html>`; DOMPurify then
+ * "removes" the wrapper as part of producing SVG output, reporting
+ * it in `removed[]`. That's a parser artefact, not a tamper signal,
+ * and warning about it on every clean SVG is just noise. Filter it
+ * before counting / summarising.
+ */
+const IMPLICIT_WRAPPER_TAGS = new Set(["html", "head", "body"]);
+
+function describeMeaningfulRemovals(removed: ReadonlyArray<unknown>): string[] {
+  const result: string[] = [];
+  for (const entry of removed) {
+    const described = describeRemoval(entry);
+    if (described === null) continue;
+    result.push(described);
+  }
+  return result;
+}
+
+/**
+ * Short, stable string identifying what DOMPurify removed — suitable
+ * for a log line. Each entry in `DOMPurify.removed` carries either
+ * an `element` (tag stripped) or an `attribute` (one attr stripped
+ * from a surviving tag); shape is loosely typed so we unwrap
+ * defensively. Returns null for parser-artefact wrappers.
+ */
+function describeRemoval(entry: unknown): string | null {
+  if (typeof entry !== "object" || entry === null) return null;
+  const obj = entry as {
+    element?: { nodeName?: unknown; localName?: unknown };
+    attribute?: { name?: unknown; nodeName?: unknown };
+  };
+  if (obj.element) {
+    const name = String(obj.element.nodeName ?? obj.element.localName ?? "").toLowerCase();
+    if (!name) return null;
+    if (IMPLICIT_WRAPPER_TAGS.has(name)) return null;
+    return `<${name}>`;
+  }
+  if (obj.attribute) {
+    const name = String(obj.attribute.name ?? obj.attribute.nodeName ?? "").toLowerCase();
+    if (!name) return null;
+    return `${name}=`;
+  }
+  return null;
+}
+
+/**
+ * Format the pre-filtered + described removal list into a log line.
+ * Capped at the first 10 entries so a SVG with hundreds of bad
+ * attrs doesn't produce a multi-KB log line; anything past the cap
+ * shows as `... +N more`.
+ */
+function summariseRemovals(removed: ReadonlyArray<string>): string {
+  const cap = 10;
+  const head = removed.slice(0, cap).join(", ");
+  const extra = removed.length > cap ? `, ... +${removed.length - cap} more` : "";
+  return head + extra;
 }
