@@ -122,16 +122,115 @@ describe("PublishConfirmModal", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onConfirm when Publish is clicked", async () => {
+  it("calls onConfirm with the (default) commit subject when Publish is clicked", async () => {
     const onConfirm = vi.fn();
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, status: { count: 0, changes: [], mode: "github" } }),
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
     );
     render(
       <PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />,
     );
+    // Wait for the changes to load + the default subject to seed in.
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
     await userEvent.click(screen.getByRole("button", { name: "Publish" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("Publish 2 changes");
+  });
+
+  it("seeds the singular default subject when count === 1", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 1, changes: [sampleChanges[0]], mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 1 change");
+    });
+  });
+
+  it("passes the edited subject through onConfirm", async () => {
+    const onConfirm = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />,
+    );
+    // Wait for the default to actually seed before interacting; otherwise
+    // userEvent races the changes-load effect that overwrites the value.
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    await userEvent.clear(input);
+    await userEvent.type(input, "Ship the about-page rewrite");
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onConfirm).toHaveBeenCalledWith("Ship the about-page rewrite");
+  });
+
+  it("passes null through onConfirm when the artist clears the field", async () => {
+    // null → the button layer sends an empty body, and the route
+    // falls back to its own "Publish pending changes" default.
+    const onConfirm = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    await userEvent.clear(screen.getByLabelText("Commit message"));
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onConfirm).toHaveBeenCalledWith(null);
+  });
+
+  it("doesn't overwrite an edited subject when the changes list later loads", async () => {
+    // Slow-load case: artist types into the field before the
+    // changes-list fetch resolves. The default subject should NOT
+    // clobber what they typed.
+    let resolveFetch: (value: unknown) => void = () => {};
+    fetchMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    await userEvent.type(input, "my message");
+    expect(input.value).toBe("my message");
+    // Fetch resolves with the default subject's would-be count.
+    resolveFetch(
+      jsonResponse({
+        ok: true,
+        status: { count: 5, changes: [], mode: "github" },
+      }),
+    );
+    // Give the effect a tick; the value should still be the typed one.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(input.value).toBe("my message");
   });
 
   it("disables both buttons and shows 'Publishing…' while isPublishing=true", async () => {

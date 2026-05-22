@@ -22,8 +22,16 @@
  *     that instead of silently shipping nothing.
  *
  * Mirrors the modal pattern in `PagesPanel.tsx` (click backdrop to
- * cancel, escape closes when not publishing, focus management via
- * `autoFocus` on the primary button).
+ * cancel, escape closes when not publishing, focus capture +
+ * restore on mount / unmount).
+ *
+ * **Commit-message override** (ADR-010 §3): the modal shows a
+ * pre-filled subject input so the artist can edit the auto-
+ * generated "Publish N changes" message before committing. The
+ * `onConfirm` callback receives the trimmed subject (or `null` if
+ * cleared) so the button layer can include it in the publish-draft
+ * request body — the route's `requestSchema` already accepts an
+ * optional `commitSubject`.
  */
 
 "use client";
@@ -58,10 +66,16 @@ export function PublishConfirmModal({
   isPublishing,
 }: {
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (commitSubject: string | null) => void;
   isPublishing: boolean;
 }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [subject, setSubject] = useState<string>("");
+  // Tracks whether the artist has touched the input. Until they do,
+  // the loaded-changes effect keeps the field synced to the
+  // auto-generated default — so the count reflects late-arriving
+  // data. Once they edit, we stop overwriting.
+  const [subjectTouched, setSubjectTouched] = useState<boolean>(false);
   const publishButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
@@ -88,6 +102,14 @@ export function PublishConfirmModal({
     void load();
     return () => ac.abort();
   }, []);
+
+  // Sync the auto-generated default into the subject field whenever
+  // changes load, as long as the artist hasn't typed in it yet.
+  // Won't overwrite a user-edited value.
+  useEffect(() => {
+    if (state.kind !== "loaded" || subjectTouched) return;
+    setSubject(defaultSubject(state.changes.length));
+  }, [state, subjectTouched]);
 
   // Focus capture / restore. Runs once on mount + once on unmount;
   // intentionally has no deps so the cleanup fires only when the
@@ -125,6 +147,21 @@ export function PublishConfirmModal({
           deploy.
         </p>
         <Body state={state} />
+        <label style={labelStyle}>
+          <span style={labelTextStyle}>Commit message</span>
+          <input
+            type="text"
+            value={subject}
+            maxLength={200}
+            placeholder="Publish pending changes"
+            disabled={isPublishing}
+            onChange={(e) => {
+              setSubject(e.target.value);
+              setSubjectTouched(true);
+            }}
+            style={inputStyle}
+          />
+        </label>
         <div style={buttonRowStyle}>
           <button
             type="button"
@@ -137,7 +174,10 @@ export function PublishConfirmModal({
           <button
             ref={publishButtonRef}
             type="button"
-            onClick={onConfirm}
+            onClick={() => {
+              const trimmed = subject.trim();
+              onConfirm(trimmed.length === 0 ? null : trimmed);
+            }}
             disabled={isPublishing}
             style={primaryButtonStyle}
           >
@@ -182,6 +222,20 @@ function ChangeRow({ change }: { change: DraftChange }): ReactNode {
       <span style={changeStatusStyle}>{change.status}</span>
     </>
   );
+}
+
+/**
+ * Auto-generated subject seeded into the message input on first
+ * load. Matches the cardinal-aware phrasing the indicator uses so
+ * the artist sees the same wording in both places. The input is
+ * editable; if the artist clears it, `onConfirm` passes `null` and
+ * the route falls back to its own "Publish pending changes"
+ * default.
+ */
+function defaultSubject(count: number): string {
+  if (count === 0) return "Publish pending changes";
+  if (count === 1) return "Publish 1 change";
+  return `Publish ${count} changes`;
 }
 
 function describeLabel(c: DraftChange): string {
@@ -282,6 +336,31 @@ const changeStatusStyle: CSSProperties = {
   fontSize: "var(--font-size-xs)",
   textTransform: "lowercase",
   flexShrink: 0,
+};
+
+const labelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+};
+
+const labelTextStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+};
+
+const inputStyle: CSSProperties = {
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  border: "1px solid var(--color-border-strong)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+  borderRadius: "var(--radius-sm)",
+  width: "100%",
+  boxSizing: "border-box",
 };
 
 const buttonRowStyle: CSSProperties = {

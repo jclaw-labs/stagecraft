@@ -71,12 +71,17 @@ export function PublishPendingChangesButton() {
     }
   }, [status, deployStatus]);
 
-  async function fire() {
+  async function fire(commitSubject: string | null) {
     setStatus({ kind: "publishing" });
     try {
       const res = await fetch("/api/publish-draft", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        // Send a body only when the artist supplied a subject; the
+        // route's request schema is `partial({ commitSubject? })`,
+        // so an empty body (no `commitSubject` at all) is the path
+        // the route falls back to its own default on.
+        body: commitSubject !== null ? JSON.stringify({ commitSubject }) : undefined,
       });
       const body = (await res.json().catch(() => null)) as PublishDraftResponseBody;
       setStatus(statusForFetchResponse(res, body, Date.now()));
