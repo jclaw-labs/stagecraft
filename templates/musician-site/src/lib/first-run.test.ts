@@ -162,6 +162,7 @@ describe("checkIsFirstRun (via readSiteConfig.hasCompletedFirstRun)", () => {
         isFooterHidden: false,
         favicon: null,
         pageBackground: null,
+        pageBackgroundOverlay: 0,
         pageOrder: [],
         hiddenFromNav: [],
         hasCompletedFirstRun: true,

@@ -47,6 +47,9 @@ export const SITE_FIELD_IDS = {
   // upsized (sharp skips widths > source width).
   favicon: "fld_site_favicon",
   pageBackground: "fld_site_pageBackground",
+  // 0..1 black-tint opacity painted over `pageBackground` for
+  // text-legibility on bright / busy backgrounds.
+  pageBackgroundOverlay: "fld_site_pageBackgroundOverlay",
   social: (platform: SocialPlatform) => socialFieldId(platform),
 } as const;
 

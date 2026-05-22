@@ -85,6 +85,7 @@ describe("page root props back-compat", () => {
       isSplashPage: false,
       isFooterHidden: false,
       pageBackground: null,
+      pageBackgroundOverlay: null,
     });
   });
 

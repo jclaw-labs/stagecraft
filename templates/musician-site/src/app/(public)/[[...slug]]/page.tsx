@@ -196,9 +196,16 @@ async function renderPage({ segs }: { segs: string[] }) {
           image instead. Site-wide still loads (the layout is
           independent of the page); the per-page layer simply wins
           visually. Both are fixed-positioned at zIndex: -1, and the
-          per-page renders later in the DOM so it composites on top. */}
+          per-page renders later in the DOM so it composites on top.
+          Overlay opacity: null on the page inherits the site-wide
+          value; an explicit number 0..1 overrides. */}
       {rootProps.pageBackground ? (
-        <PageBackgroundUnderlay image={rootProps.pageBackground} />
+        <PageBackgroundUnderlay
+          image={rootProps.pageBackground}
+          overlayOpacity={
+            rootProps.pageBackgroundOverlay ?? site.pageBackgroundOverlay
+          }
+        />
       ) : null}
       <Render config={puckConfig} data={pageData} />
     </PublicPageChrome>
