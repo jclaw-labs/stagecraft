@@ -101,20 +101,46 @@ export function Editor({ initialData, pageSlug, email }: Props) {
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}
       overrides={{
-        drawer: ({ children }) => (
-          <>
-            <DrawerSearchInput value={drawerFilter} onChange={setDrawerFilter} />
-            {children}
-          </>
-        ),
+        drawer: ({ children }) => {
+          const q = drawerFilter.trim().toLowerCase();
+          const hasMatch =
+            !q ||
+            Object.keys(puckConfig.components).some((name) =>
+              name.toLowerCase().includes(q),
+            );
+          return (
+            <>
+              <DrawerSearchInput
+                value={drawerFilter}
+                onChange={setDrawerFilter}
+              />
+              {q && !hasMatch ? (
+                <p
+                  role="status"
+                  style={{
+                    margin: "0 0 var(--space-3) 0",
+                    color: "var(--color-text-muted)",
+                    fontSize: "var(--font-size-sm)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  No matching blocks.
+                </p>
+              ) : null}
+              {children}
+            </>
+          );
+        },
         drawerItem: ({ name, children }) => {
           const q = drawerFilter.trim().toLowerCase();
           if (q && !name.toLowerCase().includes(q)) {
             // Render but hide so Puck's drag machinery keeps its DOM
             // references; removing items outright can confuse the
-            // drawer-list virtualisation.
+            // drawer-list virtualisation. `inert` keeps keyboard
+            // focus out of the hidden item (a tabbable drag handle
+            // would otherwise still be reachable).
             return (
-              <div style={{ display: "none" }} aria-hidden>
+              <div style={{ display: "none" }} aria-hidden inert>
                 {children}
               </div>
             );
@@ -273,6 +299,14 @@ function DrawerSearchInput({
       type="search"
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && value) {
+          // Don't let the keystroke bubble to Puck's editor — it can
+          // catch Escape for "deselect block" or similar shortcuts.
+          e.stopPropagation();
+          onChange("");
+        }
+      }}
       placeholder="Filter blocks…"
       aria-label="Filter blocks"
       style={{
