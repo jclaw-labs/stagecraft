@@ -33,6 +33,12 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
 
+// Match `PagesPanel.tsx`'s modal pattern: capture the
+// previously-focused element on mount, focus the primary action
+// inside the modal, restore focus on unmount. Without this, keyboard
+// / screen-reader users land in the page chrome on close instead of
+// back on the Publish trigger button they came from.
+
 type LoadState =
   | { kind: "loading" }
   | { kind: "loaded"; changes: DraftChange[] }
@@ -57,6 +63,7 @@ export function PublishConfirmModal({
 }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const publishButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -80,6 +87,17 @@ export function PublishConfirmModal({
     }
     void load();
     return () => ac.abort();
+  }, []);
+
+  // Focus capture / restore. Runs once on mount + once on unmount;
+  // intentionally has no deps so the cleanup fires only when the
+  // modal actually closes.
+  useEffect(() => {
+    triggerRef.current = document.activeElement as HTMLElement | null;
+    publishButtonRef.current?.focus();
+    return () => {
+      triggerRef.current?.focus?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -121,7 +139,6 @@ export function PublishConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isPublishing}
-            autoFocus
             style={primaryButtonStyle}
           >
             {isPublishing ? "Publishing…" : "Publish"}

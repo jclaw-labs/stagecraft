@@ -175,6 +175,30 @@ describe("PublishConfirmModal", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it("focuses the Publish button on mount and restores focus on unmount", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, status: { count: 0, changes: [], mode: "github" } }),
+    );
+    // Set up a "trigger" button outside the modal, focused before mount,
+    // so we can assert focus restoration on close.
+    const trigger = document.createElement("button");
+    trigger.textContent = "Open";
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    const { unmount } = render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    // Modal focuses the Publish button on mount.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Publish" }));
+
+    unmount();
+    // After close, focus returns to the trigger that opened the modal.
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
   it("clicking the backdrop cancels (when not publishing)", async () => {
     const onCancel = vi.fn();
     fetchMock.mockResolvedValue(
