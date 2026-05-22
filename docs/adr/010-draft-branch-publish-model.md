@@ -413,15 +413,57 @@ The publish-token endpoint surface is unchanged.
 
 ### Publish UX
 
-- **Commit message override.** v1 ships the auto-generated
-  message. Artist override is a one-line UI add but deferred.
-  *Trigger:* first artist who wants to write a meaningful commit
-  summary.
+- **Commit message: multi-line body.** The override input is
+  subject-only (single-line). Git commits also accept a body
+  separated by a blank line; the auto-generated message that the
+  ADR §3 example sketches uses one (with bulleted items). A
+  textarea variant could expose this when an artist wants
+  richer notes.
+  *Trigger:* an artist asks for line breaks in the commit
+  message.
 
-- **Diff preview before Publish.** Show "what's changing" before
-  the artist clicks Publish — a list of items + one-line summary
-  per change.
-  *Trigger:* first artist confused about what Publish would do.
+- **Visible character counter on the commit-subject input.** The
+  field has `maxLength={200}` (matching the route's
+  `z.string().max(200)`) and browsers enforce on paste, but
+  there's no live "187 / 200" indicator. Adding one is trivial;
+  defer until usability research says it's worth the chrome.
+  *Trigger:* an artist hits the cap and is confused about why
+  their input stopped accepting characters.
+
+- **Reset-to-default on the commit-subject input.** If the artist
+  clears the field by mistake, the placeholder still hints at the
+  default but there's no button to re-seed the typed default.
+  Closing and re-opening the modal works as a workaround.
+  *Trigger:* an artist reports the workflow feels lossy.
+
+- **Shared 200-character limit between route + UI.** The
+  `maxLength={200}` on the input and `z.string().max(200)` in the
+  `publish-draft` route's `requestSchema` are duplicated. Both
+  fail in matching ways but a shared constant in
+  `publish-types.ts` would avoid silent drift if either side
+  changes.
+  *Trigger:* either limit changes.
+
+- **Diff preview: richer item labels.** The publish modal shows
+  collection slugs + item slugs ("pages · about"). The artist's
+  display name for the item (e.g., the `slugSourceFieldId`'s
+  value — "About Us") would read better but needs a per-item
+  read at modal-open time.
+  *Trigger:* artists routinely confuse "about" with "about-us"
+  or similar near-duplicate slugs.
+
+- **Diff preview: group by collection.** Today's modal renders a
+  flat list in the order the GitHub compare API returns. Group
+  headers ("Pages · 3 changes", "Photos · 2 changes") would help
+  when the diff spans several collections.
+  *Trigger:* when more than ~10 items are routinely pending
+  between publishes.
+
+- **Diff preview: rename source rendering.** `DraftChange` for
+  kind=item captures `previousPath` when GitHub reports
+  status=renamed, but the modal doesn't surface "old-slug →
+  new-slug" — it just shows the new path with status=renamed.
+  *Trigger:* renames become a common workflow.
 
 - **Per-item Publish (publish A but not B).** Today's model is
   "publish everything pending." Per-item Publish would need
