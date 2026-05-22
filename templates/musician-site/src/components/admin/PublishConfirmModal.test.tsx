@@ -188,6 +188,43 @@ describe("PublishConfirmModal", () => {
     });
   });
 
+  it("emphasises the counter at >= 90% of the cap and red-flags it at the cap", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    // Wait for the default subject to actually seed in (otherwise the
+    // userEvent below would race the changes-load effect).
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+
+    // Default-muted at low length.
+    await userEvent.clear(input);
+    await userEvent.type(input, "short");
+    expect(screen.getByText("5 / 200").style.color).toBe("var(--color-text-faint)");
+
+    // Near-cap (180 ≥ 90% of 200) → emphasised. `paste` to avoid
+    // simulating 180 individual keystrokes.
+    await userEvent.clear(input);
+    await userEvent.click(input);
+    await userEvent.paste("x".repeat(180));
+    expect(screen.getByText("180 / 200").style.color).toBe("var(--color-text-emphasis)");
+
+    // At the cap (200 / 200) → error colour.
+    await userEvent.clear(input);
+    await userEvent.click(input);
+    await userEvent.paste("x".repeat(200));
+    expect(screen.getByText("200 / 200").style.color).toBe("var(--color-text-error)");
+  });
+
   it("renders a character counter that tracks the input value", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
