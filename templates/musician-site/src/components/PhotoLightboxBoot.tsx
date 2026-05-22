@@ -100,6 +100,16 @@ export function PhotoLightboxBoot() {
     // inserts, React commits elsewhere on the page, etc.) — but
     // each batch is cheap because we filter aggressively to our
     // gallery selector.
+    //
+    // `subtree: true, childList: true` only — we don't react to
+    // attribute mutations. In practice a gallery is rendered with
+    // its `data-collection-view` attribute already set; a div that
+    // gets the attribute added later won't get wired. Acceptable
+    // trade for the rarer-than-rare case.
+    //
+    // `instanceof HTMLElement` rejects `SVGElement` / `MathMLElement`
+    // / DocumentFragment etc. Galleries are always HTML `<div>`s so
+    // narrowing here is intended.
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
