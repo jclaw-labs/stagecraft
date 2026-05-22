@@ -20,13 +20,14 @@ import {
   buildItemFileSchema,
   createItem,
   generateItemId,
+  getRequestReadStore,
   ItemExistsError,
-  listItemsInOrder,
-  readCollectionDef,
-  readItem,
   slugSchema,
   type Item,
 } from "@/lib/collections";
+// Direct FS read for the post-write re-read: the item lives on local
+// disk but not yet on the draft branch, so the facade can't see it.
+import { readItem as fsReadItem } from "@/lib/collections/store";
 import { PublishError, saveToDraft } from "@/lib/publish";
 
 import { zodIssuesToStructured } from "./[itemSlug]/issue-format";
@@ -45,10 +46,11 @@ export async function GET(_request: Request, ctx: Ctx) {
   const parsedSlug = slugSchema.safeParse(slug);
   if (!parsedSlug.success) return err(400, "Invalid collection slug");
 
-  const def = await readCollectionDef(parsedSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedSlug.data);
   if (!def) return err(404, `Collection "${parsedSlug.data}" not found`);
 
-  const items = await listItemsInOrder(parsedSlug.data, def);
+  const items = await store.listItemsInOrder(parsedSlug.data, def);
   const summaries = items.map((item) => {
     const labelValue =
       def.slugSourceFieldId && item.values[def.slugSourceFieldId];
@@ -78,7 +80,8 @@ export async function POST(request: Request, ctx: Ctx) {
     return err(400, "Body must be JSON");
   }
 
-  const def = await readCollectionDef(parsedSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedSlug.data);
   if (!def) return err(404, `Collection "${parsedSlug.data}" not found`);
 
   if (def.isSingleton) {
@@ -113,13 +116,14 @@ export async function POST(request: Request, ctx: Ctx) {
   const draft: Item = { ...validated, slug: parsedItemSlug.data };
   // createItem 409s on collision; check first so we return a clean
   // status code rather than letting the error bubble.
-  const existing = await readItem(parsedSlug.data, parsedItemSlug.data, def);
+  const existing = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
   if (existing) return err(409, new ItemExistsError(parsedSlug.data, parsedItemSlug.data).message);
   await createItem(parsedSlug.data, parsedItemSlug.data, draft, def);
   // Re-read so the response (and publish target) carries the
   // canonical `createdAt` / `updatedAt` the store just stamped —
-  // `createItem` overrides both internally.
-  const saved = await readItem(parsedSlug.data, parsedItemSlug.data, def);
+  // `createItem` overrides both internally. Direct FS read: the item
+  // is only on local disk until `saveToDraft` below commits it.
+  const saved = await fsReadItem(parsedSlug.data, parsedItemSlug.data, def);
   if (!saved) {
     return err(500, "Item disappeared between write and read");
   }

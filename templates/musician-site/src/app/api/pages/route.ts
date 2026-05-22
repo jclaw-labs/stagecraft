@@ -3,11 +3,14 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import {
   findShadowingPrefix,
-  listCollectionSlugs,
-  readCollectionDef,
-  readItem,
+  getRequestReadStore,
   type CollectionDef,
+  type ReadStore,
 } from "@/lib/collections";
+// Direct FS read for the post-write re-read: the new page is on local
+// disk but `saveToDraft` hasn't published it yet, so the facade can't
+// see it.
+import { readItem as fsReadItem } from "@/lib/collections/store";
 import { pagesCollectionDef, PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import {
   emptyPageData,
@@ -37,10 +40,10 @@ function err(status: number, error: string) {
  * any prebaked entry that isn't on disk yet (so fresh sites pre-
  * bootstrap still get the prebaked prefixes in the check).
  */
-async function loadKnownCollectionDefs(): Promise<CollectionDef[]> {
-  const onDiskSlugs = await listCollectionSlugs();
+async function loadKnownCollectionDefs(store: ReadStore): Promise<CollectionDef[]> {
+  const onDiskSlugs = await store.listCollectionSlugs();
   const onDiskDefs = (
-    await Promise.all(onDiskSlugs.map((s) => readCollectionDef(s)))
+    await Promise.all(onDiskSlugs.map((s) => store.readCollectionDef(s)))
   ).filter((d): d is CollectionDef => d !== null);
   const seen = new Set(onDiskDefs.map((d) => d.slug));
   return [
@@ -84,7 +87,8 @@ export async function POST(request: Request) {
   // on-disk defs and the prebaked registry: on-disk catches custom
   // collections; the registry union covers fresh sites where
   // bootstrap hasn't fired yet for some prebaked entries.
-  const knownDefs = await loadKnownCollectionDefs();
+  const store = await getRequestReadStore();
+  const knownDefs = await loadKnownCollectionDefs(store);
   const shadow = findShadowingPrefix(slug, knownDefs);
   if (shadow) {
     return err(
@@ -104,8 +108,10 @@ export async function POST(request: Request) {
   // immediately deployable.
   await writePage(slug, data);
   // Re-read so the publish target carries the canonical id + timestamps
-  // the collection store just stamped on the new item.
-  const item = await readItem("pages", slug, pagesCollectionDef);
+  // the collection store just stamped on the new item. Direct FS read:
+  // the write only landed on local disk until `saveToDraft` below
+  // commits it.
+  const item = await fsReadItem("pages", slug, pagesCollectionDef);
   if (!item) return err(500, "Page disappeared between write and publish");
 
   try {

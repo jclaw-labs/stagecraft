@@ -7,8 +7,7 @@ import { notFound } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import {
-  listItemsInOrder,
-  readCollectionDef,
+  getRequestReadStore,
   slugSchema,
 } from "@/lib/collections";
 
@@ -25,7 +24,8 @@ export default async function ItemTemplateEditorPage({
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
+  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
+  const def = await store.readCollectionDef(parsed.data);
   if (!def) notFound();
 
   // Singletons render through their single item's puckContent body —
@@ -37,7 +37,7 @@ export default async function ItemTemplateEditorPage({
   // "Preview item" dropdown and resolve the template against a real
   // item without a client-side round-trip. Empty collection → the
   // client surfaces an "add an item to enable preview" message.
-  const previewItems = await listItemsInOrder(parsed.data, def);
+  const previewItems = await store.listItemsInOrder(parsed.data, def);
 
   return (
     <TemplateEditorClient

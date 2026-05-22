@@ -33,12 +33,10 @@ import {
 import {
   buildItemFileSchema,
   generateItemId,
-  readCollectionDef,
-  readSingleton,
+  getRequestReadStore,
   SINGLETON_ITEM_SLUG,
   writeItem,
   writeSingleton,
-  listItemSlugs,
   type Item,
 } from "@/lib/collections";
 import {
@@ -86,9 +84,11 @@ export async function POST(request: Request) {
   }
   const { artistName, primaryColor, wordmark, firstPageTitle } = parsed.data;
 
+  const store = await getRequestReadStore();
+
   // Idempotent guard. The wizard route already redirects completed sites
   // away — this is a belt-and-suspenders check for direct POSTs.
-  const existingSite = await readSingleton("site", siteCollectionDef);
+  const existingSite = await store.readSingleton("site", siteCollectionDef);
   const existingSiteConfig = siteConfigFromItem(existingSite);
   if (existingSiteConfig.hasCompletedFirstRun) {
     return err(409, "Welcome flow already completed. Use /api/welcome/reset to start over.");
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
   // ---------------------------------------------------------------
   // Appearance singleton — swap the accent color, keep everything else.
   // ---------------------------------------------------------------
-  const existingAppearanceItem = await readSingleton("appearance", appearanceCollectionDef);
+  const existingAppearanceItem = await store.readSingleton("appearance", appearanceCollectionDef);
   const nextAppearance = appearanceFromItem(existingAppearanceItem);
   nextAppearance.colors = { ...nextAppearance.colors, accent: primaryColor };
   const appearanceItem = upsertSingletonItem(
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
   // ---------------------------------------------------------------
   // Header singleton — set wordmark if provided.
   // ---------------------------------------------------------------
-  const existingHeaderItem = await readSingleton("header", headerCollectionDef);
+  const existingHeaderItem = await store.readSingleton("header", headerCollectionDef);
   const nextHeader = headerConfigFromItem(existingHeaderItem);
   nextHeader.wordmark = wordmark ?? null;
   const headerItem = upsertSingletonItem(
@@ -149,10 +149,10 @@ export async function POST(request: Request) {
   // if the artist had already added tour-dates (or re-ran the wizard
   // after the reset flow), we don't duplicate.
   // ---------------------------------------------------------------
-  const tourDatesDef = await readCollectionDef(TOUR_DATES_SLUG);
+  const tourDatesDef = await store.readCollectionDef(TOUR_DATES_SLUG);
   const shouldSeedTourDates =
     tourDatesDef !== null &&
-    (await listItemSlugs(TOUR_DATES_SLUG)).length === 0;
+    (await store.listItemSlugs(TOUR_DATES_SLUG)).length === 0;
 
   const nowIso = new Date().toISOString();
   const tourDateItems: Item[] = [];

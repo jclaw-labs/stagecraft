@@ -17,8 +17,7 @@ import { defaultItemValues } from "@/components/admin/ItemEditor";
 import { getSession } from "@/lib/auth";
 import {
   generateItemId,
-  listItemsInOrder,
-  readCollectionDef,
+  getRequestReadStore,
   slugSchema,
   type Item,
 } from "@/lib/collections";
@@ -40,7 +39,8 @@ export default async function NewItem({ params }: { params: Promise<Params> }) {
     redirect(customSurface.route);
   }
 
-  const [session, def] = await Promise.all([getSession(), readCollectionDef(parsed.data)]);
+  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
+  const def = await store.readCollectionDef(parsed.data);
   if (!def) notFound();
 
   // Singletons don't have a "new" flow — their one item is the edit
@@ -58,9 +58,9 @@ export default async function NewItem({ params }: { params: Promise<Params> }) {
   const referenceOptions: Record<string, Array<{ id: string; label: string }>> = {};
   await Promise.all(
     Array.from(referencedSlugs).map(async (refSlug) => {
-      const refDef = await readCollectionDef(refSlug);
+      const refDef = await store.readCollectionDef(refSlug);
       if (!refDef) return;
-      const items = await listItemsInOrder(refSlug, refDef);
+      const items = await store.listItemsInOrder(refSlug, refDef);
       referenceOptions[refSlug] = items.map((i) => ({
         id: i.id,
         label: labelFor(i, refDef.slugSourceFieldId),

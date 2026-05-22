@@ -15,16 +15,22 @@ import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
   deleteItem,
+  getRequestReadStore,
   ItemExistsError,
   itemSlugSchema,
-  readCollectionDef,
-  readItem,
-  readOrder,
   renameItem,
   slugSchema,
   writeItem,
   type Item,
 } from "@/lib/collections";
+// Direct FS reads for post-write re-reads: the just-written bytes
+// are on local disk but not yet on the draft branch, so the facade
+// can't see them. Pre-write existence checks go through the facade
+// so concurrent edits from another container are visible.
+import {
+  readItem as fsReadItem,
+  readOrder as fsReadOrder,
+} from "@/lib/collections/store";
 import { PublishError, saveToDraft } from "@/lib/publish";
 
 import { zodIssuesToStructured } from "./issue-format";
@@ -46,10 +52,11 @@ export async function GET(_request: Request, ctx: Ctx) {
     return err(400, "Invalid slug");
   }
 
-  const def = await readCollectionDef(parsedCollectionSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
-  const item = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
+  const item = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!item) return err(404, "Item not found");
 
   return NextResponse.json({ ok: true, item, def });
@@ -73,14 +80,15 @@ export async function PUT(request: Request, ctx: Ctx) {
     return err(400, "Body must be JSON");
   }
 
-  const def = await readCollectionDef(parsedCollectionSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
   // PUT is update-only — creation lives on POST. Without this guard, a
   // PUT to a slug that doesn't exist would silently create a fresh
   // item with a brand-new id, racing any concurrent POST to the same
   // slug from another tab.
-  const existing = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
+  const existing = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!existing) return err(404, "Item not found");
 
   // Build the per-collection Zod schema from `def.fields` and run the
@@ -108,8 +116,10 @@ export async function PUT(request: Request, ctx: Ctx) {
   const draft: Item = { ...validated, slug: parsedItemSlug.data };
   await writeItem(parsedCollectionSlug.data, parsedItemSlug.data, draft, def);
   // Re-read so the response (and publish target) carries the
-  // canonical `updatedAt` the store just stamped.
-  const saved = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
+  // canonical `updatedAt` the store just stamped. Direct FS read:
+  // the write only landed on local disk until `saveToDraft` below
+  // commits it.
+  const saved = await fsReadItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!saved) return err(500, "Item disappeared between write and read");
 
   try {
@@ -195,7 +205,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return err(400, "newSlug must differ from the current slug");
   }
 
-  const def = await readCollectionDef(parsedCollectionSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
   let saved: Item;
@@ -218,9 +229,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
   // Read the (possibly updated) order so the publish includes it
   // when manual ordering is in effect. Otherwise the publish just
-  // covers the write + delete pair.
+  // covers the write + delete pair. Direct FS read: the rename
+  // just rewrote `_order.json` locally; draft hasn't seen it yet.
   const orderAfter =
-    def.defaultSort?.mode === "manual" ? await readOrder(parsedCollectionSlug.data) : null;
+    def.defaultSort?.mode === "manual" ? await fsReadOrder(parsedCollectionSlug.data) : null;
 
   try {
     const result = await saveToDraft({
@@ -287,10 +299,11 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     return err(400, "Invalid slug");
   }
 
-  const def = await readCollectionDef(parsedCollectionSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
-  const existing = await readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
+  const existing = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!existing) return err(404, "Item not found");
 
   await deleteItem(parsedCollectionSlug.data, parsedItemSlug.data);

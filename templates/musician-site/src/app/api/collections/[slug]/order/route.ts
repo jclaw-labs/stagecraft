@@ -19,8 +19,7 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import {
-  listItemSlugs,
-  readCollectionDef,
+  getRequestReadStore,
   slugSchema,
   writeOrder,
 } from "@/lib/collections";
@@ -56,7 +55,8 @@ export async function PUT(request: Request, ctx: Ctx) {
     return err(400, parsed.error.message);
   }
 
-  const def = await readCollectionDef(parsedCollectionSlug.data);
+  const store = await getRequestReadStore();
+  const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
   // Singletons have no order — surface as a clear 400 so a misuse
@@ -70,7 +70,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   // in the request is almost always a client bug (stale UI state,
   // typo), and we'd rather surface it at the API boundary than let it
   // accumulate.
-  const knownSlugs = new Set(await listItemSlugs(parsedCollectionSlug.data));
+  const knownSlugs = new Set(await store.listItemSlugs(parsedCollectionSlug.data));
   const unknown = parsed.data.order.filter((s) => !knownSlugs.has(s));
   if (unknown.length > 0) {
     return err(400, `Unknown item slug(s): ${unknown.join(", ")}`);

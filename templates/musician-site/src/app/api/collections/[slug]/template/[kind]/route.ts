@@ -23,8 +23,7 @@ import {
   collectionDefSchema,
   describeIssue,
   describeWarning,
-  listItemsInOrder,
-  readCollectionDef,
+  getRequestReadStore,
   slugSchema,
   validateSchemaChange,
   writeCollectionDef,
@@ -68,7 +67,8 @@ export async function PUT(request: Request, ctx: Ctx) {
     return err(400, "Body must be JSON");
   }
 
-  const oldDef = await readCollectionDef(parsedSlug.data);
+  const store = await getRequestReadStore();
+  const oldDef = await store.readCollectionDef(parsedSlug.data);
   if (!oldDef) return err(404, `Collection "${parsedSlug.data}" not found`);
 
   // Build the next def by overlaying just the chosen template slot.
@@ -92,7 +92,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   // Run the full schema validator. Template-binding references are
   // checked here — a binding to a removed field or a wrong-typed
   // field produces a structured 409 the editor can render inline.
-  const items = await listItemsInOrder(parsedSlug.data, oldDef);
+  const items = await store.listItemsInOrder(parsedSlug.data, oldDef);
   const report = validateSchemaChange(oldDef, nextDef.data, items);
   if (!report.ok) {
     return err(409, "Template change blocked", {

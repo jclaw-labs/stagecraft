@@ -32,10 +32,7 @@ import {
 } from "@/lib/collections/seeds";
 import {
   deleteItem,
-  listCollectionSlugs,
-  listItemSlugs,
-  readCollectionDef,
-  readSingleton,
+  getRequestReadStore,
   SINGLETON_ITEM_SLUG,
   writeSingleton,
 } from "@/lib/collections";
@@ -78,9 +75,11 @@ export async function POST(request: Request) {
     return err(400, parsed.error.message);
   }
 
+  const store = await getRequestReadStore();
+
   // Confirm against the current artist name. Case + whitespace
   // insensitive so the artist isn't tripped up by a leading space.
-  const siteItem = await readSingleton("site", siteCollectionDef);
+  const siteItem = await store.readSingleton("site", siteCollectionDef);
   const siteConfig = siteConfigFromItem(siteItem);
   if (
     parsed.data.confirmArtistName.trim().toLowerCase() !==
@@ -95,14 +94,14 @@ export async function POST(request: Request) {
   // three singletons get fresh default values + the flag cleared.
   // ---------------------------------------------------------------
   const deleteTargets: PublishTarget[] = [];
-  const collectionSlugs = await listCollectionSlugs();
+  const collectionSlugs = await store.listCollectionSlugs();
   for (const collectionSlug of collectionSlugs) {
-    const def = await readCollectionDef(collectionSlug);
+    const def = await store.readCollectionDef(collectionSlug);
     if (!def) continue;
     // Singletons can't be deleted — they're cleared by the singleton
     // write loop below.
     if (def.isSingleton) continue;
-    const itemSlugs = await listItemSlugs(collectionSlug);
+    const itemSlugs = await store.listItemSlugs(collectionSlug);
     for (const itemSlug of itemSlugs) {
       deleteTargets.push({
         kind: "delete-collection-item",
@@ -115,8 +114,8 @@ export async function POST(request: Request) {
   // Reset singletons to defaults. We pull the existing item to
   // preserve its `id` + `createdAt` (the publish history is cleaner
   // when the on-disk id is stable across resets).
-  const existingAppearance = await readSingleton("appearance", appearanceCollectionDef);
-  const existingHeader = await readSingleton("header", headerCollectionDef);
+  const existingAppearance = await store.readSingleton("appearance", appearanceCollectionDef);
+  const existingHeader = await store.readSingleton("header", headerCollectionDef);
 
   const resetSite = upsertSingletonItem(
     siteItem,
