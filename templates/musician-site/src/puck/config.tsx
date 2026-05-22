@@ -307,19 +307,6 @@ function CardDownload({
         target="_blank"
         rel="noopener noreferrer"
         style={cardDownloadButtonStyle}
-        // Click on the download button shouldn't ALSO trigger the
-        // parent card link (when href is set on the card). We can't
-        // attach an onClick here without making this a client
-        // component; the alternative — rendering the download button
-        // OUTSIDE the card link — is uglier. As a server-only
-        // compromise, the artist's authoring intent is: pick href
-        // OR fileUrl, not both. Two interactions on one card is
-        // ambiguous regardless. We render both and let the click-
-        // event order resolve (the inner anchor's default action
-        // fires first; the outer link only sees the propagated
-        // click if the inner one doesn't preventDefault). In
-        // practice both navigate, the user gets the download, the
-        // card link's navigation is wasted but harmless.
       >
         Download
       </a>
@@ -902,10 +889,12 @@ export const puckConfig: Config<
       //
       // Mutual exclusivity: `href` makes the WHOLE card a link;
       // `fileUrl` makes the download button a link instead. When
-      // both are set, `href` wins (the download button is just a
-      // sibling button inside the linked card) — that's the most
-      // common authoring intent ("a card with a download" rather
-      // than "a download card that's also a link").
+      // both are set, `href` wins and the download button is
+      // suppressed — nesting an `<a download>` inside the outer
+      // card-link `<a>` is invalid HTML (browsers implicitly
+      // close the outer anchor at the inner one, breaking layout
+      // and hydration). The artist's authoring contract is "pick
+      // href OR fileUrl, not both."
       fields: {
         image: {
           type: "custom",
@@ -1001,7 +990,11 @@ export const puckConfig: Config<
               {description ? (
                 <p style={cardDescriptionStyle}>{description}</p>
               ) : null}
-              {fileUrl ? (
+              {/* Suppress the download anchor when the whole card is
+                  already a link. Nested anchors are invalid HTML;
+                  the browser would implicitly close the outer one
+                  and break layout / hydration. */}
+              {fileUrl && !href ? (
                 <CardDownload fileUrl={fileUrl} sizeLabel={sizeLabel} />
               ) : null}
             </div>

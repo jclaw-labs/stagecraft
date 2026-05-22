@@ -774,6 +774,29 @@ describe("puckConfig", () => {
       expect(html).toContain('target="_blank"');
       expect(html).toContain('rel="noopener noreferrer"');
     });
+
+    it("suppresses the download anchor when href is also set (no nested <a>)", () => {
+      // Whole-card links wrap the card body in `<a href>`. Nesting an
+      // `<a download>` inside would be invalid HTML — the browser
+      // closes the outer anchor when it encounters the inner one,
+      // breaking layout and hydration. The artist's authoring
+      // contract is "pick href OR fileUrl, not both." When both
+      // are set, href wins.
+      const html = render(
+        "Card",
+        cardProps({
+          title: "Card with both",
+          href: "/posts/x",
+          fileUrl: "/uploads/file.pdf",
+        }),
+      );
+      // Exactly one anchor in the output — the outer whole-card link.
+      const anchorMatches = html.match(/<a\b/g) ?? [];
+      expect(anchorMatches).toHaveLength(1);
+      expect(html).toContain('href="/posts/x"');
+      expect(html).not.toContain('href="/uploads/file.pdf"');
+      expect(html).not.toContain(">Download<");
+    });
   });
 
   describe("root pageBackground", () => {
