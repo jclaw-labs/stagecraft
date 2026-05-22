@@ -347,13 +347,10 @@ function BlockHelp() {
       role="note"
       style={{
         margin: "0 0 var(--space-4) 0",
-        padding: "var(--space-3) var(--space-4)",
-        background: "var(--color-surface-subtle)",
         color: "var(--color-text-muted)",
         fontSize: "var(--font-size-sm)",
         lineHeight: "var(--line-height-base)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-sm)",
+        fontStyle: "italic",
       }}
     >
       {description}
