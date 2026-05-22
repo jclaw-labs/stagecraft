@@ -40,6 +40,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
+import { MAX_COMMIT_SUBJECT_LENGTH } from "@/lib/publish-types";
 
 // Match `PagesPanel.tsx`'s modal pattern: capture the
 // previously-focused element on mount, focus the primary action
@@ -152,7 +153,7 @@ export function PublishConfirmModal({
           <input
             type="text"
             value={subject}
-            maxLength={200}
+            maxLength={MAX_COMMIT_SUBJECT_LENGTH}
             placeholder="Publish pending changes"
             disabled={isPublishing}
             onChange={(e) => {

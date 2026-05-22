@@ -25,11 +25,11 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import { publishDraftToMain, PublishError } from "@/lib/publish";
-import { publishErrorHttpStatus } from "@/lib/publish-types";
+import { MAX_COMMIT_SUBJECT_LENGTH, publishErrorHttpStatus } from "@/lib/publish-types";
 
 const requestSchema = z
   .object({
-    commitSubject: z.string().min(1).max(200).optional(),
+    commitSubject: z.string().min(1).max(MAX_COMMIT_SUBJECT_LENGTH).optional(),
   })
   .strict()
   .partial();

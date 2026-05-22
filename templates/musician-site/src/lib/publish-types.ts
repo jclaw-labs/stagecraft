@@ -82,3 +82,18 @@ export function publishErrorHttpStatus(code: PublishError["code"]): number {
       return 500;
   }
 }
+
+/**
+ * Hard cap on the artist's override of the publish commit subject.
+ * Mirrored on both sides of the wire: the `publish-draft` route
+ * schema enforces it server-side, and the modal's
+ * `<input maxLength={...}>` enforces it client-side. Keeping them
+ * pinned to one constant avoids silent drift — raising the route's
+ * `z.string().max()` without also raising the input would let the
+ * artist type values the route still rejects.
+ *
+ * 200 matches what git tooling and most code-review surfaces show
+ * before truncation; content longer than that usually belongs in a
+ * body, not the subject.
+ */
+export const MAX_COMMIT_SUBJECT_LENGTH = 200;
