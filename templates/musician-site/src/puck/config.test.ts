@@ -587,6 +587,7 @@ describe("puckConfig", () => {
         variant: "filled" as const,
         fileUrl: "",
         sizeLabel: "",
+        isHoverable: false,
         ...overrides,
       };
     }
@@ -677,6 +678,34 @@ describe("puckConfig", () => {
     it("omits the description <p> when empty", () => {
       const html = render("Card", cardProps({ title: "x" }));
       expect(html).not.toMatch(/<p[^>]*>\s*<\/p>/);
+    });
+
+    it("non-link card opts into the hover lift via isHoverable", () => {
+      const html = render("Card", cardProps({ title: "x", isHoverable: true }));
+      // Non-link branch — should still be an <article>, not an <a>.
+      expect(html).toMatch(/^<article/);
+      // Class hook to share the same :hover rule as `stagecraft-card-link`
+      // (defined in globals.css against both selectors).
+      expect(html).toContain('class="stagecraft-card-hoverable"');
+    });
+
+    it("non-link card without isHoverable has no hover class", () => {
+      const html = render("Card", cardProps({ title: "x" }));
+      expect(html).toMatch(/^<article/);
+      expect(html).not.toContain("stagecraft-card-hoverable");
+    });
+
+    it("isHoverable is ignored on link cards (they already lift via stagecraft-card-link)", () => {
+      // Setting isHoverable on a link card shouldn't double-apply the
+      // class — link cards already carry `stagecraft-card-link`,
+      // which shares the hover rule. Avoids redundant class clutter
+      // in the rendered HTML.
+      const html = render(
+        "Card",
+        cardProps({ title: "x", href: "/x", isHoverable: true }),
+      );
+      expect(html).toContain('class="stagecraft-card-link"');
+      expect(html).not.toContain("stagecraft-card-hoverable");
     });
 
     it("select options match CARD_ORIENTATIONS", () => {

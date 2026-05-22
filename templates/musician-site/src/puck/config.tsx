@@ -238,6 +238,16 @@ export type BlockProps = {
     fileUrl: string;
     /** Free-text label beside the download button (e.g. "2.3 MB"). */
     sizeLabel: string;
+    /**
+     * Apply the hover lift to non-link cards. Link cards (when
+     * `href` is set) always get the hover affordance — that's part
+     * of the "this is clickable" cue. For static `<article>` cards
+     * the lift is opt-in: useful when the card is a visual focal
+     * point (e.g. a featured member, a press quote tile) but
+     * useless / distracting on dense lists where every row would
+     * pulse.
+     */
+    isHoverable: boolean;
   };
 };
 
@@ -936,6 +946,14 @@ export const puckConfig: Config<
         },
         fileUrl: { type: "text", label: "Downloadable file URL (optional)" },
         sizeLabel: { type: "text", label: "Size label (e.g. '2.3 MB')" },
+        isHoverable: {
+          type: "radio",
+          label: "Hover lift (non-link cards)",
+          options: [
+            { label: "Off", value: false },
+            { label: "On", value: true },
+          ],
+        },
       },
       defaultProps: {
         image: null,
@@ -948,6 +966,7 @@ export const puckConfig: Config<
         variant: "filled",
         fileUrl: "",
         sizeLabel: "",
+        isHoverable: false,
       },
       render: ({
         image,
@@ -960,6 +979,7 @@ export const puckConfig: Config<
         variant,
         fileUrl,
         sizeLabel,
+        isHoverable,
       }) => {
         const inner = (
           <>
@@ -1022,7 +1042,20 @@ export const puckConfig: Config<
             </a>
           );
         }
-        return <article style={containerStyle}>{inner}</article>;
+        // Non-link card: opt into the same hover lift via the
+        // shared `stagecraft-card-hoverable` class (defined alongside
+        // `stagecraft-card-link` in globals.css). The class is
+        // intentionally separate from `stagecraft-card-link` —
+        // hoverable is an opt-in for static cards, while link-cards
+        // always get the lift.
+        return (
+          <article
+            className={isHoverable ? "stagecraft-card-hoverable" : undefined}
+            style={containerStyle}
+          >
+            {inner}
+          </article>
+        );
       },
     },
     Embed: {

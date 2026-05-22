@@ -54,13 +54,6 @@ something worth fixing that doesn't fit the current PR's scope.
   image previews. Audio / video / PDF tiles are useful for press-
   kit / download list use cases. From #187.
 
-## Card-style hover affordance for non-link cards
-
-- The `stagecraft-card-link` class adds a subtle lift on hover for
-  link-cards. Non-link cards (the `<article>` variant) don't get
-  the affordance. An opt-in `isHoverable` flag could enable a
-  reduced-motion-aware variant. From #179.
-
 ## SVG handling
 
 - **Sanitisation telemetry.** `DOMPurify.sanitize` exposes

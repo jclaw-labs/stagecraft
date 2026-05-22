@@ -215,28 +215,39 @@
   object-fit: cover;
 }
 
-/* Link-card hover affordance. Inline styles in `puck/config.tsx`
-   handle the resting look; the hover :pseudo lives here because
-   inline styles can't carry pseudoclasses. Subtle border + shadow
-   shift, plus a 2px upward translation, so the artist-facing
-   feedback is "yes, this is clickable" without animating wildly.
-   `transition` covers the lift so motion-sensitive users with
-   `prefers-reduced-motion: reduce` get an instant change instead. */
-.stagecraft-card-link {
+/* Card hover affordance. Inline styles in `puck/config.tsx` handle
+   the resting look; the hover :pseudo lives here because inline
+   styles can't carry pseudoclasses. Subtle border + shadow shift,
+   plus a 2px upward translation, so the artist-facing feedback is
+   "yes, this is interactive" without animating wildly. `transition`
+   covers the lift so motion-sensitive users with
+   `prefers-reduced-motion: reduce` get an instant change instead.
+
+   Two classes share the same rule:
+   - `stagecraft-card-link` — auto-applied to link-cards (href set).
+     The lift is part of the "this is clickable" cue, so always on.
+   - `stagecraft-card-hoverable` — opt-in for static `<article>`
+     cards. Lets artists distinguish featured tiles from dense
+     lists where every row pulsing would distract. */
+.stagecraft-card-link,
+.stagecraft-card-hoverable {
   transition: transform 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
-.stagecraft-card-link:hover {
+.stagecraft-card-link:hover,
+.stagecraft-card-hoverable:hover {
   border-color: var(--color-border-strong);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stagecraft-card-link {
+  .stagecraft-card-link,
+  .stagecraft-card-hoverable {
     transition: none;
   }
-  .stagecraft-card-link:hover {
+  .stagecraft-card-link:hover,
+  .stagecraft-card-hoverable:hover {
     transform: none;
   }
 }
