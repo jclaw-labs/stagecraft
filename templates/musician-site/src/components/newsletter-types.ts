@@ -56,3 +56,58 @@ export const EMAIL_FIELD_NAME: Record<NewsletterService, string> = {
   buttondown: "email",
   generic: "email",
 };
+
+/**
+ * Per-service field name for the subscriber's first name (when the
+ * optional name field is enabled). Same field-name-matters reasoning
+ * as `EMAIL_FIELD_NAME` — a wrong name posts silently and never
+ * lands in the list.
+ *
+ *   - Mailchimp:    `FNAME`              (their first-name merge field)
+ *   - ConvertKit:   `fields[first_name]` (form-embed nested-fields convention)
+ *   - Buttondown:   `metadata[name]`     (their custom-metadata bucket)
+ *   - Generic:      `name`               (most permissive default)
+ */
+export const NAME_FIELD_NAME: Record<NewsletterService, string> = {
+  mailchimp: "FNAME",
+  convertkit: "fields[first_name]",
+  buttondown: "metadata[name]",
+  generic: "name",
+};
+
+/**
+ * Parse Mailchimp's actionUrl to extract the audience IDs that
+ * suffix the real honeypot field name `b_<u>_<id>`. Mailchimp's
+ * default embed URL is
+ * `https://example.us20.list-manage.com/subscribe/post?u=USER_ID&id=LIST_ID`;
+ * we read `u` + `id` and synthesise the suffixed name.
+ *
+ * The honeypot is a hidden field with the suffixed name that real
+ * users leave empty. Mailchimp's bot defense rejects a submission
+ * with anything in it. Without the right suffix, the field's name
+ * doesn't match Mailchimp's pattern and the bot defense is bypassed
+ * — which is to say, the legacy template's "generic placeholder"
+ * gave zero protection. This function fixes that.
+ *
+ * Returns null when the URL doesn't look like Mailchimp's pattern.
+ * Caller falls back to the universal client-side `_gotcha` honeypot
+ * checked before POSTing.
+ *
+ * Pure / synchronous; safe to call during render.
+ */
+export function parseMailchimpAudienceHoneypotName(
+  actionUrl: string,
+): string | null {
+  try {
+    const url = new URL(actionUrl);
+    const u = url.searchParams.get("u");
+    const id = url.searchParams.get("id");
+    if (!u || !id) return null;
+    // Mailchimp's u + id are hex strings; reject anything weird so
+    // we don't inject odd characters into the name attribute.
+    if (!/^[a-z0-9]+$/i.test(u) || !/^[a-z0-9]+$/i.test(id)) return null;
+    return `b_${u}_${id}`;
+  } catch {
+    return null;
+  }
+}

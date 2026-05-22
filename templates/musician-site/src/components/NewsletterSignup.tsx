@@ -4,8 +4,10 @@ import { useId, useState, type CSSProperties, type FormEvent } from "react";
 
 import {
   EMAIL_FIELD_NAME,
+  NAME_FIELD_NAME,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  parseMailchimpAudienceHoneypotName,
   type NewsletterService,
 } from "./newsletter-types";
 
@@ -70,6 +72,15 @@ export type NewsletterSignupProps = {
   emailLabel?: string;
   submitLabel?: string;
   successMessage?: string;
+  /**
+   * When true, the form gains a first-name field alongside the
+   * email. Posted under the service's name attribute via
+   * `NAME_FIELD_NAME`. Off by default — most artist newsletters
+   * collect email-only.
+   */
+  hasNameField?: boolean;
+  /** Label for the name field when `hasNameField` is true. */
+  nameLabel?: string;
 };
 
 export function NewsletterSignup({
@@ -79,12 +90,15 @@ export function NewsletterSignup({
   emailLabel = "Email",
   submitLabel = "Subscribe",
   successMessage = "Thanks for subscribing! Check your inbox to confirm.",
+  hasNameField = false,
+  nameLabel = "First name",
 }: NewsletterSignupProps) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Stable per-instance input ids so multiple signup forms on one
   // page don't collide on the `<label htmlFor>` association.
   const baseId = useId();
   const emailId = `${baseId}-email`;
+  const nameId = `${baseId}-name`;
   const gotchaId = `${baseId}-gotcha`;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -154,26 +168,43 @@ export function NewsletterSignup({
       </div>
 
       {service === "mailchimp" ? (
-        // Parity-only placeholder. Mailchimp's real bot trap is an
-        // audience-suffixed `b_<id>_<list>` field that we'd need to
-        // derive by parsing `actionUrl`. The generic placeholder
-        // below gets POSTed and silently ignored by Mailchimp —
-        // zero protection at the provider end. The actual bot
-        // defense is the universal `_gotcha` checked client-side
-        // above, before the POST fires.
-        //
-        // Kept because the legacy template emitted it (same
-        // placebo), so artists migrating expect to see it in the
-        // generated markup. Real mitigation: parse actionUrl's
-        // `?u=<id>&id=<list>` query params and synthesise the
-        // suffixed name. Tracked as a follow-up.
+        // Mailchimp's bot trap is a hidden field named `b_<u>_<id>`,
+        // where `u` and `id` come from the embed URL's query string
+        // (`?u=USER_ID&id=LIST_ID`). Real users leave it empty;
+        // automation that scrapes the form often fills every input,
+        // and Mailchimp's bot defense rejects submissions where it's
+        // non-empty. When the actionUrl doesn't parse (artist using
+        // a non-default custom domain or our regex doesn't match),
+        // we fall back to the universal client-side `_gotcha` above
+        // — strictly weaker but still functional.
         <div aria-hidden="true" style={screenReaderOnly}>
+          {(() => {
+            const suffixedName = parseMailchimpAudienceHoneypotName(actionUrl);
+            return suffixedName ? (
+              <input
+                type="text"
+                name={suffixedName}
+                tabIndex={-1}
+                autoComplete="off"
+                defaultValue=""
+              />
+            ) : null;
+          })()}
+        </div>
+      ) : null}
+
+      {hasNameField ? (
+        <div style={fieldRowStyle}>
+          <label htmlFor={nameId} style={emailLabelStyle}>
+            {nameLabel}
+          </label>
           <input
+            id={nameId}
+            name={NAME_FIELD_NAME[service]}
             type="text"
-            name="b_subscribe_honeypot"
-            tabIndex={-1}
-            autoComplete="off"
-            defaultValue=""
+            autoComplete="given-name"
+            style={emailInputStyle}
+            placeholder="Your name"
           />
         </div>
       ) : null}

@@ -56,7 +56,7 @@ describe("ImageCarousel — empty / single slide", () => {
     // visibility props.
     expect(html).not.toMatch(/<button[^>]+aria-label="Previous slide"/);
     expect(html).not.toMatch(/<button[^>]+aria-label="Next slide"/);
-    expect(html).not.toMatch(/role="tablist"/);
+    expect(html).not.toMatch(/aria-label="Slide indicators"/);
   });
 });
 
@@ -76,7 +76,7 @@ describe("ImageCarousel — multi-slide chrome", () => {
     const html = render({ slides });
     expect(html).toMatch(/<button[^>]+aria-label="Previous slide"/);
     expect(html).toMatch(/<button[^>]+aria-label="Next slide"/);
-    expect(html).toMatch(/<ul[^>]+role="tablist"/);
+    expect(html).toMatch(/<ul[^>]+aria-label="Slide indicators"/);
     // One dot per slide.
     const dotMatches = html.match(/aria-label="Go to slide \d+"/g) ?? [];
     expect(dotMatches).toHaveLength(3);
@@ -85,13 +85,13 @@ describe("ImageCarousel — multi-slide chrome", () => {
   it("hides arrows when areArrowsHidden is set; dots stay", () => {
     const html = render({ slides, areArrowsHidden: true });
     expect(html).not.toMatch(/<button[^>]+aria-label="Previous slide"/);
-    expect(html).toMatch(/<ul[^>]+role="tablist"/);
+    expect(html).toMatch(/<ul[^>]+aria-label="Slide indicators"/);
   });
 
   it("hides dots when areDotsHidden is set; arrows stay", () => {
     const html = render({ slides, areDotsHidden: true });
     expect(html).toMatch(/<button[^>]+aria-label="Previous slide"/);
-    expect(html).not.toMatch(/<ul[^>]+role="tablist"/);
+    expect(html).not.toMatch(/<ul[^>]+aria-label="Slide indicators"/);
   });
 
   it("forces dots back on if the artist hid BOTH — never lock visitors out", () => {
@@ -105,7 +105,23 @@ describe("ImageCarousel — multi-slide chrome", () => {
       areDotsHidden: true,
     });
     expect(html).not.toMatch(/<button[^>]+aria-label="Previous slide"/);
-    expect(html).toMatch(/<ul[^>]+role="tablist"/);
+    expect(html).toMatch(/<ul[^>]+aria-label="Slide indicators"/);
+  });
+
+  it("dot indicators are NOT tabs — slides aren't tabpanels (incomplete ARIA otherwise)", () => {
+    // The WAI-ARIA carousel pattern models slides as `role="group"`
+    // with `aria-roledescription="slide"` (which we do), not as
+    // tabpanels. Emitting `role="tab"` on the dot buttons without a
+    // matching `role="tabpanel"` is broken ARIA — assistive tech
+    // can't follow the relationship. The earlier impl had both
+    // `role="tablist"` on the `<ul>` and `role="tab"` on each
+    // button; this lock-down keeps the cleanup from regressing.
+    const html = render({ slides });
+    expect(html).not.toMatch(/role="tab"/);
+    expect(html).not.toMatch(/role="tablist"/);
+    // The active dot is still announced via `aria-current="true"` —
+    // the right idiom for pagination / picker buttons.
+    expect(html).toContain('aria-current="true"');
   });
 
   it("initial Prev button is disabled (first slide is active SSR)", () => {
