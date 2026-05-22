@@ -43,8 +43,8 @@ import {
 export function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
   if (isVectorExt(image.originalExt)) {
     // Vector / icon: no sharp variants on disk. Serve the original
-    // directly. SVG / ICO render as background-image fine via the
-    // bare `<img>` flow; format negotiation doesn't apply.
+    // directly. SVG / ICO render as background fine via the bare
+    // `<img>` flow; format negotiation doesn't apply.
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -55,15 +55,29 @@ export function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
       />
     );
   }
+  const webpUrl = largestVariantUrl(image, "webp");
+  const avifUrl = largestVariantUrl(image, "avif");
+  // When no sharp variant fits the source width (e.g. a 256×256
+  // favicon-style upload), both URLs degrade to the same original
+  // (a JPG / PNG / WEBP / AVIF — whichever the artist uploaded).
+  // Emitting a `<source type="image/avif">` that points at a JPG
+  // is harmless (browsers spot the type mismatch and skip the
+  // source), but the HTML reads as a bug on inspection. Skip the
+  // `<picture>` wrapper in that case and render a bare `<img>`.
+  if (webpUrl === avifUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={webpUrl} alt="" aria-hidden="true" style={imgStyle} />
+    );
+  }
   return (
+    // `<picture>` itself is layout-transparent and AT-invisible —
+    // only the inner `<img>` shows. Browsers walk `<source>` in
+    // document order and pick the first whose `type` matches a
+    // supported format; the `<img>` is the universal fallback.
     <picture>
-      <source srcSet={largestVariantUrl(image, "avif")} type="image/avif" />
-      <img
-        src={largestVariantUrl(image, "webp")}
-        alt=""
-        aria-hidden="true"
-        style={imgStyle}
-      />
+      <source srcSet={avifUrl} type="image/avif" />
+      <img src={webpUrl} alt="" aria-hidden="true" style={imgStyle} />
     </picture>
   );
 }

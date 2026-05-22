@@ -44,14 +44,20 @@ describe("<PageBackgroundUnderlay> — raster (picture + format negotiation)", (
     expect(html).toContain("/images/home/abc1234567890def/1600.webp");
   });
 
-  it("falls back to the original (no <picture>) when no variant fits", () => {
+  it("renders a bare <img> (no <picture>) when no variant fits the source width", () => {
     // 256×256 favicon-style upload — smaller than the smallest
     // variant (400), so no sized files exist on disk. Both avif
-    // and webp degrade to the original (which is JPG here).
+    // and webp degrade to the same URL (the original). Skip the
+    // `<picture>` wrapper entirely: emitting a
+    // `<source type="image/avif">` pointing at a JPG is harmless
+    // (browser detects type mismatch) but misleading on
+    // inspection.
     const html = renderToStaticMarkup(
       <PageBackgroundUnderlay image={image({ width: 256, height: 256 })} />,
     );
     expect(html).toContain("/images/home/abc1234567890def/original.jpg");
+    expect(html).not.toMatch(/<picture/);
+    expect(html).not.toMatch(/<source/);
   });
 
   it("positions the <img> as a fixed underlay (the picture element is layout-transparent)", () => {
