@@ -74,6 +74,12 @@
   /* Shadows. */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  /* Translucent overlays — text-on-image surfaces. Used by the
+     ImageCarousel caption and any future image-over-text component
+     (Quote with background, Card with overlay). Single token so
+     overlay opacity stays consistent across blocks. */
+  --color-overlay: rgba(0, 0, 0, 0.55);
 }
 
 /* Editor spinner — used by /admin's Puck publish-status pill. Defined

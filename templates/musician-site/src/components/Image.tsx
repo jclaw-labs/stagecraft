@@ -10,6 +10,14 @@ type Props = {
   /** Hint to the browser for sizing. Default: 100vw. */
   sizes?: string;
   className?: string;
+  /**
+   * When true, opt the image out of lazy loading so above-the-fold
+   * uses (hero sections, the first slide of a carousel, page headers)
+   * paint immediately. Defaults to false — lazy loading is the right
+   * choice for everything below the first viewport, which is the
+   * dominant case.
+   */
+  isPriority?: boolean;
 };
 
 function variantPath(image: ImageMetadata, width: number, format: string): string {
@@ -26,7 +34,17 @@ function srcSetForFormat(image: ImageMetadata, format: string): string {
     .join(", ");
 }
 
-export function Image({ image, sizes = "100vw", className }: Props) {
+export function Image({
+  image,
+  sizes = "100vw",
+  className,
+  isPriority = false,
+}: Props) {
+  const loading = isPriority ? "eager" : "lazy";
+  // `fetchpriority="high"` reinforces the loading hint for priority
+  // images — the spec-blessed way to tell the browser "preload this
+  // one." React 19 surfaces the attribute as `fetchPriority`.
+  const fetchPriority = isPriority ? "high" : undefined;
   // Vector / icon formats bypass the sharp variant pipeline — no
   // sized webp/avif files exist. Render the original directly; SVG /
   // ICO are scalable so the browser picks the right resolution
@@ -51,7 +69,8 @@ export function Image({ image, sizes = "100vw", className }: Props) {
         alt={image.alt}
         width={image.width}
         height={image.height}
-        loading="lazy"
+        loading={loading}
+        fetchPriority={fetchPriority}
         decoding="async"
         className={className}
       />
@@ -75,7 +94,8 @@ export function Image({ image, sizes = "100vw", className }: Props) {
         alt={image.alt}
         width={image.width}
         height={image.height}
-        loading="lazy"
+        loading={loading}
+        fetchPriority={fetchPriority}
         decoding="async"
         className={className}
         style={{

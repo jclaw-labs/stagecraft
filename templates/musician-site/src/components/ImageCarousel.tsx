@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useRef,
   useState,
   type CSSProperties,
@@ -73,10 +72,6 @@ export function ImageCarousel({
 }: ImageCarouselProps) {
   const trackRef = useRef<HTMLUListElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  // Stable per-instance id so the live region's aria-controls and
-  // the dot tab indices don't collide across multiple carousels on
-  // one page.
-  const carouselId = useId();
 
   const slideCount = slides.length;
   const hasMultipleSlides = slideCount > 1;
@@ -94,9 +89,16 @@ export function ImageCarousel({
     if (!track) return;
     const slide = track.children[target] as HTMLElement | undefined;
     if (!slide) return;
+    // Honour `prefers-reduced-motion: reduce` — the OS-level
+    // "minimise animations" toggle. Smooth-scrolling carousels
+    // jolt motion-sensitive users; jump-cut is the right
+    // behaviour for them.
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     track.scrollTo({
       left: slide.offsetLeft - track.offsetLeft,
-      behavior: "smooth",
+      behavior: reduceMotion ? "auto" : "smooth",
     });
   }, []);
 
@@ -192,7 +194,6 @@ export function ImageCarousel({
       <ul
         ref={trackRef}
         className="stagecraft-carousel-track"
-        data-carousel-id={carouselId}
         style={trackStyle}
         tabIndex={0}
         onKeyDown={handleKeyDown}
@@ -206,10 +207,16 @@ export function ImageCarousel({
             aria-roledescription="slide"
             aria-label={`Slide ${index + 1} of ${slideCount}`}
           >
-            <SlideImage slide={slide} isFirst={index === 0} />
-            {slide.caption ? (
-              <figcaption style={captionStyle}>{slide.caption}</figcaption>
-            ) : null}
+            {/* Image + caption wrapped in `<figure>` so `<figcaption>`
+                lives in its specified parent — outside `<figure>`,
+                `<figcaption>` is undefined semantically and screen-
+                reader handling is inconsistent. */}
+            <figure style={figureStyle}>
+              <SlideImage slide={slide} isFirst={index === 0} />
+              {slide.caption ? (
+                <figcaption style={captionStyle}>{slide.caption}</figcaption>
+              ) : null}
+            </figure>
           </li>
         ))}
       </ul>
@@ -271,10 +278,15 @@ export function ImageCarousel({
 }
 
 /**
- * Per-slide image. First slide loads eagerly (it's above-the-fold
- * on render); the rest lazy-load. The track's `overflow: hidden`
- * means lazy slides never paint until the user scrolls — bandwidth
+ * Per-slide image. First slide loads eagerly (above-the-fold on
+ * render); the rest lazy-load. The track's `overflow-x: auto`
+ * means lazy slides only paint when the user scrolls — bandwidth
  * win on long carousels.
+ *
+ * `sizes="100vw"` because each slide fills 100% of the track width
+ * at all viewports (the track itself is full-width by default).
+ * A narrower sizes hint would cause the browser to pick a smaller
+ * srcSet variant and blur the image on wide screens.
  */
 function SlideImage({
   slide,
@@ -283,13 +295,7 @@ function SlideImage({
   slide: ImageCarouselSlide;
   isFirst: boolean;
 }): ReactNode {
-  void isFirst; // <Image> doesn't currently surface `loading="eager"`
-  // override; the public render path's default is lazy. Acceptable
-  // for v1 — the active slide is the first non-zero scroll position
-  // anyway. Wire through when <Image> gains the prop.
-  return (
-    <Image image={slide.image} sizes="(max-width: 800px) 100vw, 800px" />
-  );
+  return <Image image={slide.image} sizes="100vw" isPriority={isFirst} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +312,16 @@ const trackBaseStyle: CSSProperties = {
   listStyle: "none",
 };
 
+// Per-slide figure stretches to fill the snap-shaped slide cell so
+// the image + caption layer correctly. No margin (browser default
+// is 1em horizontal).
+const figureStyle: CSSProperties = {
+  position: "relative",
+  margin: 0,
+  width: "100%",
+  height: "100%",
+};
+
 const captionStyle: CSSProperties = {
   position: "absolute",
   left: 0,
@@ -314,10 +330,12 @@ const captionStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   fontSize: "var(--font-size-sm)",
   color: "var(--color-action-fg)",
-  background: "rgba(0, 0, 0, 0.55)",
+  background: "var(--color-overlay)",
 };
 
 function arrowStyle(isDisabled: boolean, side: "prev" | "next"): CSSProperties {
+  // `disabled` on the button already prevents clicks; no need for
+  // a redundant `pointer-events: none`.
   return {
     position: "absolute",
     top: "50%",
@@ -336,7 +354,6 @@ function arrowStyle(isDisabled: boolean, side: "prev" | "next"): CSSProperties {
     fontWeight: "var(--font-weight-semibold)" as unknown as number,
     cursor: isDisabled ? "default" : "pointer",
     opacity: isDisabled ? 0.4 : 1,
-    pointerEvents: isDisabled ? "none" : "auto",
   };
 }
 

@@ -173,4 +173,62 @@ describe("ImageCarousel — ARIA structure", () => {
     expect(html).toContain("Soundcheck");
     expect(html).toMatch(/<figcaption/);
   });
+
+  it("wraps image + figcaption in a `<figure>` (figcaption outside figure is undefined HTML)", () => {
+    // `<figcaption>` without a `<figure>` parent is semantically
+    // meaningless — screen-reader handling diverges across engines.
+    // Per the HTML spec, figcaption is specified as a child of figure.
+    const html = render({
+      slides: [slide({ caption: "Soundcheck" })],
+    });
+    expect(html).toMatch(/<figure[\s>][\s\S]*<figcaption/);
+  });
+
+  it("uses the --color-overlay token for the caption background (no raw rgba)", () => {
+    // CLAUDE.md §7: no raw color values inline. The overlay token
+    // lives in globals.css so caption styling stays consistent
+    // with any future text-on-image surface (Quote-with-bg, etc.).
+    const html = render({
+      slides: [slide({ caption: "x" })],
+    });
+    expect(html).toContain("var(--color-overlay)");
+    expect(html).not.toMatch(/rgba\(/);
+  });
+});
+
+describe("ImageCarousel — first-slide priority loading", () => {
+  it("loads the first slide eagerly via `loading=\"eager\"` + fetchpriority=\"high\"", () => {
+    // Above-the-fold carousels paint immediately; lazy-loading the
+    // first slide flashes the surface-raised background while the
+    // image fetches. The legacy template made the same call.
+    //
+    // React's renderToStaticMarkup serialises the attr as
+    // `fetchPriority` (camelCase) — browsers parse the attribute
+    // case-insensitively so runtime behaviour is correct; match
+    // either casing in the assertion.
+    const html = render({
+      slides: [slide(), slide(), slide()],
+    });
+    const firstImgMatch = html.match(/<img[^>]+alt="A photo"[^>]*>/);
+    expect(firstImgMatch).toBeTruthy();
+    const firstImg = firstImgMatch?.[0] ?? "";
+    expect(firstImg).toContain('loading="eager"');
+    expect(firstImg).toMatch(/fetchpriority="high"|fetchPriority="high"/);
+  });
+
+  it("lazy-loads all non-first slides (bandwidth win on long carousels)", () => {
+    const html = render({
+      slides: [
+        slide({ image: { ...IMAGE_FIXTURE, alt: "First" } }),
+        slide({ image: { ...IMAGE_FIXTURE, alt: "Second" } }),
+        slide({ image: { ...IMAGE_FIXTURE, alt: "Third" } }),
+      ],
+    });
+    const secondImg = html.match(/<img[^>]+alt="Second"[^>]*>/)?.[0] ?? "";
+    const thirdImg = html.match(/<img[^>]+alt="Third"[^>]*>/)?.[0] ?? "";
+    expect(secondImg).toContain('loading="lazy"');
+    expect(thirdImg).toContain('loading="lazy"');
+    expect(secondImg).not.toMatch(/fetchpriority="high"|fetchPriority="high"/i);
+    expect(thirdImg).not.toMatch(/fetchpriority="high"|fetchPriority="high"/i);
+  });
 });
