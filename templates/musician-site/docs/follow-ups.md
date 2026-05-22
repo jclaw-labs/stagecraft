@@ -1,0 +1,102 @@
+# Musician-site follow-ups
+
+Items intentionally deferred during the parity-restoration sweep
+(March-May 2026). Captured here so they don't get lost between PRs —
+each section names the originating PR + the reasoning behind the
+defer.
+
+This is a living document; add to it when a deep-review surfaces
+something worth fixing that doesn't fit the current PR's scope.
+
+## Photo lightbox
+
+- **Touch swipe gestures.** Mobile users currently navigate via the
+  arrow buttons (44×44 tap targets) or the close-to-cycle gestures
+  the browser provides on `<img>` swipes (none). The standard touch
+  UX is swipe-left-to-advance / swipe-right-to-go-back. Needs
+  pointer-event handling with `touchstart`/`touchmove`/`touchend`
+  delta + threshold logic, or a `usePan` hook abstraction. From #183.
+- **Pinch-zoom for high-DPR viewing.** Lightbox currently caps the
+  image at `max-height: calc(100vh - var(--space-32))`; pinch-zoom
+  on touch screens would let users inspect detail. Browser native
+  pinch-zoom on the page is suppressed by the body-scroll-lock; we'd
+  need an explicit transform-based zoom inside the modal. From #183.
+- **MutationObserver re-scan for dynamic galleries.** Boot attaches
+  click delegation once on mount. Galleries inserted after hydration
+  (the gallery editor's preview pane, future client-side filters)
+  wouldn't get handlers. The public site doesn't do dynamic
+  insertions today, so this is acceptable. From #183.
+
+## Image rendering
+
+- **AVIF support in `PageBackgroundUnderlay`.** The underlay
+  currently requests the largest `.webp` variant. The variant
+  pipeline emits both `.webp` and `.avif`; emitting a `<picture>`
+  underlay (avif first, webp fallback) would shave ~10% off the
+  background image transfer for Safari 16+ / Chrome / Firefox.
+  Touched in #179, deferred since `<img background-image:url(...)>`
+  doesn't accept multiple sources — needs a structural rework to
+  use a `<picture>` or a CSS `image-set()` declaration. From #179.
+
+## Newsletter signup
+
+- **Inspector validation hints.** When `service: mailchimp` is
+  selected but the `actionUrl` lacks `u` / `id` query params, the
+  `parseMailchimpAudienceHoneypotName` falls back to null (no
+  honeypot emitted) and the artist gets no signal. A Puck inspector
+  warning ("This URL doesn't look like a Mailchimp embed URL —
+  expected `?u=USER_ID&id=LIST_ID`") would catch the mistake at
+  authoring time. From #181.
+- **Generic "additional fields" array.** Today `hasNameField`
+  toggles a single first-name input. Artists may want phone, country,
+  or a custom field. An `additionalFields: { label, name, type }[]`
+  array would generalise; for v1 the name field covered the most-
+  common ask. From #181.
+
+## Card
+
+- **`minimal` variant + `size` axis.** v2 ships with `filled` /
+  `outlined` and a single size. The legacy template adds a
+  `minimal` variant (no border, no padding — list-item-scale) and
+  a `size: sm / md / lg` axis. Skipped pending demand. From #187.
+- **Icon-mode media for non-image previews.** Audio / video / PDF
+  files render as generic icons in the legacy template via the
+  `mediaKind` inference. The new template's Card only supports
+  image previews. Audio / video / PDF tiles are useful for press-
+  kit / download list use cases. From #187.
+
+## Card-style hover affordance for non-link cards
+
+- The `stagecraft-card-link` class adds a subtle lift on hover for
+  link-cards. Non-link cards (the `<article>` variant) don't get
+  the affordance. An opt-in `isHoverable` flag could enable a
+  reduced-motion-aware variant. From #179.
+
+## SVG handling
+
+- **Sanitisation telemetry.** `DOMPurify.sanitize` exposes
+  `DOMPurify.removed[]` after each pass — logging when removals
+  occur would surface "your SVG was modified" to admins, useful for
+  debugging "why did my drop-shadow disappear" support questions.
+  From #182.
+- **`Cache-Control: no-transform` on SVG responses.** Some CDNs
+  optimise SVG bytes (inline-data URIs, strip XML declarations,
+  rewrite namespaces). `no-transform` forbids that. Speculative —
+  not a known issue today — but a small additional header on the
+  already-locked SVG rule. From SVG-Content-Disposition review.
+
+## Carousel
+
+- **Touch-swipe nav on the carousel.** The track scrolls natively
+  (scroll-snap), but the dot indicators don't get swipe-to-cycle
+  semantics. Native scroll handles this on mobile, so it's already
+  good; the gap is desktop trackpad swipe → cycle button presses.
+  Low priority. From #171.
+
+## Routing / publish
+
+- **Per-page background overlay opacity.** Site-level `pageBackground`
+  + per-page override both ship; the legacy template also had a
+  `pageBackgroundOverlay` opacity tint (so dark backgrounds can host
+  light text). Could add as a Puck root field once the use case
+  shows up. From #179.
