@@ -113,6 +113,11 @@ export function sanitiseSvg(buffer: Buffer): Buffer {
  * it in `removed[]`. That's a parser artefact, not a tamper signal,
  * and warning about it on every clean SVG is just noise. Filter it
  * before counting / summarising.
+ *
+ * The list is stable across DOMPurify + jsdom releases as of 2026,
+ * but a future library upgrade introducing a new implicit wrapper
+ * (`<template>` say) would re-introduce noise. Catch it via the
+ * "clean SVG doesn't warn" test below.
  */
 const IMPLICIT_WRAPPER_TAGS = new Set(["html", "head", "body"]);
 
