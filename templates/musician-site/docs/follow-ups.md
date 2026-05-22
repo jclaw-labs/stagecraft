@@ -57,16 +57,15 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## SVG handling
 
-- **Sanitisation telemetry.** `DOMPurify.sanitize` exposes
-  `DOMPurify.removed[]` after each pass — logging when removals
-  occur would surface "your SVG was modified" to admins, useful for
-  debugging "why did my drop-shadow disappear" support questions.
-  From #182.
-- **`Cache-Control: no-transform` on SVG responses.** Some CDNs
-  optimise SVG bytes (inline-data URIs, strip XML declarations,
-  rewrite namespaces). `no-transform` forbids that. Speculative —
-  not a known issue today — but a small additional header on the
-  already-locked SVG rule. From SVG-Content-Disposition review.
+- **Surface sanitisation removals in the upload response.** The
+  sanitiser already logs to `console.warn` when DOMPurify strips
+  content (admin-visible in Vercel / Netlify function logs). The
+  next step is to return the removal summary alongside the buffer
+  so the upload route can include it in the API response — the
+  picker UI could then surface a hint inline ("we stripped 2 items
+  from your SVG: `<script>`, `onclick=`"). Needs an API change to
+  `sanitiseSvg` to return `{ buffer, removed }` and a small UI
+  affordance in `ImagePickerField`. From svg-hardening-bundle PR.
 
 ## Carousel
 

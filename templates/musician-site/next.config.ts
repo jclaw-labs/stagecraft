@@ -65,6 +65,13 @@ const config: NextConfig = {
           { key: "Content-Disposition", value: "attachment" },
           { key: "Content-Type", value: "image/svg+xml" },
           { key: "X-Content-Type-Options", value: "nosniff" },
+          // `no-transform` forbids intermediate proxies / CDNs from
+          // rewriting the SVG bytes (some optimise by inlining as a
+          // data URI, stripping XML declarations, or rewriting
+          // namespaces). The sanitiser has already locked the
+          // content shape on the way in; allowing a CDN to mutate
+          // it would re-open the surface we just closed.
+          { key: "Cache-Control", value: "no-transform" },
         ],
       },
       {
