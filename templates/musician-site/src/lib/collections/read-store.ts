@@ -22,20 +22,40 @@
  *   - **broker unreachable at token-mint time** → fall back to FS
  *     entirely for this request. Next request retries the broker.
  *
- * Non-recoverable codes (`auth-failed`, `github-failed`, `too-large`)
- * re-throw so the route handler can surface a 5xx. Successful reads
- * that return `null` (file genuinely missing on `draft`) flow
- * through unchanged — fallback only fires on typed errors, never on
- * absence. Masking a deletion would be worse than seeing it.
+ * Non-recoverable codes (`auth-failed`, `github-failed`) re-throw so
+ * the route handler can surface a 5xx. Successful reads that return
+ * `null` (file genuinely missing on `draft`) flow through unchanged
+ * — fallback only fires on typed errors, never on absence. Masking
+ * a deletion would be worse than seeing it. `too-large` is treated
+ * as recoverable: the live draft has grown past the Contents-API
+ * limit and we can't fetch it via this path, but the FS snapshot
+ * has a (stale-but-parseable) copy. Better that than 5xx until a
+ * Git-Blob-API fallback ships.
  *
- * Per-request lifecycle: `getReadStore()` is `async` and called
- * once per request from a server component or route handler. The
- * underlying draft-store module-level cache (`./draft-store`'s SHA-
- * keyed promise map) handles cross-call dedup within the container.
+ * Per-request lifecycle: prefer `getRequestReadStore()` over
+ * `getReadStore()` for server-component / route-handler callers —
+ * it wraps the async factory in `React.cache()` so multiple callers
+ * within one request share one broker-minted token. Calling
+ * `getReadStore()` directly from N components mints N tokens, which
+ * pressures the platform broker. The underlying draft-store module-
+ * level cache (`./draft-store`'s SHA-keyed promise map) handles
+ * cross-call dedup within the container.
+ *
+ * Cache invalidation: ADR-010 §5 specifies "after any admin write,
+ * the writer's process updates its own cache synchronously." This
+ * facade doesn't expose an invalidation hook; instead, the SHA-
+ * check-on-every-read in draft-store kicks in — the next read after
+ * a write sees a new branch SHA and drops the prior cache entries.
+ * One extra `getRef` of latency vs synchronous invalidation, but no
+ * cross-module coupling between `publish.ts` and `draft-store.ts`.
+ * Worth revisiting if the per-write `getRef` cost shows up in real
+ * traffic profiles.
  *
  * Server-only. Imports `./store` (node:fs) and `./draft-store`
  * (@octokit/rest). Don't reach for this from a `"use client"` file.
  */
+
+import { cache } from "react";
 
 import { DraftReadError, type DraftStoreContext } from "./draft-store";
 import * as draftStore from "./draft-store";
@@ -45,6 +65,7 @@ import {
   DRAFT_BRANCH,
   fetchPublishToken,
   isPlatformConfigured,
+  PublishError,
   readEnv,
 } from "../publish";
 
@@ -71,8 +92,8 @@ export interface ReadStore {
 /**
  * `DraftReadError` codes the facade treats as "transient, fall back
  * to the FS snapshot for this request." Non-listed codes
- * (`auth-failed`, `github-failed`, `too-large`) re-throw to the
- * caller — those are either bugs or unrecoverable in this layer.
+ * (`auth-failed`, `github-failed`) re-throw to the caller — those
+ * are bugs or auth-state issues the operator needs to see.
  *
  * - `branch-missing`: fresh site without a `draft` branch yet. The
  *   FS snapshot is the truth in that case.
@@ -81,11 +102,17 @@ export interface ReadStore {
  * - `rate-limited`: hammered the App's quota. Fall back rather than
  *   surface 5xx; the cache + amortisation in draft-store should
  *   normally keep us under, so hitting this is itself a signal.
+ * - `too-large`: draft has a file past the Contents-API ~1 MB
+ *   limit. We can't fetch the live version via the existing path,
+ *   but the FS snapshot has a (stale-but-parseable) copy. Falling
+ *   back keeps the admin usable until a Git-Blob-API fallback
+ *   ships in `draft-store`.
  */
 const RECOVERABLE_CODES: ReadonlySet<DraftReadError["code"]> = new Set([
   "branch-missing",
   "github-unreachable",
   "rate-limited",
+  "too-large",
 ]);
 
 function isRecoverable(err: unknown): err is DraftReadError {
@@ -112,17 +139,33 @@ export async function getReadStore(): Promise<ReadStore> {
     const { token, owner, repo } = await fetchPublishToken(env);
     ctx = { token, owner, repo, branch: DRAFT_BRANCH };
   } catch (cause) {
-    if (process.env.NODE_ENV !== "test") {
+    // Fall back only on `broker-unreachable` (transient network /
+    // platform outage). `broker-rejected` typically means the
+    // platform returned 4xx — the per-site secret is wrong or the
+    // siteId is unknown. Silently falling back there would mask a
+    // permanent configuration error as a recoverable blip for the
+    // life of the deployment; better to surface so the operator
+    // notices. Programmer errors (unexpected throw shape) also
+    // re-throw so they're visible.
+    if (cause instanceof PublishError && cause.code === "broker-unreachable") {
       console.warn(
-        `[read-store] Broker token mint failed; falling back to FS snapshot for this request: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
+        `[read-store] Broker unreachable; falling back to FS snapshot for this request: ${cause.message}`,
       );
+      return fsReadStore();
     }
-    return fsReadStore();
+    throw cause;
   }
   return draftReadStoreWithFallback(ctx);
 }
+
+/**
+ * Per-request memoised wrapper around `getReadStore`. Use this from
+ * server components and route handlers so multiple readers in the
+ * same request share one broker-minted token. React's `cache()`
+ * keys by argument list — `getRequestReadStore()` has no arguments,
+ * so every call within one request returns the same promise.
+ */
+export const getRequestReadStore = cache(getReadStore);
 
 /**
  * FS-only store. Just re-binds each method from `./store` so callers
@@ -154,11 +197,9 @@ function draftReadStoreWithFallback(ctx: DraftStoreContext): ReadStore {
       return await draftCall();
     } catch (err) {
       if (isRecoverable(err)) {
-        if (process.env.NODE_ENV !== "test") {
-          console.warn(
-            `[read-store] Draft fetch failed (${err.code}); falling back to FS snapshot.`,
-          );
-        }
+        console.warn(
+          `[read-store] Draft fetch failed (${err.code}); falling back to FS snapshot.`,
+        );
         return fsCall();
       }
       throw err;

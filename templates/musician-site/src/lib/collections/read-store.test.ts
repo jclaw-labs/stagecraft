@@ -60,6 +60,7 @@ vi.mock("./store", async () => {
 
 import { getReadStore } from "./read-store";
 import { resetDraftStoreCache } from "./draft-store";
+import { PublishError } from "../publish";
 import { tourDatesDef } from "./test-fixtures";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -131,13 +132,36 @@ describe("getReadStore — backend selection", () => {
     expect(fetchPublishTokenMock).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the FS store when the broker token mint fails", async () => {
+  it("falls back to the FS store when the broker is unreachable", async () => {
     // Broker unreachable at token time → fall through to FS for the
     // whole request (same shape as a per-method github-unreachable).
-    fetchPublishTokenMock.mockRejectedValue(new Error("broker dead"));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-unreachable", "platform down"),
+    );
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = await getReadStore();
     expect(store.mode).toBe("fs");
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("re-throws when the broker rejects the request (permanent config error)", async () => {
+    // `broker-rejected` typically means bad per-site secret or
+    // unknown siteId. Silently falling back would mask the misconfig
+    // for the life of the deployment — surface it instead.
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-rejected", "unknown site"),
+    );
+    await expect(getReadStore()).rejects.toMatchObject({
+      name: "PublishError",
+      code: "broker-rejected",
+    });
+  });
+
+  it("re-throws unexpected (non-PublishError) throws from the broker call", async () => {
+    // Programmer error / unexpected throw shape — surface so it's
+    // visible rather than degrading to FS silently.
+    fetchPublishTokenMock.mockRejectedValue(new Error("kaboom"));
+    await expect(getReadStore()).rejects.toThrow("kaboom");
   });
 });
 
@@ -196,21 +220,23 @@ describe("getReadStore — draft store with FS fallback", () => {
     // getRef 404 → DraftReadError("branch-missing") → fallback
     getRef.mockRejectedValue(notFound());
     fsReadCollectionDef.mockResolvedValue(tourDatesDef());
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = await getReadStore();
     const result = await store.readCollectionDef("tour-dates");
     expect(fsReadCollectionDef).toHaveBeenCalledWith("tour-dates");
     expect(result?.slug).toBe("tour-dates");
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("falls back to FS on `github-unreachable` (network blip)", async () => {
     getRef.mockRejectedValue(new Error("ENOTFOUND")); // generic non-RequestError
     fsListItemSlugs.mockResolvedValue(["a", "b"]);
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = await getReadStore();
     const result = await store.listItemSlugs("tour-dates");
     expect(fsListItemSlugs).toHaveBeenCalledWith("tour-dates");
     expect(result).toEqual(["a", "b"]);
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("falls back to FS on `rate-limited`", async () => {
@@ -220,10 +246,11 @@ describe("getReadStore — draft store with FS fallback", () => {
     });
     getRef.mockRejectedValue(rateLimitErr);
     fsListItemSlugs.mockResolvedValue([]);
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = await getReadStore();
     await store.listItemSlugs("tour-dates");
     expect(fsListItemSlugs).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("re-throws `auth-failed` (bug, not transient — surface to caller)", async () => {
@@ -259,7 +286,10 @@ describe("getReadStore — draft store with FS fallback", () => {
     expect(fsReadCollectionDef).not.toHaveBeenCalled();
   });
 
-  it("re-throws `too-large` (file over Contents-API limit needs Blob API)", async () => {
+  it("falls back to FS on `too-large` (file over Contents-API limit)", async () => {
+    // `too-large` means the live draft file exceeds the Contents-API
+    // ~1 MB limit. Until a Git-Blob-API fallback ships in draft-store,
+    // the FS snapshot is the best we can do — better than a 5xx.
     getRef.mockResolvedValue(refResponse("sha-1"));
     reposGetContent.mockResolvedValue({
       data: {
@@ -270,12 +300,13 @@ describe("getReadStore — draft store with FS fallback", () => {
         sha: "blob-sha",
       },
     });
+    fsReadCollectionDef.mockResolvedValue(tourDatesDef());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = await getReadStore();
-    await expect(store.readCollectionDef("tour-dates")).rejects.toMatchObject({
-      name: "DraftReadError",
-      code: "too-large",
-    });
-    expect(fsReadCollectionDef).not.toHaveBeenCalled();
+    const result = await store.readCollectionDef("tour-dates");
+    expect(fsReadCollectionDef).toHaveBeenCalledWith("tour-dates");
+    expect(result?.slug).toBe("tour-dates");
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("threads the draft context through every method (token + draft branch)", async () => {
