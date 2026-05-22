@@ -198,27 +198,34 @@ export function ImageCarousel({
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        {slides.map((slide, index) => (
-          <li
-            key={`${slide.image.id}-${index}`}
-            className="stagecraft-carousel-slide"
-            data-slide-index={index}
-            role="group"
-            aria-roledescription="slide"
-            aria-label={`Slide ${index + 1} of ${slideCount}`}
-          >
-            {/* Image + caption wrapped in `<figure>` so `<figcaption>`
-                lives in its specified parent — outside `<figure>`,
-                `<figcaption>` is undefined semantically and screen-
-                reader handling is inconsistent. */}
-            <figure style={figureStyle}>
-              <SlideImage slide={slide} isFirst={index === 0} />
-              {slide.caption ? (
-                <figcaption style={captionStyle}>{slide.caption}</figcaption>
-              ) : null}
-            </figure>
-          </li>
-        ))}
+        {slides.map((slide, index) => {
+          // Per-slide caption is the override; image-level caption
+          // is the default. Lets an artist set one caption on the
+          // image (in the picker) and reuse it across surfaces
+          // without retyping per-slide.
+          const caption = slide.caption ?? slide.image.caption;
+          return (
+            <li
+              key={`${slide.image.id}-${index}`}
+              className="stagecraft-carousel-slide"
+              data-slide-index={index}
+              role="group"
+              aria-roledescription="slide"
+              aria-label={`Slide ${index + 1} of ${slideCount}`}
+            >
+              {/* Image + caption wrapped in `<figure>` so `<figcaption>`
+                  lives in its specified parent — outside `<figure>`,
+                  `<figcaption>` is undefined semantically and screen-
+                  reader handling is inconsistent. */}
+              <figure style={figureStyle}>
+                <SlideImage slide={slide} isFirst={index === 0} />
+                {caption ? (
+                  <figcaption style={captionStyle}>{caption}</figcaption>
+                ) : null}
+              </figure>
+            </li>
+          );
+        })}
       </ul>
 
       {showArrows ? (

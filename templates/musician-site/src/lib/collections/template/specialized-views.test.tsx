@@ -151,6 +151,33 @@ describe("PhotoTile", () => {
     const PhotoTile = specialisedRendererFor("photos")!;
     expect(PhotoTile({ item })).toBeNull();
   });
+
+  // Two-layer caption / credit model: per-item fields override
+  // image-level metadata. Lets an artist set a default caption /
+  // credit on the image once (in the picker) and override it for
+  // specific contexts. Matches the legacy template's behaviour.
+
+  it("falls back to image.caption / image.credit when per-item fields are unset", () => {
+    const image = { ...IMAGE_FIXTURE, caption: "Image-level caption", credit: "Image-level credit" };
+    const html = renderPhoto(photoItem({ image }));
+    expect(html).toMatch(/<figcaption/);
+    expect(html).toContain("Image-level caption");
+    expect(html).toContain("Image-level credit");
+  });
+
+  it("per-item caption / credit override the image-level defaults", () => {
+    const image = { ...IMAGE_FIXTURE, caption: "Image default", credit: "Image default credit" };
+    const html = renderPhoto(
+      photoItem({
+        image,
+        caption: "Item override",
+        credit: "Item override credit",
+      }),
+    );
+    expect(html).toContain("Item override");
+    expect(html).toContain("Item override credit");
+    expect(html).not.toContain("Image default");
+  });
 });
 
 // ---------------------------------------------------------------------------

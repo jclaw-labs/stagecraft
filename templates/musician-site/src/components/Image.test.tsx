@@ -109,4 +109,34 @@ describe("<Image>", () => {
     expect(html).toMatch(/loading="lazy"/);
     expect(html).toMatch(/decoding="async"/);
   });
+
+  // ---------------------------------------------------------------------------
+  // Focal point — applied as `object-position` so consumers that crop with
+  // `object-fit: cover/contain` (carousel slides, hero containers) keep
+  // the artist's chosen focal area in view at any aspect ratio.
+  // ---------------------------------------------------------------------------
+
+  it("renders no object-position when focalPoint is absent (browser default)", () => {
+    const html = renderImage();
+    // The default `50% 50%` is the browser's behavior already; we
+    // skip emitting it to keep the inline style minimal.
+    expect(html).not.toMatch(/object-position/i);
+  });
+
+  it("applies focalPoint as object-position on the raster <img>", () => {
+    const html = renderImage({ ...fixture, focalPoint: { x: 0.25, y: 0.75 } });
+    // React serialises the camelCase `objectPosition` into the
+    // kebab-case CSS declaration on the inline style attribute.
+    expect(html).toMatch(/object-position:\s*25%\s+75%/);
+  });
+
+  it("applies focalPoint on the vector branch too (icons in fixed-ratio containers)", () => {
+    const svg: ImageMetadata = {
+      ...fixture,
+      originalExt: "svg",
+      focalPoint: { x: 0.1, y: 0.9 },
+    };
+    const html = renderImage(svg);
+    expect(html).toMatch(/object-position:\s*10%\s+90%/);
+  });
 });

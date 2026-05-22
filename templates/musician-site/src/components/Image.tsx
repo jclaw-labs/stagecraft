@@ -1,6 +1,9 @@
+import { type CSSProperties } from "react";
+
 import {
   IMAGE_VARIANT_FORMATS,
   IMAGE_VARIANT_WIDTHS,
+  focalPointObjectPosition,
   isVectorExt,
   type ImageMetadata,
 } from "@/lib/image-types";
@@ -61,7 +64,16 @@ export function Image({
   // `<img>` rather than Next's `<Image>` because the bypass is
   // explicit about the no-variant case; an eslint-disable is
   // targeted and the rationale is right here.
+  // `object-position` only has visual effect when the consumer crops
+  // the image with `object-fit: cover/contain` and a smaller container
+  // (e.g. the ImageCarousel slide). For un-cropped uses the inline
+  // style is a no-op — emitting it costs nothing.
+  const objectPosition = focalPointObjectPosition(image.focalPoint);
+
   if (isVectorExt(image.originalExt)) {
+    const vectorStyle: CSSProperties | undefined = objectPosition
+      ? { objectPosition }
+      : undefined;
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -73,11 +85,18 @@ export function Image({
         fetchPriority={fetchPriority}
         decoding="async"
         className={className}
+        style={vectorStyle}
       />
     );
   }
 
   const fallback = `${variantPath(image, Math.min(800, image.width), "webp")}`;
+  const rasterStyle: CSSProperties = {
+    backgroundImage: `url(${image.placeholderDataUri})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+  };
+  if (objectPosition) rasterStyle.objectPosition = objectPosition;
 
   return (
     <picture>
@@ -98,11 +117,7 @@ export function Image({
         fetchPriority={fetchPriority}
         decoding="async"
         className={className}
-        style={{
-          backgroundImage: `url(${image.placeholderDataUri})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
+        style={rasterStyle}
       />
     </picture>
   );

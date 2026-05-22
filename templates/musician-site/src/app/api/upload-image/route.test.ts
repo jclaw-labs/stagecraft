@@ -246,5 +246,111 @@ describe("POST /api/upload-image", () => {
       const res = await POST(buildRequest(fd));
       expect(res.status).toBe(500);
     });
+
+    it("forwards caption / credit / focalPoint to commitUploadedImage", async () => {
+      // The route is the only point that translates the wire form
+      // (FormData strings, focalPoint as JSON) into the typed
+      // ProcessImageInput. Lock the contract: every editorial field
+      // submitted reaches the commit layer.
+      commitUploadedImageMock.mockResolvedValue({
+        metadata: {
+          id: "abc1234567890def",
+          alt: "x",
+          width: 800,
+          height: 600,
+          placeholderDataUri: "data:image/webp;base64,AAAA",
+          contentSlug: TEST_SLUG,
+          originalExt: "jpg",
+        },
+        commitSha: "deadbeef",
+      });
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+      fd.append("caption", "Soundcheck");
+      fd.append("credit", "Photo by Jane");
+      fd.append("focalPoint", JSON.stringify({ x: 0.3, y: 0.7 }));
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      expect(commitUploadedImageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            caption: "Soundcheck",
+            credit: "Photo by Jane",
+            focalPoint: { x: 0.3, y: 0.7 },
+          }),
+        }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Editorial metadata round-trip on the dev-fallback path. The broker path
+  // is covered above via the mocked commit layer; the local path goes
+  // through sharp + writeFile, so test it end-to-end.
+  // ---------------------------------------------------------------------------
+
+  describe("editorial metadata (dev fallback)", () => {
+    it("returns caption + credit + focalPoint in the response metadata", async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+      fd.append("caption", "Soundcheck");
+      fd.append("credit", "Photo by Jane");
+      fd.append("focalPoint", JSON.stringify({ x: 0.3, y: 0.7 }));
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const parsed = uploadResponseSchema.safeParse(body);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.image.caption).toBe("Soundcheck");
+        expect(parsed.data.image.credit).toBe("Photo by Jane");
+        expect(parsed.data.image.focalPoint).toEqual({ x: 0.3, y: 0.7 });
+      }
+    });
+
+    it("rejects focalPoint with malformed JSON (400)", async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+      fd.append("focalPoint", "not-json");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects focalPoint with out-of-range coordinates (400)", async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+      fd.append("focalPoint", JSON.stringify({ x: 1.5, y: 0.5 }));
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(400);
+    });
+
+    it("treats empty caption / credit strings as absent (no `caption: \"\"` in JSON)", async () => {
+      // Distinguishes between "user typed and cleared" and "user
+      // never touched the field". Wire shape stays clean.
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+      fd.append("caption", "");
+      fd.append("credit", "");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.image).not.toHaveProperty("caption");
+      expect(body.image).not.toHaveProperty("credit");
+    });
   });
 });

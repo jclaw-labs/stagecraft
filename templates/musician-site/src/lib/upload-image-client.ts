@@ -2,6 +2,7 @@ import {
   ALLOWED_INPUT_MIME_TYPES,
   MAX_UPLOAD_BYTES,
   type AllowedInputMimeType,
+  type FocalPoint,
   type ImageMetadata,
   uploadResponseSchema,
 } from "./image-types";
@@ -32,10 +33,14 @@ export async function uploadImageFromClient(args: {
   file: File;
   alt: string;
   contentSlug?: string;
+  /** Optional editorial metadata persisted alongside the image. */
+  caption?: string;
+  credit?: string;
+  focalPoint?: FocalPoint;
   /** Defaults to global fetch; injectable for tests. */
   fetchImpl?: typeof fetch;
 }): Promise<ImageMetadata> {
-  const { file, alt } = args;
+  const { file, alt, caption, credit, focalPoint } = args;
   const contentSlug = args.contentSlug ?? EDITOR_UPLOAD_SLUG;
   const fetchImpl = args.fetchImpl ?? fetch;
 
@@ -59,6 +64,9 @@ export async function uploadImageFromClient(args: {
   fd.append("file", file);
   fd.append("contentSlug", contentSlug);
   fd.append("alt", alt);
+  if (caption !== undefined && caption !== "") fd.append("caption", caption);
+  if (credit !== undefined && credit !== "") fd.append("credit", credit);
+  if (focalPoint !== undefined) fd.append("focalPoint", JSON.stringify(focalPoint));
 
   let res: Response;
   try {

@@ -113,4 +113,61 @@ describe("uploadImageFromClient", () => {
       }),
     ).rejects.toMatchObject({ code: "request-failed" });
   });
+
+  // ---------------------------------------------------------------------------
+  // Editorial metadata wire format. FormData is string-only; focalPoint
+  // ships as a JSON string. Caption / credit are bare strings, omitted
+  // when empty so the route never sees an `""` it has to gate.
+  // ---------------------------------------------------------------------------
+
+  it("appends caption / credit / focalPoint when provided", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init: { body: FormData }) => {
+      const body = init.body;
+      expect(body.get("caption")).toBe("Soundcheck");
+      expect(body.get("credit")).toBe("Photo by Jane");
+      expect(body.get("focalPoint")).toBe(JSON.stringify({ x: 0.3, y: 0.7 }));
+      return new Response(JSON.stringify({ ok: true, image: MIN_VALID_METADATA }), { status: 200 });
+    });
+    await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      caption: "Soundcheck",
+      credit: "Photo by Jane",
+      focalPoint: { x: 0.3, y: 0.7 },
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+  });
+
+  it("omits caption / credit / focalPoint keys entirely when not provided", async () => {
+    // The route distinguishes "absent" from "empty"; we don't want
+    // the client to send empty strings that look like cleared edits.
+    const fetchMock = vi.fn(async (_url: unknown, init: { body: FormData }) => {
+      const body = init.body;
+      expect(body.has("caption")).toBe(false);
+      expect(body.has("credit")).toBe(false);
+      expect(body.has("focalPoint")).toBe(false);
+      return new Response(JSON.stringify({ ok: true, image: MIN_VALID_METADATA }), { status: 200 });
+    });
+    await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+  });
+
+  it("treats empty caption / credit strings as absent (omits the key)", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init: { body: FormData }) => {
+      const body = init.body;
+      expect(body.has("caption")).toBe(false);
+      expect(body.has("credit")).toBe(false);
+      return new Response(JSON.stringify({ ok: true, image: MIN_VALID_METADATA }), { status: 200 });
+    });
+    await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      caption: "",
+      credit: "",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+  });
 });

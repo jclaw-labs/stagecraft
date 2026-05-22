@@ -261,3 +261,100 @@ describe("processImage — vector / icon bypass (SVG + ICO)", () => {
     expect(result.metadata.placeholderDataUri).toMatch(/^data:image\/webp;base64,/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Editorial metadata propagation — caption / credit / focalPoint flow
+// straight through the pipeline as pure metadata (no sharp involvement).
+// The dedup branch must preserve them too — re-uploading the same bytes
+// with new metadata is the artist's "fix the caption" path, and dropping
+// the new values would be silently destructive.
+// ---------------------------------------------------------------------------
+
+describe("processImage — editorial metadata", () => {
+  it("threads caption + credit + focalPoint into the returned metadata", async () => {
+    const buffer = await makeFixture();
+    const result = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Soundcheck at the Fillmore",
+      credit: "Photo by Jane Smith",
+      focalPoint: { x: 0.3, y: 0.7 },
+    });
+    expect(result.metadata.caption).toBe("Soundcheck at the Fillmore");
+    expect(result.metadata.credit).toBe("Photo by Jane Smith");
+    expect(result.metadata.focalPoint).toEqual({ x: 0.3, y: 0.7 });
+  });
+
+  it("omits the editorial keys entirely when not provided", async () => {
+    // Persisted JSON should match the pre-feature shape so the on-
+    // disk diff for unchanged uploads stays empty.
+    const buffer = await makeFixture();
+    const result = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+    });
+    expect(result.metadata).not.toHaveProperty("caption");
+    expect(result.metadata).not.toHaveProperty("credit");
+    expect(result.metadata).not.toHaveProperty("focalPoint");
+  });
+
+  it("dedup re-upload preserves new editorial metadata (not the old)", async () => {
+    // The artist's edit-caption flow: re-upload the same image with
+    // updated caption / credit / focal-point. The dedup branch must
+    // emit the NEW values, not the originals.
+    const buffer = await makeFixture();
+    const first = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Original caption",
+    });
+    expect(first.processed).toBe(true);
+    expect(first.metadata.caption).toBe("Original caption");
+
+    const second = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Updated caption",
+      credit: "Added credit",
+      focalPoint: { x: 0.2, y: 0.4 },
+    });
+    expect(second.processed).toBe(false);
+    expect(second.metadata.id).toBe(first.metadata.id);
+    expect(second.metadata.caption).toBe("Updated caption");
+    expect(second.metadata.credit).toBe("Added credit");
+    expect(second.metadata.focalPoint).toEqual({ x: 0.2, y: 0.4 });
+  });
+
+  it("dedup re-upload also works for vector formats (sharp-free path)", async () => {
+    // Mirror of the raster case for the vector branch — the vector
+    // bypass also goes through the dedup branch on re-upload, and
+    // must preserve editorial metadata there too.
+    const SVG = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>',
+      "utf-8",
+    );
+    await processImage({
+      buffer: SVG,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+    });
+    const second = await processImage({
+      buffer: SVG,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+      caption: "Branding mark",
+    });
+    expect(second.processed).toBe(false);
+    expect(second.metadata.caption).toBe("Branding mark");
+  });
+});

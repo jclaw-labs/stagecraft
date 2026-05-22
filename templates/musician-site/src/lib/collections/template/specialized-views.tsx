@@ -58,8 +58,15 @@ import type { Item } from "../schema";
 function PhotoTile({ item }: { item: Item }): ReactNode {
   const image = getImageOrNull(item, PHOTOS_FIELD_IDS.image);
   if (!image) return null;
-  const caption = getLongTextOrNull(item, PHOTOS_FIELD_IDS.caption);
-  const credit = getTextOrNull(item, PHOTOS_FIELD_IDS.credit);
+  // Per-item fields are the override; image-level metadata
+  // (set in the picker once, reused across slots) is the default.
+  // The two-layer model lets the artist keep a default caption /
+  // credit on the image and override it for specific contexts
+  // (e.g. a press kit photo with a venue-specific caption).
+  const caption =
+    getLongTextOrNull(item, PHOTOS_FIELD_IDS.caption) ?? image.caption ?? null;
+  const credit =
+    getTextOrNull(item, PHOTOS_FIELD_IDS.credit) ?? image.credit ?? null;
   const originalUrl = `/images/${image.contentSlug}/${image.id}/original.${image.originalExt}`;
   return (
     <figure style={photoFigureStyle}>
