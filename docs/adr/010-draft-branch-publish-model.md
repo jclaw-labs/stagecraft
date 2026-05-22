@@ -422,12 +422,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* an artist asks for line breaks in the commit
   message.
 
-- **Reset-to-default on the commit-subject input.** If the artist
-  clears the field by mistake, the placeholder still hints at the
-  default but there's no button to re-seed the typed default.
-  Closing and re-opening the modal works as a workaround.
-  *Trigger:* an artist reports the workflow feels lossy.
-
 - **Diff preview: richer item labels.** The publish modal shows
   collection slugs + item slugs ("pages · about"). The artist's
   display name for the item (e.g., the `slugSourceFieldId`'s
