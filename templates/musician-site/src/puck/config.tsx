@@ -341,6 +341,37 @@ export const puckConfig: Config<
       pageBackground: null,
     },
   },
+  // Group the component drawer by purpose instead of one flat list.
+  // Puck reads `categories` natively and renders one collapsible
+  // sub-drawer per entry; the order here is the display order. Any
+  // block not listed below would fall into Puck's built-in `other`
+  // group — `config.test.ts` asserts we cover every component, so
+  // `other` stays empty.
+  categories: {
+    layout: {
+      title: "Layout",
+      components: [
+        "Section",
+        "FullscreenSection",
+        "CenteredBlock",
+        "Columns",
+        "Spacer",
+        "Divider",
+      ],
+    },
+    content: {
+      title: "Content",
+      components: ["Heading", "RichText", "Quote", "Button", "Card"],
+    },
+    media: {
+      title: "Media",
+      components: ["Image", "ImageCarousel", "Embed", "EmbedResponsive"],
+    },
+    forms: {
+      title: "Forms",
+      components: ["ContactForm", "NewsletterSignup"],
+    },
+  },
   components: {
     Heading: {
       fields: {

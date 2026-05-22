@@ -54,6 +54,25 @@ describe("puckConfig", () => {
     expect(puckConfig.root?.fields?.isFooterHidden?.type).toBe("radio");
   });
 
+  it("categorises every registered component (no implicit `other` group)", () => {
+    // If a new block lands in `components` but the author forgets to
+    // add it to a category, Puck silently drops it into an implicit
+    // `other` group. We don't define `other`, so the block can end up
+    // in an unstyled fallback section. Catch that here rather than
+    // discovering it via "where's my block in the drawer?".
+    const inCategories = new Set(
+      Object.values(puckConfig.categories ?? {}).flatMap(
+        (c) => c?.components ?? [],
+      ),
+    );
+    for (const name of Object.keys(puckConfig.components)) {
+      expect(
+        inCategories,
+        `block "${name}" is not assigned to any drawer category`,
+      ).toContain(name);
+    }
+  });
+
   describe("Heading", () => {
     it("select options match HEADING_LEVELS", () => {
       const field = puckConfig.components.Heading.fields?.level;
