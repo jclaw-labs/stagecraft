@@ -3,7 +3,7 @@
 import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
@@ -110,6 +110,7 @@ export function Editor({ initialData, pageSlug, email }: Props) {
             );
           return (
             <>
+              <DrawerCategoryVisibilitySync filter={drawerFilter} />
               <DrawerSearchInput
                 value={drawerFilter}
                 onChange={setDrawerFilter}
@@ -283,6 +284,36 @@ function Dot() {
       }}
     />
   );
+}
+
+/**
+ * Hide drawer category headers whose components are all filtered
+ * out by the active search. Puck reads category visibility from
+ * `state.ui.componentList`, not from the live `config` prop, so a
+ * memoised config doesn't work — we have to dispatch `setUi`.
+ *
+ * Renders nothing; effect-only. Lives inside the `drawer` override
+ * so it has Puck context (`usePuck`).
+ */
+function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
+  const { dispatch } = usePuck();
+  useEffect(() => {
+    const q = filter.trim().toLowerCase();
+    const componentList: Record<
+      string,
+      { components?: string[]; title?: string; visible: boolean }
+    > = {};
+    for (const [key, cat] of Object.entries(puckConfig.categories ?? {})) {
+      componentList[key] = {
+        components: cat?.components ? [...cat.components] : undefined,
+        title: cat?.title,
+        visible:
+          !q || (cat?.components?.some((c) => c.toLowerCase().includes(q)) ?? true),
+      };
+    }
+    dispatch({ type: "setUi", ui: { componentList } });
+  }, [filter, dispatch]);
+  return null;
 }
 
 /**
