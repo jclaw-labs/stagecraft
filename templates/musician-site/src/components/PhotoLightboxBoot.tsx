@@ -178,10 +178,29 @@ function wireGallery(
       alt: tile.dataset.photoAlt ?? "",
       caption: tile.dataset.photoCaption ?? "",
       credit: tile.dataset.photoCredit ?? "",
+      // Intrinsic source dimensions. The fallback to 0 covers
+      // older tiles without the attrs (or stale content shape);
+      // the lightbox skips the `width`/`height` attributes when
+      // either is 0, accepting the potential CLS flash rather
+      // than crashing.
+      width: parseDimension(tile.dataset.photoWidth),
+      height: parseDimension(tile.dataset.photoHeight),
     }));
     open({ kind: "open", images, initialIndex });
   }
 
   gallery.addEventListener("click", handleClick);
   return () => gallery.removeEventListener("click", handleClick);
+}
+
+/**
+ * Parse a `data-photo-width` / `data-photo-height` attribute. Returns
+ * 0 for missing / malformed input — the lightbox falls back to
+ * dimension-less rendering rather than throwing.
+ */
+function parseDimension(raw: string | undefined): number {
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n);
 }

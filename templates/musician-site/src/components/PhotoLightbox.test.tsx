@@ -13,9 +13,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox";
 
 const IMAGES: LightboxImage[] = [
-  { url: "/images/uploads/a/original.jpg", alt: "First", caption: "Cap A", credit: "Photo by A" },
-  { url: "/images/uploads/b/original.jpg", alt: "Second", caption: "", credit: "" },
-  { url: "/images/uploads/c/original.jpg", alt: "Third", caption: "Cap C", credit: "" },
+  { url: "/images/uploads/a/1600.webp", alt: "First", caption: "Cap A", credit: "Photo by A", width: 1600, height: 1067 },
+  { url: "/images/uploads/b/1600.webp", alt: "Second", caption: "", credit: "", width: 1600, height: 900 },
+  { url: "/images/uploads/c/1600.webp", alt: "Third", caption: "Cap C", credit: "", width: 1200, height: 1600 },
 ];
 
 afterEach(() => {
@@ -27,7 +27,7 @@ describe("<PhotoLightbox> — initial render", () => {
   it("renders the image at the initial index", () => {
     render(<PhotoLightbox images={IMAGES} initialIndex={1} onClose={vi.fn()} />);
     const img = screen.getByRole("img");
-    expect(img.getAttribute("src")).toBe("/images/uploads/b/original.jpg");
+    expect(img.getAttribute("src")).toBe("/images/uploads/b/1600.webp");
     expect(img.getAttribute("alt")).toBe("Second");
   });
 
@@ -115,6 +115,59 @@ describe("<PhotoLightbox> — keyboard navigation", () => {
     );
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "ArrowRight" });
     expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("Home jumps to the first image", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={2} onClose={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Home" });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("End jumps to the last image", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "End" });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[2]!.url);
+    expect(screen.getByText("3 / 3")).toBeTruthy();
+  });
+
+  it("Home / End are no-ops on a single-image gallery", () => {
+    // No counter to assert against (suppressed for single-image);
+    // just verify the image doesn't change.
+    render(
+      <PhotoLightbox images={[IMAGES[0]!]} initialIndex={0} onClose={vi.fn()} />,
+    );
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "End" });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+});
+
+describe("<PhotoLightbox> — image dimensions", () => {
+  it("forwards width / height attrs from the image to the <img> for CLS-safe layout", () => {
+    // The browser uses these to reserve aspect-ratio-correct
+    // layout space before the image paints, so the figure doesn't
+    // snap-resize as each image loads.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const img = screen.getByRole("img");
+    expect(img.getAttribute("width")).toBe("1600");
+    expect(img.getAttribute("height")).toBe("1067");
+  });
+
+  it("omits width / height when either is 0 (older content without dimensions)", () => {
+    // Tolerance for tiles that pre-date the data-photo-width /
+    // data-photo-height threading. The lightbox still renders;
+    // the browser just can't pre-reserve layout space.
+    const without: LightboxImage = {
+      ...IMAGES[0]!,
+      width: 0,
+      height: 0,
+    };
+    render(
+      <PhotoLightbox images={[without]} initialIndex={0} onClose={vi.fn()} />,
+    );
+    const img = screen.getByRole("img");
+    expect(img.hasAttribute("width")).toBe(false);
+    expect(img.hasAttribute("height")).toBe(false);
   });
 });
 

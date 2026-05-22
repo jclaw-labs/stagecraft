@@ -124,15 +124,17 @@ function renderPhoto(item: Item): string {
 }
 
 describe("PhotoTile", () => {
-  it("renders the image wrapped in a link to the original upload", () => {
-    const html = renderPhoto(photoItem());
+  it("renders the image wrapped in a link to the largest sharp variant", () => {
     // Image goes through the responsive `<picture>` renderer; the
-    // anchor carries the original-file href. With JS, the
-    // `PhotoLightboxBoot` client component intercepts the click
+    // anchor carries the largest available sharp variant. With JS,
+    // the `PhotoLightboxBoot` client component intercepts the click
     // and opens the modal in place; without JS, the anchor falls
-    // back to opening the original in a new tab.
+    // back to opening the variant in a new tab. Either way, the
+    // 1600.webp is what's served — multi-MB originals are wasteful
+    // when the variant is already cached.
+    const html = renderPhoto(photoItem());
     expect(html).toContain("<picture>");
-    expect(html).toContain('href="/images/home/abc1234567890def/original.jpg"');
+    expect(html).toContain('href="/images/home/abc1234567890def/1600.webp"');
     expect(html).toContain('target="_blank"');
   });
 
@@ -147,6 +149,25 @@ describe("PhotoTile", () => {
     expect(html).toContain('data-photo-alt="A photo"');
     expect(html).toContain('data-photo-caption="Soundcheck note"');
     expect(html).toContain('data-photo-credit="Photo by Jane"');
+  });
+
+  it("threads intrinsic dimensions via data-photo-width / data-photo-height", () => {
+    // The lightbox uses these to reserve aspect-ratio-correct
+    // layout space for the modal image so the figure doesn't
+    // snap-resize as each photo paints.
+    const html = renderPhoto(photoItem());
+    expect(html).toContain('data-photo-width="1600"');
+    expect(html).toContain('data-photo-height="1067"');
+  });
+
+  it("falls back to the original URL for vector (SVG) photos", () => {
+    // The variant pipeline doesn't emit sharp variants for SVG /
+    // ICO; `largestVariantUrl` returns the original on the vector
+    // branch. The PhotoTile anchor href should match.
+    const svgImage = { ...IMAGE_FIXTURE, originalExt: "svg" as const };
+    const html = renderPhoto(photoItem({ image: svgImage }));
+    expect(html).toContain('href="/images/home/abc1234567890def/original.svg"');
+    expect(html).not.toContain(".webp");
   });
 
   it("emits empty-string data attributes when caption / credit are unset", () => {
@@ -392,10 +413,10 @@ describe("CollectionBlockRender — specialised dispatch", () => {
         })}
       </>,
     );
-    // PhotoTile-specific markers: <figure>, the original-link anchor.
+    // PhotoTile-specific markers: <figure>, the variant-link anchor.
     expect(html).toMatch(/<figure/);
     expect(html).toContain("Soundcheck");
-    expect(html).toContain('href="/images/home/abc1234567890def/original.jpg"');
+    expect(html).toContain('href="/images/home/abc1234567890def/1600.webp"');
   });
 
   it("respects an explicit `itemTemplate` over the specialisation", async () => {

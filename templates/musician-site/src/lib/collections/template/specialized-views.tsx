@@ -20,6 +20,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { Image } from "@/components/Image";
+import { largestVariantUrl } from "@/lib/image-urls";
 import type { ImageMetadata } from "@/lib/image-types";
 import {
   getImageOrNull,
@@ -70,11 +71,16 @@ function PhotoTile({ item }: { item: Item }): ReactNode {
     getLongTextOrNull(item, PHOTOS_FIELD_IDS.caption) ?? image.caption ?? null;
   const credit =
     getTextOrNull(item, PHOTOS_FIELD_IDS.credit) ?? image.credit ?? null;
-  const originalUrl = `/images/${image.contentSlug}/${image.id}/original.${image.originalExt}`;
+  // The lightbox image source is the largest sharp variant (1600.webp
+  // for typical artist uploads) — full-screen viewing doesn't need
+  // the multi-MB original, and the variant is what's already cached
+  // for thumbnails. The new-tab fallback (JS-disabled path) opens
+  // the same URL.
+  const lightboxUrl = largestVariantUrl(image);
   return (
     <figure style={photoFigureStyle}>
       <a
-        href={originalUrl}
+        href={lightboxUrl}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`Open ${image.alt || "photo"} at full size`}
@@ -82,6 +88,8 @@ function PhotoTile({ item }: { item: Item }): ReactNode {
         data-photo-alt={image.alt}
         data-photo-caption={caption ?? ""}
         data-photo-credit={credit ?? ""}
+        data-photo-width={image.width}
+        data-photo-height={image.height}
       >
         <Image image={image} sizes="(max-width: 600px) 100vw, 33vw" />
       </a>
