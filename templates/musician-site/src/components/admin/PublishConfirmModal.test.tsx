@@ -188,6 +188,71 @@ describe("PublishConfirmModal", () => {
     });
   });
 
+  it("doesn't render Reset while the subject matches the seeded default", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
+
+  it("shows Reset once the subject drifts from the default, and re-seeds when clicked", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    await userEvent.clear(input);
+    await userEvent.type(input, "custom message");
+
+    const resetButton = screen.getByRole("button", { name: "Reset" });
+    expect(resetButton).toBeTruthy();
+
+    await userEvent.click(resetButton);
+    expect(input.value).toBe("Publish 2 changes");
+    // Reset goes away again now that subject matches the default.
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
+
+  it("shows Reset when the artist clears the field entirely", async () => {
+    // Clearing produces subject="" which differs from the default
+    // ("Publish N changes") — Reset should surface so the artist can
+    // bring the default back without re-typing it.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    await userEvent.clear(screen.getByLabelText("Commit message"));
+    expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
+  });
+
   it("emphasises the counter at >= 90% of the cap and red-flags it at the cap", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

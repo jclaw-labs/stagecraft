@@ -153,9 +153,30 @@ export function PublishConfirmModal({
               wrapping pattern) so the counter span next to the label
               text doesn't leak into the input's accessible name. */}
           <div style={labelRowStyle}>
-            <label htmlFor="publish-commit-subject" style={labelTextStyle}>
-              Commit message
-            </label>
+            <div style={labelLeftGroupStyle}>
+              <label htmlFor="publish-commit-subject" style={labelTextStyle}>
+                Commit message
+              </label>
+              {/* "Reset" surfaces only when the artist has drifted off
+                  the auto-generated default — clicking it re-seeds the
+                  input. Without it the recovery is "close the modal +
+                  re-open"; this is a faster path for an accidental
+                  clear or "I changed my mind." */}
+              {state.kind === "loaded" &&
+              subject !== defaultSubject(state.changes.length) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubject(defaultSubject(state.changes.length));
+                    setSubjectTouched(false);
+                  }}
+                  disabled={isPublishing}
+                  style={resetButtonStyle}
+                >
+                  Reset
+                </button>
+              ) : null}
+            </div>
             {/* Counter is `aria-hidden` because user agents already
                 announce remaining `maxLength` via the input's
                 attribute; surfacing "N / 200" verbally on every
@@ -376,6 +397,23 @@ const labelRowStyle: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "baseline",
   gap: "var(--space-2)",
+};
+
+const labelLeftGroupStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "var(--space-2)",
+};
+
+const resetButtonStyle: CSSProperties = {
+  padding: 0,
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+  background: "none",
+  border: "none",
+  textDecoration: "underline",
+  cursor: "pointer",
+  textAlign: "left",
 };
 
 const labelTextStyle: CSSProperties = {
