@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
 import {
+  BLOCK_DESCRIPTIONS,
   puckConfig,
   HEADING_LEVELS,
   SECTION_WIDTHS,
@@ -70,6 +71,23 @@ describe("puckConfig", () => {
         inCategories,
         `block "${name}" is not assigned to any drawer category`,
       ).toContain(name);
+    }
+  });
+
+  it("has a non-empty description for every registered block", () => {
+    // TypeScript catches a missing key at the `Record<keyof BlockProps,
+    // string>` declaration site, but the runtime check covers two
+    // residual cases: an accidental empty string slipping in, and a
+    // block being added via cast / refactor that bypasses the static
+    // record.
+    for (const name of Object.keys(puckConfig.components)) {
+      const description =
+        BLOCK_DESCRIPTIONS[name as keyof typeof BLOCK_DESCRIPTIONS];
+      expect(
+        description,
+        `block "${name}" is missing an inspector description`,
+      ).toBeTruthy();
+      expect(description?.length).toBeGreaterThan(10);
     }
   });
 

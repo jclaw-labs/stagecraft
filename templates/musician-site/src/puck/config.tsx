@@ -294,6 +294,39 @@ const cardDescriptionStyle: CSSProperties = {
   lineHeight: "var(--line-height-base)",
 };
 
+/**
+ * One-line plain-English description per block, surfaced above the
+ * field controls in the right-hand inspector when a block is
+ * selected. Aimed at non-technical artists — what the block does and
+ * the most common knob, not a comprehensive feature list. Wired into
+ * the editor via Puck's `overrides.fields` (see
+ * `app/admin/pages/[slug]/Editor.tsx`).
+ *
+ * `Record<keyof BlockProps, string>` is intentional: adding a new
+ * block to `BlockProps` without writing a description fails
+ * typecheck. There's an additional runtime safety net in
+ * `config.test.ts`.
+ */
+export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
+  Heading: "Big text — page or section heading. Pick H1 / H2 / H3 for size.",
+  Section: "A container — drop other blocks inside. Set the width and text alignment.",
+  FullscreenSection: "Hero panel that fills the viewport — image background with a large headline on top.",
+  CenteredBlock: "Centered single-column container — keeps content from sprawling on wide screens.",
+  Columns: "Two- or three-column layout. Drop blocks into each column.",
+  RichText: "A paragraph of text. Blank lines start a new paragraph.",
+  Quote: "A pull quote with an attribution line below.",
+  Button: "A clickable button — links to another page or external URL.",
+  Card: "Image + title + description tile. Optional link wraps the whole card.",
+  Image: "A single image with optional caption. Upload from your computer.",
+  ImageCarousel: "Scrollable strip of images with arrows and dots — for galleries, press shots, etc.",
+  Embed: "Paste embed HTML from Spotify, YouTube, Bandcamp, or another service.",
+  EmbedResponsive: "Aspect-ratio-aware wrapper for pasted iframes (Bandcamp, YouTube) — keeps them responsive.",
+  Spacer: "Vertical breathing room between blocks. Sizes from small to extra-large.",
+  Divider: "A horizontal line between blocks.",
+  ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
+  NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
+};
+
 export const puckConfig: Config<
   BlockProps,
   {
