@@ -219,9 +219,15 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
           // before the image paints, so the figure doesn't snap-
           // resize as each image loads. CSS `max-width: 100%` /
           // `max-height` keep the on-screen size capped to the
-          // viewport. We skip the attributes entirely when either is
-          // 0 (older content without the data attrs); the image
-          // still loads, just without the layout-shift hint.
+          // viewport.
+          //
+          // Both-or-nothing on the spread: aspect-ratio reservation
+          // needs BOTH axes — emitting just `width="1600"` with
+          // `height` missing would lock width but let height
+          // collapse to 0, which is worse than no hint at all.
+          // Older content without the data attrs (or `0` parsed
+          // from missing attrs) falls back to dimensionless render
+          // — the image still loads, just without the CLS hint.
           {...(current.width > 0 && current.height > 0
             ? { width: current.width, height: current.height }
             : {})}

@@ -160,6 +160,16 @@ describe("PhotoTile", () => {
     expect(html).toContain('data-photo-height="1067"');
   });
 
+  it("falls back to the original URL for vector (SVG) photos", () => {
+    // The variant pipeline doesn't emit sharp variants for SVG /
+    // ICO; `largestVariantUrl` returns the original on the vector
+    // branch. The PhotoTile anchor href should match.
+    const svgImage = { ...IMAGE_FIXTURE, originalExt: "svg" as const };
+    const html = renderPhoto(photoItem({ image: svgImage }));
+    expect(html).toContain('href="/images/home/abc1234567890def/original.svg"');
+    expect(html).not.toContain(".webp");
+  });
+
   it("emits empty-string data attributes when caption / credit are unset", () => {
     // The boot reads `data-photo-caption ?? ""`; we emit the
     // attribute with an empty value rather than omitting it so the

@@ -17,9 +17,13 @@ export function originalImageUrl(image: ImageMetadata): string {
 /**
  * Largest sharp-generated variant URL for a raster image — falls
  * back to the original when no variant fits (small uploads like
- * 256×256 favicons) or the format is vector. webp is the chosen
- * format because the variant pipeline emits both webp and avif and
- * webp is universally supported as of 2024.
+ * 256×256 favicons) or the format is vector.
+ *
+ * `format` defaults to `webp` because that's universally supported
+ * as of 2024 and the variant pipeline emits both webp and avif.
+ * Callers can request `avif` explicitly — useful when building a
+ * future `<picture>` underlay that prefers avif on supporting
+ * browsers and falls back to webp.
  *
  * Used by the photo lightbox and the `PageBackgroundUnderlay` for
  * the "biggest variant that exists on disk" URL — both want the
