@@ -218,7 +218,12 @@ describe("processImage — vector / icon bypass (SVG + ICO)", () => {
     }
   });
 
-  it("SVG content is written byte-for-byte (sharp didn't rasterise it)", async () => {
+  it("SVG content survives the sharp-bypass path (passed through the sanitiser, not rasterised)", async () => {
+    // The SVG fixture has no scripts / handlers / foreignObjects,
+    // so the sanitiser is a no-op on its semantic content. The
+    // byte equality check from before isn't reliable any more —
+    // DOMPurify normalises self-closing tags + whitespace — so
+    // assert structurally instead.
     const result = await processImage({
       buffer: SVG_BYTES,
       contentSlug: TEST_SLUG,
@@ -226,8 +231,51 @@ describe("processImage — vector / icon bypass (SVG + ICO)", () => {
       originalExt: "svg",
     });
     const dir = imageDir(TEST_SLUG, result.metadata.id);
-    const written = await fs.readFile(path.join(dir, "original.svg"));
-    expect(written.equals(SVG_BYTES)).toBe(true);
+    const written = (await fs.readFile(path.join(dir, "original.svg"))).toString("utf-8");
+    expect(written).toMatch(/<svg/);
+    expect(written).toMatch(/<circle/);
+    expect(written).toContain("#abc");
+  });
+
+  it("SVG upload strips embedded <script> before writing", async () => {
+    // The defense-in-depth case — even if the artist uploads a
+    // malicious SVG (knowingly or unknowingly), the on-disk file is
+    // safe to serve at /images/.../original.svg without script
+    // execution. The dedup branch reads from disk on re-upload, so
+    // the next read won't carry the script either.
+    const dangerous = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>window.x=1</script><circle r="1"/></svg>`,
+      "utf-8",
+    );
+    const result = await processImage({
+      buffer: dangerous,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "svg",
+    });
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    const written = (await fs.readFile(path.join(dir, "original.svg"))).toString("utf-8");
+    expect(written).not.toMatch(/<script/i);
+    expect(written).not.toMatch(/onload=/);
+    expect(written).not.toContain("alert");
+    expect(written).not.toContain("window.x");
+    // The legitimate <circle> survives.
+    expect(written).toMatch(/<circle/);
+  });
+
+  it("ICO upload is NOT routed through the SVG sanitiser (binary content)", async () => {
+    // ICO bytes are opaque binary; DOMPurify is XML-only and would
+    // mangle them. The pipeline branches on `originalExt` and
+    // sanitises only SVG.
+    const result = await processImage({
+      buffer: ICO_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "icon",
+      originalExt: "ico",
+    });
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    const written = await fs.readFile(path.join(dir, "original.ico"));
+    expect(written.equals(ICO_BYTES)).toBe(true);
   });
 
   it("dedup on re-upload: same buffer → same id, processed=false, no sharp re-parse", async () => {
