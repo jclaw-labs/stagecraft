@@ -32,6 +32,43 @@ const monorepoRoot = detectMonorepoRoot();
 const config: NextConfig = {
   reactStrictMode: true,
   ...(monorepoRoot ? { outputFileTracingRoot: monorepoRoot } : {}),
+  /**
+   * Response headers applied to specific static paths.
+   *
+   * SVG uploads are sanitised at write time via DOMPurify (see
+   * `src/lib/svg-sanitise.ts`), but defense-in-depth: also set
+   * `Content-Disposition: attachment` on the raw upload URL
+   * (`/images/<slug>/<id>/original.svg`) so a direct top-level
+   * navigation to the file triggers a download dialog instead of
+   * inline browser rendering. This neutralises the SVG-as-document
+   * attack surface (script execution in the artist's origin)
+   * entirely for non-image-tag requests. Inline `<img src="...">`
+   * is unaffected — browsers ignore the disposition for image
+   * subresource requests.
+   *
+   * Also pinned: `Content-Type: image/svg+xml` (so the response
+   * is unambiguously SVG even if the host's MIME guess gets it
+   * wrong) and `X-Content-Type-Options: nosniff` (browsers don't
+   * second-guess the declared type, blocking MIME-sniff escalations
+   * to HTML).
+   */
+  async headers() {
+    return [
+      {
+        // Pattern matches the on-disk shape
+        // `/images/<contentSlug>/<id>/original.svg`. Anything
+        // outside that prefix (custom SVG paths under /public,
+        // future tenant-specific layouts) keeps its default
+        // headers.
+        source: "/images/:contentSlug/:id/original.svg",
+        headers: [
+          { key: "Content-Disposition", value: "attachment" },
+          { key: "Content-Type", value: "image/svg+xml" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+    ];
+  },
 };
 
 export default config;
