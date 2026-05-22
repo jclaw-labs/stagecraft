@@ -24,8 +24,11 @@ export default async function ItemTemplateEditorPage({
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
-  const def = await store.readCollectionDef(parsed.data);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   // Singletons render through their single item's puckContent body —
@@ -33,6 +36,7 @@ export default async function ItemTemplateEditorPage({
   // is dead code. The route 404s to keep the editor surface honest.
   if (def.isSingleton) notFound();
 
+  const store = await storePromise;
   // Pre-fetch this collection's items so the editor can offer a
   // "Preview item" dropdown and resolve the template against a real
   // item without a client-side round-trip. Empty collection → the

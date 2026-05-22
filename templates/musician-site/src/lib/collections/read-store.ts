@@ -168,8 +168,26 @@ export async function getReadStore(): Promise<ReadStore> {
 export const getRequestReadStore = cache(getReadStore);
 
 /**
+ * Always-FS read store, regardless of platform configuration. Use
+ * this from public-site code paths so visitors see the deployed
+ * snapshot of `main` rather than the artist's in-progress draft.
+ * Cheap to call — no network round-trip, no token mint.
+ *
+ * Memoised via `React.cache` so every call within one request returns
+ * the same store object. Matters when the result flows into other
+ * `cache()`-wrapped helpers (e.g. the public catch-all's per-request
+ * memos): cache keys on argument identity, so a fresh object each
+ * call would defeat downstream memoisation.
+ */
+export const getFsReadStore = cache((): ReadStore => fsReadStore());
+
+/**
  * FS-only store. Just re-binds each method from `./store` so callers
  * can use the facade in dev without paying for a network round-trip.
+ *
+ * Also exposed via `getFsReadStore()` for public-site code paths that
+ * must read the build-time FS snapshot of `main` (what visitors see)
+ * rather than the artist's live draft branch.
  */
 function fsReadStore(): ReadStore {
   return {

@@ -56,7 +56,8 @@ export async function GET() {
   // Middleware gates this; double-check session here for defense in depth.
   const session = await getSession();
   if (!session) return err(401, "unauthorized");
-  const pages = await listPageSummaries();
+  const store = await getRequestReadStore();
+  const pages = await listPageSummaries(store);
   return NextResponse.json({ ok: true, pages });
 }
 
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (await readPageOrNull(slug)) {
+  if (await readPageOrNull(slug, store)) {
     return err(409, new PageExistsError(slug).message);
   }
 
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
   // Always persist locally so the dev workflow works without the broker. In
   // prod the same write is followed by a GitHub commit so the new page is
   // immediately deployable.
-  await writePage(slug, data);
+  await writePage(slug, data, store);
   // Re-read so the publish target carries the canonical id + timestamps
   // the collection store just stamped on the new item. Direct FS read:
   // the write only landed on local disk until `saveToDraft` below

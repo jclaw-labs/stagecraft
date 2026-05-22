@@ -13,9 +13,12 @@ import {
 } from "./collections/seeds";
 import {
   generateItemId,
+  getFsReadStore,
   SINGLETON_ITEM_SLUG,
   writeSingleton,
 } from "./collections";
+
+const store = getFsReadStore();
 
 /**
  * Tests for first-run detection.
@@ -82,19 +85,19 @@ function writeSiteSingletonWithFlag(hasCompletedFirstRun: boolean) {
 
 describe("checkIsFirstRun (via readSiteConfig.hasCompletedFirstRun)", () => {
   it("returns first-run=true when no site singleton exists on disk", async () => {
-    const config = await readSiteConfig();
+    const config = await readSiteConfig(store);
     expect(config.hasCompletedFirstRun).toBe(false);
   });
 
   it("returns first-run=true when site singleton exists but flag is false", async () => {
     await writeSiteSingletonWithFlag(false);
-    const config = await readSiteConfig();
+    const config = await readSiteConfig(store);
     expect(config.hasCompletedFirstRun).toBe(false);
   });
 
   it("returns first-run=false (i.e. completed) when flag is true", async () => {
     await writeSiteSingletonWithFlag(true);
-    const config = await readSiteConfig();
+    const config = await readSiteConfig(store);
     expect(config.hasCompletedFirstRun).toBe(true);
   });
 
@@ -124,7 +127,7 @@ describe("checkIsFirstRun (via readSiteConfig.hasCompletedFirstRun)", () => {
       },
       siteCollectionDef,
     );
-    const config = await readSiteConfig();
+    const config = await readSiteConfig(store);
     expect(config.hasCompletedFirstRun).toBe(false);
   });
 

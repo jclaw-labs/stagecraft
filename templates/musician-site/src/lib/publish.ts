@@ -10,6 +10,7 @@ import {
   orderRepoPath,
   slugSchema,
   type CollectionDef,
+  type ReadStore,
 } from "./collections";
 import {
   localPathForRepoPath,
@@ -651,14 +652,19 @@ export async function publishPage(args: {
   data: unknown;
   authorEmail: string;
   authorName?: string;
+  /**
+   * Read store used by `writePage` to look up the existing item's
+   * id / createdAt / showInNav and preserve them across the update.
+   * Admin callers pass a draft-backed store so the lookup sees the
+   * artist's live state across containers; the FS-only re-read
+   * below stays direct because the post-write item exists only on
+   * local disk until `saveToDraft` commits it.
+   */
+  store: ReadStore;
 }): Promise<PublishResult> {
-  const { writePage, readPage } = await import("./content");
-  await writePage(args.pageSlug, args.data as Parameters<typeof writePage>[1]);
-  // Read back to capture the canonical id + createdAt + updatedAt
-  // that `writePage` either preserved or generated, so the published
-  // commit reflects the on-disk state exactly.
-  const fresh = await readPage(args.pageSlug);
-  const { readItem } = await import("./collections");
+  const { writePage } = await import("./content");
+  await writePage(args.pageSlug, args.data as Parameters<typeof writePage>[1], args.store);
+  const { readItem } = await import("./collections/store");
   const { pagesCollectionDef } = await import("./collections/seeds");
   const item = await readItem("pages", args.pageSlug, pagesCollectionDef);
   if (!item) {
@@ -677,7 +683,4 @@ export async function publishPage(args: {
     authorName: args.authorName,
     commitSubject: `Update ${args.pageSlug}`,
   });
-  // `fresh` is fetched to assert the round-trip but isn't returned
-  // — callers re-read via the wrapper layer if they need the data.
-  void fresh;
 }

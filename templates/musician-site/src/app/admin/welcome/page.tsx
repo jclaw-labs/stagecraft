@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
+import { getRequestReadStore } from "@/lib/collections";
 import { readAppearance, readSiteConfig } from "@/lib/content";
 import { checkIsFirstRun } from "@/lib/first-run";
 import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
@@ -26,10 +27,11 @@ export default async function AdminWelcomePage() {
   const isFirstRun = await checkIsFirstRun();
   if (!isFirstRun) redirect("/admin/pages");
 
+  const storePromise = getRequestReadStore();
   const [session, site, appearance] = await Promise.all([
     getSession(),
-    readSiteConfig(),
-    readAppearance(),
+    storePromise.then((s) => readSiteConfig(s)),
+    storePromise.then((s) => readAppearance(s)),
   ]);
 
   // A fresh site (or one freshly reset) carries the DEFAULT_SITE_CONFIG

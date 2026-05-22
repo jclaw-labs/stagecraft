@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Metadata } from "next";
 
 import { AppearanceStyles } from "@/components/AppearanceStyles";
+import { getFsReadStore } from "@/lib/collections";
 import { readAppearance, readSiteConfig } from "@/lib/content";
 import {
   IMAGE_VARIANT_WIDTHS,
@@ -30,7 +31,7 @@ import {
  *     was the legacy pattern.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const site = await readSiteConfig();
+  const site = await readSiteConfig(getFsReadStore());
   if (!site.favicon) return {};
   // Favicons use the original upload — they're typically small enough
   // (256x256 or less) that none of the 400/800/1600 sharp variants
@@ -40,7 +41,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function PublicLayout({ children }: { children: ReactNode }) {
-  const [appearance, site] = await Promise.all([readAppearance(), readSiteConfig()]);
+  const store = getFsReadStore();
+  const [appearance, site] = await Promise.all([readAppearance(store), readSiteConfig(store)]);
 
   return (
     <div className="stagecraft-site">

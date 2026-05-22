@@ -39,14 +39,19 @@ export default async function NewItem({ params }: { params: Promise<Params> }) {
     redirect(customSurface.route);
   }
 
-  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
-  const def = await store.readCollectionDef(parsed.data);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   // Singletons don't have a "new" flow — their one item is the edit
   // surface itself. Redirect-by-not-found is a bit blunt but matches
   // how the per-collection view handles singletons.
   if (def.isSingleton) notFound();
+
+  const store = await storePromise;
 
   // Pre-fetch reference options for the draft form too.
   const referencedSlugs = new Set<string>();

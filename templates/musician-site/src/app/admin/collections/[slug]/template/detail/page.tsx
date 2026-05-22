@@ -53,14 +53,18 @@ export default async function DetailTemplateEditorPage({
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
-  const def = await store.readCollectionDef(parsed.data);
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   // Singletons don't have detail pages — there's only one item, no
   // `<detailUrlPrefix>/<slug>` URL to render. Route 404s.
   if (def.isSingleton) notFound();
 
+  const store = await storePromise;
   const allSlugs = await store.listCollectionSlugs();
   const allDefs = await Promise.all(allSlugs.map((s) => store.readCollectionDef(s)));
   const iterableDefs = allDefs.filter(

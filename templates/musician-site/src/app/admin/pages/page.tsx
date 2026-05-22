@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { getRequestReadStore } from "@/lib/collections";
 import { listPageSummaries } from "@/lib/content";
 
 import { AdminPanel } from "@/components/admin/AdminPanel";
@@ -7,7 +8,10 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { PagesPanel } from "./PagesPanel";
 
 export default async function AdminPagesIndex() {
-  const [session, pages] = await Promise.all([getSession(), listPageSummaries()]);
+  const [session, pages] = await Promise.all([
+    getSession(),
+    getRequestReadStore().then((s) => listPageSummaries(s)),
+  ]);
   return (
     <AdminShell activeSection="pages" email={session?.email ?? ""}>
       <AdminPanel

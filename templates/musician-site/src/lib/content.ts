@@ -46,16 +46,12 @@ import {
   deleteItem,
   generateItemId,
   itemRepoPath,
-  listItemSlugs,
-  listItemsInOrder,
   orderRepoPath,
   readCollectionDef,
-  readItem,
-  readOrder,
-  readSingleton,
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
   writeItem,
+  type ReadStore,
 } from "./collections";
 import {
   DEFAULT_APPEARANCE,
@@ -173,30 +169,39 @@ export class PageExistsError extends Error {
   }
 }
 
-export async function readPage(slug: string): Promise<PageData> {
+export async function readPage(slug: string, store: ReadStore): Promise<PageData> {
   pageSlugSchema.parse(slug);
   await ensurePrebakedCollections();
-  const item = await readItem("pages", slug, pagesCollectionDef);
+  const item = await store.readItem("pages", slug, pagesCollectionDef);
   if (!item) throw new PageNotFoundError(slug);
   return pageDataFromItem(item) as PageData;
 }
 
-export async function readPageOrNull(slug: string): Promise<PageData | null> {
+export async function readPageOrNull(
+  slug: string,
+  store: ReadStore,
+): Promise<PageData | null> {
   try {
-    return await readPage(slug);
+    return await readPage(slug, store);
   } catch (cause) {
     if (cause instanceof PageNotFoundError) return null;
     throw cause;
   }
 }
 
-export async function writePage(slug: string, data: PageData): Promise<void> {
+export async function writePage(
+  slug: string,
+  data: PageData,
+  store: ReadStore,
+): Promise<void> {
   pageSlugSchema.parse(slug);
   await ensurePrebakedCollections();
   // Preserve the existing id + createdAt + showInNav across updates
   // so the collection model's stable-identity contract holds and the
-  // page's nav-visibility isn't reset on every save.
-  const existing = await readItem("pages", slug, pagesCollectionDef);
+  // page's nav-visibility isn't reset on every save. Reads through
+  // the passed `store` so a write triggered on a fresh container
+  // still sees the artist's draft-branch state.
+  const existing = await store.readItem("pages", slug, pagesCollectionDef);
   const showInNav = readShowInNav(existing) ?? true;
   const item = pageDataToItem(slug, data, {
     id: existing?.id ?? generateItemId(),
@@ -217,9 +222,9 @@ export async function deletePage(slug: string): Promise<void> {
   await deleteItem("pages", slug);
 }
 
-export async function listPageSlugs(): Promise<string[]> {
+export async function listPageSlugs(store: ReadStore): Promise<string[]> {
   await ensurePrebakedCollections();
-  return listItemSlugs("pages");
+  return store.listItemSlugs("pages");
 }
 
 /**
@@ -236,11 +241,11 @@ export function extractPageRootProps(data: PageData): PageRootProps {
   });
 }
 
-export async function listPageSummaries(): Promise<PageSummary[]> {
+export async function listPageSummaries(store: ReadStore): Promise<PageSummary[]> {
   await ensurePrebakedCollections();
   // listItemsInOrder honours the pages collection's manual `_order.json`,
   // falling back to alphabetic for items not present in the file.
-  const items = await listItemsInOrder("pages", pagesCollectionDef);
+  const items = await store.listItemsInOrder("pages", pagesCollectionDef);
   const summaries: PageSummary[] = items.map((item) => {
     const titleValue = item.values[PAGES_FIELD_IDS.title];
     const splashValue = item.values[PAGES_FIELD_IDS.isSplashPage];
@@ -264,8 +269,8 @@ export async function listPageSummaries(): Promise<PageSummary[]> {
  * Find the page that owns "/" — either the splash override, or the page
  * with slug "home", or the first available page.
  */
-export async function resolveRootPageSlug(): Promise<string | null> {
-  const summaries = await listPageSummaries();
+export async function resolveRootPageSlug(store: ReadStore): Promise<string | null> {
+  const summaries = await listPageSummaries(store);
   const splash = summaries.find((p) => p.isSplashPage);
   if (splash) return splash.slug;
   if (summaries.some((p) => p.slug === "home")) return "home";
@@ -297,12 +302,12 @@ export function emptyPageData(title: string): PageData {
 // Site singleton
 // ---------------------------------------------------------------------------
 
-export async function readSiteConfig(): Promise<SiteConfig> {
+export async function readSiteConfig(store: ReadStore): Promise<SiteConfig> {
   await ensurePrebakedCollections();
   const [siteItem, pageOrder, pages] = await Promise.all([
-    readSingleton("site", siteCollectionDef),
-    readOrder("pages"),
-    listPageSummaries(),
+    store.readSingleton("site", siteCollectionDef),
+    store.readOrder("pages"),
+    listPageSummaries(store),
   ]);
   const base = siteConfigFromItem(siteItem);
   return {
@@ -318,9 +323,9 @@ export async function readSiteConfig(): Promise<SiteConfig> {
 // Header singleton
 // ---------------------------------------------------------------------------
 
-export async function readHeaderConfig(): Promise<HeaderConfig> {
+export async function readHeaderConfig(store: ReadStore): Promise<HeaderConfig> {
   await ensurePrebakedCollections();
-  const item = await readSingleton("header", headerCollectionDef);
+  const item = await store.readSingleton("header", headerCollectionDef);
   return headerConfigFromItem(item);
 }
 
@@ -328,9 +333,9 @@ export async function readHeaderConfig(): Promise<HeaderConfig> {
 // Appearance singleton
 // ---------------------------------------------------------------------------
 
-export async function readAppearance(): Promise<Appearance> {
+export async function readAppearance(store: ReadStore): Promise<Appearance> {
   await ensurePrebakedCollections();
-  const item = await readSingleton("appearance", appearanceCollectionDef);
+  const item = await store.readSingleton("appearance", appearanceCollectionDef);
   return appearanceFromItem(item);
 }
 

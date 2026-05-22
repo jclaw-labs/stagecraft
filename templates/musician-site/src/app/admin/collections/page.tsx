@@ -13,8 +13,12 @@ import { getSession } from "@/lib/auth";
 import { getRequestReadStore } from "@/lib/collections";
 
 export default async function CollectionsIndex() {
-  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
-  const slugs = await store.listCollectionSlugs();
+  const storePromise = getRequestReadStore();
+  const [session, slugs] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.listCollectionSlugs()),
+  ]);
+  const store = await storePromise;
   const defs = await Promise.all(
     slugs.map(async (slug) => ({ slug, def: await store.readCollectionDef(slug) })),
   );

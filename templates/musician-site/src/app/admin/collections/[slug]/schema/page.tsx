@@ -22,8 +22,10 @@ export default async function SchemaEditorPage({ params }: { params: Promise<Par
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) notFound();
 
-  const [session, store] = await Promise.all([getSession(), getRequestReadStore()]);
-  const def = await store.readCollectionDef(parsed.data);
+  const [session, def] = await Promise.all([
+    getSession(),
+    getRequestReadStore().then((s) => s.readCollectionDef(parsed.data)),
+  ]);
   if (!def) notFound();
 
   return (
