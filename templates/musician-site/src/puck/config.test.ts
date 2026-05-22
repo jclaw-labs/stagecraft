@@ -562,15 +562,32 @@ describe("puckConfig", () => {
       originalExt: "jpg" as const,
     };
 
-    it("renders title + description", () => {
-      const html = render("Card", {
-        image: IMAGE_FIXTURE,
-        title: "Album Title",
-        description: "A summary",
+    /**
+     * Default Card props — fills in v2's new fields with neutral
+     * values so tests can override only what they care about.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function cardProps(overrides: Record<string, any> = {}) {
+      return {
+        image: null,
+        eyebrow: "",
+        title: "Card title",
+        description: "",
         href: "",
         isExternal: false,
-        orientation: "vertical",
-      });
+        orientation: "vertical" as const,
+        variant: "filled" as const,
+        fileUrl: "",
+        sizeLabel: "",
+        ...overrides,
+      };
+    }
+
+    it("renders title + description", () => {
+      const html = render(
+        "Card",
+        cardProps({ image: IMAGE_FIXTURE, title: "Album Title", description: "A summary" }),
+      );
       expect(html).toContain("Album Title");
       expect(html).toContain("A summary");
       expect(html).toContain("<picture>");
@@ -582,27 +599,13 @@ describe("puckConfig", () => {
       // heading would have to skip past every one. Visual emphasis
       // still reads via the styled <div>. Same trade the legacy
       // template made.
-      const html = render("Card", {
-        image: null,
-        title: "Title here",
-        description: "",
-        href: "",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render("Card", cardProps({ title: "Title here" }));
       expect(html).not.toMatch(/<h[1-6]/);
       expect(html).toContain("Title here");
     });
 
     it("wraps the whole card in an <a> when href is set", () => {
-      const html = render("Card", {
-        image: null,
-        title: "Read more",
-        description: "",
-        href: "/posts/x",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render("Card", cardProps({ title: "Read more", href: "/posts/x" }));
       // Whole card is the link; no inner-only anchor.
       expect(html).toMatch(/^<a[^>]+href="\/posts\/x"/);
       // Link styling: explicit `text-decoration: none` so the title
@@ -618,40 +621,30 @@ describe("puckConfig", () => {
     });
 
     it("opens external links in a new tab", () => {
-      const html = render("Card", {
-        image: null,
-        title: "Buy",
-        description: "",
-        href: "https://store.example.com/x",
-        isExternal: true,
-        orientation: "vertical",
-      });
+      const html = render(
+        "Card",
+        cardProps({ title: "Buy", href: "https://store.example.com/x", isExternal: true }),
+      );
       expect(html).toContain('target="_blank"');
       expect(html).toContain('rel="noopener noreferrer"');
     });
 
     it("renders an <article> (no link) when href is empty", () => {
-      const html = render("Card", {
-        image: null,
-        title: "Bio",
-        description: "",
-        href: "",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render("Card", cardProps({ title: "Bio" }));
       expect(html).toMatch(/^<article/);
       expect(html).not.toMatch(/<a\s/);
     });
 
     it("uses a 2-column grid for horizontal orientation", () => {
-      const html = render("Card", {
-        image: IMAGE_FIXTURE,
-        title: "x",
-        description: "y",
-        href: "",
-        isExternal: false,
-        orientation: "horizontal",
-      });
+      const html = render(
+        "Card",
+        cardProps({
+          image: IMAGE_FIXTURE,
+          title: "x",
+          description: "y",
+          orientation: "horizontal",
+        }),
+      );
       // CSS grid layout switches at the container level.
       expect(html).toMatch(/grid-template-columns:\s*1fr\s+2fr/);
       // And the media cell carries a fixed aspect so rows line up.
@@ -659,40 +652,22 @@ describe("puckConfig", () => {
     });
 
     it("vertical orientation is column-flex with no aspect-ratio on media", () => {
-      const html = render("Card", {
-        image: IMAGE_FIXTURE,
-        title: "x",
-        description: "y",
-        href: "",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render(
+        "Card",
+        cardProps({ image: IMAGE_FIXTURE, title: "x", description: "y" }),
+      );
       expect(html).toMatch(/flex-direction:\s*column/);
       expect(html).not.toMatch(/aspect-ratio:\s*4/);
     });
 
     it("omits the media wrapper entirely when no image is picked", () => {
-      const html = render("Card", {
-        image: null,
-        title: "x",
-        description: "",
-        href: "",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render("Card", cardProps({ title: "x" }));
       expect(html).not.toContain("stagecraft-card-media");
       expect(html).not.toContain("<picture>");
     });
 
     it("omits the description <p> when empty", () => {
-      const html = render("Card", {
-        image: null,
-        title: "x",
-        description: "",
-        href: "",
-        isExternal: false,
-        orientation: "vertical",
-      });
+      const html = render("Card", cardProps({ title: "x" }));
       expect(html).not.toMatch(/<p[^>]*>\s*<\/p>/);
     });
 
@@ -702,6 +677,125 @@ describe("puckConfig", () => {
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["vertical", "horizontal"]);
       }
+    });
+
+    // ---------------------------------------------------------------------
+    // v2 additions: eyebrow, variant, download
+    // ---------------------------------------------------------------------
+
+    it("renders the eyebrow (small uppercase label above title) when set", () => {
+      const html = render("Card", cardProps({ eyebrow: "NEW RELEASE", title: "Album" }));
+      expect(html).toContain("NEW RELEASE");
+      expect(html).toMatch(/text-transform:\s*uppercase/);
+    });
+
+    it("omits the eyebrow entirely when empty", () => {
+      const html = render("Card", cardProps({ title: "Album" }));
+      // No uppercase-styled element rendered when eyebrow is blank.
+      expect(html).not.toMatch(/text-transform:\s*uppercase/);
+    });
+
+    it("variant=filled (default) uses the surface background", () => {
+      const html = render("Card", cardProps({ title: "x", variant: "filled" }));
+      expect(html).toMatch(/background:\s*var\(--color-surface\)/);
+    });
+
+    it("variant=outlined drops the surface background (transparent)", () => {
+      // On busy / image-heavy page backgrounds, the solid surface
+      // fights the imagery; the outlined variant keeps the border +
+      // radius but drops the fill so the page background shows
+      // through.
+      const html = render("Card", cardProps({ title: "x", variant: "outlined" }));
+      expect(html).toMatch(/background:\s*transparent/);
+    });
+
+    it("select options match CARD_VARIANTS", () => {
+      const field = puckConfig.components.Card.fields?.variant;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined"]);
+      }
+    });
+
+    it("renders a download anchor when fileUrl is set", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", fileUrl: "/uploads/epk.pdf" }),
+      );
+      expect(html).toContain('href="/uploads/epk.pdf"');
+      // The `download` attribute on the anchor triggers save-as in
+      // same-origin browsers. React serialises it as `download=""`.
+      expect(html).toMatch(/download(?:=""|\s)/);
+      expect(html).toContain("Download");
+    });
+
+    it("omits the download anchor when fileUrl is empty", () => {
+      const html = render("Card", cardProps({ title: "Bio" }));
+      // No "Download" button rendered.
+      expect(html).not.toContain(">Download<");
+    });
+
+    it("renders the sizeLabel beside the download button when both are set", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", fileUrl: "/uploads/epk.pdf", sizeLabel: "2.3 MB" }),
+      );
+      expect(html).toContain("2.3 MB");
+    });
+
+    it("omits the sizeLabel when fileUrl is set but sizeLabel is empty", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", fileUrl: "/uploads/epk.pdf" }),
+      );
+      // Download present but no size text node.
+      expect(html).toContain('href="/uploads/epk.pdf"');
+      expect(html).not.toMatch(/aria-label="File size:/);
+    });
+
+    it("omits the sizeLabel entirely when fileUrl is empty (no orphan label)", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "Bio", sizeLabel: "2.3 MB" }),
+      );
+      // SizeLabel is only meaningful next to a download button —
+      // without one, it would be a dangling chunk of meta text.
+      expect(html).not.toContain("2.3 MB");
+    });
+
+    it("download anchor opens in a new tab + carries rel=noopener (cross-origin safety)", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", fileUrl: "/uploads/epk.pdf" }),
+      );
+      // `target="_blank"` is the fallback for cross-origin downloads
+      // where the `download` attribute is ignored — the file opens
+      // in a new tab instead of replacing the artist's page.
+      expect(html).toContain('target="_blank"');
+      expect(html).toContain('rel="noopener noreferrer"');
+    });
+
+    it("suppresses the download anchor when href is also set (no nested <a>)", () => {
+      // Whole-card links wrap the card body in `<a href>`. Nesting an
+      // `<a download>` inside would be invalid HTML — the browser
+      // closes the outer anchor when it encounters the inner one,
+      // breaking layout and hydration. The artist's authoring
+      // contract is "pick href OR fileUrl, not both." When both
+      // are set, href wins.
+      const html = render(
+        "Card",
+        cardProps({
+          title: "Card with both",
+          href: "/posts/x",
+          fileUrl: "/uploads/file.pdf",
+        }),
+      );
+      // Exactly one anchor in the output — the outer whole-card link.
+      const anchorMatches = html.match(/<a\b/g) ?? [];
+      expect(anchorMatches).toHaveLength(1);
+      expect(html).toContain('href="/posts/x"');
+      expect(html).not.toContain('href="/uploads/file.pdf"');
+      expect(html).not.toContain(">Download<");
     });
   });
 
