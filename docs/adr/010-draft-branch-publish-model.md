@@ -430,13 +430,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* artists routinely confuse "about" with "about-us"
   or similar near-duplicate slugs.
 
-- **Diff preview: group by collection.** Today's modal renders a
-  flat list in the order the GitHub compare API returns. Group
-  headers ("Pages · 3 changes", "Photos · 2 changes") would help
-  when the diff spans several collections.
-  *Trigger:* when more than ~10 items are routinely pending
-  between publishes.
-
 - **Diff preview: cross-collection rename context.** Renames within
   one collection render as "X · old → new" (shipped). When GitHub's
   rename heuristic detects a similarity across collections (file

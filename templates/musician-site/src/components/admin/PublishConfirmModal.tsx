@@ -245,15 +245,74 @@ function Body({ state }: { state: LoadState }): ReactNode {
   if (state.changes.length === 0) {
     return <p style={mutedCopyStyle}>Nothing to publish.</p>;
   }
+  const groups = groupChanges(state.changes);
   return (
-    <ul style={listStyle}>
-      {state.changes.map((c) => (
-        <li key={changeKey(c)} style={listItemStyle}>
-          <ChangeRow change={c} />
-        </li>
+    <div style={groupsContainerStyle}>
+      {groups.map((group) => (
+        <section key={group.key} style={groupSectionStyle}>
+          <h3 style={groupHeadingStyle}>
+            {`${group.heading} · ${group.items.length}`}
+          </h3>
+          <ul style={listStyle}>
+            {group.items.map((c) => (
+              <li key={changeKey(c)} style={listItemStyle}>
+                <ChangeRow change={c} />
+              </li>
+            ))}
+          </ul>
+        </section>
       ))}
-    </ul>
+    </div>
   );
+}
+
+/**
+ * Bucket parsed `DraftChange[]`s by their owning collection (or
+ * `contentSlug` for images, "Other" for `kind: "other"` paths), with
+ * groups sorted alphabetically and the catch-all `Other` group
+ * always last. Within a group, items keep their compare-API order.
+ *
+ * Exported for tests so the grouping logic is verifiable without
+ * driving the full modal render.
+ */
+export function groupChanges(
+  changes: DraftChange[],
+): Array<{ key: string; heading: string; items: DraftChange[] }> {
+  const OTHER = "__other__";
+  const buckets = new Map<string, DraftChange[]>();
+  for (const c of changes) {
+    const key = collectionOf(c) ?? OTHER;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.push(c);
+    } else {
+      buckets.set(key, [c]);
+    }
+  }
+  const keys = Array.from(buckets.keys()).sort((a, b) => {
+    if (a === OTHER) return 1;
+    if (b === OTHER) return -1;
+    return a.localeCompare(b);
+  });
+  return keys.map((key) => ({
+    key,
+    heading: key === OTHER ? "Other" : key,
+    items: buckets.get(key)!,
+  }));
+}
+
+function collectionOf(c: DraftChange): string | null {
+  switch (c.kind) {
+    case "item":
+    case "singleton":
+    case "def":
+    case "order":
+      return c.collectionSlug;
+    case "image":
+      return c.contentSlug;
+    case "other":
+      return null;
+  }
 }
 
 function ChangeRow({ change }: { change: DraftChange }): ReactNode {
@@ -350,6 +409,29 @@ const mutedCopyStyle: CSSProperties = {
   color: "var(--color-text-muted)",
 };
 
+const groupsContainerStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-3)",
+  overflowY: "auto",
+  minHeight: 0,
+};
+
+const groupSectionStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+};
+
+const groupHeadingStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-xs)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+};
+
 const listStyle: CSSProperties = {
   listStyle: "none",
   margin: 0,
@@ -357,8 +439,6 @@ const listStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-1)",
-  overflowY: "auto",
-  minHeight: 0,
 };
 
 const listItemStyle: CSSProperties = {

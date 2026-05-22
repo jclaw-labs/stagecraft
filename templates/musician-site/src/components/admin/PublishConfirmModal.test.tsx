@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { PublishConfirmModal } from "./PublishConfirmModal";
+import { PublishConfirmModal, groupChanges } from "./PublishConfirmModal";
+import type { DraftChange } from "@/lib/draft-changes";
 
 const fetchMock = vi.fn();
 
@@ -462,5 +463,103 @@ describe("PublishConfirmModal", () => {
     const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
     fireEvent.click(dialog);
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders one group per collection with a count in the heading", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 4,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "modified" as const,
+              collectionSlug: "pages",
+              itemSlug: "about",
+              path: "src/content/collections/pages/items/about.json",
+            },
+            {
+              kind: "item" as const,
+              status: "added" as const,
+              collectionSlug: "pages",
+              itemSlug: "contact",
+              path: "src/content/collections/pages/items/contact.json",
+            },
+            {
+              kind: "image" as const,
+              status: "added" as const,
+              contentSlug: "header",
+              imageId: "abc123",
+              path: "public/images/header/abc123/original.png",
+            },
+            {
+              kind: "image" as const,
+              status: "added" as const,
+              contentSlug: "header",
+              imageId: "def456",
+              path: "public/images/header/def456/original.jpg",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      // "pages" appears before "header" in alphabetical order (h < p).
+      expect(screen.getByRole("heading", { name: "header · 2" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "pages · 2" })).toBeTruthy();
+    });
+  });
+});
+
+describe("groupChanges", () => {
+  it("buckets by collection slug for items / singletons / defs / orders", () => {
+    const changes: DraftChange[] = [
+      { kind: "item", status: "modified", collectionSlug: "pages", itemSlug: "a", path: "a" },
+      { kind: "singleton", status: "modified", collectionSlug: "site", path: "b" },
+      { kind: "def", status: "modified", collectionSlug: "tour-dates", path: "c" },
+      { kind: "order", status: "modified", collectionSlug: "pages", path: "d" },
+    ];
+    const groups = groupChanges(changes);
+    expect(groups.map((g) => g.heading)).toEqual(["pages", "site", "tour-dates"]);
+    expect(groups.find((g) => g.heading === "pages")?.items).toHaveLength(2);
+  });
+
+  it("buckets images by contentSlug", () => {
+    const changes: DraftChange[] = [
+      { kind: "image", status: "added", contentSlug: "header", imageId: "a", path: "x" },
+      { kind: "image", status: "added", contentSlug: "header", imageId: "b", path: "y" },
+      { kind: "image", status: "added", contentSlug: "photos", imageId: "c", path: "z" },
+    ];
+    const groups = groupChanges(changes);
+    expect(groups.map((g) => g.heading)).toEqual(["header", "photos"]);
+  });
+
+  it("groups kind=other under an 'Other' bucket, sorted last", () => {
+    const changes: DraftChange[] = [
+      { kind: "other", status: "modified", path: "package.json" },
+      { kind: "item", status: "modified", collectionSlug: "zzz", itemSlug: "x", path: "p" },
+      { kind: "item", status: "modified", collectionSlug: "aaa", itemSlug: "y", path: "q" },
+    ];
+    const groups = groupChanges(changes);
+    expect(groups.map((g) => g.heading)).toEqual(["aaa", "zzz", "Other"]);
+  });
+
+  it("preserves the compare-API order of items within a group", () => {
+    const changes: DraftChange[] = [
+      { kind: "item", status: "modified", collectionSlug: "pages", itemSlug: "z", path: "p1" },
+      { kind: "item", status: "modified", collectionSlug: "pages", itemSlug: "a", path: "p2" },
+      { kind: "item", status: "modified", collectionSlug: "pages", itemSlug: "m", path: "p3" },
+    ];
+    const groups = groupChanges(changes);
+    expect(groups[0].items.map((c) => (c.kind === "item" ? c.itemSlug : null))).toEqual([
+      "z",
+      "a",
+      "m",
+    ]);
   });
 });
