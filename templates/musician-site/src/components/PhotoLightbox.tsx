@@ -17,11 +17,17 @@ import {
  * free.
  */
 export type LightboxImage = {
-  /** Full-resolution URL (the anchor's `href`). */
+  /** Lightbox-size URL (the anchor's `href`; typically a sharp variant). */
   url: string;
   alt: string;
   caption: string;
   credit: string;
+  /** Intrinsic source dimensions. The lightbox forwards these as
+   *  `width` / `height` attributes on the `<img>` so the browser
+   *  reserves aspect-ratio-correct space before the image paints —
+   *  no layout shift inside the modal during load. */
+  width: number;
+  height: number;
 };
 
 export type PhotoLightboxProps = {
@@ -102,6 +108,21 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
       case "ArrowLeft":
         event.preventDefault();
         prev();
+        break;
+      case "Home":
+        // Jump to the first image. Matches the ImageCarousel keyboard
+        // contract and the standard "list with cursor" idiom (Tab-
+        // strip / file picker / data grid all use Home/End).
+        if (total > 1) {
+          event.preventDefault();
+          setIndex(0);
+        }
+        break;
+      case "End":
+        if (total > 1) {
+          event.preventDefault();
+          setIndex(total - 1);
+        }
         break;
       case "Tab":
         // Manual focus trap. With only a handful of focusable
@@ -192,6 +213,18 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
         <img
           src={current.url}
           alt={current.alt}
+          // `width` + `height` are the intrinsic source dimensions
+          // (PhotoTile threads them via data attributes). The
+          // browser uses them to reserve aspect-ratio-correct space
+          // before the image paints, so the figure doesn't snap-
+          // resize as each image loads. CSS `max-width: 100%` /
+          // `max-height` keep the on-screen size capped to the
+          // viewport. We skip the attributes entirely when either is
+          // 0 (older content without the data attrs); the image
+          // still loads, just without the layout-shift hint.
+          {...(current.width > 0 && current.height > 0
+            ? { width: current.width, height: current.height }
+            : {})}
           style={imageStyle}
           // The lightbox image is above the fold (it's the whole
           // viewport on open); eager load + high fetchpriority avoid

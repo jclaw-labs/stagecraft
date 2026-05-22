@@ -1,10 +1,7 @@
 import type { CSSProperties } from "react";
 
-import {
-  IMAGE_VARIANT_WIDTHS,
-  isVectorExt,
-  type ImageMetadata,
-} from "@/lib/image-types";
+import { isVectorExt, type ImageMetadata } from "@/lib/image-types";
+import { largestVariantUrl, originalImageUrl } from "@/lib/image-urls";
 
 /**
  * Fixed-positioned background layer painted behind page content.
@@ -48,7 +45,7 @@ export function PageBackgroundUnderlay({ image }: { image: ImageMetadata }) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={originalUrl(image)}
+        src={originalImageUrl(image)}
         alt=""
         aria-hidden="true"
         style={imgStyle}
@@ -104,20 +101,5 @@ const imgStyle: CSSProperties = {
   backgroundColor: "var(--color-background)",
 };
 
-/**
- * Largest sharp-generated variant URL for the requested format.
- * Vector / icon uploads fall back to the original (no variants exist
- * on disk); the caller already branches before reaching here for
- * SVG / ICO, but the fallback keeps the helper safe in isolation.
- */
-function largestVariantUrl(image: ImageMetadata, format: "webp" | "avif"): string {
-  if (isVectorExt(image.originalExt)) return originalUrl(image);
-  const eligible = IMAGE_VARIANT_WIDTHS.filter((w) => w <= image.width);
-  if (eligible.length === 0) return originalUrl(image);
-  const largest = Math.max(...eligible);
-  return `/images/${image.contentSlug}/${image.id}/${largest}.${format}`;
-}
-
-function originalUrl(image: ImageMetadata): string {
-  return `/images/${image.contentSlug}/${image.id}/original.${image.originalExt}`;
-}
+// `largestVariantUrl` / `originalImageUrl` live in lib/image-urls.ts —
+// PhotoTile uses them too (lightbox image source).

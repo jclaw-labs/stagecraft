@@ -16,14 +16,26 @@ import { PhotoLightboxBoot } from "./PhotoLightboxBoot";
  * Inserts directly into document.body so the boot's
  * `document.querySelectorAll` finds it.
  */
-function mountGallery(tiles: Array<{ url: string; alt: string; caption?: string; credit?: string }>) {
+function mountGallery(
+  tiles: Array<{
+    url: string;
+    alt: string;
+    caption?: string;
+    credit?: string;
+    width?: number;
+    height?: number;
+  }>,
+) {
   const container = document.createElement("div");
   container.setAttribute("data-collection-view", "photos");
   container.innerHTML = tiles
-    .map(
-      (t) =>
-        `<figure><a href="${t.url}" data-photo-tile data-photo-alt="${t.alt}" data-photo-caption="${t.caption ?? ""}" data-photo-credit="${t.credit ?? ""}"><img alt="${t.alt}" /></a></figure>`,
-    )
+    .map((t) => {
+      // Dimensions are optional — older / stale tiles without them
+      // exercise the boot's fallback-to-0 path.
+      const widthAttr = t.width != null ? ` data-photo-width="${t.width}"` : "";
+      const heightAttr = t.height != null ? ` data-photo-height="${t.height}"` : "";
+      return `<figure><a href="${t.url}" data-photo-tile data-photo-alt="${t.alt}" data-photo-caption="${t.caption ?? ""}" data-photo-credit="${t.credit ?? ""}"${widthAttr}${heightAttr}><img alt="${t.alt}" /></a></figure>`;
+    })
     .join("");
   document.body.appendChild(container);
   return container;
@@ -178,6 +190,32 @@ describe("<PhotoLightboxBoot> — click delegation", () => {
     fireEvent.click(screen.getByRole("button", { name: /close photo viewer/i }));
     await Promise.resolve();
     expect(wrapper.inert).toBeFalsy();
+  });
+
+  it("threads data-photo-width / data-photo-height onto the lightbox image", () => {
+    // The new `width` / `height` attrs reserve aspect-ratio-correct
+    // layout space so the modal doesn't snap-resize as each image
+    // paints. PhotoTile threads them on every tile.
+    const gallery = mountGallery([
+      { url: "/a.jpg", alt: "A", width: 1600, height: 1067 },
+    ]);
+    render(<PhotoLightboxBoot />);
+    fireEvent.click(gallery.querySelector<HTMLAnchorElement>("[data-photo-tile]")!);
+    const img = screen.getByTestId("photo-lightbox").querySelector("img");
+    expect(img?.getAttribute("width")).toBe("1600");
+    expect(img?.getAttribute("height")).toBe("1067");
+  });
+
+  it("omits width / height attrs when tile data attrs are missing (stale content tolerance)", () => {
+    // Older content rendered before #186 won't have the data attrs;
+    // the boot falls back to 0, and the lightbox skips the
+    // dimension attrs entirely rather than emitting `width="0"`.
+    const gallery = mountGallery([{ url: "/a.jpg", alt: "A" }]);
+    render(<PhotoLightboxBoot />);
+    fireEvent.click(gallery.querySelector<HTMLAnchorElement>("[data-photo-tile]")!);
+    const img = screen.getByTestId("photo-lightbox").querySelector("img");
+    expect(img?.hasAttribute("width")).toBe(false);
+    expect(img?.hasAttribute("height")).toBe(false);
   });
 
   it("wires each photos gallery separately (clicking gallery A doesn't open gallery B's images)", () => {
