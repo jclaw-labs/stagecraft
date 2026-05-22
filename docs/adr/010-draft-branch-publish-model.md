@@ -461,14 +461,6 @@ The publish-token endpoint surface is unchanged.
   affordance or paging via `ahead_by` + per-commit walks.
   *Trigger:* an artist reports the count looks wrong.
 
-- **Cross-request broker-token cache.** Every admin nav re-mints a
-  fresh GitHub App installation token (`fetchPublishToken`). The
-  read-store dedupes per-request via `React.cache`, but each new
-  request pays the broker round-trip again. A short-TTL module-
-  level cache would amortise this across the artist's session.
-  *Trigger:* broker mint latency shows up as a real fraction of
-  admin page load times.
-
 ## Consequences
 
 - **ADR-007 §5 (Publishing) is superseded.** The "every save
