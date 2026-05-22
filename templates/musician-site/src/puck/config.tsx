@@ -15,6 +15,7 @@ import {
   NEWSLETTER_SERVICE_LABELS,
   type NewsletterService,
 } from "@/components/newsletter-types";
+import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
@@ -48,6 +49,38 @@ export const TEXT_ALIGNMENT_LABELS: Record<TextAlignment, string> = {
   start: "Start (default)",
   center: "Center",
   end: "End",
+};
+
+// CenteredBlock max-width presets. `narrow` is intro-paragraph /
+// CTA scale (matches the body-text token); `regular` is full
+// reading-column scale. Legacy template's `60ch` and
+// `var(--max-text)` map onto the new template's existing
+// `--max-width-narrow` / `--max-width-content` tokens.
+export const CENTERED_BLOCK_MAX_WIDTHS = ["narrow", "regular"] as const;
+export type CenteredBlockMaxWidth = (typeof CENTERED_BLOCK_MAX_WIDTHS)[number];
+
+export const CENTERED_BLOCK_MAX_WIDTH_LABELS: Record<CenteredBlockMaxWidth, string> = {
+  narrow: "Narrow (intro / CTA)",
+  regular: "Regular (reading column)",
+};
+
+const CENTERED_BLOCK_MAX_WIDTH_TOKEN: Record<CenteredBlockMaxWidth, string> = {
+  narrow: "var(--max-width-narrow)",
+  regular: "var(--max-width-content)",
+};
+
+// EmbedResponsive aspect-ratio presets. `auto` derives from the
+// iframe's intrinsic dimensions (Bandcamp's 350x470 → "350/470");
+// explicit ratios let the artist override (a YouTube embed pasted
+// at 560x315 looks better re-shaped to "16/9").
+export const EMBED_ASPECT_RATIOS = ["auto", "16/9", "4/3", "1/1"] as const;
+export type EmbedAspectRatio = (typeof EMBED_ASPECT_RATIOS)[number];
+
+export const EMBED_ASPECT_RATIO_LABELS: Record<EmbedAspectRatio, string> = {
+  auto: "Auto (from iframe size)",
+  "16/9": "Widescreen (16:9)",
+  "4/3": "Standard (4:3)",
+  "1/1": "Square (1:1)",
 };
 
 // All visual values come from CSS custom properties (see app/globals.css).
@@ -156,6 +189,14 @@ export type BlockProps = {
     areArrowsHidden: boolean;
     areDotsHidden: boolean;
   };
+  CenteredBlock: {
+    maxWidth: CenteredBlockMaxWidth;
+    children: Slot;
+  };
+  EmbedResponsive: {
+    html: string;
+    aspectRatio: EmbedAspectRatio;
+  };
 };
 
 /**
@@ -257,6 +298,40 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
         >
           <Children />
         </section>
+      ),
+    },
+    CenteredBlock: {
+      // Narrower-than-Section centered column for intro paragraphs,
+      // CTAs, and pull-quotes. Sibling to Section: Section owns the
+      // page-width chrome, CenteredBlock takes a slot inside a
+      // Section (or at the page root) and constrains its children
+      // tighter.
+      //
+      // Slot-based so the artist can drop any block inside; the
+      // wrapper just adds `margin-inline: auto`, `text-align:
+      // center`, and a max-width cap.
+      fields: {
+        maxWidth: {
+          type: "select",
+          label: "Max width",
+          options: CENTERED_BLOCK_MAX_WIDTHS.map((v) => ({
+            label: CENTERED_BLOCK_MAX_WIDTH_LABELS[v],
+            value: v,
+          })),
+        },
+        children: { type: "slot" },
+      },
+      defaultProps: { maxWidth: "narrow", children: [] },
+      render: ({ maxWidth, children: Children }) => (
+        <div
+          style={{
+            maxWidth: CENTERED_BLOCK_MAX_WIDTH_TOKEN[maxWidth],
+            marginInline: "auto",
+            textAlign: "center",
+          }}
+        >
+          <Children />
+        </div>
       ),
     },
     FullscreenSection: {
@@ -562,6 +637,80 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ),
+    },
+    EmbedResponsive: {
+      // Sibling to Embed for embeds that need to scale with their
+      // column at a fixed aspect ratio. Bandcamp / SoundCloud
+      // typically ship a fixed-pixel iframe (`350x470`) that looks
+      // awkward stretched; this block wraps it in an aspect-ratio
+      // container that scales while preserving the ratio.
+      //
+      // Auto mode: parses the pasted iframe's `width` / `height`
+      // (attributes or inline-style px) and derives the ratio.
+      // When neither is available (Spotify's `width="100%"`), we
+      // render passthrough — the wrapper would force a 0-height
+      // iframe otherwise.
+      //
+      // Same dangerouslySetInnerHTML trade as Embed — admin-only
+      // input surface.
+      fields: {
+        html: { type: "textarea" },
+        aspectRatio: {
+          type: "select",
+          label: "Aspect ratio",
+          options: EMBED_ASPECT_RATIOS.map((v) => ({
+            label: EMBED_ASPECT_RATIO_LABELS[v],
+            value: v,
+          })),
+        },
+      },
+      defaultProps: {
+        html: '<iframe src="https://bandcamp.com/EmbeddedPlayer/EXAMPLE/size=large" width="350" height="470"></iframe>',
+        aspectRatio: "auto",
+      },
+      render: ({ html, aspectRatio }) => {
+        // Resolve the effective ratio. Explicit wins; "auto" derives
+        // from the iframe's intrinsic dimensions.
+        let resolvedRatio: string | null = null;
+        if (aspectRatio !== "auto") {
+          resolvedRatio = aspectRatio;
+        } else {
+          const dims = extractIframeIntrinsicDimensions(html);
+          if (dims) resolvedRatio = `${dims.width} / ${dims.height}`;
+        }
+
+        // Passthrough fallback (no wrapper) when no ratio is
+        // derivable — otherwise the wrapper would collapse a
+        // percentage-width iframe to zero height. Emit the
+        // iframe HTML unchanged so its declared sizing applies.
+        if (resolvedRatio === null) {
+          return (
+            <div
+              style={{ margin: "var(--space-4) 0" }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          );
+        }
+
+        // Wrapped case: strip the iframe's `width` / `height`
+        // attributes and any `width: Npx` / `height: Npx` inline
+        // style declarations so the wrapper's class-based sizing
+        // wins. Without this, an iframe with `style="width: 350px"`
+        // keeps its inline width (higher specificity than the
+        // wrapper's class rule) and doesn't fill the wrapper.
+        const innerHtml = stripIframeDimensions(html);
+
+        return (
+          <div
+            className="stagecraft-embed-responsive"
+            style={{
+              margin: "var(--space-4) 0",
+              aspectRatio: resolvedRatio,
+            }}
+            dangerouslySetInnerHTML={{ __html: innerHtml }}
+          />
+        );
+      },
     },
     Spacer: {
       fields: {
