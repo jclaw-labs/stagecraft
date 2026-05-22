@@ -402,6 +402,33 @@ describe("extractPageRootProps", () => {
     } as PageData);
     expect(props.pageBackground).toBeNull();
   });
+
+  it("falls back to null for objects that don't match ImageMetadata", () => {
+    // The relevant failure mode: schema drift or hand-edited JSON
+    // ships a `pageBackground` that's an object but missing required
+    // fields. Earlier impl let this bubble to Zod's `.parse(...)`
+    // which threw — taking the public page renderer with it.
+    // safeParse-based validation now returns null instead.
+    const props = extractPageRootProps({
+      content: [],
+      root: {
+        props: { title: "x", pageBackground: { foo: "bar" } },
+      },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
+  });
+
+  it("treats an array pageBackground as null (typeof === 'object' guard)", () => {
+    // Arrays are objects in JS — without an Array.isArray check
+    // they'd pass typeof but fail the inner schema parse. We rely
+    // on safeParse to catch them, but the early return also dodges
+    // a needless parse for the obvious shape.
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: [] } },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

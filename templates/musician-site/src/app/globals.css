@@ -215,3 +215,29 @@
   object-fit: cover;
 }
 
+/* Link-card hover affordance. Inline styles in `puck/config.tsx`
+   handle the resting look; the hover :pseudo lives here because
+   inline styles can't carry pseudoclasses. Subtle border + shadow
+   shift, plus a 2px upward translation, so the artist-facing
+   feedback is "yes, this is clickable" without animating wildly.
+   `transition` covers the lift so motion-sensitive users with
+   `prefers-reduced-motion: reduce` get an instant change instead. */
+.stagecraft-card-link {
+  transition: transform 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.stagecraft-card-link:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagecraft-card-link {
+    transition: none;
+  }
+  .stagecraft-card-link:hover {
+    transform: none;
+  }
+}
+

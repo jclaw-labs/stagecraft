@@ -781,7 +781,13 @@ export const puckConfig: Config<
               </div>
             ) : null}
             <div style={cardBodyStyle}>
-              <h3 style={cardTitleStyle}>{title}</h3>
+              {/* Title is a styled non-heading on purpose — a grid
+                  of 6 cards would otherwise emit 6 `<h3>`s into the
+                  document outline, which screen-reader users
+                  navigating by heading would have to skip past.
+                  Visual emphasis still reads as a title. Same
+                  choice the legacy template made. */}
+              <div style={cardTitleStyle}>{title}</div>
               {description ? (
                 <p style={cardDescriptionStyle}>{description}</p>
               ) : null}
@@ -793,13 +799,17 @@ export const puckConfig: Config<
 
         if (href) {
           // Whole card is a link. Drop the default underline (the
-          // title carries its own visual emphasis) but keep the link
-          // semantics for AT.
+          // title carries visual emphasis) but keep the link
+          // semantics for AT. The `stagecraft-card-link` class
+          // adds a subtle hover affordance (border shift + lift)
+          // — inline styles can't carry `:hover`, so the rule
+          // lives in globals.css.
           return (
             <a
               href={href}
               target={isExternal ? "_blank" : undefined}
               rel={isExternal ? "noopener noreferrer" : undefined}
+              className="stagecraft-card-link"
               style={{ ...containerStyle, textDecoration: "none", color: "inherit" }}
             >
               {inner}

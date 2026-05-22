@@ -539,6 +539,24 @@ describe("puckConfig", () => {
       expect(html).toContain("<picture>");
     });
 
+    it("renders the title as a styled non-heading (no <h3>)", () => {
+      // A grid of 6 cards would otherwise emit 6 <h3>s into the
+      // accessibility outline; screen-reader users navigating by
+      // heading would have to skip past every one. Visual emphasis
+      // still reads via the styled <div>. Same trade the legacy
+      // template made.
+      const html = render("Card", {
+        image: null,
+        title: "Title here",
+        description: "",
+        href: "",
+        isExternal: false,
+        orientation: "vertical",
+      });
+      expect(html).not.toMatch(/<h[1-6]/);
+      expect(html).toContain("Title here");
+    });
+
     it("wraps the whole card in an <a> when href is set", () => {
       const html = render("Card", {
         image: null,
@@ -556,6 +574,10 @@ describe("puckConfig", () => {
       // the browser default link blue.
       expect(html).toMatch(/text-decoration:\s*none/);
       expect(html).toMatch(/color:\s*inherit/);
+      // Class hook for the :hover affordance (lift + border + shadow)
+      // — inline styles can't carry pseudoclasses so the styling lives
+      // in globals.css, gated by this class.
+      expect(html).toContain('class="stagecraft-card-link"');
     });
 
     it("opens external links in a new tab", () => {

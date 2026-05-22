@@ -53,6 +53,7 @@ import {
   writeItem,
   type ReadStore,
 } from "./collections";
+import { imageMetadataSchema, type ImageMetadata } from "./image-types";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
@@ -238,14 +239,20 @@ export function extractPageRootProps(data: PageData): PageRootProps {
     title: typeof props.title === "string" ? props.title : "Untitled",
     isSplashPage: props.isSplashPage === true,
     isFooterHidden: props.isFooterHidden === true,
-    // pageBackground is the full ImageMetadata or null; pass through
-    // and let Zod validate the shape. An object that doesn't match
-    // the schema falls through to null via Zod's default.
-    pageBackground:
-      props.pageBackground && typeof props.pageBackground === "object"
-        ? props.pageBackground
-        : null,
+    // Validate against `imageMetadataSchema` here rather than relying
+    // on `pageRootPropsSchema.parse(...)` — the outer parse throws on
+    // an invalid shape, but a malformed `pageBackground` (hand-edited
+    // JSON, schema drift) shouldn't take down the public page
+    // renderer. Fall back to null on any validation failure.
+    pageBackground: validatePageBackground(props.pageBackground),
   });
+}
+
+function validatePageBackground(value: unknown): ImageMetadata | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const result = imageMetadataSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export async function listPageSummaries(store: ReadStore): Promise<PageSummary[]> {
