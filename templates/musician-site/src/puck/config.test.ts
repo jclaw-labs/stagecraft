@@ -66,10 +66,13 @@ describe("puckConfig", () => {
         (c) => c?.components ?? [],
       ),
     );
+    const categoryKeys = Object.keys(puckConfig.categories ?? {}).join(" | ");
     for (const name of Object.keys(puckConfig.components)) {
       expect(
         inCategories,
-        `block "${name}" is not assigned to any drawer category`,
+        `block "${name}" is not assigned to any drawer category. ` +
+          `Add it to one of [${categoryKeys}] in puckConfig.categories ` +
+          `(src/puck/config.tsx).`,
       ).toContain(name);
     }
   });
@@ -80,14 +83,19 @@ describe("puckConfig", () => {
     // residual cases: an accidental empty string slipping in, and a
     // block being added via cast / refactor that bypasses the static
     // record.
+    const where = "Add an entry in BLOCK_DESCRIPTIONS (src/puck/config.tsx).";
     for (const name of Object.keys(puckConfig.components)) {
       const description =
         BLOCK_DESCRIPTIONS[name as keyof typeof BLOCK_DESCRIPTIONS];
       expect(
         description,
-        `block "${name}" is missing an inspector description`,
+        `block "${name}" is missing an inspector description. ${where}`,
       ).toBeTruthy();
-      expect(description?.length).toBeGreaterThan(10);
+      expect(
+        description?.length,
+        `BLOCK_DESCRIPTIONS["${name}"] is too short to be useful ` +
+          `(aim for one full sentence).`,
+      ).toBeGreaterThan(10);
     }
   });
 
