@@ -245,6 +245,10 @@ export function extractPageRootProps(data: PageData): PageRootProps {
     // JSON, schema drift) shouldn't take down the public page
     // renderer. Fall back to null on any validation failure.
     pageBackground: validatePageBackground(props.pageBackground),
+    // Per-page overlay opacity: null inherits site default; a number
+    // 0..1 overrides. Out-of-range / non-number values fall back to
+    // null (inherit) rather than throwing.
+    pageBackgroundOverlay: validateOverlayOpacity(props.pageBackgroundOverlay),
   });
 }
 
@@ -253,6 +257,13 @@ function validatePageBackground(value: unknown): ImageMetadata | null {
   if (typeof value !== "object" || Array.isArray(value)) return null;
   const result = imageMetadataSchema.safeParse(value);
   return result.success ? result.data : null;
+}
+
+function validateOverlayOpacity(value: unknown): number | null {
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  if (value < 0 || value > 1) return null;
+  return value;
 }
 
 export async function listPageSummaries(store: ReadStore): Promise<PageSummary[]> {

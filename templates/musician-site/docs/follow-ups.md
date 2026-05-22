@@ -82,14 +82,6 @@ something worth fixing that doesn't fit the current PR's scope.
   good; the gap is desktop trackpad swipe → cycle button presses.
   Low priority. From #171.
 
-## Routing / publish
-
-- **Per-page background overlay opacity.** Site-level `pageBackground`
-  + per-page override both ship; the legacy template also had a
-  `pageBackgroundOverlay` opacity tint (so dark backgrounds can host
-  light text). Could add as a Puck root field once the use case
-  shows up. From #179.
-
 ## Drawer search + categories
 
 - **Short-circuit the visibility dispatch when no filter is active.**

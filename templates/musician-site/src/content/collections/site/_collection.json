@@ -57,6 +57,13 @@
       "required": false
     },
     {
+      "id": "fld_site_pageBackgroundOverlay",
+      "key": "pageBackgroundOverlay",
+      "systemLocked": true,
+      "type": "number",
+      "required": false
+    },
+    {
       "id": "fld_site_hasCompletedFirstRun",
       "key": "hasCompletedFirstRun",
       "systemLocked": true,

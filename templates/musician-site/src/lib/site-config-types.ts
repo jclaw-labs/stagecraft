@@ -83,6 +83,13 @@ export const siteConfigSchema = z.object({
   // so the renderer can pick a variant and the LQIP placeholder.
   favicon: imageMetadataSchema.nullable().default(null),
   pageBackground: imageMetadataSchema.nullable().default(null),
+  // Opacity of a black tint painted over the page-background image
+  // for text-legibility on bright / busy backgrounds. 0 = no tint
+  // (default — the artist's image shows through unchanged); 1 =
+  // fully opaque (the background is invisible). Most sites pick
+  // 0.2-0.5 when they need it. Only applied when `pageBackground`
+  // is set; cosmetic-only when it's null.
+  pageBackgroundOverlay: z.number().min(0).max(1).default(0),
   // Canonical order of pages in the admin Pages list AND in the public
   // header nav. Slugs not present here get appended alphabetically when
   // surfaced, so a freshly-created page shows up at the end of the list
@@ -112,6 +119,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   isFooterHidden: false,
   favicon: null,
   pageBackground: null,
+  pageBackgroundOverlay: 0,
   pageOrder: [],
   hiddenFromNav: [],
   hasCompletedFirstRun: false,
@@ -404,6 +412,11 @@ export const pageRootPropsSchema = z.object({
   // the legacy template let each page declare its own. Optional, so
   // most pages inherit the site-wide background unchanged.
   pageBackground: imageMetadataSchema.nullable().default(null),
+  // Per-page overlay opacity override. `null` (default) inherits the
+  // site-wide `siteConfig.pageBackgroundOverlay`; a number 0..1
+  // overrides it. Distinct null-vs-0 because 0 means "explicit no
+  // tint here" while null means "use the site default".
+  pageBackgroundOverlay: z.number().min(0).max(1).nullable().default(null),
 });
 export type PageRootProps = z.infer<typeof pageRootPropsSchema>;
 
