@@ -198,3 +198,20 @@
   border: 0;
 }
 
+/* Card media — the wrapper div carries `aspect-ratio` (horizontal
+   variant) or just `overflow: hidden` (vertical); the inner image
+   stretches to fill via `object-fit: cover` so titles align across
+   a grid of cards. Public `<Image>` became layout-transparent in
+   #164, so consumers (this rule) own the sizing. */
+.stagecraft-card-media,
+.stagecraft-card-media picture,
+.stagecraft-card-media img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stagecraft-card-media img {
+  object-fit: cover;
+}
+

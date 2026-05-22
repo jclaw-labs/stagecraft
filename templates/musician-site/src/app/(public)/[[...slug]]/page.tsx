@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
+import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
 import {
   describeRoutingConflict,
   getFsReadStore,
@@ -190,6 +191,15 @@ async function renderPage({ segs }: { segs: string[] }) {
       hideHeader={hideHeader}
       hideFooter={hideFooter}
     >
+      {/* Per-page pageBackground override — paints on top of the
+          layout's site-wide underlay so this page sees its chosen
+          image instead. Site-wide still loads (the layout is
+          independent of the page); the per-page layer simply wins
+          visually. Both are fixed-positioned at zIndex: -1, and the
+          per-page renders later in the DOM so it composites on top. */}
+      {rootProps.pageBackground ? (
+        <PageBackgroundUnderlay image={rootProps.pageBackground} />
+      ) : null}
       <Render config={puckConfig} data={pageData} />
     </PublicPageChrome>
   );

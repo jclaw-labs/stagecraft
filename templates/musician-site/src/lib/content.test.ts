@@ -345,7 +345,12 @@ describe("extractPageRootProps", () => {
       content: [],
       root: { props: { title: "x" } },
     } as PageData);
-    expect(props).toEqual({ title: "x", isSplashPage: false, isFooterHidden: false });
+    expect(props).toEqual({
+      title: "x",
+      isSplashPage: false,
+      isFooterHidden: false,
+      pageBackground: null,
+    });
   });
 
   it("preserves explicit values", () => {
@@ -355,7 +360,12 @@ describe("extractPageRootProps", () => {
         props: { title: "y", isSplashPage: true, isFooterHidden: true },
       },
     } as PageData);
-    expect(props).toEqual({ title: "y", isSplashPage: true, isFooterHidden: true });
+    expect(props).toEqual({
+      title: "y",
+      isSplashPage: true,
+      isFooterHidden: true,
+      pageBackground: null,
+    });
   });
 
   it("falls back to 'Untitled' when title is missing", () => {
@@ -364,6 +374,33 @@ describe("extractPageRootProps", () => {
       root: { props: {} },
     } as PageData);
     expect(props.title).toBe("Untitled");
+  });
+
+  it("preserves pageBackground when set", () => {
+    const image = {
+      id: "abc1234567890def",
+      alt: "bg",
+      width: 1600,
+      height: 1067,
+      placeholderDataUri: "data:image/webp;base64,AAAA",
+      contentSlug: "home",
+      originalExt: "jpg" as const,
+    };
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: image } },
+    } as PageData);
+    expect(props.pageBackground).toEqual(image);
+  });
+
+  it("treats a non-object pageBackground as null", () => {
+    // Defensive: malformed JSON shouldn't crash the page renderer.
+    // (Editor writes valid metadata; this guards manual JSON edits.)
+    const props = extractPageRootProps({
+      content: [],
+      root: { props: { title: "x", pageBackground: "not-an-image" } },
+    } as PageData);
+    expect(props.pageBackground).toBeNull();
   });
 });
 

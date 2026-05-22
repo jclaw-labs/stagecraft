@@ -238,6 +238,13 @@ export function extractPageRootProps(data: PageData): PageRootProps {
     title: typeof props.title === "string" ? props.title : "Untitled",
     isSplashPage: props.isSplashPage === true,
     isFooterHidden: props.isFooterHidden === true,
+    // pageBackground is the full ImageMetadata or null; pass through
+    // and let Zod validate the shape. An object that doesn't match
+    // the schema falls through to null via Zod's default.
+    pageBackground:
+      props.pageBackground && typeof props.pageBackground === "object"
+        ? props.pageBackground
+        : null,
   });
 }
 

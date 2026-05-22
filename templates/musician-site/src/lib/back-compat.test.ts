@@ -84,6 +84,7 @@ describe("page root props back-compat", () => {
       title: "Old page",
       isSplashPage: false,
       isFooterHidden: false,
+      pageBackground: null,
     });
   });
 
