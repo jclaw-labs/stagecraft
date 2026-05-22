@@ -65,4 +65,31 @@ describe("next.config — static-asset headers", () => {
     expect(sources.some((s) => s.endsWith(".webp"))).toBe(false);
     expect(sources.some((s) => s.endsWith(".avif"))).toBe(false);
   });
+
+  it("matches the ICO upload path with nosniff but NOT attachment (favicons must render inline)", async () => {
+    // ICO files lack the script-execution surface SVG has, but
+    // pinning Content-Type + nosniff is defense-in-depth-
+    // completeness. `Content-Disposition: attachment` would break
+    // favicon use (browsers fetch `<link rel="icon">` inline; an
+    // attachment header would prompt download instead), so the ICO
+    // rule deliberately omits it.
+    const rules = await config.headers!();
+    const icoRule = rules.find((r) => r.source.endsWith("original.ico"));
+    expect(icoRule?.source).toBe("/images/:contentSlug/:id/original.ico");
+    const contentType = icoRule?.headers.find((h) => h.key === "Content-Type");
+    expect(contentType?.value).toMatch(/^image\//);
+    const noSniff = icoRule?.headers.find((h) => h.key === "X-Content-Type-Options");
+    expect(noSniff?.value).toBe("nosniff");
+    // Critically: NO attachment disposition (would break favicons).
+    const dispo = icoRule?.headers.find((h) => h.key === "Content-Disposition");
+    expect(dispo).toBeUndefined();
+  });
+
+  it("has exactly the expected rule count (lock against accidental rule sprawl)", async () => {
+    // Future rule additions should be a deliberate decision —
+    // updating this assertion is the cue to review whether the
+    // new rule belongs.
+    const rules = await config.headers!();
+    expect(rules).toHaveLength(2);
+  });
 });

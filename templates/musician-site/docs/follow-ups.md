@@ -79,6 +79,11 @@ something worth fixing that doesn't fit the current PR's scope.
   occur would surface "your SVG was modified" to admins, useful for
   debugging "why did my drop-shadow disappear" support questions.
   From #182.
+- **`Cache-Control: no-transform` on SVG responses.** Some CDNs
+  optimise SVG bytes (inline-data URIs, strip XML declarations,
+  rewrite namespaces). `no-transform` forbids that. Speculative —
+  not a known issue today — but a small additional header on the
+  already-locked SVG rule. From SVG-Content-Disposition review.
 
 ## Carousel
 

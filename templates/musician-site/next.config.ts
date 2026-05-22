@@ -67,6 +67,20 @@ const config: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
         ],
       },
+      {
+        // ICO uploads (artist-uploaded favicons). No script-execution
+        // surface — `<link rel="icon">` is the only standard render
+        // path — but pin Content-Type + nosniff for defense-in-depth
+        // completeness. Crucially: NO `Content-Disposition:
+        // attachment` here — that would break the favicon use case
+        // (browsers fetch the icon inline; an attachment prompt
+        // would trigger a download instead).
+        source: "/images/:contentSlug/:id/original.ico",
+        headers: [
+          { key: "Content-Type", value: "image/vnd.microsoft.icon" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
     ];
   },
 };
