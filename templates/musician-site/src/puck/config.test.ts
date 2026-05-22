@@ -429,6 +429,36 @@ describe("puckConfig", () => {
       expect(html).toMatch(/aspect-ratio:\s*16\s*\/\s*9/);
     });
 
+    it("strips iframe width / height attributes when wrapped (so the wrapper sizes win)", () => {
+      // Without stripping, the iframe's `width="350"` would still
+      // be present in the emitted HTML — for inline-style cases the
+      // class-based wrapper CSS can lose specificity, leaving the
+      // iframe at its declared size inside a correctly-sized
+      // wrapper.
+      const html = render("EmbedResponsive", {
+        html: BANDCAMP,
+        aspectRatio: "auto",
+      });
+      // Wrapper got the aspect ratio.
+      expect(html).toMatch(/aspect-ratio:\s*350\s*\/\s*470/);
+      // But the inner iframe no longer carries the dimension attrs.
+      const iframeMatch = html.match(/<iframe[^>]*>/);
+      expect(iframeMatch).toBeTruthy();
+      expect(iframeMatch?.[0]).not.toMatch(/\bwidth=/);
+      expect(iframeMatch?.[0]).not.toMatch(/\bheight=/);
+    });
+
+    it("keeps iframe attributes intact in passthrough mode (no wrapper to defer to)", () => {
+      // Spotify falls through to passthrough; the iframe needs its
+      // own sizing in that case — don't strip.
+      const html = render("EmbedResponsive", {
+        html: SPOTIFY,
+        aspectRatio: "auto",
+      });
+      const iframeMatch = html.match(/<iframe[^>]*>/);
+      expect(iframeMatch?.[0]).toMatch(/width="100%"/);
+    });
+
     it("select options match EMBED_ASPECT_RATIOS", () => {
       const field = puckConfig.components.EmbedResponsive.fields?.aspectRatio;
       expect(field?.type).toBe("select");

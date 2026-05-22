@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { extractIframeIntrinsicDimensions } from "./iframe-utils";
+import {
+  extractIframeIntrinsicDimensions,
+  stripIframeDimensions,
+} from "./iframe-utils";
 
 describe("extractIframeIntrinsicDimensions", () => {
   it("reads width / height attributes (Bandcamp shape)", () => {
@@ -70,5 +73,90 @@ describe("extractIframeIntrinsicDimensions", () => {
     // uppercase tags.
     const html = `<IFRAME WIDTH="350" HEIGHT="470" SRC="..."></IFRAME>`;
     expect(extractIframeIntrinsicDimensions(html)).toEqual({ width: 350, height: 470 });
+  });
+
+  it("ignores `data-width` / `data-height` attributes (regex-tightening guard)", () => {
+    // Earlier impl used `\b${name}` which fired the word boundary
+    // between `-` and `w`, accidentally matching `data-width=`.
+    // Lookbehind requires whitespace before the attr name now.
+    const html = `<iframe src="..." data-width="999" data-height="888"></iframe>`;
+    expect(extractIframeIntrinsicDimensions(html)).toBeNull();
+  });
+
+  it("picks the real width/height past a `data-*` prefix", () => {
+    // Defensive: if both `data-width` AND `width` are present, the
+    // real attribute wins.
+    const html = `<iframe data-width="999" width="350" height="470" data-height="888"></iframe>`;
+    expect(extractIframeIntrinsicDimensions(html)).toEqual({ width: 350, height: 470 });
+  });
+});
+
+describe("stripIframeDimensions", () => {
+  it("removes the width / height attributes from the iframe tag", () => {
+    const html = `<iframe src="https://bandcamp.com/x" width="350" height="470" seamless></iframe>`;
+    const out = stripIframeDimensions(html);
+    expect(out).not.toMatch(/\bwidth=/);
+    expect(out).not.toMatch(/\bheight=/);
+    // Other attributes preserved.
+    expect(out).toContain('src="https://bandcamp.com/x"');
+    expect(out).toContain("seamless");
+  });
+
+  it("removes width / height declarations from an inline style", () => {
+    const html = `<iframe style="border: 0; width: 350px; height: 470px;" src="..."></iframe>`;
+    const out = stripIframeDimensions(html);
+    expect(out).not.toMatch(/width\s*:/);
+    expect(out).not.toMatch(/height\s*:/);
+    // `border: 0` is preserved.
+    expect(out).toMatch(/style="border:\s*0"/);
+  });
+
+  it("drops the style attribute entirely when only dimensions remained", () => {
+    // After stripping width + height, no other declarations are
+    // left; the style attribute itself is dropped rather than
+    // emitting `style=""`.
+    const html = `<iframe style="width: 350px; height: 470px;" src="..."></iframe>`;
+    const out = stripIframeDimensions(html);
+    expect(out).not.toMatch(/style=/);
+    expect(out).toContain('src="..."');
+  });
+
+  it("preserves attributes outside the iframe (e.g. wrapper text)", () => {
+    const html = `before <iframe src="x" width="350" height="470"></iframe> after`;
+    const out = stripIframeDimensions(html);
+    expect(out).toMatch(/^before /);
+    expect(out).toMatch(/ after$/);
+    expect(out).not.toMatch(/\bwidth=/);
+  });
+
+  it("is a no-op when the html has no iframe", () => {
+    const html = `<div>no iframe here</div>`;
+    expect(stripIframeDimensions(html)).toBe(html);
+  });
+
+  it("is idempotent — running twice produces the same output", () => {
+    const html = `<iframe src="x" width="350" height="470" style="width: 350px"></iframe>`;
+    const once = stripIframeDimensions(html);
+    const twice = stripIframeDimensions(once);
+    expect(twice).toBe(once);
+  });
+
+  it("only rewrites the first iframe", () => {
+    // EmbedResponsive only wraps the first iframe (matches the
+    // `extractIframeIntrinsicDimensions` contract). Stripping
+    // dimensions from later iframes would be misleading.
+    const html = `<iframe src="a" width="100" height="100"></iframe><iframe src="b" width="200" height="200"></iframe>`;
+    const out = stripIframeDimensions(html);
+    // First iframe lost its width.
+    expect(out.indexOf("width=")).toBeGreaterThan(out.indexOf('src="b"'));
+  });
+
+  it("preserves non-dimensional style declarations regardless of casing", () => {
+    const html = `<iframe style="BORDER: 0; Width: 350Px; HEIGHT: 470px" src="..."></iframe>`;
+    const out = stripIframeDimensions(html);
+    // Casing in property names is normalised for the match but the
+    // surviving declarations keep their original casing.
+    expect(out).toMatch(/style="BORDER:\s*0"/);
+    expect(out).not.toMatch(/Width:/i);
   });
 });

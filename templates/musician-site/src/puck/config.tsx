@@ -15,7 +15,7 @@ import {
   NEWSLETTER_SERVICE_LABELS,
   type NewsletterService,
 } from "@/components/newsletter-types";
-import { extractIframeIntrinsicDimensions } from "@/lib/iframe-utils";
+import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
@@ -681,7 +681,8 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
 
         // Passthrough fallback (no wrapper) when no ratio is
         // derivable — otherwise the wrapper would collapse a
-        // percentage-width iframe to zero height.
+        // percentage-width iframe to zero height. Emit the
+        // iframe HTML unchanged so its declared sizing applies.
         if (resolvedRatio === null) {
           return (
             <div
@@ -691,6 +692,14 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
           );
         }
 
+        // Wrapped case: strip the iframe's `width` / `height`
+        // attributes and any `width: Npx` / `height: Npx` inline
+        // style declarations so the wrapper's class-based sizing
+        // wins. Without this, an iframe with `style="width: 350px"`
+        // keeps its inline width (higher specificity than the
+        // wrapper's class rule) and doesn't fill the wrapper.
+        const innerHtml = stripIframeDimensions(html);
+
         return (
           <div
             className="stagecraft-embed-responsive"
@@ -698,7 +707,7 @@ export const puckConfig: Config<BlockProps, { title: string; isSplashPage: boole
               margin: "var(--space-4) 0",
               aspectRatio: resolvedRatio,
             }}
-            dangerouslySetInnerHTML={{ __html: html }}
+            dangerouslySetInnerHTML={{ __html: innerHtml }}
           />
         );
       },

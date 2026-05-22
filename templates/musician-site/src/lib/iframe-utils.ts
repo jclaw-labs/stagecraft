@@ -64,10 +64,15 @@ export function extractIframeIntrinsicDimensions(
  * Return `width="<number>"` parsed as a number. Skips non-numeric
  * values (`"100%"`, `"auto"`) — they're not intrinsic pixel
  * dimensions and can't drive an aspect-ratio wrapper.
+ *
+ * The lookbehind `(?<=\\s)` requires whitespace before the attribute
+ * name — without it, `\\bwidth` would also match the `width` inside
+ * `data-width="N"` (the boundary between `-` and `w` is a word
+ * boundary). Every well-formed iframe attribute is preceded by
+ * whitespace (between `<iframe` and the first attr, between attrs).
  */
 function readNumericAttr(tag: string, name: string): number | null {
-  // `\b` to avoid matching `something_width`. Allow either quote.
-  const re = new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "i");
+  const re = new RegExp(`(?<=\\s)${name}\\s*=\\s*["']([^"']+)["']`, "i");
   const match = tag.match(re);
   if (!match) return null;
   const n = Number(match[1]);
@@ -89,4 +94,75 @@ function readNumericStylePx(tag: string, prop: string): number | null {
   const n = Number(match[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
+}
+
+/**
+ * Return the HTML with the first iframe's dimensional attributes
+ * removed. Strips both the `width="N"` / `height="N"` attributes
+ * and the `width: Npx` / `height: Npx` declarations inside an
+ * inline `style="..."`. Idempotent — running twice produces the
+ * same output.
+ *
+ * EmbedResponsive calls this before wrapping in an aspect-ratio
+ * container. Without it, an iframe with `style="width: 350px"`
+ * keeps its inline width (higher CSS specificity than the
+ * wrapper's class-based `width: 100%`), so the iframe stays
+ * 350px wide inside a wrapper sized to fill its column — the
+ * wrapper has the right aspect ratio but the iframe doesn't
+ * fill it.
+ *
+ * Out-of-scope (defer until needed):
+ *   - Stripping the same dimensions from non-iframe wrapper
+ *     elements (Bandcamp sometimes ships a `<div>` wrapper
+ *     around the iframe).
+ *   - Sanitising other attributes (`onload`, `srcdoc`) — the
+ *     admin-only authoring surface keeps the threat model
+ *     limited, same as Embed.
+ */
+export function stripIframeDimensions(html: string): string {
+  const iframeMatch = html.match(/<iframe\b[^>]*>/i);
+  if (!iframeMatch) return html;
+  const original = iframeMatch[0];
+  const startIdx = iframeMatch.index ?? 0;
+
+  let cleaned = original;
+
+  // 1. Strip `width="N"` and `height="N"` attributes (plus their
+  //    leading whitespace so we don't leave a double-space).
+  cleaned = cleaned.replace(/\s+(?:width|height)\s*=\s*["'][^"']*["']/gi, "");
+
+  // 2. Strip `width: Npx` / `height: Npx` declarations from
+  //    inline `style="..."`. Re-emit the style attribute with the
+  //    cleaned value; drop the attribute entirely when nothing
+  //    remains.
+  cleaned = cleaned.replace(
+    /(\s+style\s*=\s*["'])([^"']*)(["'])/i,
+    (_full, prefix: string, style: string, suffix: string) => {
+      const stripped = stripDimensionsFromStyle(style);
+      if (stripped.length === 0) return "";
+      return `${prefix}${stripped}${suffix}`;
+    },
+  );
+
+  return html.slice(0, startIdx) + cleaned + html.slice(startIdx + original.length);
+}
+
+/**
+ * Remove `width: ...` / `height: ...` declarations from a CSS
+ * declaration list. Mirror of the legacy template's helper of the
+ * same name. Empty return means every declaration was dimensional
+ * and the caller should drop the `style=""` attribute entirely.
+ */
+function stripDimensionsFromStyle(style: string): string {
+  return style
+    .split(";")
+    .map((decl) => decl.trim())
+    .filter((decl) => {
+      if (decl.length === 0) return false;
+      const colonIdx = decl.indexOf(":");
+      if (colonIdx === -1) return true;
+      const property = decl.slice(0, colonIdx).trim().toLowerCase();
+      return property !== "width" && property !== "height";
+    })
+    .join("; ");
 }
