@@ -148,9 +148,25 @@ export function PublishConfirmModal({
           deploy.
         </p>
         <Body state={state} />
-        <label style={labelStyle}>
-          <span style={labelTextStyle}>Commit message</span>
+        <div style={labelStyle}>
+          {/* Explicit `htmlFor` association (vs the previous label-
+              wrapping pattern) so the counter span next to the label
+              text doesn't leak into the input's accessible name. */}
+          <div style={labelRowStyle}>
+            <label htmlFor="publish-commit-subject" style={labelTextStyle}>
+              Commit message
+            </label>
+            {/* Counter is `aria-hidden` because user agents already
+                announce remaining `maxLength` via the input's
+                attribute; surfacing "N / 200" verbally on every
+                keypress would be noisy. The visible count is for
+                sighted users tracking proximity to the cap. */}
+            <span aria-hidden="true" style={counterStyle}>
+              {subject.length} / {MAX_COMMIT_SUBJECT_LENGTH}
+            </span>
+          </div>
           <input
+            id="publish-commit-subject"
             type="text"
             value={subject}
             maxLength={MAX_COMMIT_SUBJECT_LENGTH}
@@ -162,7 +178,7 @@ export function PublishConfirmModal({
             }}
             style={inputStyle}
           />
-        </label>
+        </div>
         <div style={buttonRowStyle}>
           <button
             type="button"
@@ -352,12 +368,25 @@ const labelStyle: CSSProperties = {
   gap: "var(--space-1)",
 };
 
+const labelRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "baseline",
+  gap: "var(--space-2)",
+};
+
 const labelTextStyle: CSSProperties = {
   fontSize: "var(--font-size-xs)",
   fontWeight: "var(--font-weight-semibold)" as unknown as number,
   color: "var(--color-text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
+};
+
+const counterStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-faint)",
+  fontVariantNumeric: "tabular-nums",
 };
 
 const inputStyle: CSSProperties = {

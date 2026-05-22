@@ -188,6 +188,27 @@ describe("PublishConfirmModal", () => {
     });
   });
 
+  it("renders a character counter that tracks the input value", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    // After the changes-list seeds the default "Publish 2 changes"
+    // (17 chars), the counter should reflect that.
+    await waitFor(() => {
+      expect(screen.getByText("17 / 200")).toBeTruthy();
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    await userEvent.clear(input);
+    await userEvent.type(input, "abc");
+    expect(screen.getByText("3 / 200")).toBeTruthy();
+  });
+
   it("passes the edited subject through onConfirm", async () => {
     const onConfirm = vi.fn();
     fetchMock.mockResolvedValue(

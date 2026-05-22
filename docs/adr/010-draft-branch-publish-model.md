@@ -422,13 +422,13 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* an artist asks for line breaks in the commit
   message.
 
-- **Visible character counter on the commit-subject input.** The
-  field has `maxLength={200}` (matching the route's
-  `z.string().max(200)`) and browsers enforce on paste, but
-  there's no live "187 / 200" indicator. Adding one is trivial;
-  defer until usability research says it's worth the chrome.
-  *Trigger:* an artist hits the cap and is confused about why
-  their input stopped accepting characters.
+- **Visual emphasis when the subject counter approaches / hits
+  the limit.** The counter is muted at all values today. At
+  200 / 200 the input silently stops accepting characters (browser
+  enforces `maxLength`), which can confuse an artist who keeps
+  typing. A color shift to warning / error at ~90% and 100% would
+  fix this.
+  *Trigger:* an artist asks why their input stopped responding.
 
 - **Reset-to-default on the commit-subject input.** If the artist
   clears the field by mistake, the placeholder still hints at the
