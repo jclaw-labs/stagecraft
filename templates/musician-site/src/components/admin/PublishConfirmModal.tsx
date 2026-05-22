@@ -1,0 +1,312 @@
+/**
+ * Confirm-step modal for Publish (ADR-010 §"Publish UX").
+ *
+ * Replaces the inline "Publish all pending changes?" copy with a
+ * full-screen modal that surfaces the per-item diff so the artist
+ * sees what they're about to ship before they click. The list comes
+ * from `/api/draft-changes` — same endpoint the indicator polls,
+ * but here we read the `changes` array (parsed + collapsed
+ * server-side; see `lib/draft-changes.ts`).
+ *
+ * UX shape:
+ *
+ *   - Loading state: copy says "Loading the change list…", buttons
+ *     remain functional. The artist can cancel while the fetch is
+ *     in flight; the AbortController on the fetch cleans up.
+ *   - Error state: copy explains the list couldn't load and notes
+ *     that publishing will still commit whatever's pending. The
+ *     artist isn't blocked just because the diff preview broke.
+ *   - Loaded state: list of changes. Empty list ("Nothing to
+ *     publish.") is theoretically reachable if the modal opens
+ *     concurrently with someone else discarding draft; we surface
+ *     that instead of silently shipping nothing.
+ *
+ * Mirrors the modal pattern in `PagesPanel.tsx` (click backdrop to
+ * cancel, escape closes when not publishing, focus management via
+ * `autoFocus` on the primary button).
+ */
+
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+
+import type { DraftChange } from "@/lib/draft-changes";
+
+// Match `PagesPanel.tsx`'s modal pattern: capture the
+// previously-focused element on mount, focus the primary action
+// inside the modal, restore focus on unmount. Without this, keyboard
+// / screen-reader users land in the page chrome on close instead of
+// back on the Publish trigger button they came from.
+
+type LoadState =
+  | { kind: "loading" }
+  | { kind: "loaded"; changes: DraftChange[] }
+  | { kind: "error" };
+
+type ResponseBody =
+  | {
+      ok: true;
+      status: { count: number; changes: DraftChange[]; mode: "local" | "github" };
+    }
+  | { ok: false; code?: string; error?: string }
+  | null;
+
+export function PublishConfirmModal({
+  onCancel,
+  onConfirm,
+  isPublishing,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  isPublishing: boolean;
+}) {
+  const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const publishButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    async function load() {
+      try {
+        const res = await fetch("/api/draft-changes", {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const body = (await res.json().catch(() => null)) as ResponseBody;
+        if (ac.signal.aborted) return;
+        if (!res.ok || !body || !body.ok) {
+          setState({ kind: "error" });
+          return;
+        }
+        setState({ kind: "loaded", changes: body.status.changes });
+      } catch (cause) {
+        if (cause instanceof Error && cause.name === "AbortError") return;
+        setState({ kind: "error" });
+      }
+    }
+    void load();
+    return () => ac.abort();
+  }, []);
+
+  // Focus capture / restore. Runs once on mount + once on unmount;
+  // intentionally has no deps so the cleanup fires only when the
+  // modal actually closes.
+  useEffect(() => {
+    triggerRef.current = document.activeElement as HTMLElement | null;
+    publishButtonRef.current?.focus();
+    return () => {
+      triggerRef.current?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !isPublishing) onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isPublishing, onCancel]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="publish-modal-title"
+      onClick={isPublishing ? undefined : onCancel}
+      style={backdropStyle}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
+        <h2 id="publish-modal-title" style={titleStyle}>
+          Publish pending changes
+        </h2>
+        <p style={subtitleStyle}>
+          Publishing commits everything below to your live site and triggers a
+          deploy.
+        </p>
+        <Body state={state} />
+        <div style={buttonRowStyle}>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isPublishing}
+            style={cancelButtonStyle}
+          >
+            Cancel
+          </button>
+          <button
+            ref={publishButtonRef}
+            type="button"
+            onClick={onConfirm}
+            disabled={isPublishing}
+            style={primaryButtonStyle}
+          >
+            {isPublishing ? "Publishing…" : "Publish"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Body({ state }: { state: LoadState }): ReactNode {
+  if (state.kind === "loading") {
+    return <p style={mutedCopyStyle}>Loading the change list…</p>;
+  }
+  if (state.kind === "error") {
+    return (
+      <p style={mutedCopyStyle}>
+        Couldn&apos;t load the change list. Publishing will still commit
+        whatever&apos;s pending on draft.
+      </p>
+    );
+  }
+  if (state.changes.length === 0) {
+    return <p style={mutedCopyStyle}>Nothing to publish.</p>;
+  }
+  return (
+    <ul style={listStyle}>
+      {state.changes.map((c) => (
+        <li key={changeKey(c)} style={listItemStyle}>
+          <ChangeRow change={c} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ChangeRow({ change }: { change: DraftChange }): ReactNode {
+  return (
+    <>
+      <span style={changeLabelStyle}>{describeLabel(change)}</span>
+      <span style={changeStatusStyle}>{change.status}</span>
+    </>
+  );
+}
+
+function describeLabel(c: DraftChange): string {
+  switch (c.kind) {
+    case "item":
+      return `${c.collectionSlug} · ${c.itemSlug}`;
+    case "singleton":
+      return `${c.collectionSlug}`;
+    case "def":
+      return `${c.collectionSlug} · schema`;
+    case "order":
+      return `${c.collectionSlug} · item order`;
+    case "image":
+      return `Image · ${c.imageId}`;
+    case "other":
+      return c.path;
+  }
+}
+
+function changeKey(c: DraftChange): string {
+  // Stable per-change identity for React's key prop. The path is
+  // unique within one diff (one file = one entry, image collapse
+  // notwithstanding — which keeps the original.* path).
+  return c.kind === "image" ? `image:${c.contentSlug}/${c.imageId}` : c.path;
+}
+
+const backdropStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "var(--color-overlay)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 100,
+};
+
+const modalStyle: CSSProperties = {
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius)",
+  padding: "var(--space-6)",
+  width: "min(32rem, calc(100% - var(--space-8)))",
+  maxHeight: "calc(100vh - var(--space-8))",
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-4)",
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-lg)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+};
+
+const subtitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
+
+const mutedCopyStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
+
+const listStyle: CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+  overflowY: "auto",
+  minHeight: 0,
+};
+
+const listItemStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "baseline",
+  gap: "var(--space-3)",
+  padding: "var(--space-2) var(--space-3)",
+  background: "var(--color-surface-subtle)",
+  borderRadius: "var(--radius-sm)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const changeLabelStyle: CSSProperties = {
+  color: "var(--color-text)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const changeStatusStyle: CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-xs)",
+  textTransform: "lowercase",
+  flexShrink: 0,
+};
+
+const buttonRowStyle: CSSProperties = {
+  display: "flex",
+  gap: "var(--space-2)",
+  justifyContent: "flex-end",
+};
+
+const cancelButtonStyle: CSSProperties = {
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  border: "1px solid var(--color-border-strong)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+  borderRadius: "var(--radius-sm)",
+  cursor: "pointer",
+};
+
+const primaryButtonStyle: CSSProperties = {
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  border: "1px solid transparent",
+  background: "var(--color-action)",
+  color: "var(--color-action-fg)",
+  borderRadius: "var(--radius-sm)",
+  cursor: "pointer",
+};

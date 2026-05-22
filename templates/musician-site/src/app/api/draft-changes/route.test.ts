@@ -33,31 +33,40 @@ describe("GET /api/draft-changes", () => {
     expect(getDraftChangesMock).not.toHaveBeenCalled();
   });
 
-  it("returns the underlying status on success", async () => {
+  it("returns the underlying status (count + changes) on success", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
-    getDraftChangesMock.mockResolvedValue({ count: 3, mode: "github" });
+    const changes = [
+      {
+        kind: "item" as const,
+        status: "modified" as const,
+        collectionSlug: "pages",
+        itemSlug: "home",
+        path: "src/content/collections/pages/items/home.json",
+      },
+    ];
+    getDraftChangesMock.mockResolvedValue({ count: 1, changes, mode: "github" });
     const res = await GET();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       ok: true,
-      status: { count: 3, mode: "github" },
+      status: { count: 1, changes, mode: "github" },
     });
   });
 
   it("returns mode=local in dev fallback (no platform configured)", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
-    getDraftChangesMock.mockResolvedValue({ count: 0, mode: "local" });
+    getDraftChangesMock.mockResolvedValue({ count: 0, changes: [], mode: "local" });
     const res = await GET();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       ok: true,
-      status: { mode: "local", count: 0 },
+      status: { mode: "local", count: 0, changes: [] },
     });
   });
 
   it("sets cache-control: no-store so saves don't get masked by a cached response", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
-    getDraftChangesMock.mockResolvedValue({ count: 0, mode: "github" });
+    getDraftChangesMock.mockResolvedValue({ count: 0, changes: [], mode: "github" });
     const res = await GET();
     expect(res.headers.get("cache-control")).toBe("no-store");
   });

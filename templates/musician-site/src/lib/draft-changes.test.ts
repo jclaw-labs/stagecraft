@@ -18,7 +18,7 @@ vi.mock("./publish", async () => {
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
-import { getDraftChanges } from "./draft-changes";
+import { getDraftChanges, parseChanges } from "./draft-changes";
 import { PublishError } from "./publish";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -42,7 +42,9 @@ afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
 });
 
-function compareResponse(files: Array<{ filename: string; status: string }> | null) {
+function compareResponse(
+  files: Array<{ filename: string; status: string; previous_filename?: string }> | null,
+) {
   return { data: { files: files ?? undefined } };
 }
 
@@ -54,15 +56,15 @@ function notFound(): RequestError {
 }
 
 describe("getDraftChanges", () => {
-  it("returns local + count=0 when the platform isn't configured", async () => {
+  it("returns local + count=0 + empty changes when the platform isn't configured", async () => {
     delete process.env.STAGECRAFT_SITE_ID;
     delete process.env.STAGECRAFT_BROKER_SECRET;
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, mode: "local" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "local" });
     expect(fetchPublishTokenMock).not.toHaveBeenCalled();
   });
 
-  it("returns the file count from the compare API", async () => {
+  it("parses item changes from the compare API", async () => {
     compareCommitsWithBasehead.mockResolvedValue(
       compareResponse([
         { filename: "src/content/collections/pages/items/home.json", status: "modified" },
@@ -71,7 +73,31 @@ describe("getDraftChanges", () => {
       ]),
     );
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 3, mode: "github" });
+    expect(result.mode).toBe("github");
+    expect(result.count).toBe(3);
+    expect(result.changes).toEqual([
+      {
+        kind: "item",
+        status: "modified",
+        collectionSlug: "pages",
+        itemSlug: "home",
+        path: "src/content/collections/pages/items/home.json",
+      },
+      {
+        kind: "item",
+        status: "added",
+        collectionSlug: "pages",
+        itemSlug: "about",
+        path: "src/content/collections/pages/items/about.json",
+      },
+      {
+        kind: "item",
+        status: "removed",
+        collectionSlug: "photos",
+        itemSlug: "sunset",
+        path: "src/content/collections/photos/items/sunset.json",
+      },
+    ]);
     expect(compareCommitsWithBasehead).toHaveBeenCalledWith({
       owner: "artist",
       repo: "site",
@@ -82,7 +108,7 @@ describe("getDraftChanges", () => {
   it("returns count=0 when draft and main are in sync (empty files array)", async () => {
     compareCommitsWithBasehead.mockResolvedValue(compareResponse([]));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, mode: "github" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
   });
 
   it("handles the API omitting `files` entirely (treated as zero)", async () => {
@@ -90,7 +116,7 @@ describe("getDraftChanges", () => {
     // any commits between base and head can come back without it.
     compareCommitsWithBasehead.mockResolvedValue(compareResponse(null));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, mode: "github" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
   });
 
   it("returns count=0 when the draft branch doesn't exist yet (fresh site)", async () => {
@@ -100,7 +126,7 @@ describe("getDraftChanges", () => {
     // error.
     compareCommitsWithBasehead.mockRejectedValue(notFound());
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, mode: "github" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
   });
 
   it("re-throws as DraftChangesError(github-failed) on non-404 GitHub errors", async () => {
@@ -134,5 +160,135 @@ describe("getDraftChanges", () => {
       name: "DraftChangesError",
       code: "broker-rejected",
     });
+  });
+});
+
+describe("parseChanges", () => {
+  it("classifies singleton item paths as kind=singleton (not item)", () => {
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/site/items/_singleton.json",
+        status: "modified",
+      },
+    ]);
+    expect(out).toEqual([
+      {
+        kind: "singleton",
+        status: "modified",
+        collectionSlug: "site",
+        path: "src/content/collections/site/items/_singleton.json",
+      },
+    ]);
+  });
+
+  it("classifies _order.json as kind=order", () => {
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/pages/items/_order.json",
+        status: "modified",
+      },
+    ]);
+    expect(out).toEqual([
+      {
+        kind: "order",
+        status: "modified",
+        collectionSlug: "pages",
+        path: "src/content/collections/pages/items/_order.json",
+      },
+    ]);
+  });
+
+  it("classifies _collection.json as kind=def", () => {
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/tour-dates/_collection.json",
+        status: "added",
+      },
+    ]);
+    expect(out).toEqual([
+      {
+        kind: "def",
+        status: "added",
+        collectionSlug: "tour-dates",
+        path: "src/content/collections/tour-dates/_collection.json",
+      },
+    ]);
+  });
+
+  it("collapses image variants to one entry per (contentSlug, imageId)", () => {
+    // One image upload produces seven files (original + 3 widths × 2
+    // formats). Showing seven entries would mislead the artist into
+    // thinking they made seven changes.
+    const id = "abc123def456";
+    const out = parseChanges([
+      { filename: `public/images/header/${id}/original.png`, status: "added" },
+      { filename: `public/images/header/${id}/400.webp`, status: "added" },
+      { filename: `public/images/header/${id}/400.avif`, status: "added" },
+      { filename: `public/images/header/${id}/800.webp`, status: "added" },
+      { filename: `public/images/header/${id}/800.avif`, status: "added" },
+      { filename: `public/images/header/${id}/1600.webp`, status: "added" },
+      { filename: `public/images/header/${id}/1600.avif`, status: "added" },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({
+      kind: "image",
+      status: "added",
+      contentSlug: "header",
+      imageId: id,
+      path: `public/images/header/${id}/original.png`,
+    });
+  });
+
+  it("keeps distinct image ids as separate entries", () => {
+    const out = parseChanges([
+      { filename: "public/images/header/aaa/original.png", status: "added" },
+      { filename: "public/images/header/aaa/400.webp", status: "added" },
+      { filename: "public/images/header/bbb/original.jpg", status: "added" },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out.map((c) => (c.kind === "image" ? c.imageId : null))).toEqual(["aaa", "bbb"]);
+  });
+
+  it("falls through to kind=other for paths outside known shapes", () => {
+    const out = parseChanges([
+      { filename: "package.json", status: "modified" },
+      { filename: "src/some/other/file.ts", status: "added" },
+    ]);
+    expect(out).toEqual([
+      { kind: "other", status: "modified", path: "package.json" },
+      { kind: "other", status: "added", path: "src/some/other/file.ts" },
+    ]);
+  });
+
+  it("preserves previous_filename on renames", () => {
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/pages/items/about.json",
+        status: "renamed",
+        previous_filename: "src/content/collections/pages/items/old-about.json",
+      },
+    ]);
+    expect(out[0]).toMatchObject({
+      kind: "item",
+      status: "renamed",
+      previousPath: "src/content/collections/pages/items/old-about.json",
+    });
+  });
+
+  it("normalizes GitHub's `changed` / `copied` statuses to modified", () => {
+    const out = parseChanges([
+      { filename: "src/content/collections/a/items/x.json", status: "changed" },
+      { filename: "src/content/collections/a/items/y.json", status: "copied" },
+    ]);
+    expect(out.map((c) => c.status)).toEqual(["modified", "modified"]);
+  });
+
+  it("filters out `unchanged` entries (defensive — compare doesn't return these)", () => {
+    const out = parseChanges([
+      { filename: "src/content/collections/a/items/x.json", status: "unchanged" },
+      { filename: "src/content/collections/a/items/y.json", status: "modified" },
+    ]);
+    expect(out).toHaveLength(1);
+    expect((out[0] as { itemSlug: string }).itemSlug).toBe("y");
   });
 });
