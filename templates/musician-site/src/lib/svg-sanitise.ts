@@ -45,9 +45,33 @@ import DOMPurify from "isomorphic-dompurify";
  * surfaces in code review what we care about.
  */
 export function sanitiseSvg(buffer: Buffer): Buffer {
-  const sanitisedString = DOMPurify.sanitize(buffer.toString("utf-8"), {
+  // Defensive: the pipeline only calls this for `originalExt === "svg"`,
+  // but a misconfigured caller passing binary bytes (PNG mis-routed
+  // here, say) would silently produce ASCII-stripped junk. Surface
+  // the misuse as a thrown error instead.
+  const text = buffer.toString("utf-8");
+  if (text.trimStart().length === 0) {
+    throw new Error("sanitiseSvg: empty buffer");
+  }
+  if (!text.trimStart().startsWith("<")) {
+    throw new Error("sanitiseSvg: input does not look like XML/SVG");
+  }
+
+  const sanitisedString = DOMPurify.sanitize(text, {
     USE_PROFILES: { svg: true, svgFilters: true },
+    // `foreignObject` is allowed by DOMPurify's SVG profile but is
+    // an HTML-in-SVG escape hatch (can embed `<iframe>` etc.) — the
+    // ONE meaningful addition this `FORBID_TAGS` list makes over the
+    // profile's defaults. `script` is already forbidden by the SVG
+    // profile and listed here for documentation only.
     FORBID_TAGS: ["script", "foreignObject"],
+    // DOMPurify's SVG profile uses an attribute whitelist that does
+    // NOT include any `on*` event handlers, so these are already
+    // stripped. Listing them here documents intent and surfaces in
+    // code review what we explicitly care about. New handler names
+    // (touchstart, pointermove, wheel, etc.) land at the same
+    // cadence as the spec; the profile's allowlist catches them
+    // automatically, so this list doesn't need to be exhaustive.
     FORBID_ATTR: [
       "onload",
       "onerror",
@@ -56,10 +80,6 @@ export function sanitiseSvg(buffer: Buffer): Buffer {
       "onfocus",
       "onblur",
     ],
-    // Allow the SVG namespace prologue — `<?xml ...>` declarations
-    // and the standard `xmlns` attributes — so editors that pretty-
-    // print these don't accidentally drop the declaration.
-    KEEP_CONTENT: true,
   });
   return Buffer.from(sanitisedString, "utf-8");
 }

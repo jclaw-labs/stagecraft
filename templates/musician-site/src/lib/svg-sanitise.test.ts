@@ -134,3 +134,32 @@ describe("sanitiseSvg — buffer / encoding round-trip", () => {
     expect(out).toContain("日本");
   });
 });
+
+describe("sanitiseSvg — defensive input guards", () => {
+  it("throws on an empty buffer (likely-caller-bug signal)", () => {
+    expect(() => sanitiseSvg(Buffer.alloc(0))).toThrow(/empty buffer/);
+  });
+
+  it("throws on whitespace-only buffer", () => {
+    expect(() => sanitiseSvg(Buffer.from("   \n\t  ", "utf-8"))).toThrow(/empty buffer/);
+  });
+
+  it("throws when the buffer doesn't look like XML/SVG (e.g. binary mis-routed here)", () => {
+    // Pipeline only calls this when originalExt === "svg"; this guard
+    // surfaces a misconfigured caller (a PNG mis-routed through the
+    // sanitiser) as a thrown error rather than silent ASCII-stripped
+    // garbage out of DOMPurify.
+    expect(() => sanitiseSvg(Buffer.from("not xml", "utf-8"))).toThrow(/XML\/SVG/);
+    // PNG magic bytes — clearly binary, definitely not XML.
+    expect(() =>
+      sanitiseSvg(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+    ).toThrow(/XML\/SVG/);
+  });
+
+  it("accepts SVG with leading whitespace / XML prologue", () => {
+    // Many editors prepend an XML declaration; the input check
+    // strips whitespace before the tag-open look.
+    const svg = `\n  <?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`;
+    expect(() => sanitiseSvg(Buffer.from(svg, "utf-8"))).not.toThrow();
+  });
+});
