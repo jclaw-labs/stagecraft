@@ -48,6 +48,8 @@ import { puckConfig } from "./config";
  *
  *   - **Embed** — default render emits a Spotify `<iframe>`; loading
  *     it on every editor mount would hit the network needlessly.
+ *   - **EmbedResponsive** — same reasoning as Embed; default props
+ *     ship a Bandcamp iframe URL.
  *   - **FullscreenSection** — render pins to `minHeight: 80vh` and
  *     flex-centers content; at top-left scaled 0.55 in a 5rem box,
  *     the preview is just empty hero whitespace.
@@ -64,6 +66,7 @@ import { puckConfig } from "./config";
  */
 const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>([
   "Embed",
+  "EmbedResponsive",
   "FullscreenSection",
   "Spacer",
   "Divider",

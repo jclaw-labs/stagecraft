@@ -28,10 +28,12 @@ describe("puckConfig", () => {
     expect(Object.keys(puckConfig.components).sort()).toEqual(
       [
         "Button",
+        "CenteredBlock",
         "Columns",
         "ContactForm",
         "Divider",
         "Embed",
+        "EmbedResponsive",
         "FullscreenSection",
         "Heading",
         "Image",
@@ -364,6 +366,120 @@ describe("puckConfig", () => {
       const html = render("Embed", { html: "<iframe></iframe>" });
       expect(html).not.toMatch(/max-width/);
       expect(html).not.toMatch(/margin:\s*[^;]*auto/);
+    });
+  });
+
+  describe("EmbedResponsive", () => {
+    const BANDCAMP = '<iframe src="https://bandcamp.com/EmbeddedPlayer/x/size=large" width="350" height="470"></iframe>';
+    const SPOTIFY = '<iframe src="https://open.spotify.com/embed/track/x" width="100%" height="352"></iframe>';
+
+    it("wraps the iframe with `aspect-ratio` when an explicit ratio is picked", () => {
+      const html = render("EmbedResponsive", {
+        html: BANDCAMP,
+        aspectRatio: "16/9",
+      });
+      expect(html).toContain('class="stagecraft-embed-responsive"');
+      expect(html).toMatch(/aspect-ratio:\s*16\s*\/\s*9/);
+      expect(html).toContain('<iframe src="https://bandcamp.com');
+    });
+
+    it("derives the ratio from the iframe's intrinsic dimensions in auto mode", () => {
+      // Bandcamp ships `width="350" height="470"` — auto mode reads
+      // those and emits `aspect-ratio: 350 / 470`. The wrapper then
+      // scales while preserving the ratio.
+      const html = render("EmbedResponsive", {
+        html: BANDCAMP,
+        aspectRatio: "auto",
+      });
+      expect(html).toMatch(/aspect-ratio:\s*350\s*\/\s*470/);
+    });
+
+    it("falls back to passthrough when auto can't derive a ratio (no wrapper)", () => {
+      // Spotify's `width="100%"` has no pixel value — wrapper would
+      // collapse to zero height. Passthrough renders the iframe at
+      // its declared size instead.
+      const html = render("EmbedResponsive", {
+        html: SPOTIFY,
+        aspectRatio: "auto",
+      });
+      expect(html).not.toContain("stagecraft-embed-responsive");
+      expect(html).not.toMatch(/aspect-ratio:/);
+      expect(html).toContain('<iframe src="https://open.spotify.com');
+    });
+
+    it("explicit ratio wins over auto-derivable intrinsic dimensions", () => {
+      // Artist explicitly picked 16/9 even though the iframe ships
+      // 350x470 — honour the explicit choice.
+      const html = render("EmbedResponsive", {
+        html: BANDCAMP,
+        aspectRatio: "1/1",
+      });
+      expect(html).toMatch(/aspect-ratio:\s*1\s*\/\s*1/);
+      expect(html).not.toMatch(/aspect-ratio:\s*350/);
+    });
+
+    it("explicit ratio still wraps even when intrinsic dimensions are absent", () => {
+      // Spotify-style snippet with explicit `aspectRatio: 16/9` —
+      // wrap normally; the CSS rule will stretch the iframe to fill.
+      const html = render("EmbedResponsive", {
+        html: SPOTIFY,
+        aspectRatio: "16/9",
+      });
+      expect(html).toContain("stagecraft-embed-responsive");
+      expect(html).toMatch(/aspect-ratio:\s*16\s*\/\s*9/);
+    });
+
+    it("select options match EMBED_ASPECT_RATIOS", () => {
+      const field = puckConfig.components.EmbedResponsive.fields?.aspectRatio;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["auto", "16/9", "4/3", "1/1"]);
+      }
+    });
+  });
+
+  describe("CenteredBlock", () => {
+    function renderCentered(maxWidth: "narrow" | "regular") {
+      const slot = () => "<<children-rendered>>" as unknown as React.ReactElement;
+      return render("CenteredBlock", { maxWidth, children: slot });
+    }
+
+    it("uses --max-width-narrow for `narrow` preset", () => {
+      const html = renderCentered("narrow");
+      expect(html).toMatch(/max-width:\s*var\(--max-width-narrow\)/);
+      expect(html).toContain("&lt;&lt;children-rendered&gt;&gt;");
+    });
+
+    it("uses --max-width-content for `regular` preset", () => {
+      const html = renderCentered("regular");
+      expect(html).toMatch(/max-width:\s*var\(--max-width-content\)/);
+    });
+
+    it("centers horizontally and applies `text-align: center`", () => {
+      const html = renderCentered("narrow");
+      // `margin-inline: auto` centers in any writing-mode (legacy
+      // template used `margin-inline` for the same reason).
+      expect(html).toMatch(/margin-inline:\s*auto/);
+      expect(html).toMatch(/text-align:\s*center/);
+    });
+
+    it("declares `children` as a slot so any block can nest", () => {
+      const fields = (puckConfig.components.CenteredBlock.fields ?? {}) as Record<
+        string,
+        { type?: string }
+      >;
+      expect(fields.children?.type).toBe("slot");
+      // No textarea body — the slot replaces any single-string
+      // content field, just like Section.
+      expect(fields.body).toBeUndefined();
+    });
+
+    it("select options match CENTERED_BLOCK_MAX_WIDTHS", () => {
+      const field = puckConfig.components.CenteredBlock.fields?.maxWidth;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["narrow", "regular"]);
+      }
     });
   });
 
