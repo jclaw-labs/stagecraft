@@ -241,7 +241,14 @@ function defaultSubject(count: number): string {
 function describeLabel(c: DraftChange): string {
   switch (c.kind) {
     case "item":
-      return `${c.collectionSlug} · ${c.itemSlug}`;
+      // For renames where we successfully parsed the source slug, show
+      // "previous → current" so the artist can confirm the change is
+      // the one they meant. Falls through to plain slug when no
+      // previousItemSlug is set (non-renamed change, or rename with a
+      // non-item previous path).
+      return c.previousItemSlug && c.previousItemSlug !== c.itemSlug
+        ? `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`
+        : `${c.collectionSlug} · ${c.itemSlug}`;
     case "singleton":
       return `${c.collectionSlug}`;
     case "def":

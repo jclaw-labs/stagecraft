@@ -260,7 +260,7 @@ describe("parseChanges", () => {
     ]);
   });
 
-  it("preserves previous_filename on renames", () => {
+  it("preserves previous_filename + extracts previousItemSlug on renames", () => {
     const out = parseChanges([
       {
         filename: "src/content/collections/pages/items/about.json",
@@ -272,7 +272,37 @@ describe("parseChanges", () => {
       kind: "item",
       status: "renamed",
       previousPath: "src/content/collections/pages/items/old-about.json",
+      previousItemSlug: "old-about",
     });
+  });
+
+  it("leaves previousItemSlug unset when previous_filename isn't an item path", () => {
+    // Cross-directory move — the previous path doesn't parse as an
+    // item file shape. Keep previousPath as fallback for raw display.
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/pages/items/about.json",
+        status: "renamed",
+        previous_filename: "drafts/about.json",
+      },
+    ]);
+    const item = out[0] as Extract<typeof out[number], { kind: "item" }>;
+    expect(item.previousPath).toBe("drafts/about.json");
+    expect(item.previousItemSlug).toBeUndefined();
+  });
+
+  it("leaves previousItemSlug unset when previous_filename is the singleton/order shape", () => {
+    // These aren't artist-edit renames in any meaningful sense —
+    // singleton filename is fixed (`_singleton.json`), and `_order.json`
+    // isn't an item. Don't synthesise a rename arrow for these.
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/site/items/_singleton.json",
+        status: "renamed",
+        previous_filename: "src/content/collections/site/items/_singleton.json",
+      },
+    ]);
+    expect(out[0].kind).toBe("singleton");
   });
 
   it("normalizes GitHub's `changed` / `copied` statuses to modified", () => {

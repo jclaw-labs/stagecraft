@@ -55,6 +55,12 @@ export type DraftChange =
       itemSlug: string;
       path: string;
       previousPath?: string;
+      // Parsed-from-previousPath slug when GitHub flags this as a
+      // rename AND the previous path matches the item-shape regex.
+      // The modal renders "previousItemSlug → itemSlug" for renames.
+      // Unset when previous path is missing or in a non-item shape
+      // (cross-directory move, etc.).
+      previousItemSlug?: string;
     }
   | {
       kind: "singleton";
@@ -142,7 +148,19 @@ function parseChange(file: {
       itemSlug: slug,
       path,
     };
-    if (file.previous_filename) out.previousPath = file.previous_filename;
+    if (file.previous_filename) {
+      out.previousPath = file.previous_filename;
+      // Best-effort parse so the modal can render the source slug
+      // for renames. Non-item-shaped previous paths (cross-directory
+      // moves, etc.) flow through as `previousPath` only.
+      const prevItemMatch = file.previous_filename.match(ITEM_PATH);
+      if (prevItemMatch) {
+        const [, , prevSlug] = prevItemMatch;
+        if (prevSlug !== SINGLETON_ITEM_SLUG && prevSlug !== ORDER_FILE_NAME) {
+          out.previousItemSlug = prevSlug;
+        }
+      }
+    }
     return out;
   }
 
