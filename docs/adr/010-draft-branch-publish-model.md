@@ -482,14 +482,6 @@ The publish-token endpoint surface is unchanged.
   affordance or paging via `ahead_by` + per-commit walks.
   *Trigger:* an artist reports the count looks wrong.
 
-- **Cleaner error messages in `lib/draft-changes`.** Both error
-  paths use `String(cause)`, which yields `"RequestError: Not
-  Found"` rather than just the message. The route handler hides
-  these from the indicator, so it's only visible in dev logs.
-  Fix is `cause instanceof Error ? cause.message : String(cause)`.
-  *Trigger:* the first time someone debugs a draft-changes error
-  from logs.
-
 - **Cross-request broker-token cache.** Every admin nav re-mints a
   fresh GitHub App installation token (`fetchPublishToken`). The
   read-store dedupes per-request via `React.cache`, but each new

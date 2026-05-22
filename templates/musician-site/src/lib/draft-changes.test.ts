@@ -138,6 +138,21 @@ describe("getDraftChanges", () => {
     await expect(getDraftChanges()).rejects.toMatchObject({
       name: "DraftChangesError",
       code: "github-failed",
+      // The message extracts `.message` rather than `String(cause)` —
+      // "Internal Server Error" instead of "HttpError: Internal Server
+      // Error". The compare-path prefix is preserved for context.
+      message: "compare main...draft: Internal Server Error",
+    });
+  });
+
+  it("uses cause.message (not the toString) in the github-failed bubble", async () => {
+    // Generic Error, not a RequestError. `String(new Error("boom"))`
+    // would yield "Error: boom"; we want just "boom".
+    compareCommitsWithBasehead.mockRejectedValue(new Error("ENOTFOUND github.com"));
+    await expect(getDraftChanges()).rejects.toMatchObject({
+      name: "DraftChangesError",
+      code: "github-failed",
+      message: "compare main...draft: ENOTFOUND github.com",
     });
   });
 

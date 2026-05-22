@@ -229,6 +229,19 @@ export class DraftChangesError extends Error {
   }
 }
 
+/**
+ * Pull the most-useful one-liner out of an unknown thrown value
+ * without baking the Error's name into the message (which
+ * `String(cause)` would do: `"RequestError: Not Found"` rather
+ * than just `"Not Found"`). The route handler hides these from
+ * the indicator, so the noise only ever lands in dev logs — but
+ * a clean log is cheap and helps the next person debugging a
+ * `github-failed` 5xx.
+ */
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChanges> {
   if (!isPlatformConfigured(env)) {
     return { count: 0, changes: [], mode: "local" };
@@ -245,7 +258,7 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
         throw new DraftChangesError(cause.code, cause.message);
       }
     }
-    throw new DraftChangesError("github-failed", String(cause));
+    throw new DraftChangesError("github-failed", errorMessage(cause));
   }
 
   const octokit = new Octokit({ auth: token });
@@ -271,7 +284,7 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
     }
     throw new DraftChangesError(
       "github-failed",
-      `compare ${env.branch}...${DRAFT_BRANCH}: ${String(cause)}`,
+      `compare ${env.branch}...${DRAFT_BRANCH}: ${errorMessage(cause)}`,
     );
   }
 }
