@@ -63,11 +63,13 @@ test.describe("welcome wizard", () => {
     // POST /api/welcome/complete + client-side router.replace() →
     // we land on /admin/pages with the seeded Home page visible.
     await expect(page).toHaveURL(/\/admin\/pages$/);
-    // PagesPanel renders one row per page, each with a link into the
-    // editor at /admin/pages/<slug>. Lock onto the link's href so we
-    // don't accidentally match incidental "Home" text elsewhere on
-    // the page.
-    await expect(page.locator('a[href="/admin/pages/home"]')).toBeVisible();
+    // PagesPanel renders TWO links per row both pointing at
+    // /admin/pages/<slug>: the page title and the row's Edit button.
+    // Either one being visible proves the seeded row landed; pick the
+    // first match to satisfy Playwright's strict-mode locator.
+    await expect(
+      page.locator('a[href="/admin/pages/home"]').first(),
+    ).toBeVisible();
   });
 
   test("a completed site bypasses the wizard on /admin", async ({ page }) => {
