@@ -964,6 +964,10 @@ describe("puckConfig", () => {
       expect(html).toContain('src="/a/track.mp3"');
       // Not the static icon tile.
       expect(html).not.toContain('data-testid="card-file-tile"');
+      // The player must NOT use the image sizing class — that global
+      // rule forces height:100%, which stretches the thin audio bar in
+      // equal-height card rows. Intrinsic size only.
+      expect(html).not.toContain("stagecraft-card-media");
     });
 
     it("renders an inline <video> player for a video fileUrl", () => {
@@ -975,6 +979,10 @@ describe("puckConfig", () => {
       expect(html).toMatch(/<video[^>]*controls/);
       expect(html).toContain('src="/a/promo.mp4"');
       expect(html).not.toContain('data-testid="card-file-tile"');
+      // Video renders at intrinsic aspect — NOT the image's forced 4:3
+      // box (which would letterbox a 16:9 clip or clip a tall one's
+      // controls). The image sizing class must be absent.
+      expect(html).not.toContain("stagecraft-card-media");
     });
 
     it("renders a static icon tile (not a player) for pdf / other files", () => {

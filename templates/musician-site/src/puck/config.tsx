@@ -568,9 +568,17 @@ function CardFilePreview({
 }): ReactNode {
   const kind = inferCardMediaKind(fileUrl);
 
+  // Audio + video render at their intrinsic size in a plain rounded
+  // wrapper — NOT the `stagecraft-card-media` class / `cardMediaStyle`
+  // the image + icon-tile use. That class carries a global
+  // `width/height: 100%` rule (globals.css) and `cardMediaStyle`
+  // forces a 4:3 box for horizontal cards; both are wrong for media
+  // players: 4:3 + a 16:9 video letterboxes, and a taller-than-4:3
+  // clip overflows + clips its own controls (unplayable). Intrinsic
+  // aspect keeps the controls visible and the framing intact.
   if (kind === "audio") {
     return (
-      <div className="stagecraft-card-media" style={cardPlayerWrapperStyle}>
+      <div style={cardPlayerWrapperStyle}>
         <audio
           controls
           preload="metadata"
@@ -584,7 +592,7 @@ function CardFilePreview({
 
   if (kind === "video") {
     return (
-      <div className="stagecraft-card-media" style={cardMediaStyle(orientation)}>
+      <div style={cardPlayerWrapperStyle}>
         <video
           controls
           preload="metadata"
