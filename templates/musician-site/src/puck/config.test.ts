@@ -954,16 +954,61 @@ describe("puckConfig", () => {
       expect(html).toContain("press-kit.pdf");
     });
 
-    it("infers the tile kind from the fileUrl extension (audio / video / file)", () => {
-      expect(
-        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/track.mp3" })),
-      ).toMatch(/data-media-kind="audio"/);
-      expect(
-        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/promo.mp4" })),
-      ).toMatch(/data-media-kind="video"/);
-      expect(
-        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/stems.zip" })),
-      ).toMatch(/data-media-kind="file"/);
+    it("renders an inline <audio> player for an audio fileUrl", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "Demo", image: null, fileUrl: "/a/track.mp3" }),
+      );
+      expect(html).toContain('data-testid="card-audio"');
+      expect(html).toMatch(/<audio[^>]*controls/);
+      expect(html).toContain('src="/a/track.mp3"');
+      // Not the static icon tile.
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // The player must NOT use the image sizing class — that global
+      // rule forces height:100%, which stretches the thin audio bar in
+      // equal-height card rows. Intrinsic size only.
+      expect(html).not.toContain("stagecraft-card-media");
+    });
+
+    it("renders an inline <video> player for a video fileUrl", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "Promo", image: null, fileUrl: "/a/promo.mp4" }),
+      );
+      expect(html).toContain('data-testid="card-video"');
+      expect(html).toMatch(/<video[^>]*controls/);
+      expect(html).toContain('src="/a/promo.mp4"');
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Video renders at intrinsic aspect — NOT the image's forced 4:3
+      // box (which would letterbox a 16:9 clip or clip a tall one's
+      // controls). The image sizing class must be absent.
+      expect(html).not.toContain("stagecraft-card-media");
+    });
+
+    it("renders a static icon tile (not a player) for pdf / other files", () => {
+      const pdf = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/a/deck.pdf" }),
+      );
+      expect(pdf).toMatch(/data-media-kind="pdf"/);
+      expect(pdf).not.toContain('data-testid="card-audio"');
+
+      const zip = render(
+        "Card",
+        cardProps({ title: "Stems", image: null, fileUrl: "/a/stems.zip" }),
+      );
+      expect(zip).toMatch(/data-media-kind="file"/);
+    });
+
+    it("inline players only appear for non-link cards (gated on !href, like the tile)", () => {
+      // A link card suppresses the whole media-from-fileUrl branch, so
+      // an interactive player never lands inside the card-link <a>.
+      const html = render(
+        "Card",
+        cardProps({ title: "Demo", image: null, fileUrl: "/a/track.mp3", href: "/listen" }),
+      );
+      expect(html).not.toContain('data-testid="card-audio"');
+      expect((html.match(/<a /g) ?? [])).toHaveLength(1);
     });
 
     it("prefers the image over the file tile when both are present", () => {
