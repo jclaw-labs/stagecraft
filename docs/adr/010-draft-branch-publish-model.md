@@ -413,13 +413,19 @@ The publish-token endpoint surface is unchanged.
 
 ### Publish UX
 
-- **Diff preview: richer item labels.** The publish modal shows
-  collection slugs + item slugs ("pages · about"). The artist's
-  display name for the item (e.g., the `slugSourceFieldId`'s
-  value — "About Us") would read better but needs a per-item
-  read at modal-open time.
-  *Trigger:* artists routinely confuse "about" with "about-us"
-  or similar near-duplicate slugs.
+- **Diff preview: richer item labels — shipped.** The publish modal
+  now shows the artist's display name ("pages · About Us") instead of
+  the slug, via an opt-in `/api/draft-changes?labels=1` read that
+  resolves each item's `slugSourceFieldId` value server-side
+  (`enrichItemLabels` + the shared `itemDisplayLabel` helper). The
+  lightweight chrome reads (indicator + per-row badges) skip labels so
+  they don't pay the per-item reads. Renames keep slugs
+  ("pages · about → about-us") — the slug move is the point there.
+  Remaining cost: a publish near the 300-file compare cap does up to
+  ~300 parallel item reads on modal-open (fine for typical publishes;
+  the modal shows a loading state).
+  *Trigger:* the per-item reads show up as slow modal opens on large
+  publishes — then batch the reads or cap enrichment.
 
 - **Per-item Publish (publish A but not B).** Today's model is
   "publish everything pending." Per-item Publish would need

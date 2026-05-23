@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
-import { DraftChangesError, getDraftChanges } from "@/lib/draft-changes";
+import { getRequestReadStore } from "@/lib/collections";
+import { DraftChangesError, enrichItemLabels, getDraftChanges } from "@/lib/draft-changes";
 
 /**
  * GET /api/draft-changes — "what's pending on draft?"
@@ -17,7 +18,7 @@ import { DraftChangesError, getDraftChanges } from "@/lib/draft-changes";
  * happens server-side; nothing about token state leaks to the
  * client.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -25,8 +26,17 @@ export async function GET() {
 
   try {
     const status = await getDraftChanges();
+    // `?labels=1` is the Publish modal asking for human-facing item
+    // names ("About Us" vs "about"); it costs a per-item read of the
+    // draft store, so the lightweight indicator + badge reads don't
+    // pass it. No-op when there's nothing to read (local mode / empty).
+    const wantsLabels = new URL(request.url).searchParams.get("labels") === "1";
+    const enriched =
+      wantsLabels && status.mode === "github" && status.changes.length > 0
+        ? { ...status, changes: await enrichItemLabels(status.changes, await getRequestReadStore()) }
+        : status;
     return NextResponse.json(
-      { ok: true, status },
+      { ok: true, status: enriched },
       // No-store so a save → navigate sequence isn't served a stale
       // count out of the browser's HTTP cache. The client also sets
       // `cache: "no-store"` on its fetch — both belts.

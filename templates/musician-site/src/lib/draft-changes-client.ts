@@ -56,9 +56,9 @@ type ResponseBody =
 
 let inFlight: Promise<DraftChangesResult> | null = null;
 
-async function requestDraftChanges(): Promise<DraftChangesResult> {
+async function requestDraftChanges(url: string): Promise<DraftChangesResult> {
   try {
-    const res = await fetch("/api/draft-changes", { cache: "no-store" });
+    const res = await fetch(url, { cache: "no-store" });
     const body = (await res.json().catch(() => null)) as ResponseBody;
     if (!res.ok || !body || !body.ok) return { ok: false };
     return {
@@ -77,17 +77,30 @@ async function requestDraftChanges(): Promise<DraftChangesResult> {
 
 /**
  * Read the draft-vs-main diff, sharing one in-flight request with any
- * other caller that asks before it resolves.
+ * other caller that asks before it resolves. Used by the lightweight
+ * chrome (sidebar indicator + per-row badges).
  */
 export function fetchDraftChangesShared(): Promise<DraftChangesResult> {
   if (inFlight) return inFlight;
-  const promise = requestDraftChanges().finally(() => {
+  const promise = requestDraftChanges("/api/draft-changes").finally(() => {
     // Drop as soon as it settles so the next read is fresh. Guard
     // against clobbering a newer request that started in the meantime.
     if (inFlight === promise) inFlight = null;
   });
   inFlight = promise;
   return promise;
+}
+
+/**
+ * Read the diff with human-facing item labels resolved server-side
+ * (`?labels=1`). For the Publish modal, which shows item names rather
+ * than slugs. Not coalesced with `fetchDraftChangesShared` — it's a
+ * heavier, different read (per-item store reads) with a single caller
+ * (one open modal), and the artist wants current state before
+ * publishing anyway.
+ */
+export function fetchDraftChangesWithLabels(): Promise<DraftChangesResult> {
+  return requestDraftChanges("/api/draft-changes?labels=1");
 }
 
 /** Test seam: forget any in-flight reference so cases don't bleed. */

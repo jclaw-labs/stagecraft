@@ -27,6 +27,7 @@ import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
 import { getSession } from "@/lib/auth";
 import {
   getRequestReadStore,
+  itemDisplayLabel,
   SINGLETON_ITEM_SLUG,
   slugSchema,
 } from "@/lib/collections";
@@ -140,11 +141,7 @@ export default async function CollectionView({ params }: { params: Promise<Param
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {items.map((item) => {
-              const labelValue = def.slugSourceFieldId && item.values[def.slugSourceFieldId];
-              const label =
-                labelValue && "value" in labelValue && typeof labelValue.value === "string"
-                  ? labelValue.value
-                  : item.slug;
+              const label = itemDisplayLabel(def, item);
               return (
                 <li
                   key={item.slug}

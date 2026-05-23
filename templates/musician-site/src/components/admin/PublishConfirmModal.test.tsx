@@ -90,6 +90,50 @@ describe("PublishConfirmModal", () => {
     });
   });
 
+  it("shows the item display name when the labeled read resolves one", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 1,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "modified" as const,
+              collectionSlug: "pages",
+              itemSlug: "about",
+              path: "src/content/collections/pages/items/about.json",
+              displayName: "About Us",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · About Us")).toBeTruthy();
+    });
+    expect(screen.queryByText("pages · about")).toBeNull();
+  });
+
+  it("falls back to the slug when no display name is present", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 1, changes: [sampleChanges[0]], mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · about")).toBeTruthy();
+    });
+  });
+
   it("includes the source collection in the label for cross-collection renames", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

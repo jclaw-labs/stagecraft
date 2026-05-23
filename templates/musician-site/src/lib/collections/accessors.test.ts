@@ -20,8 +20,9 @@ import {
   getTextOrNull,
   getUrl,
   hasField,
+  itemDisplayLabel,
 } from "./accessors";
-import type { Item } from "./schema";
+import type { CollectionDef, Item } from "./schema";
 import { asImageId } from "../image-types";
 
 import { FIXTURE_TIMESTAMP } from "./test-fixtures";
@@ -150,5 +151,42 @@ describe("hasField", () => {
   it("reports presence regardless of type", () => {
     expect(hasField(makeItem({ f: { type: "text", value: "x" } }), "f")).toBe(true);
     expect(hasField(makeItem({}), "f")).toBe(false);
+  });
+});
+
+describe("itemDisplayLabel", () => {
+  const defWithSource = { slugSourceFieldId: "f" } as unknown as CollectionDef;
+  const defNoSource = { slugSourceFieldId: null } as unknown as CollectionDef;
+
+  it("returns the slugSource text value", () => {
+    expect(itemDisplayLabel(defWithSource, makeItem({ f: { type: "text", value: "About Us" } }))).toBe(
+      "About Us",
+    );
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(itemDisplayLabel(defWithSource, makeItem({ f: { type: "text", value: "  Tour  " } }))).toBe(
+      "Tour",
+    );
+  });
+
+  it("falls back to the slug when the collection has no slug source", () => {
+    expect(itemDisplayLabel(defNoSource, makeItem({ f: { type: "text", value: "x" } }))).toBe("test");
+  });
+
+  it("falls back to the slug when the field is missing", () => {
+    expect(itemDisplayLabel(defWithSource, makeItem({}))).toBe("test");
+  });
+
+  it("falls back to the slug when the value is empty / whitespace-only", () => {
+    expect(itemDisplayLabel(defWithSource, makeItem({ f: { type: "text", value: "   " } }))).toBe(
+      "test",
+    );
+  });
+
+  it("falls back to the slug (never throws) on a non-text field — schema drift", () => {
+    expect(itemDisplayLabel(defWithSource, makeItem({ f: { type: "number", value: 7 } }))).toBe(
+      "test",
+    );
   });
 });
