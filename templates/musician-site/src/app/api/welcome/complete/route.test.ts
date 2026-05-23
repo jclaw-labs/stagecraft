@@ -26,8 +26,17 @@ vi.mock("@/lib/publish", async () => {
 
 import { POST } from "./route";
 import { getRequestReadStore, writeCollectionDef } from "@/lib/collections";
-import { PREBAKED_COLLECTIONS, siteCollectionDef } from "@/lib/collections/seeds";
-import { siteConfigFromItem } from "@/lib/collections/migrate-from-legacy-values";
+import {
+  appearanceCollectionDef,
+  headerCollectionDef,
+  PREBAKED_COLLECTIONS,
+  siteCollectionDef,
+} from "@/lib/collections/seeds";
+import {
+  appearanceFromItem,
+  headerConfigFromItem,
+  siteConfigFromItem,
+} from "@/lib/collections/migrate-from-legacy-values";
 import { __resetBootstrapCacheForTests } from "@/lib/content";
 
 let TMP_CONTENT_DIR: string;
@@ -110,6 +119,39 @@ describe("POST /api/welcome/complete — happy path", () => {
     // The starter page landed in the pages collection.
     const pages = await store.listItemSlugs("pages");
     expect(pages.length).toBeGreaterThan(0);
+  });
+});
+
+describe("POST /api/welcome/complete — theme", () => {
+  it("applies the chosen theme's palette + header style", async () => {
+    const res = await POST(jsonReq({ ...VALID_BODY, theme: "midnight" }));
+    expect(res.status).toBe(200);
+
+    const store = await getRequestReadStore();
+    const appearance = appearanceFromItem(
+      await store.readSingleton("appearance", appearanceCollectionDef),
+    );
+    const header = headerConfigFromItem(
+      await store.readSingleton("header", headerCollectionDef),
+    );
+
+    // The Midnight palette landed — not the back-compat accent swap.
+    expect(appearance.colors.background).toBe("#0b0b12");
+    expect(appearance.colors.accent).not.toBe(VALID_BODY.primaryColor);
+    expect(appearance.typography.bodyFont).toBe("Space Grotesk");
+    // ...and its header style.
+    expect(header.headerLayout).toBe("logo-center-nav-below");
+  });
+
+  it("falls back to the accent-swap path when no theme is given", async () => {
+    const res = await POST(jsonReq(VALID_BODY));
+    expect(res.status).toBe(200);
+
+    const store = await getRequestReadStore();
+    const appearance = appearanceFromItem(
+      await store.readSingleton("appearance", appearanceCollectionDef),
+    );
+    expect(appearance.colors.accent).toBe(VALID_BODY.primaryColor);
   });
 });
 

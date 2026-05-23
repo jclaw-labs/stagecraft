@@ -5,8 +5,10 @@
  *
  *   - site singleton: artistName, siteTitle (derived), copyrightName
  *     (derived), and hasCompletedFirstRun=true
- *   - appearance singleton: primary color → accent
- *   - header singleton: wordmark (when provided)
+ *   - appearance singleton: the chosen theme's palette + typography,
+ *     or — with no theme — primary color → accent
+ *   - header singleton: the chosen theme's header style + wordmark
+ *     (when provided), or — with no theme — wordmark only
  *   - pages collection: a starter "Home" item built from the wizard's
  *     first-page title (atmospheric-demo body)
  *   - tour-dates collection: two illustrative items (if the collection
@@ -51,6 +53,8 @@ import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { imageMetadataSchema } from "@/lib/image-types";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
 import { PublishError, publish, type PublishTarget } from "@/lib/publish";
+import { resolveTheme, THEME_IDS } from "@/lib/theme-presets";
+import type { Appearance, HeaderConfig } from "@/lib/site-config-types";
 
 import { publishItemTarget, upsertSingletonItem } from "../_shared";
 
@@ -61,6 +65,10 @@ const requestSchema = z.object({
   primaryColor: z.string().min(1, "Primary color is required"),
   wordmark: imageMetadataSchema.nullable().default(null),
   firstPageTitle: z.string().min(1, "First page title is required"),
+  // Optional curated theme. When present it supplies the appearance
+  // palette + header style; absent, the legacy "accent = primaryColor"
+  // path runs (PR 2 adds the picker that sends this).
+  theme: z.enum(THEME_IDS).optional(),
 });
 
 function err(status: number, error: string) {
@@ -82,7 +90,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return err(400, parsed.error.message);
   }
-  const { artistName, primaryColor, wordmark, firstPageTitle } = parsed.data;
+  const { artistName, primaryColor, wordmark, firstPageTitle, theme } = parsed.data;
 
   const store = await getRequestReadStore();
 
@@ -114,22 +122,32 @@ export async function POST(request: Request) {
   );
 
   // ---------------------------------------------------------------
-  // Appearance singleton — swap the accent color, keep everything else.
+  // Appearance + header singletons. A chosen `theme` applies a full
+  // preset palette + header style; absent a theme (the "custom colour"
+  // / back-compat path) we swap only the accent and leave the header
+  // untouched apart from the wordmark. Either way the artist-owned
+  // wordmark survives.
   // ---------------------------------------------------------------
   const existingAppearanceItem = await store.readSingleton("appearance", appearanceCollectionDef);
-  const nextAppearance = appearanceFromItem(existingAppearanceItem);
-  nextAppearance.colors = { ...nextAppearance.colors, accent: primaryColor };
+  const existingHeaderItem = await store.readSingleton("header", headerCollectionDef);
+  const existingHeaderConfig = headerConfigFromItem(existingHeaderItem);
+
+  let nextAppearance: Appearance;
+  let nextHeader: HeaderConfig;
+  if (theme) {
+    const resolved = resolveTheme(theme, existingHeaderConfig);
+    nextAppearance = resolved.appearance;
+    nextHeader = { ...resolved.header, wordmark: wordmark ?? resolved.header.wordmark };
+  } else {
+    nextAppearance = appearanceFromItem(existingAppearanceItem);
+    nextAppearance.colors = { ...nextAppearance.colors, accent: primaryColor };
+    nextHeader = { ...existingHeaderConfig, wordmark: wordmark ?? null };
+  }
+
   const appearanceItem = upsertSingletonItem(
     existingAppearanceItem,
     appearanceToItemValues(nextAppearance),
   );
-
-  // ---------------------------------------------------------------
-  // Header singleton — set wordmark if provided.
-  // ---------------------------------------------------------------
-  const existingHeaderItem = await store.readSingleton("header", headerCollectionDef);
-  const nextHeader = headerConfigFromItem(existingHeaderItem);
-  nextHeader.wordmark = wordmark ?? null;
   const headerItem = upsertSingletonItem(
     existingHeaderItem,
     headerConfigToItemValues(nextHeader),
