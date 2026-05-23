@@ -19,6 +19,11 @@ import {
   type NewsletterAdditionalField,
   type NewsletterService,
 } from "@/components/newsletter-types";
+import {
+  cardMediaFilename,
+  inferCardMediaKind,
+  type CardMediaKind,
+} from "@/lib/card-media";
 import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
 import type { ImageMetadata } from "@/lib/image-types";
 
@@ -538,6 +543,96 @@ function cardMediaStyle(orientation: CardOrientation): CSSProperties {
   };
 }
 
+/**
+ * Media-slot preview for a Card that has no image but carries a
+ * `fileUrl` — a downloadable asset (press-kit PDF, audio track, promo
+ * video, zip). Renders a file-type icon tile inferred from the URL
+ * extension so a download-list / press-kit card shows *something* in
+ * the media slot instead of a bare title.
+ *
+ * Deliberately non-interactive (a static glyph + filename, not an
+ * `<audio>` / `<video>` player): the tile must be valid inside a
+ * link-card's `<a>` wrapper, where interactive content would be both
+ * invalid HTML and a click-target conflict with the card link. Inline
+ * players for non-link cards are a possible future enhancement —
+ * tracked in docs/follow-ups.md.
+ */
+function CardFilePreview({
+  fileUrl,
+  orientation,
+}: {
+  fileUrl: string;
+  orientation: CardOrientation;
+}): ReactNode {
+  const kind = inferCardMediaKind(fileUrl);
+  const filename = cardMediaFilename(fileUrl);
+  return (
+    <div className="stagecraft-card-media" style={cardMediaStyle(orientation)}>
+      <div style={cardFileTileStyle} data-testid="card-file-tile" data-media-kind={kind}>
+        <CardFileGlyph kind={kind} />
+        <span style={cardFileNameStyle}>{filename}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-kind line glyph for the file tile. Stroke-only, `currentColor`,
+ * so it inherits the tile's muted text colour. `aria-hidden` — the
+ * filename text beside it carries the accessible meaning.
+ */
+function CardFileGlyph({ kind }: { kind: CardMediaKind }): ReactNode {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.25,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    style: cardFileGlyphStyle,
+    "aria-hidden": true,
+  };
+  if (kind === "audio") {
+    // Music note.
+    return (
+      <svg {...common}>
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    );
+  }
+  if (kind === "video") {
+    // Play triangle in a rounded frame.
+    return (
+      <svg {...common}>
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  // pdf + file share the document outline; pdf stamps a "PDF" label.
+  return (
+    <svg {...common}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      {kind === "pdf" ? (
+        <text
+          x="12"
+          y="17"
+          textAnchor="middle"
+          fontSize="5.5"
+          fill="currentColor"
+          stroke="none"
+          fontWeight="700"
+        >
+          PDF
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
 const cardBodyStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -566,6 +661,37 @@ const cardEyebrowStyle: CSSProperties = {
   color: "var(--color-text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
+};
+
+const cardFileTileStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-2)",
+  height: "100%",
+  // Vertical cards have no fixed media height (the slot normally
+  // takes the image's intrinsic aspect); a min-height keeps the tile
+  // visible. Horizontal cards constrain the wrapper to 4:3, so the
+  // tile fills that.
+  minHeight: "var(--space-20)",
+  padding: "var(--space-4)",
+  background: "var(--color-surface-subtle)",
+  color: "var(--color-text-muted)",
+  textAlign: "center",
+};
+
+const cardFileGlyphStyle: CSSProperties = {
+  width: "var(--space-12)",
+  height: "var(--space-12)",
+  flex: "0 0 auto",
+};
+
+const cardFileNameStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  // Long filenames shouldn't blow out the tile width; wrap + clamp.
+  wordBreak: "break-word",
+  maxWidth: "100%",
 };
 
 const cardDownloadRowStyle: CSSProperties = {
@@ -1211,6 +1337,17 @@ export const puckConfig: Config<
                   }
                 />
               </div>
+            ) : fileUrl && !href ? (
+              // No image, but a downloadable file is attached: show a
+              // file-type icon tile in the media slot (press-kit /
+              // download-list parity). The download button renders in
+              // the body below. Both are gated on `!href`: when the
+              // whole card is a link, the download is suppressed (no
+              // nested anchors), so a tile captioned with the filename
+              // would advertise a download the card can't deliver —
+              // clicking navigates to href, not the file. Pairing the
+              // tile with the download keeps the affordance honest.
+              <CardFilePreview fileUrl={fileUrl} orientation={orientation} />
             ) : null}
             <div style={cardBodyStyle}>
               {eyebrow ? <div style={cardEyebrowStyle}>{eyebrow}</div> : null}
