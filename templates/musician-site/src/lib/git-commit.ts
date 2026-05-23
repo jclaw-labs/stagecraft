@@ -523,3 +523,136 @@ export async function resetBranchTo(
 
   return { resetFromSha, toSha, alreadyInSync: false };
 }
+
+// ---------------------------------------------------------------------------
+// commitSelectedPathsInto — publish a subset of one branch's paths onto
+// another (ADR-012, per-item Publish)
+// ---------------------------------------------------------------------------
+
+export type CommitSelectedPathsIntoArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** Source branch to copy blob content from (the editor's draft). */
+  fromBranch: string;
+  /** Target branch to commit onto (the published branch, `main`). */
+  toBranch: string;
+  /**
+   * Repo paths to publish. A path that exists on `fromBranch` is copied
+   * by reference to its existing blob SHA (binary-safe, no re-upload); a
+   * path absent on `fromBranch` is deleted from `toBranch` (it was
+   * removed on `fromBranch`). Renames pass both paths — the new one is
+   * copied, the old one deleted.
+   */
+  paths: string[];
+  message: string;
+  author: { name: string; email: string };
+};
+
+export type CommitSelectedPathsIntoResult = {
+  /** SHA of the new commit on `toBranch`. */
+  commitSha: string;
+  /** True when `paths` was empty — no commit was created. */
+  alreadyInSync: boolean;
+};
+
+/**
+ * Build one commit on `toBranch` whose tree is `toBranch`'s tree with
+ * only `paths` overlaid from `fromBranch` (added/modified by blob-SHA
+ * reference, removed via `sha: null`). The source blob SHAs are resolved
+ * once up front (the source branch isn't what we race on); the
+ * `updateRef toBranch` uses the same stale-ref retry as `commitFiles`,
+ * so a concurrent publish to `toBranch` rebuilds on the new HEAD.
+ *
+ * Pure over the Octokit interface — no `[skip ci]`, since this commit is
+ * a publish (it should trigger the deploy).
+ */
+export async function commitSelectedPathsInto(
+  args: CommitSelectedPathsIntoArgs,
+): Promise<CommitSelectedPathsIntoResult> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, fromBranch, toBranch, paths, message, author } = args;
+
+  if (paths.length === 0) {
+    const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
+    return { commitSha: toRef.data.object.sha, alreadyInSync: true };
+  }
+
+  // Resolve the source branch's blob SHAs for the selected paths. Hoisted
+  // out of the retry loop — we only retry the target ref.
+  const fromRef = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
+  const fromCommit = await octokit.git.getCommit({
+    owner,
+    repo,
+    commit_sha: fromRef.data.object.sha,
+  });
+  const fromTree = await octokit.git.getTree({
+    owner,
+    repo,
+    tree_sha: fromCommit.data.tree.sha,
+    recursive: "true",
+  });
+  const shaByPath = new Map<string, string>();
+  for (const entry of fromTree.data.tree) {
+    if (entry.type === "blob" && entry.path && entry.sha) {
+      shaByPath.set(entry.path, entry.sha);
+    }
+  }
+
+  type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
+  const tree: TreeEntry[] = paths.map((path) => ({
+    path,
+    mode: "100644" as const,
+    type: "blob" as const,
+    // Present on the source → copy its blob; absent → delete from target.
+    sha: shaByPath.get(path) ?? null,
+  }));
+
+  let lastParentSha = "";
+  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
+    const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
+    const toSha = toRef.data.object.sha;
+    lastParentSha = toSha;
+
+    const toCommit = await octokit.git.getCommit({ owner, repo, commit_sha: toSha });
+
+    const createdTree = await octokit.git.createTree({
+      owner,
+      repo,
+      base_tree: toCommit.data.tree.sha,
+      tree,
+    } as unknown as Parameters<typeof octokit.git.createTree>[0]);
+
+    const commit = await octokit.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: createdTree.data.sha,
+      parents: [toSha],
+      author,
+    });
+
+    try {
+      await octokit.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${toBranch}`,
+        sha: commit.data.sha,
+      });
+      return { commitSha: commit.data.sha, alreadyInSync: false };
+    } catch (cause) {
+      if (!isStaleRefError(cause)) throw cause;
+      if (attempt === MAX_COMMIT_ATTEMPTS) {
+        throw new ConcurrentEditError(
+          `heads/${toBranch}`,
+          MAX_COMMIT_ATTEMPTS,
+          lastParentSha,
+          cause,
+        );
+      }
+      // Else: re-fetch toBranch HEAD and rebuild on the new base.
+    }
+  }
+
+  throw new Error("commitSelectedPathsInto: retry loop exited without returning or throwing");
+}

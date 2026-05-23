@@ -5,12 +5,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 const {
   commitFilesMock,
+  commitSelectedPathsIntoMock,
   ensureBranchExistsMock,
   mergeBranchIntoMock,
   resetBranchToMock,
   squashBranchIntoMock,
 } = vi.hoisted(() => ({
   commitFilesMock: vi.fn(),
+  commitSelectedPathsIntoMock: vi.fn(),
   ensureBranchExistsMock: vi.fn(),
   mergeBranchIntoMock: vi.fn(),
   resetBranchToMock: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("./git-commit", async () => {
   return {
     ...actual,
     commitFiles: commitFilesMock,
+    commitSelectedPathsInto: commitSelectedPathsIntoMock,
     ensureBranchExists: ensureBranchExistsMock,
     mergeBranchInto: mergeBranchIntoMock,
     resetBranchTo: resetBranchToMock,
@@ -40,6 +43,7 @@ import {
   publish,
   publishDraftToMain,
   publishPage,
+  publishSelectedToMain,
   PublishError,
   readEnv,
   saveToDraft,
@@ -75,6 +79,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   commitFilesMock.mockReset();
+  commitSelectedPathsIntoMock
+    .mockReset()
+    .mockResolvedValue({ commitSha: "selected-sha", alreadyInSync: false });
   ensureBranchExistsMock.mockReset().mockResolvedValue(undefined);
   // Default: auto-rebase is a no-op (`main` already an ancestor of
   // `draft`). Tests that exercise the merge / conflict paths override.
@@ -1004,5 +1011,91 @@ describe("fetchPublishToken — cache", () => {
     const envB = await import("./publish").then((m) => m.readEnv());
     const second = await fetchPublishToken(envB);
     expect(second.token).toBe("ghs_beta");
+  });
+});
+
+describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
+  it("is a no-op in dev fallback (no platform configured)", async () => {
+    const res = await publishSelectedToMain({
+      authorEmail: "a@e.com",
+      paths: ["src/content/x.json"],
+    });
+    expect(res).toEqual({ commitSha: null, mode: "local", alreadyInSync: true });
+    expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
+  });
+
+  it("returns alreadyInSync without committing when no paths are selected", async () => {
+    configurePlatform();
+    const res = await publishSelectedToMain({ authorEmail: "a@e.com", paths: [] });
+    expect(res).toEqual({ commitSha: null, mode: "github", alreadyInSync: true });
+    expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
+  });
+
+  it("commits the selected paths onto main (no [skip ci]), then merges main back into the draft", async () => {
+    configurePlatform();
+    const paths = [
+      "src/content/collections/tour-dates/items/paris.json",
+      "src/content/collections/pages/items/about.json",
+    ];
+    const res = await publishSelectedToMain({
+      authorEmail: "artist@example.com",
+      authorName: "Real Artist",
+      paths,
+      commitSubject: "Ship the Paris date",
+    });
+
+    expect(res).toEqual({ commitSha: "selected-sha", mode: "github", alreadyInSync: false });
+    expect(commitSelectedPathsIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromBranch: "draft",
+        toBranch: "main",
+        paths,
+        author: { name: "Real Artist", email: "artist@example.com" },
+      }),
+    );
+    const msg = commitSelectedPathsIntoMock.mock.calls[0][0].message as string;
+    expect(msg).toContain("Ship the Paris date");
+    expect(msg).not.toContain("[skip ci]");
+    // Draft reconciled by merging main back in (publish converges, the
+    // unselected changes stay pending).
+    expect(mergeBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+  });
+
+  it("targets the editor's per-editor branch on a multi-editor site", async () => {
+    configurePlatform();
+    process.env.ADMIN_EMAILS = "first@example.com, second@example.com";
+    await publishSelectedToMain({
+      authorEmail: "second@example.com",
+      paths: ["src/content/collections/pages/items/about.json"],
+    });
+    const call = commitSelectedPathsIntoMock.mock.calls[0][0];
+    expect(call.fromBranch).toMatch(/^draft-[0-9a-f]{12}$/);
+    expect(mergeBranchIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "main", into: call.fromBranch }),
+    );
+  });
+
+  it("maps a ConcurrentEditError from the commit to the concurrent-edit code", async () => {
+    configurePlatform();
+    commitSelectedPathsIntoMock.mockRejectedValue(
+      new ConcurrentEditError("heads/main", 3, "main-sha", new Error("stale")),
+    );
+    await expect(
+      publishSelectedToMain({ authorEmail: "a@e.com", paths: ["src/content/x.json"] }),
+    ).rejects.toMatchObject({ code: "concurrent-edit" });
+  });
+
+  it("fails when the post-publish draft reconcile conflicts", async () => {
+    configurePlatform();
+    // First merge (auto-rebase pre-flight) is clean; the second (reconcile
+    // after the partial publish) conflicts.
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockResolvedValueOnce({ kind: "conflict" });
+    await expect(
+      publishSelectedToMain({ authorEmail: "a@e.com", paths: ["src/content/x.json"] }),
+    ).rejects.toMatchObject({ code: "github-failed" });
   });
 });
