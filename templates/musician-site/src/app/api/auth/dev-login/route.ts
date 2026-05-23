@@ -34,6 +34,13 @@ export async function POST(request: Request) {
     ? submitted
     : allowlist[0] ?? (submitted || "dev@localhost");
 
+  if (submitted && allowlist.length > 0 && !allowlist.includes(submitted)) {
+    console.warn(
+      `[auth] dev-login: "${submitted}" is not on the editor allowlist; ` +
+        `signing in as "${email}" instead.`,
+    );
+  }
+
   const session = await createSessionToken(email);
   const response = NextResponse.redirect(new URL("/admin", request.url), 303);
   response.cookies.set(SESSION_COOKIE, session, SESSION_COOKIE_OPTIONS);

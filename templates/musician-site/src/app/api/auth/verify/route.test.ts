@@ -68,6 +68,14 @@ describe("GET /api/auth/verify", () => {
     expect(getSessionCookie(res)).toBeTruthy();
   });
 
+  it("rejects a valid link in production when no allowlist is configured (fail closed)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const token = await createMagicLinkToken("anyone@example.com");
+    const res = await GET(buildRequest(token));
+    expect(res.headers.get("location")).toContain("/admin/login?error=invalid");
+    expect(getSessionCookie(res)).toBeNull();
+  });
+
   it("mints a session for a valid link when the email is on the allowlist", async () => {
     process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
     const token = await createMagicLinkToken("manager@example.com");

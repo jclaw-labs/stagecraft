@@ -151,12 +151,3 @@ export function getAllowedEditorEmails(): string[] {
     .filter((email) => email.length > 0);
   return [...new Set(normalized)];
 }
-
-/**
- * Whether `email` is on this site's editor allowlist. Returns false for
- * an empty allowlist — callers that need the dev "no lockdown" fallback
- * must special-case `getAllowedEditorEmails().length === 0` first.
- */
-export function isAllowedEditor(email: string): boolean {
-  return getAllowedEditorEmails().includes(email.trim().toLowerCase());
-}

@@ -9,6 +9,7 @@ beforeEach(() => {
   process.env.MAGIC_LINK_SIGNING_SECRET = "test-secret-do-not-use";
   delete process.env.ADMIN_EMAIL;
   delete process.env.ADMIN_EMAILS;
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 afterEach(() => {

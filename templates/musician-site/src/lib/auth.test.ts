@@ -4,7 +4,6 @@ import {
   createMagicLinkToken,
   createSessionToken,
   getAllowedEditorEmails,
-  isAllowedEditor,
   verifyMagicLinkToken,
   verifySessionToken,
 } from "./auth";
@@ -114,21 +113,17 @@ describe("editor allowlist", () => {
 
   it("returns an empty list when neither var is set", () => {
     expect(getAllowedEditorEmails()).toEqual([]);
-    expect(isAllowedEditor("anyone@example.com")).toBe(false);
   });
 
   it("honors the legacy single ADMIN_EMAIL (normalized)", () => {
     process.env.ADMIN_EMAIL = "  Artist@Example.COM ";
     expect(getAllowedEditorEmails()).toEqual(["artist@example.com"]);
-    expect(isAllowedEditor("ARTIST@example.com")).toBe(true);
-    expect(isAllowedEditor("nope@example.com")).toBe(false);
+    expect(getAllowedEditorEmails().includes("nope@example.com")).toBe(false);
   });
 
   it("parses ADMIN_EMAILS as a comma/whitespace separated list", () => {
     process.env.ADMIN_EMAILS = "a@x.com, b@y.com\nc@z.com";
     expect(getAllowedEditorEmails()).toEqual(["a@x.com", "b@y.com", "c@z.com"]);
-    expect(isAllowedEditor("b@y.com")).toBe(true);
-    expect(isAllowedEditor("d@w.com")).toBe(false);
   });
 
   it("unions ADMIN_EMAILS with the legacy ADMIN_EMAIL and dedupes case-insensitively", () => {

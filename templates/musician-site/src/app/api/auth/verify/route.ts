@@ -19,12 +19,18 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/admin/login?error=invalid", request.url));
   }
 
-  // Defense-in-depth (ADR-011): re-check the allowlist at verify time so
-  // a link issued to an editor who was since removed can't still mint a
-  // session. Skipped when no allowlist is configured (dev "no lockdown") —
-  // production issues no links in that state, so this never gates prod.
+  // Defense-in-depth (ADR-011): re-check the allowlist at verify time so a
+  // link issued to an editor who was since removed can't mint a session.
+  // An empty allowlist means "no lockdown configured": accept in dev (the
+  // request route sends links to anyone there), but fail CLOSED in prod —
+  // a misconfigured or fully-decommissioned site must not mint sessions
+  // from outstanding links.
   const allowlist = getAllowedEditorEmails();
-  if (allowlist.length > 0 && !allowlist.includes(result.email.trim().toLowerCase())) {
+  const allowed =
+    allowlist.length === 0
+      ? process.env.NODE_ENV !== "production"
+      : allowlist.includes(result.email.trim().toLowerCase());
+  if (!allowed) {
     return NextResponse.redirect(new URL("/admin/login?error=invalid", request.url));
   }
 
