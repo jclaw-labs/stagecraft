@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test";
 import os from "node:os";
 import path from "node:path";
 
+import { captureLaunchOptions } from "./capture/chromium";
+
 /**
  * Playwright config for SCREENSHOT CAPTURE (not assertions).
  *
@@ -51,6 +53,9 @@ export default defineConfig({
     baseURL: BASE_URL,
     storageState: CAPTURE_STORAGE_STATE,
     viewport: { width: 1440, height: 900 },
+    // Falls back to a pre-installed Chromium in cloud sessions where
+    // Playwright can't download its own; a no-op elsewhere. See ./capture/chromium.
+    launchOptions: captureLaunchOptions(),
   },
   globalSetup: "./capture/setup.ts",
   webServer: {

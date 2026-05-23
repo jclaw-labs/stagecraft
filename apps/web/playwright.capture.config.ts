@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import path from "node:path";
 
+import { captureLaunchOptions } from "./capture/chromium";
+
 /**
  * Playwright config for SCREENSHOT CAPTURE of the platform dashboard
  * (apps/web) — not assertions.
@@ -25,7 +27,9 @@ import path from "node:path";
  * Prerequisites (the capture talks to a real database + dev server):
  *   1. Postgres up + migrated:  `docker compose up -d`  then
  *      `npm run db:migrate`  (from the repo root).
- *   2. Chromium for Playwright: `npx playwright install chromium`.
+ *   2. Chromium for Playwright: `npx playwright install chromium` — only
+ *      on machines without one. Cloud sessions auto-detect a pre-installed
+ *      browser instead (see capture/chromium.ts).
  *
  * The dev server is booted here with a minimal env (real DATABASE_URL +
  * dummy auth secrets), bypassing the `npm run dev` script that sources
@@ -67,6 +71,9 @@ export default defineConfig({
     baseURL: BASE_URL,
     storageState: CAPTURE_STORAGE_STATE,
     viewport: { width: 1440, height: 900 },
+    // Falls back to a pre-installed Chromium in cloud sessions where
+    // Playwright can't download its own; a no-op elsewhere. See ./capture/chromium.
+    launchOptions: captureLaunchOptions(),
   },
   globalSetup: "./capture/setup.ts",
   webServer: {

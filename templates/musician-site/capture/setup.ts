@@ -16,6 +16,7 @@ import { chromium, type FullConfig } from "@playwright/test";
 
 import { seedCompletedSite } from "../e2e/setup/seed";
 import { CAPTURE_CONTENT_DIR, CAPTURE_STORAGE_STATE } from "../playwright.capture.config";
+import { captureLaunchOptions } from "./chromium";
 
 export default async function captureSetup(config: FullConfig): Promise<void> {
   // Seed BEFORE the first request: the dev server reads the content
@@ -28,7 +29,7 @@ export default async function captureSetup(config: FullConfig): Promise<void> {
     throw new Error("capture setup: baseURL missing from project config");
   }
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(captureLaunchOptions());
   try {
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();

@@ -64,7 +64,7 @@ Collections, and the Puck page editor):
 
 ```bash
 cd templates/musician-site
-npx playwright install chromium   # first run only
+npx playwright install chromium   # local only — cloud sessions auto-detect
 npm run capture:screenshots       # writes .pr-screenshots/artist-*.{jpg,png}
 ```
 
@@ -103,7 +103,7 @@ migrated database:
 docker compose up -d              # Postgres (see docker-compose.yml)
 npm run db:migrate                # apply migrations (first run only)
 cd apps/web
-npx playwright install chromium   # first run only
+npx playwright install chromium   # local only — cloud sessions auto-detect
 npm run capture:screenshots       # writes .pr-screenshots/platform-*.png
 ```
 
