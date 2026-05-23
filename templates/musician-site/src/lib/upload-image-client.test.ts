@@ -185,7 +185,7 @@ describe("uploadImageFromClient", () => {
         JSON.stringify({
           ok: true,
           image: MIN_VALID_METADATA,
-          sanitised: { removed: ["<script>", "onclick="] },
+          sanitised: { removed: ["<script>", "onclick="], removedTotal: 2 },
         }),
         { status: 200 },
       ),
@@ -195,7 +195,10 @@ describe("uploadImageFromClient", () => {
       alt: "x",
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
-    expect(result.sanitised).toEqual({ removed: ["<script>", "onclick="] });
+    expect(result.sanitised).toEqual({
+      removed: ["<script>", "onclick="],
+      removedTotal: 2,
+    });
   });
 
   it("omits `sanitised` from the result when the server doesn't send one", async () => {
@@ -212,15 +215,39 @@ describe("uploadImageFromClient", () => {
     expect(result.sanitised).toBeUndefined();
   });
 
-  it("rejects a malformed `sanitised` (empty array) as server-error", async () => {
-    // The schema guards `removed: z.array(z.string()).min(1)` — an
-    // empty `removed` array is "we sanitised but stripped nothing,"
-    // which the server contract says should be `sanitised: undefined`
-    // instead. A misbehaving server that emits the empty form should
-    // be caught at parse time, not silently flow as a no-op signal.
+  it("accepts `sanitised` with an empty `removed` array (contract resilience)", async () => {
+    // The schema deliberately allows empty arrays — a server-side
+    // contract drift shouldn't turn a successful upload into a hard
+    // client error. The picker keys off `removedTotal > 0` to decide
+    // whether to render the banner, so the empty-array case is a
+    // no-op for the UI but the upload still completes.
     const fetchMock = vi.fn(async () =>
       new Response(
-        JSON.stringify({ ok: true, image: MIN_VALID_METADATA, sanitised: { removed: [] } }),
+        JSON.stringify({
+          ok: true,
+          image: MIN_VALID_METADATA,
+          sanitised: { removed: [], removedTotal: 0 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    expect(result.image).toBeDefined();
+    expect(result.sanitised).toEqual({ removed: [], removedTotal: 0 });
+  });
+
+  it("rejects a malformed `sanitised` (missing removedTotal) as server-error", async () => {
+    // The schema requires both `removed` and `removedTotal`. A drop
+    // of `removedTotal` would be a real contract breach (the count
+    // is the source of truth for the UI banner), so we DO want this
+    // to fail loudly rather than silently render "0 items removed."
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ ok: true, image: MIN_VALID_METADATA, sanitised: { removed: ["<script>"] } }),
         { status: 200 },
       ),
     );

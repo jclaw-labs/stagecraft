@@ -90,11 +90,12 @@ export type GenerateImageVariantsResult = {
 
 /**
  * Per-upload summary of what the SVG sanitiser stripped. Matches the
- * `SanitiseSvgResult.removed` shape (capped descriptor list) so the
- * route can forward it without re-shaping.
+ * `SanitiseSvgResult` shape (capped descriptor list + true total) so
+ * the route can forward it without re-shaping.
  */
 export type SanitisedInfo = {
   removed: string[];
+  removedTotal: number;
 };
 
 export function computeImageId(buffer: Buffer): ImageId {
@@ -174,8 +175,13 @@ export async function generateImageVariants(
       // Only emit `sanitised` when the sanitiser actually stripped
       // something — a clean SVG shouldn't carry an empty-array signal
       // through the layers. Absent on ICO (binary; no sanitiser pass).
-      ...(svgResult && svgResult.removed.length > 0
-        ? { sanitised: { removed: svgResult.removed } }
+      ...(svgResult && svgResult.removedTotal > 0
+        ? {
+            sanitised: {
+              removed: svgResult.removed,
+              removedTotal: svgResult.removedTotal,
+            },
+          }
         : {}),
     };
   }

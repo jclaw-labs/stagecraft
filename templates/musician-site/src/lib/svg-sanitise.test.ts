@@ -260,7 +260,7 @@ describe("sanitiseSvg — removed descriptors on the result", () => {
   // inline — same signal as the server log, but in front of the
   // artist who just uploaded the file.
 
-  it("returns an empty `removed[]` when the SVG is clean", () => {
+  it("returns an empty `removed[]` and removedTotal=0 when the SVG is clean", () => {
     const result = sanitiseSvg(
       Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`,
@@ -268,6 +268,7 @@ describe("sanitiseSvg — removed descriptors on the result", () => {
       ),
     );
     expect(result.removed).toEqual([]);
+    expect(result.removedTotal).toBe(0);
   });
 
   it("returns describable strings for stripped elements / attributes", () => {
@@ -279,6 +280,7 @@ describe("sanitiseSvg — removed descriptors on the result", () => {
     );
     expect(result.removed).toContain("<script>");
     expect(result.removed).toContain("onclick=");
+    expect(result.removedTotal).toBe(result.removed.length);
   });
 
   it("caps `removed[]` at 20 entries to bound the API payload", () => {
@@ -293,6 +295,21 @@ describe("sanitiseSvg — removed descriptors on the result", () => {
       ),
     );
     expect(result.removed.length).toBeLessThanOrEqual(20);
+  });
+
+  it("`removedTotal` preserves the pre-cap count when descriptors overflow", () => {
+    // Without this, the picker's banner would say "20 items removed"
+    // for an SVG the log line correctly reports as "50 items removed"
+    // — confusing for support / forensic correlation.
+    const manyScripts = Array.from({ length: 50 }, (_, i) => `<script>a${i}</script>`).join("");
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg">${manyScripts}<circle r="1"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removedTotal).toBe(50);
+    expect(result.removed.length).toBe(20);
   });
 
   it("excludes implicit-wrapper removals from `removed[]` (parser artefact)", () => {

@@ -176,7 +176,7 @@ describe("POST /api/upload-image", () => {
   // ---------------------------------------------------------------------------
 
   describe("SVG sanitiser response forwarding (dev fallback)", () => {
-    it("includes `sanitised.removed` when the SVG had stripped content", async () => {
+    it("includes `sanitised.removed` + `removedTotal` when the SVG had stripped content", async () => {
       const dirtySvg = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="1" onclick="x"/></svg>`,
         "utf-8",
@@ -195,6 +195,7 @@ describe("POST /api/upload-image", () => {
         expect(parsed.data.sanitised).toBeDefined();
         expect(parsed.data.sanitised?.removed).toContain("<script>");
         expect(parsed.data.sanitised?.removed).toContain("onclick=");
+        expect(parsed.data.sanitised?.removedTotal).toBeGreaterThan(0);
       }
     });
 
@@ -328,7 +329,7 @@ describe("POST /api/upload-image", () => {
           originalExt: "svg",
         },
         commitSha: "deadbeef",
-        sanitised: { removed: ["<script>", "onclick="] },
+        sanitised: { removed: ["<script>", "onclick="], removedTotal: 2 },
       });
       const fd = new FormData();
       fd.append(
@@ -342,7 +343,10 @@ describe("POST /api/upload-image", () => {
       const res = await POST(buildRequest(fd));
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.sanitised).toEqual({ removed: ["<script>", "onclick="] });
+      expect(body.sanitised).toEqual({
+        removed: ["<script>", "onclick="],
+        removedTotal: 2,
+      });
     });
 
     it("forwards caption / credit / focalPoint to commitUploadedImage", async () => {

@@ -2,9 +2,11 @@ import DOMPurify from "isomorphic-dompurify";
 
 /**
  * Maximum number of removal descriptors returned in the
- * `SanitiseSvgResult`. A pathological SVG with hundreds of removed
- * items would otherwise produce a multi-KB API response (the route
- * forwards `removed` to the client). The log-line cap is the same.
+ * `SanitiseSvgResult.removed` array. A pathological SVG with hundreds
+ * of removed items would otherwise produce a multi-KB API response
+ * (the route forwards the descriptor list to the client). The total
+ * count is preserved separately in `removedTotal` so the picker's
+ * banner can report the true number even when the list is capped.
  */
 const REMOVED_DESCRIPTOR_CAP = 20;
 
@@ -12,16 +14,17 @@ const REMOVED_DESCRIPTOR_CAP = 20;
  * The result of sanitising an SVG: the cleaned buffer plus a stable,
  * UI-friendly description of what DOMPurify stripped. Callers that
  * don't care about the removal summary read `.buffer`; the upload
- * route forwards `.removed` to the client so the picker can show a
- * "we stripped N items from your SVG" hint.
+ * route forwards `.removed` + `.removedTotal` to the client so the
+ * picker can show a "we stripped N items from your SVG" hint.
  *
- * `removed` is capped at `REMOVED_DESCRIPTOR_CAP` items; the cap is
- * a defensive limit, not a tamper signal — the count is still useful
- * even when truncated.
+ * `removed` is capped at `REMOVED_DESCRIPTOR_CAP` items; `removedTotal`
+ * is the pre-cap count so the UI's banner stays aligned with the
+ * server log line (which also reports the full count).
  */
 export type SanitiseSvgResult = {
   buffer: Buffer;
   removed: string[];
+  removedTotal: number;
 };
 
 /**
@@ -129,8 +132,10 @@ export function sanitiseSvg(buffer: Buffer): SanitiseSvgResult {
     buffer: Buffer.from(sanitisedString, "utf-8"),
     // Cap the descriptor list at a defensive ceiling so a pathological
     // upload doesn't push a multi-KB payload back through the route.
-    // The log line above keeps the full count for ops correlation.
+    // The total count rides alongside so the banner can still say
+    // "25 items removed" even when the visible sample is 20.
     removed: removed.slice(0, REMOVED_DESCRIPTOR_CAP),
+    removedTotal: removed.length,
   };
 }
 
