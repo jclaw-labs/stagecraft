@@ -384,13 +384,16 @@ The publish-token endpoint surface is unchanged.
   `rate-limited` fallback; deliberately *not* on `branch-missing` or a
   single `too-large` file), and `AdminShell` renders a "GitHub
   unavailable — you're viewing the last published version" banner.
-  Remaining: edits aren't *preemptively* disabled — a save while
-  degraded fails through the normal publish-error path (the SaveBar
-  shows the error) rather than the affordances being greyed out up
-  front. Wiring the `wasDegraded` signal into every edit surface
-  (SaveBars, Publish button, Puck) is the follow-up.
+  The chrome's global mutate actions — **Publish** and **Discard** —
+  are now disabled while degraded (PR 5w), since both require GitHub and
+  would otherwise fail; `AdminShell` threads `isDegraded` into them.
+  Remaining: the per-surface save affordances (the singleton-panel /
+  generic-editor `SaveBar`s and the Puck editor's publish) aren't yet
+  greyed out — a save there fails through the normal publish-error path
+  (the SaveBar shows the error) rather than being blocked up front.
+  Threading `wasDegraded` into those surfaces is the follow-up.
   *Trigger:* artists report confusing save failures during an outage —
-  then disable the edit affordances behind the same signal.
+  then disable the per-surface save affordances behind the same signal.
 
 - **Per-session draft isolation.** Multi-artist sites with
   concurrent draft work share one branch. Publishing publishes
