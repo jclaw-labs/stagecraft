@@ -393,6 +393,26 @@ describe("<PhotoLightbox> — pinch zoom", () => {
     return m ? Number(m[1]) : 1;
   }
 
+  // jsdom has no layout, so offsetWidth/Height read 0 (which collapses
+  // the pan clamp). Stub them on the prototype so the pan path can be
+  // exercised; restore after.
+  function stubImageLayout(w: number, h: number): () => void {
+    const ow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    const oh = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get: () => w,
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get: () => h,
+    });
+    return () => {
+      if (ow) Object.defineProperty(HTMLElement.prototype, "offsetWidth", ow);
+      if (oh) Object.defineProperty(HTMLElement.prototype, "offsetHeight", oh);
+    };
+  }
+
   it("starts un-zoomed (scale 1, no translation)", () => {
     render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
     expect(scaleFromTransform(screen.getByRole("img"))).toBe(1);
@@ -472,6 +492,55 @@ describe("<PhotoLightbox> — pinch zoom", () => {
     // Un-zoomed again → a one-finger swipe navigates.
     fireSwipeOnDialog(dialog, -120);
     expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+  });
+
+  it("calls preventDefault on a pinch touchmove (native non-passive listener)", () => {
+    // The whole reason the touch pipeline moved off React's synthetic
+    // (passive) handlers is so pinch/pan can preventDefault the
+    // browser's own page-zoom. fireEvent returns false when the
+    // dispatched (cancelable) event had its default prevented — guards
+    // against a silent regression back to passive listeners.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.touchStart(dialog, {
+      touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+    });
+    const notPrevented = fireEvent.touchMove(dialog, {
+      touches: [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }],
+    });
+    expect(notPrevented).toBe(false);
+  });
+
+  it("pans the zoomed image on a one-finger drag (1:1 with the finger, within bounds)", () => {
+    // jsdom reports offsetWidth/Height = 0, collapsing the pan clamp
+    // to zero; stub a real layout so the pan path is actually
+    // exercised (the clamp math itself is unit-tested in
+    // lightbox-zoom.test.ts). Also implicitly verifies the gesture
+    // start reads the live (synchronous) zoom — a one-finger touch
+    // right after a pinch must arm a PAN, not a swipe.
+    const restore = stubImageLayout(400, 300);
+    try {
+      render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+      const dialog = screen.getByRole("dialog");
+      // Zoom to 2× and end the pinch.
+      pinch(
+        dialog,
+        [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+        [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }],
+      );
+      fireEvent.touchEnd(dialog, { touches: [], changedTouches: [] });
+      expect(scaleFromTransform(screen.getByRole("img"))).toBe(2);
+
+      // One-finger drag +50px in x → tx = 50 (well under the
+      // (2-1)*400/2 = 200px bound), 1:1 with the finger.
+      fireEvent.touchStart(dialog, { touches: [{ clientX: 200, clientY: 150 }] });
+      fireEvent.touchMove(dialog, { touches: [{ clientX: 250, clientY: 150 }] });
+      expect((screen.getByRole("img") as HTMLElement).style.transform).toMatch(
+        /translate\(50px,\s*0px\)\s*scale\(2\)/,
+      );
+    } finally {
+      restore();
+    }
   });
 });
 

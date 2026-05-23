@@ -103,14 +103,19 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     startTx: number;
     startTy: number;
   } | null>(null);
-  // Mirror of `zoom` readable inside the native touch listeners (which
-  // are attached once and would otherwise close over a stale value).
+  // Synchronous mirror of `zoom`, read inside the native touch
+  // listeners. It must be the source of truth (not a `[zoom]`-effect
+  // copy): the listeners decide pan-vs-swipe at gesture START off
+  // this value, and a one-finger touch landing immediately after a
+  // pinch ends (a separate browser task) would read a stale scale if
+  // the mirror only updated on a post-commit passive effect. `applyZoom`
+  // writes the ref and schedules the render together.
   const zoomRef = useRef<ZoomState>(ZOOM_RESET);
-  // Wall-clock millisecond at which the most recent swipe fired.
-  // Mobile browsers synthesise a `click` from a `touchstart`+
-  // `touchend` sequence, so a backdrop swipe would otherwise hit
-  // `handleBackdropClick` and close the modal. The click follows
-  // within ~300ms; we suppress any backdrop close in a wider window.
+  // Wall-clock millisecond at which the most recent touch GESTURE
+  // ended (swipe, pinch, or pan). Mobile browsers synthesise a
+  // `click` from a touch sequence, so without this a gesture that
+  // ends on the backdrop would hit `handleBackdropClick` and close
+  // the modal. We suppress any backdrop close in a wide window after.
   const lastSwipeAtRef = useRef<number>(0);
 
   const total = images.length;
@@ -127,6 +132,15 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     if (total <= 1) return;
     setIndex((i) => (i - 1 + total) % total);
   }, [total]);
+
+  // Single mutation path for zoom: compute the next state from the
+  // live ref, write the ref synchronously, then schedule the render.
+  // Stable identity (no deps) so the listener effect doesn't churn.
+  const applyZoom = useCallback((producer: (prev: ZoomState) => ZoomState) => {
+    const nextZoom = producer(zoomRef.current);
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  }, []);
 
   // Move keyboard focus into the modal on first paint so Esc / arrow
   // keys land on the dialog's keydown handler rather than whatever
@@ -147,19 +161,14 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     };
   }, []);
 
-  // Keep the ref in sync so the native touch listeners (attached once
-  // below) read the live zoom rather than a stale closure value.
-  useEffect(() => {
-    zoomRef.current = zoom;
-  }, [zoom]);
-
   // Reset zoom whenever the active image changes — a pan/zoom from the
-  // previous photo shouldn't carry over to the next.
+  // previous photo shouldn't carry over to the next. `applyZoom` keeps
+  // zoomRef in sync synchronously.
   useEffect(() => {
-    setZoom(ZOOM_RESET);
+    applyZoom(() => ZOOM_RESET);
     pinchRef.current = null;
     panRef.current = null;
-  }, [index]);
+  }, [index, applyZoom]);
 
   // Touch-gesture pipeline. Attached as NATIVE non-passive listeners
   // (not React's synthetic onTouch*, which are passive since React 17)
@@ -228,7 +237,7 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
           touchDistance(a, b),
         );
         const { w, h } = measure();
-        setZoom((z) => clampPan({ scale, tx: z.tx, ty: z.ty }, w, h));
+        applyZoom((z) => clampPan({ scale, tx: z.tx, ty: z.ty }, w, h));
         return;
       }
       if (panRef.current && event.touches.length === 1) {
@@ -237,7 +246,7 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
         const tx = panRef.current.startTx + (t.clientX - panRef.current.startX);
         const ty = panRef.current.startTy + (t.clientY - panRef.current.startY);
         const { w, h } = measure();
-        setZoom((z) => clampPan({ scale: z.scale, tx, ty }, w, h));
+        applyZoom((z) => clampPan({ scale: z.scale, tx, ty }, w, h));
       }
       // Un-zoomed single-finger move = a swipe in progress. We don't
       // preventDefault (the body scroll-lock + touch-action already
@@ -246,6 +255,11 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     }
 
     function onTouchEnd(event: globalThis.TouchEvent) {
+      const wasGesturing =
+        pinchRef.current !== null ||
+        panRef.current !== null ||
+        touchStartRef.current !== null;
+
       // Swipe-to-navigate: only when a swipe was armed (un-zoomed,
       // single finger) and the gesture cleared the threshold.
       const start = touchStartRef.current;
@@ -255,18 +269,40 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
           const dx = t.clientX - start.x;
           const dy = t.clientY - start.y;
           if (Math.abs(dx) >= SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)) {
-            lastSwipeAtRef.current = Date.now();
             if (dx < 0) next();
             else prev();
           }
         }
       }
-      // A pinch that settled back to ~1x snaps fully to reset so
-      // isZoomed() flips false (one-finger gestures resume navigating)
-      // and any residual translation clears.
-      if (pinchRef.current) {
-        setZoom((z) => (isZoomed(z) ? z : ZOOM_RESET));
+
+      // Pinch → pan handoff: one of two fingers lifted while zoomed.
+      // Seed a pan from the surviving finger so "pinch to zoom, then
+      // keep dragging with one finger" works without re-touching.
+      if (pinchRef.current && event.touches.length === 1) {
+        pinchRef.current = null;
+        if (isZoomed(zoomRef.current)) {
+          const t = event.touches[0]!;
+          panRef.current = {
+            startX: t.clientX,
+            startY: t.clientY,
+            startTx: zoomRef.current.tx,
+            startTy: zoomRef.current.ty,
+          };
+        }
+      } else if (pinchRef.current) {
+        // Pinch fully ended. If it settled back to ~1x, snap to reset
+        // so isZoomed() flips false and any residual translation clears.
+        applyZoom((z) => (isZoomed(z) ? z : ZOOM_RESET));
       }
+
+      // Stamp any gesture end (swipe / pinch / pan) so the synthesised
+      // click the browser fires next on the backdrop is suppressed by
+      // handleBackdropClick — otherwise a gesture ending on the empty
+      // area beside the image could close the modal.
+      if (wasGesturing) {
+        lastSwipeAtRef.current = Date.now();
+      }
+
       // Clear gesture state once every finger has lifted.
       if (event.touches.length === 0) {
         pinchRef.current = null;
@@ -291,7 +327,7 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, [next, prev]);
+  }, [next, prev, applyZoom]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     switch (event.key) {
@@ -445,6 +481,10 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
             transformOrigin: "center center",
             // `grab` cursor hints the image is pannable once zoomed.
             cursor: isZoomed(zoom) ? "grab" : undefined,
+            // Promote to a compositor layer only while zoomed so the
+            // per-touchmove transform updates stay on the GPU; release
+            // the layer at rest to avoid a permanent memory cost.
+            willChange: isZoomed(zoom) ? "transform" : undefined,
           }}
           // The lightbox image is above the fold (it's the whole
           // viewport on open); eager load + high fetchpriority avoid
