@@ -34,7 +34,7 @@ import {
   type Env,
 } from "./publish";
 import { ORDER_FILE_NAME, SINGLETON_ITEM_SLUG } from "./collections";
-import { pendingItemSlugs } from "./draft-changes-filter";
+import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
 
 /**
  * Normalized per-file change shape. Discriminated by `kind` so the
@@ -350,6 +350,28 @@ export async function getPendingItemSlugs(
   } catch (cause) {
     if (cause instanceof DraftChangesError) {
       return new Set();
+    }
+    throw cause;
+  }
+}
+
+/**
+ * Whether `collectionSlug`'s singleton has unpublished changes, for the
+ * custom singleton panels (Site Settings, Header & Navigation,
+ * Appearance) to badge their title. Degrades to `false` on a
+ * `DraftChangesError` for the same reason `getPendingItemSlugs`
+ * degrades to an empty set — the badge is a hint, not load-bearing.
+ */
+export async function getHasPendingSingletonChange(
+  collectionSlug: string,
+  env: Env = readEnv(),
+): Promise<boolean> {
+  try {
+    const { changes } = await getDraftChanges(env);
+    return hasPendingSingleton(changes, collectionSlug);
+  } catch (cause) {
+    if (cause instanceof DraftChangesError) {
+      return false;
     }
     throw cause;
   }

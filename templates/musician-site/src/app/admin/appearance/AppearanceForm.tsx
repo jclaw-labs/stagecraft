@@ -23,6 +23,8 @@ import {
 
 type Props = {
   initial: Appearance;
+  /** Badge the panel title when the `appearance` singleton has unpublished edits. */
+  hasPendingChanges?: boolean;
 };
 
 const WEIGHT_OPTIONS = FONT_WEIGHTS.map((w) => ({ label: String(w), value: String(w) }));
@@ -36,7 +38,7 @@ const WEIGHT_OPTIONS = FONT_WEIGHTS.map((w) => ({ label: String(w), value: Strin
  * reveals the heading-font row. Free-text font family is intentional for
  * now — any Google Font name works; a curated picker can land later.
  */
-export function AppearanceForm({ initial }: Props) {
+export function AppearanceForm({ initial, hasPendingChanges }: Props) {
   const form = useSettingsForm<Appearance>({
     initial,
     collectionSlug: "appearance",
@@ -84,6 +86,7 @@ export function AppearanceForm({ initial }: Props) {
     <AdminPanel
       title="Appearance"
       description="Colors and typography for the public site. Changes here update the CSS custom properties injected on every page."
+      hasPendingChanges={hasPendingChanges}
       saveBar={<SaveBar {...form.saveBarProps} />}
     >
       <FieldGroup

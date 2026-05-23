@@ -18,7 +18,12 @@ vi.mock("./publish", async () => {
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
-import { getDraftChanges, getPendingItemSlugs, parseChanges } from "./draft-changes";
+import {
+  getDraftChanges,
+  getHasPendingSingletonChange,
+  getPendingItemSlugs,
+  parseChanges,
+} from "./draft-changes";
 import { PublishError } from "./publish";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -443,5 +448,41 @@ describe("getPendingItemSlugs", () => {
       new PublishError("broker-rejected", "unknown site"),
     );
     expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+});
+
+describe("getHasPendingSingletonChange", () => {
+  it("is true when the collection's singleton is pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/site/items/_singleton.json", status: "modified" },
+      ]),
+    );
+    expect(await getHasPendingSingletonChange("site")).toBe(true);
+  });
+
+  it("is false when only other collections / kinds are pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/header/items/_singleton.json", status: "modified" },
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
+  });
+
+  it("degrades to false when the platform isn't configured (local mode)", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("degrades to false on a GitHub failure rather than throwing", async () => {
+    const serverErr = new RequestError("Server Error", 500, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 500, url: "x", headers: {}, data: {} },
+    });
+    compareCommitsWithBasehead.mockRejectedValue(serverErr);
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
   });
 });
