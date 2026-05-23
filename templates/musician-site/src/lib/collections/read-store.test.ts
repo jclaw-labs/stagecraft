@@ -341,3 +341,96 @@ describe("getReadStore — draft store with FS fallback", () => {
     );
   });
 });
+
+describe("getReadStore — wasDegraded (read-only banner signal)", () => {
+  function withToken() {
+    fetchPublishTokenMock.mockResolvedValue({
+      token: "ghs_test",
+      owner: "artist",
+      repo: "site",
+    });
+  }
+
+  it("is false on healthy draft reads", async () => {
+    withToken();
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockResolvedValue(fileResponse(tourDatesDef()));
+    const store = await getReadStore();
+    await store.readCollectionDef("tour-dates");
+    expect(store.wasDegraded()).toBe(false);
+  });
+
+  it("flips true after a github-unreachable fallback", async () => {
+    withToken();
+    getRef.mockRejectedValue(new Error("ENOTFOUND"));
+    fsListItemSlugs.mockResolvedValue([]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getReadStore();
+    expect(store.wasDegraded()).toBe(false); // not yet read
+    await store.listItemSlugs("tour-dates");
+    expect(store.wasDegraded()).toBe(true);
+  });
+
+  it("flips true after a rate-limited fallback", async () => {
+    withToken();
+    const rateLimitErr = new RequestError("API rate limit exceeded", 429, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 429, url: "x", headers: {}, data: {} },
+    });
+    getRef.mockRejectedValue(rateLimitErr);
+    fsListItemSlugs.mockResolvedValue([]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getReadStore();
+    await store.listItemSlugs("tour-dates");
+    expect(store.wasDegraded()).toBe(true);
+  });
+
+  it("stays false after a branch-missing fallback (fresh site, not an outage)", async () => {
+    withToken();
+    getRef.mockRejectedValue(notFound()); // 404 → branch-missing
+    fsReadCollectionDef.mockResolvedValue(tourDatesDef());
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getReadStore();
+    await store.readCollectionDef("tour-dates");
+    expect(store.wasDegraded()).toBe(false);
+  });
+
+  it("stays false after a too-large fallback (one oversized file, draft still reachable)", async () => {
+    withToken();
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockResolvedValue({
+      data: {
+        type: "file" as const,
+        encoding: "none",
+        content: "",
+        size: 2_000_000,
+        sha: "blob-sha",
+      },
+    });
+    fsReadCollectionDef.mockResolvedValue(tourDatesDef());
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getReadStore();
+    await store.readCollectionDef("tour-dates");
+    expect(store.wasDegraded()).toBe(false);
+  });
+
+  it("is true when the broker is unreachable (whole-request FS fallback)", async () => {
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-unreachable", "platform down"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getReadStore();
+    expect(store.wasDegraded()).toBe(true);
+  });
+
+  it("is false in unconfigured dev mode (FS by design, not a degradation)", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    delete process.env.STAGECRAFT_BROKER_SECRET;
+    const store = await getReadStore();
+    expect(store.wasDegraded()).toBe(false);
+  });
+
+  it("is false for the always-FS public store", () => {
+    expect(getFsReadStore().wasDegraded()).toBe(false);
+  });
+});

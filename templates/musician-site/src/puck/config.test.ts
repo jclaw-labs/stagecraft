@@ -1212,6 +1212,73 @@ describe("puckConfig", () => {
       expect(html).toMatch(/<form/);
       expect(html).toMatch(/name="email"/);
     });
+
+    // resolveFields surfaces a reserved-name collision in the array
+    // field's label (Puck arrays have no description slot). The
+    // renderer silently drops the colliding row, so without this the
+    // artist would just see their field vanish.
+    function resolveNewsletterFields(props: Record<string, unknown>) {
+      const config = puckConfig.components.NewsletterSignup as unknown as {
+        resolveFields: (
+          data: { props: Record<string, unknown> },
+          params: { fields: Record<string, { label?: string }> },
+        ) => Record<string, { label?: string }>;
+        fields: Record<string, { label?: string }>;
+      };
+      return config.resolveFields({ props }, { fields: config.fields });
+    }
+
+    it("keeps the plain additionalFields label when no field name collides", () => {
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" }],
+      });
+      expect(resolved.additionalFields?.label).toBe("Additional fields (advanced)");
+    });
+
+    it("appends a reserved-name warning to the label when a field collides", () => {
+      // "EMAIL" is Mailchimp's email field name — a collision.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("Additional fields (advanced)");
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
+    it("still warns when `service` is absent from props (defaults to mailchimp, matching render)", () => {
+      // Puck doesn't merge defaultProps into resolveFields' props, so
+      // an old/hand-edited block can arrive without `service`. The
+      // render path defaults it to mailchimp and drops an "EMAIL"
+      // field; the warning must default the same way so it doesn't
+      // under-fire exactly when the drop still happens.
+      const resolved = resolveNewsletterFields({
+        // service intentionally omitted
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
+    it("preserves the array sub-field config when resolveFields rebuilds the label", () => {
+      // Spreading the static field must keep arrayFields intact, not
+      // replace the array with a bare labelled field.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "x", name: "EMAIL", type: "text" }],
+      }) as Record<string, { type?: string; arrayFields?: Record<string, unknown> }>;
+      expect(resolved.additionalFields?.type).toBe("array");
+      expect(resolved.additionalFields?.arrayFields).toBeTruthy();
+    });
   });
 
   describe("newsletterUrlDescription (inspector helper text)", () => {
@@ -1246,13 +1313,49 @@ describe("puckConfig", () => {
       expect(hint.text).toMatch(/still submits/i);
     });
 
-    it("non-Mailchimp services get a generic paste hint regardless of URL state", () => {
+    it("non-Mailchimp services get a paste hint when the URL is empty", () => {
       expect(newsletterUrlDescription("buttondown", "").text).toMatch(
         /POST URL from your provider/i,
       );
-      expect(
-        newsletterUrlDescription("convertkit", "https://example.com/subscribe").text,
-      ).toMatch(/POST URL from your provider/i);
+      expect(newsletterUrlDescription("convertkit", "").text).toMatch(
+        /POST URL from your provider/i,
+      );
+    });
+
+    it("ConvertKit / Buttondown warn on a URL that doesn't match the provider pattern", () => {
+      // The per-service validation ported from #213: a non-matching
+      // URL now warns with the expected shape instead of silently
+      // falling through to the generic paste hint.
+      const ck = newsletterUrlDescription("convertkit", "https://example.com/subscribe");
+      expect(ck.kind).toBe("warn");
+      expect(ck.text).toMatch(/ConvertKit|Kit/);
+
+      const bd = newsletterUrlDescription("buttondown", "https://example.com/subscribe");
+      expect(bd.kind).toBe("warn");
+      expect(bd.text).toMatch(/Buttondown/);
+    });
+
+    it("ConvertKit / Buttondown confirm a well-formed embed URL", () => {
+      const ck = newsletterUrlDescription(
+        "convertkit",
+        "https://app.kit.com/forms/12345/subscriptions",
+      );
+      expect(ck.kind).toBe("ok");
+
+      const bd = newsletterUrlDescription(
+        "buttondown",
+        "https://buttondown.com/api/emails/embed-subscribe/artist",
+      );
+      expect(bd.kind).toBe("ok");
+    });
+
+    it("generic stays a neutral info hint (no provider contract to verify)", () => {
+      // A parseable generic URL can't be pattern-checked, so it's an
+      // info nudge, never a green "ok"; an unparseable one still warns.
+      expect(newsletterUrlDescription("generic", "https://artist.example/subscribe").kind).toBe(
+        "info",
+      );
+      expect(newsletterUrlDescription("generic", "not a url").kind).toBe("warn");
     });
 
     it("`resolveFields` rebuilds actionUrl as a custom field carrying the current hint", () => {

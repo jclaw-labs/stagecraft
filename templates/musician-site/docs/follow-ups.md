@@ -37,28 +37,6 @@ something worth fixing that doesn't fit the current PR's scope.
   single-finger gesture when the touch count drops back to one.
   From lightbox-touch-swipe PR review.
 
-## Newsletter signup
-
-- **Per-service URL validation patterns.** The inspector hint
-  added in the Mailchimp validation PR only covers Mailchimp's
-  `?u=USER_ID&id=LIST_ID` shape; Buttondown / ConvertKit / generic
-  silently fall through to a paste hint. Each has its own URL
-  pattern (e.g. Buttondown's
-  `buttondown.email/api/emails/embed-subscribe/<slug>`), and a
-  per-service parser + matching hint would extend the same author-
-  time signal. Defer until artists ask. From newsletter-validation
-  PR review.
-- **Inspector warning when an additional field name collides.** The
-  renderer silently drops an additional field whose `name` matches a
-  reserved form field (`_gotcha`, the per-service email / name
-  attribute, the Mailchimp `b_*` honeypot) to avoid emitting a
-  duplicate `name=` input that breaks submission. The drop is safe
-  but invisible — an artist who names a field `EMAIL` just sees it
-  not appear. A Puck inspector hint ("this name is reserved — the
-  field won't be added") would close the loop, mirroring the
-  `actionUrl` validation hint. From newsletter-additional-fields PR
-  review.
-
 ## Carousel
 
 - **Touch-swipe nav on the carousel.** The track scrolls natively
@@ -75,4 +53,29 @@ something worth fixing that doesn't fit the current PR's scope.
   `<ReleasesGrid>` etc.), this bucket will swell. Worth splitting
   into `Images` + `Embeds` if the count crosses ~8. From #173 deep
   review.
+
+## Auth (editor allowlist)
+
+- **Removing an editor doesn't revoke their live session.** The
+  `ADMIN_EMAILS` allowlist gates *new* logins — the magic-link request
+  plus a verify-time re-check — but `middleware.ts` and `getSession()`
+  only validate the session JWT (signature / type / expiry), not live
+  allowlist membership. So an editor dropped from the allowlist keeps
+  `/admin` + API access until their `mc_session` cookie expires (≤7
+  days). Immediate lock-out would need a per-request allowlist check in
+  middleware (or a session epoch/version bumped on removal), kept off
+  the hot path until an artist actually needs it. Also recorded in
+  ADR-011 "Known limitations and deferred work". From #233 deep review.
+
+## Test coverage
+
+- **Tour-date seeding branch of `/api/welcome/complete`.** The route
+  seeds two illustrative tour-dates when a `tour-dates` collection
+  def exists and is empty. The new route tests cover the singleton +
+  Home-page writes, the guards, and idempotency, but not the
+  tour-date seed branch — exercising it needs the real `tour-dates`
+  def registered in the test content dir AND seed values that pass
+  `buildItemFileSchema` for that def (the seeds come from
+  `buildFirstRunSeed`). Worth adding once a shared tour-dates fixture
+  is wired into the route-test setup. From api-route-tests PR.
 

@@ -4,6 +4,7 @@ import {
   SESSION_COOKIE,
   SESSION_COOKIE_OPTIONS,
   createSessionToken,
+  getAllowedEditorEmails,
 } from "@/lib/auth";
 
 /**
@@ -21,12 +22,24 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
   const submitted = String(formData.get("email") ?? "").trim().toLowerCase();
-  const allowed = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  // Prefer ADMIN_EMAIL when set so the session matches the production
-  // contract; otherwise accept whatever the form sent, then fall back
-  // to a sentinel so a clone with no env vars and an empty form still
-  // gets a usable session.
-  const email = allowed || submitted || "dev@localhost";
+  const allowlist = getAllowedEditorEmails();
+  // Pick which editor to sign in as:
+  // - the submitted email if it's on the allowlist (lets a dev choose an
+  //   editor on a multi-editor site),
+  // - else the first allowlisted email (preserves the single-editor
+  //   "session matches the configured editor" contract),
+  // - else the submitted value, falling back to a sentinel so a clone
+  //   with no env vars and an empty form still gets a usable session.
+  const email = allowlist.includes(submitted)
+    ? submitted
+    : allowlist[0] ?? (submitted || "dev@localhost");
+
+  if (submitted && allowlist.length > 0 && !allowlist.includes(submitted)) {
+    console.warn(
+      `[auth] dev-login: "${submitted}" is not on the editor allowlist; ` +
+        `signing in as "${email}" instead.`,
+    );
+  }
 
   const session = await createSessionToken(email);
   const response = NextResponse.redirect(new URL("/admin", request.url), 303);

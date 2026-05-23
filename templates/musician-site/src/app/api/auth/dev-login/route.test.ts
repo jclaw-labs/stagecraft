@@ -8,6 +8,8 @@ beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
   process.env.MAGIC_LINK_SIGNING_SECRET = "test-secret-do-not-use";
   delete process.env.ADMIN_EMAIL;
+  delete process.env.ADMIN_EMAILS;
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -75,5 +77,29 @@ describe("POST /api/auth/dev-login", () => {
     const token = getSessionCookie(res);
     const session = await verifySessionToken(token!);
     expect(session?.email).toBe("dev@localhost");
+  });
+
+  it("uses the submitted email when it's on the ADMIN_EMAILS allowlist", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
+    vi.resetModules();
+    const { POST } = await import("./route");
+    const res = await POST(buildRequest("manager@example.com"));
+
+    const token = getSessionCookie(res);
+    const session = await verifySessionToken(token!);
+    expect(session?.email).toBe("manager@example.com");
+  });
+
+  it("falls back to the first allowlisted email when the submission isn't allowed", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
+    vi.resetModules();
+    const { POST } = await import("./route");
+    const res = await POST(buildRequest("stranger@example.com"));
+
+    const token = getSessionCookie(res);
+    const session = await verifySessionToken(token!);
+    expect(session?.email).toBe("artist@example.com");
   });
 });

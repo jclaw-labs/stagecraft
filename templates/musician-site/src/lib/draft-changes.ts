@@ -26,13 +26,13 @@ import { Octokit } from "@octokit/rest";
 import { RequestError } from "@octokit/request-error";
 
 import {
-  DRAFT_BRANCH,
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
   readEnv,
   type Env,
 } from "./publish";
+import { resolveDraftBranchForRequest } from "./draft-branch";
 import {
   itemDisplayLabel,
   ORDER_FILE_NAME,
@@ -308,13 +308,16 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
     throw new DraftChangesError("github-failed", errorMessage(cause));
   }
 
+  // Compare against the signed-in editor's draft branch (ADR-011);
+  // the shared `draft` for single-editor sites.
+  const draftBranch = await resolveDraftBranchForRequest();
   const octokit = new Octokit({ auth: token });
 
   try {
     const compare = await octokit.repos.compareCommitsWithBasehead({
       owner,
       repo,
-      basehead: `${env.branch}...${DRAFT_BRANCH}`,
+      basehead: `${env.branch}...${draftBranch}`,
     });
     const files = compare.data.files ?? [];
     const changes = parseChanges(files);
@@ -333,7 +336,7 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
     }
     throw new DraftChangesError(
       "github-failed",
-      `compare ${env.branch}...${DRAFT_BRANCH}: ${errorMessage(cause)}`,
+      `compare ${env.branch}...${draftBranch}: ${errorMessage(cause)}`,
     );
   }
 }

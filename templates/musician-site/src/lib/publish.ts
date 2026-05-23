@@ -28,13 +28,12 @@ import {
   type FileToCommit,
 } from "./git-commit";
 import { publishTokenResponseSchema } from "./publish-types";
+import { DRAFT_BRANCH, resolveDraftBranch } from "./draft-branch";
 
-/**
- * Persistent companion branch for ADR-010's two-branch publish model.
- * Always at or ahead of `main`; admin commits land here; the squash
- * step on Publish merges it into `main` and FF's it back to match.
- */
-export const DRAFT_BRANCH = "draft";
+// The DRAFT_BRANCH constant and the per-editor resolver now live in
+// ./draft-branch (ADR-011). Re-exported here for back-compat with
+// existing importers (read-store, draft-changes, tests).
+export { DRAFT_BRANCH };
 
 export class PublishError extends Error {
   constructor(
@@ -363,6 +362,8 @@ type EnsureAndRebaseArgs = {
   owner: string;
   repo: string;
   mainBranch: string;
+  /** The editor's draft branch to ensure + rebase (ADR-011). */
+  draftBranch: string;
   author: { name: string; email: string };
 };
 
@@ -378,14 +379,14 @@ type EnsureAndRebaseArgs = {
  * own thing (commit vs squash).
  */
 async function ensureDraftAndRebase(args: EnsureAndRebaseArgs): Promise<void> {
-  const { token, owner, repo, mainBranch, author } = args;
+  const { token, owner, repo, mainBranch, draftBranch, author } = args;
 
   try {
     await ensureBranchExists({
       token,
       owner,
       repo,
-      branch: DRAFT_BRANCH,
+      branch: draftBranch,
       fromBranch: mainBranch,
     });
   } catch (cause) {
@@ -403,7 +404,7 @@ async function ensureDraftAndRebase(args: EnsureAndRebaseArgs): Promise<void> {
       owner,
       repo,
       from: mainBranch,
-      into: DRAFT_BRANCH,
+      into: draftBranch,
     });
     if (merge.kind === "conflict") {
       throw new PublishError(
@@ -450,15 +451,18 @@ export type CommitToDraftArgs = {
  */
 async function commitToDraft(args: CommitToDraftArgs): Promise<string> {
   const { token, owner, repo, mainBranch, message, files, deletePaths, author } = args;
+  // Per-editor draft branch (ADR-011); resolves to the shared `draft`
+  // for single-editor sites. Shared by saveToDraft + image commits.
+  const draftBranch = resolveDraftBranch(author.email);
 
-  await ensureDraftAndRebase({ token, owner, repo, mainBranch, author });
+  await ensureDraftAndRebase({ token, owner, repo, mainBranch, draftBranch, author });
 
   try {
     return await commitFiles({
       token,
       owner,
       repo,
-      branch: DRAFT_BRANCH,
+      branch: draftBranch,
       message: `${message}\n\n[skip ci]`,
       files,
       deletePaths,
@@ -581,8 +585,9 @@ export async function publishDraftToMain(
   const subject = args.commitSubject ?? "Publish pending changes";
   const message = `${subject}\n\nStagecraft-Publish-Id: ${publishId}`;
   const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
+  const draftBranch = resolveDraftBranch(args.authorEmail);
 
-  await ensureDraftAndRebase({ token, owner, repo, mainBranch: env.branch, author });
+  await ensureDraftAndRebase({ token, owner, repo, mainBranch: env.branch, draftBranch, author });
 
   let squash: { commitSha: string; alreadyInSync: boolean };
   try {
@@ -590,7 +595,7 @@ export async function publishDraftToMain(
       token,
       owner,
       repo,
-      fromBranch: DRAFT_BRANCH,
+      fromBranch: draftBranch,
       toBranch: env.branch,
       message,
       author,
@@ -652,15 +657,14 @@ export type DiscardDraftResult =
  */
 export async function discardDraft(args: {
   /**
-   * Session-bound author email. Currently unused — GitHub's `repos.merge`
-   * + `updateRef` track the GitHub App as the committer regardless of
-   * what we pass. Kept on the signature so callers thread session
-   * context uniformly, and so a future audit log (or a per-discard
-   * commit message) can pick it up without an API change.
+   * Session-bound author email. Used to resolve which per-editor draft
+   * branch to discard (ADR-011) — for single-editor sites this is the
+   * shared `draft`. The GitHub App remains the committer regardless
+   * (`updateRef` tracks the authenticated principal).
    */
   authorEmail: string;
 }): Promise<DiscardDraftResult> {
-  void args.authorEmail;
+  const draftBranch = resolveDraftBranch(args.authorEmail);
 
   const env = readEnv();
   if (!isPlatformConfigured(env)) {
@@ -675,7 +679,7 @@ export async function discardDraft(args: {
       token,
       owner,
       repo,
-      branch: DRAFT_BRANCH,
+      branch: draftBranch,
       toBranch: env.branch,
     });
   } catch (cause) {

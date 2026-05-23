@@ -11,11 +11,15 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  collidingAdditionalFieldNames,
+  NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
   NEWSLETTER_FIELD_TYPES,
   NEWSLETTER_FIELD_TYPE_LABELS,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  newsletterAdditionalFieldsLabel,
   parseMailchimpAudienceHoneypotName,
+  validateNewsletterActionUrl,
   type NewsletterAdditionalField,
   type NewsletterService,
 } from "@/components/newsletter-types";
@@ -151,27 +155,55 @@ export function newsletterUrlDescription(
   service: NewsletterService,
   actionUrl: string,
 ): { kind: "info" | "ok" | "warn"; text: string } {
-  if (service !== "mailchimp") {
+  // Mailchimp keeps its own messaging — the warn case is honeypot-
+  // specific (a malformed URL silently disables the per-audience bot
+  // trap), which is richer than the generic "wrong shape" hint the
+  // shared validator gives. The empty / ok / warn copy here is what
+  // the inspector tests pin.
+  if (service === "mailchimp") {
+    if (!actionUrl) {
+      return {
+        kind: "info",
+        text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
+      };
+    }
+    if (parseMailchimpAudienceHoneypotName(actionUrl)) {
+      return {
+        kind: "ok",
+        text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+      };
+    }
+    return {
+      kind: "warn",
+      text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+    };
+  }
+
+  // ConvertKit / Buttondown / generic: delegate the pattern check to
+  // the shared `validateNewsletterActionUrl`. Empty stays a paste
+  // hint (don't nag a fresh block); a non-matching URL warns with the
+  // provider's expected shape; `generic` can only confirm
+  // parseability (no provider contract to verify) so it stays a
+  // neutral nudge rather than a green "looks right".
+  if (!actionUrl.trim()) {
     return {
       kind: "info",
       text: "Paste the form's POST URL from your provider's embed code.",
     };
   }
-  if (!actionUrl) {
+  const validation = validateNewsletterActionUrl(service, actionUrl);
+  if (!validation.ok) {
+    return { kind: "warn", text: validation.message };
+  }
+  if (service === "generic") {
     return {
       kind: "info",
-      text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
-    };
-  }
-  if (parseMailchimpAudienceHoneypotName(actionUrl)) {
-    return {
-      kind: "ok",
-      text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+      text: "Looks like a URL. We can't verify a custom provider's field contract — make sure it's the form's POST URL.",
     };
   }
   return {
-    kind: "warn",
-    text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+    kind: "ok",
+    text: `Looks like a valid ${NEWSLETTER_SERVICE_LABELS[service]} embed URL.`,
   };
 }
 
@@ -1662,16 +1694,40 @@ export const puckConfig: Config<
       // The signup keeps submitting either way; the warning just
       // helps the artist paste the right URL up-front instead of
       // discovering "spam protection isn't working" months later.
-      resolveFields: (data, { fields }) => ({
-        // `service` is the only sibling field the hint depends on —
-        // pass it through so the custom render can recompute the
-        // hint per-keystroke against the live `value`. The render
-        // function is reused across keystrokes (Puck only updates
-        // its `value` prop), so `service` has to be baked into the
-        // closure here.
-        ...fields,
-        actionUrl: newsletterUrlField(data.props.service),
-      }),
+      resolveFields: (data, { fields }) => {
+        // Puck doesn't merge `defaultProps` into the props handed to
+        // resolveFields, so a block whose on-disk JSON omits a key
+        // arrives with it `undefined` (the render path defaults it).
+        // Default here to the SAME values render uses, so both hints
+        // describe what the artist actually sees — otherwise an old
+        // block missing `service` would under-warn even though its
+        // preview drops the colliding field.
+        const service = data.props.service ?? "mailchimp";
+        const hasNameField = data.props.hasNameField ?? false;
+        const actionUrl = data.props.actionUrl ?? "";
+        // Names among the configured additional fields that collide
+        // with a form field the signup already owns — those rows are
+        // silently dropped at render. Surface the drop in the array
+        // field's label (Puck arrays have no description slot) so the
+        // artist isn't left wondering why a field they added vanished.
+        const colliding = collidingAdditionalFieldNames(
+          data.props.additionalFields,
+          service,
+          hasNameField,
+          actionUrl,
+        );
+        return {
+          // `service` is the sibling field the actionUrl hint depends
+          // on — bake it into the custom field's closure so the render
+          // recomputes the hint against the live `value`.
+          ...fields,
+          actionUrl: newsletterUrlField(service),
+          additionalFields: {
+            ...fields.additionalFields,
+            label: newsletterAdditionalFieldsLabel(colliding),
+          },
+        };
+      },
       fields: {
         service: {
           type: "select",
@@ -1721,7 +1777,9 @@ export const puckConfig: Config<
         // that out.
         additionalFields: {
           type: "array",
-          label: "Additional fields (advanced)",
+          // Base label; `resolveFields` appends a reserved-name
+          // warning when a configured field would be dropped.
+          label: NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
           arrayFields: {
             label: { type: "text", label: "Field label" },
             name: { type: "text", label: "Field name (from your provider's embed code)" },

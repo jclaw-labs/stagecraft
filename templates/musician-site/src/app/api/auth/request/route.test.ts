@@ -12,6 +12,7 @@ beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
   process.env.MAGIC_LINK_SIGNING_SECRET = "test-secret-do-not-use";
   delete process.env.ADMIN_EMAIL;
+  delete process.env.ADMIN_EMAILS;
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -46,6 +47,29 @@ describe("POST /api/auth/request", () => {
     expect(sendMagicLinkMock).not.toHaveBeenCalled();
   });
 
+  describe("editor allowlist (ADMIN_EMAILS)", () => {
+    it("sends a magic link when the email is on the allowlist", async () => {
+      process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
+      await POST(buildRequest("MANAGER@example.com"));
+      expect(sendMagicLinkMock).toHaveBeenCalledTimes(1);
+      expect(sendMagicLinkMock.mock.calls[0][0]).toBe("manager@example.com");
+    });
+
+    it("does not send when the email is off the allowlist", async () => {
+      process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
+      await POST(buildRequest("stranger@example.com"));
+      expect(sendMagicLinkMock).not.toHaveBeenCalled();
+    });
+
+    it("honors the legacy ADMIN_EMAIL unioned with ADMIN_EMAILS", async () => {
+      process.env.ADMIN_EMAILS = "manager@example.com";
+      process.env.ADMIN_EMAIL = "artist@example.com";
+      await POST(buildRequest("artist@example.com"));
+      expect(sendMagicLinkMock).toHaveBeenCalledTimes(1);
+      expect(sendMagicLinkMock.mock.calls[0][0]).toBe("artist@example.com");
+    });
+  });
+
   describe("dev-mode fallback", () => {
     it("sends a magic link to any email when ADMIN_EMAIL is unset (dev only)", async () => {
       vi.stubEnv("NODE_ENV", "development");
@@ -53,19 +77,19 @@ describe("POST /api/auth/request", () => {
       vi.resetModules();
       const { POST: devPost } = await import("./route");
       await devPost(buildRequest("anything@example.com"));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ADMIN_EMAIL not set"));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No editor allowlist set"));
       expect(sendMagicLinkMock).toHaveBeenCalledTimes(1);
       expect(sendMagicLinkMock.mock.calls[0][0]).toBe("anything@example.com");
     });
 
-    it("warns and does not send when email mismatches ADMIN_EMAIL (dev only)", async () => {
+    it("warns and does not send when email is off the allowlist (dev only)", async () => {
       vi.stubEnv("NODE_ENV", "development");
       process.env.ADMIN_EMAIL = "allowed@example.com";
       const warnSpy = vi.spyOn(console, "warn");
       vi.resetModules();
       const { POST: devPost } = await import("./route");
       await devPost(buildRequest("other@example.com"));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("doesn't match"));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("not on the editor allowlist"));
       expect(sendMagicLinkMock).not.toHaveBeenCalled();
     });
 

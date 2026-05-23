@@ -186,3 +186,173 @@ export function parseMailchimpAudienceHoneypotName(
     return null;
   }
 }
+
+/**
+ * Author-time validation of the actionUrl for a given provider.
+ * Surfaced in the Puck inspector as a hint beneath the URL input,
+ * so the artist gets feedback the moment they paste an obviously-
+ * wrong URL — rather than discovering it days later when no
+ * subscribers land in their list.
+ *
+ * Each branch enforces the minimum the runtime relies on:
+ *
+ *   - `mailchimp`  — needs `?u=USER_ID&id=LIST_ID` query params so
+ *     `parseMailchimpAudienceHoneypotName` can synthesise the real
+ *     honeypot field name. Without them, the bot defense is silently
+ *     bypassed (still works for legitimate submits, but accepts
+ *     spam).
+ *   - `convertkit` — embed-form action URL is hosted at
+ *     `app.kit.com/forms/<id>/subscriptions` (or legacy
+ *     `app.convertkit.com/...`). The `/forms/<id>/subscriptions`
+ *     suffix is the canonical pattern; anything else likely won't
+ *     accept the POST.
+ *   - `buttondown` — embed-subscribe URL is hosted at
+ *     `buttondown.com/api/emails/embed-subscribe/<username>` (or
+ *     legacy `buttondown.email/...`).
+ *   - `generic`    — only validates URL parseability; the artist
+ *     supplies the field-name contract themselves.
+ *
+ * Empty `actionUrl` returns `{ ok: true }`: the hint shouldn't fire
+ * on a brand-new block before the artist has typed anything. The
+ * required-ness of the field is the artist's choice to make once
+ * they publish.
+ *
+ * Pure / synchronous; safe to call during render.
+ */
+export type NewsletterActionUrlValidation =
+  | { ok: true }
+  | { ok: false; message: string };
+
+export function validateNewsletterActionUrl(
+  service: NewsletterService,
+  actionUrl: string,
+): NewsletterActionUrlValidation {
+  if (!actionUrl.trim()) return { ok: true };
+  let url: URL;
+  try {
+    url = new URL(actionUrl);
+  } catch {
+    return {
+      ok: false,
+      message:
+        "This doesn't look like a URL — paste the form-submission " +
+        "URL from your provider's embed snippet.",
+    };
+  }
+  if (service === "mailchimp") {
+    const u = url.searchParams.get("u");
+    const id = url.searchParams.get("id");
+    if (!u || !id) {
+      return {
+        ok: false,
+        message:
+          "This URL is missing Mailchimp's audience parameters — " +
+          "expected `?u=USER_ID&id=LIST_ID`. Without them the form " +
+          "still posts but the bot defense is bypassed.",
+      };
+    }
+  } else if (service === "convertkit") {
+    // Both the modern (`app.kit.com`) and legacy (`app.convertkit.com`)
+    // hosts ship the same `/forms/<id>/subscriptions` path. Accept
+    // either host; reject anything else with a hint pointing at the
+    // canonical shape.
+    const host = url.host.toLowerCase();
+    const isHost = host === "app.kit.com" || host === "app.convertkit.com";
+    const isPath = /^\/forms\/[^/]+\/subscriptions\/?$/.test(url.pathname);
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the ConvertKit / Kit embed pattern — " +
+          "expected `https://app.kit.com/forms/FORM_ID/subscriptions` " +
+          "(or the legacy `app.convertkit.com` host).",
+      };
+    }
+  } else if (service === "buttondown") {
+    const host = url.host.toLowerCase();
+    const isHost = host === "buttondown.com" || host === "buttondown.email";
+    const isPath = /^\/api\/emails\/embed-subscribe\/[^/]+\/?$/.test(
+      url.pathname,
+    );
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the Buttondown embed pattern — " +
+          "expected `https://buttondown.com/api/emails/embed-subscribe/USERNAME`.",
+      };
+    }
+  }
+  // `generic` falls through — only URL parseability is checked above.
+  return { ok: true };
+}
+
+/**
+ * The form-field `name`s the NewsletterSignup form already owns for a
+ * given configuration. An additional field colliding with one of
+ * these emits a duplicate `name=` input — the provider then receives
+ * two values for the same key (subscription breaks silently behind
+ * the opaque no-cors success) or a visible field shadows a honeypot —
+ * so the renderer drops the colliding row.
+ *
+ * Single source of truth shared by the public form (which drops
+ * colliding rows) and the editor inspector (which warns about the
+ * drop). `NAME_FIELD_NAME` is reserved only when the name field is
+ * actually rendered; the Mailchimp `b_*` honeypot only when the
+ * actionUrl parses.
+ */
+export function newsletterReservedFieldNames(
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): Set<string> {
+  const reserved = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
+  if (hasNameField) reserved.add(NAME_FIELD_NAME[service]);
+  const honeypot =
+    service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+  if (honeypot) reserved.add(honeypot);
+  return reserved;
+}
+
+/**
+ * The (de-duplicated) `name`s among `additionalFields` that collide
+ * with a reserved form field and will therefore be dropped at render.
+ * Blank names are ignored (they're dropped for being incomplete, not
+ * for colliding). Used by the inspector to warn the artist that a
+ * field they added won't appear.
+ */
+export function collidingAdditionalFieldNames(
+  additionalFields: readonly NewsletterAdditionalField[] | undefined,
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): string[] {
+  const reserved = newsletterReservedFieldNames(service, hasNameField, actionUrl);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const field of additionalFields ?? []) {
+    const name = (field?.name ?? "").trim();
+    if (name !== "" && reserved.has(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Base inspector label for the additional-fields array. */
+export const NEWSLETTER_ADDITIONAL_FIELDS_LABEL = "Additional fields (advanced)";
+
+/**
+ * The inspector label for the additional-fields array, with a
+ * reserved-name warning appended when any configured field collides
+ * with a form field the signup already owns (and is therefore
+ * silently skipped at render). Puck's array field has no description
+ * slot, so the label is the surface available for this hint.
+ */
+export function newsletterAdditionalFieldsLabel(colliding: readonly string[]): string {
+  if (colliding.length === 0) return NEWSLETTER_ADDITIONAL_FIELDS_LABEL;
+  const names = colliding.join(", ");
+  const noun = colliding.length === 1 ? "name is reserved" : "names are reserved";
+  return `${NEWSLETTER_ADDITIONAL_FIELDS_LABEL} — ${names} ${noun} and won't be added (rename to avoid a clash with the email / name / spam-trap fields)`;
+}
