@@ -101,36 +101,43 @@ function syncFilesToGist(gistId, gistUser, files) {
     fs.copyFileSync(f, path.join(tmp, path.basename(f)));
   }
   const status = run("git", ["status", "--porcelain"], { cwd: tmp });
-  if (!status) {
+  if (status) {
+    run("git", ["add", "-A"], { cwd: tmp });
+    run(
+      "git",
+      [
+        "-c", `user.name=${BOT_NAME}`,
+        "-c", `user.email=${BOT_EMAIL}`,
+        "commit", "-m", `Update PR #${process.env.PR_NUMBER} screenshots`,
+      ],
+      { cwd: tmp }
+    );
+    run("git", ["push"], { cwd: tmp });
+  } else {
     console.log("[gist] no changes to push");
-    return;
   }
-  run("git", ["add", "-A"], { cwd: tmp });
-  run(
-    "git",
-    [
-      "-c", `user.name=${BOT_NAME}`,
-      "-c", `user.email=${BOT_EMAIL}`,
-      "commit", "-m", `Update PR #${process.env.PR_NUMBER} screenshots`,
-    ],
-    { cwd: tmp }
-  );
-  run("git", ["push"], { cwd: tmp });
+  // Return the (new or existing) gist HEAD SHA. Pinning raw URLs to an
+  // immutable revision busts GitHub's raw-CDN cache — the revision-less
+  // /raw/<file> form can serve a stale image for its TTL after a re-run.
+  return run("git", ["rev-parse", "HEAD"], { cwd: tmp });
 }
 
 function escapeForRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function rewriteBody(body, files, gistUser, gistId) {
-  const base = `https://gist.githubusercontent.com/${gistUser}/${gistId}/raw`;
+function rewriteBody(body, files, gistUser, gistId, gistSha) {
+  const rawBase = `https://gist.githubusercontent.com/${gistUser}/${gistId}/raw`;
   const referencedNames = new Set();
   let next = body || "";
 
   for (const f of files) {
     const basename = path.basename(f);
     const name = basename.replace(/\.[^.]+$/, "");
-    const url = `${base}/${encodeURIComponent(basename)}`;
+    const enc = encodeURIComponent(basename);
+    // SHA-pinned (immutable) raw URL — see syncFilesToGist.
+    const url = `${rawBase}/${gistSha}/${enc}`;
+
     const placeholder = new RegExp(
       `<!--\\s*screenshot:${escapeForRegex(name)}\\s*-->`,
       "g"
@@ -138,25 +145,33 @@ function rewriteBody(body, files, gistUser, gistId) {
     if (placeholder.test(next)) {
       next = next.replace(placeholder, `![${name}](${url})`);
       referencedNames.add(name);
+      continue;
+    }
+
+    // Already embedded from a prior run? Repoint it at the new revision so
+    // an updated screenshot doesn't render stale. Matches both the
+    // SHA-pinned form (/raw/<sha>/<file>) and the older revision-less one
+    // (/raw/<file>).
+    const existing = new RegExp(
+      `${escapeForRegex(rawBase)}/(?:[0-9a-f]+/)?${escapeForRegex(enc)}`,
+      "g"
+    );
+    if (existing.test(next)) {
+      next = next.replace(existing, url);
+      referencedNames.add(name);
     }
   }
 
-  const unreferenced = files.filter((f) => {
-    const basename = path.basename(f);
-    const name = basename.replace(/\.[^.]+$/, "");
-    if (referencedNames.has(name)) return false;
-    // Skip files whose rendered URL already appears in the body (e.g. from
-    // a prior run, or hand-authored markdown). Keeps repeated runs idempotent.
-    if (next.includes(`/${encodeURIComponent(basename)})`)) return false;
-    return true;
-  });
+  const unreferenced = files.filter(
+    (f) => !referencedNames.has(path.basename(f).replace(/\.[^.]+$/, ""))
+  );
 
   if (unreferenced.length) {
     const lines = ["", "## Screenshots", ""];
     for (const f of unreferenced) {
       const basename = path.basename(f);
       const name = basename.replace(/\.[^.]+$/, "");
-      lines.push(`![${name}](${base}/${encodeURIComponent(basename)})`);
+      lines.push(`![${name}](${rawBase}/${gistSha}/${encodeURIComponent(basename)})`);
     }
     lines.push("");
     next = `${next.replace(/\s+$/, "")}\n${lines.join("\n")}`;
@@ -181,7 +196,13 @@ function cleanupCommit(headRef, prNumber) {
   try {
     run("git", ["push", "origin", `HEAD:${headRef}`]);
   } catch (e) {
-    console.warn(`[cleanup] push failed (likely a fork PR): ${e.message}`);
+    // Fork PRs are already skipped by the workflow's `if:` guard, so the
+    // usual cause here is a non-fast-forward push — the branch advanced
+    // while the job ran. The screenshots stay on the branch; the next push
+    // re-triggers this workflow, which cleans them up then.
+    console.warn(
+      `[cleanup] could not push cleanup commit (branch may have advanced): ${e.message}`
+    );
   }
 }
 
@@ -222,9 +243,9 @@ function main() {
   }
 
   console.log(`[gist] syncing ${files.length} file(s)`);
-  syncFilesToGist(gistId, gistUser, files);
+  const gistSha = syncFilesToGist(gistId, gistUser, files);
 
-  const newBody = rewriteBody(body, files, gistUser, gistId);
+  const newBody = rewriteBody(body, files, gistUser, gistId, gistSha);
   if (newBody !== body) {
     console.log("[pr] updating body");
     setPrBody(prNumber, newBody);

@@ -66,6 +66,16 @@ for (const capture of CAPTURES) {
       response?.ok(),
       `${capture.path} returned HTTP ${response?.status()}`,
     ).toBeTruthy();
+    // Admin surfaces are gated by middleware — an unauthenticated request
+    // 302s to /admin/login (itself a 200), so response.ok() alone would
+    // happily screenshot the sign-in form. Guard against that if the
+    // seeded session didn't apply.
+    if (capture.path.startsWith("/admin")) {
+      expect(
+        page.url(),
+        `${capture.path} landed on the login page — session not applied?`,
+      ).not.toContain("/admin/login");
+    }
     if (capture.settleMs) await page.waitForTimeout(capture.settleMs);
 
     const ext = capture.format === "jpeg" ? "jpg" : "png";
