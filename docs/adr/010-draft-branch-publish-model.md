@@ -430,17 +430,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* artists routinely confuse "about" with "about-us"
   or similar near-duplicate slugs.
 
-- **Diff preview: cross-collection rename context.** Renames within
-  one collection render as "X · old → new" (shipped). When GitHub's
-  rename heuristic detects a similarity across collections (file
-  manually moved from `collections/A/items/x.json` to
-  `collections/B/items/x.json`), the label reads "B · old → new"
-  and drops "A" — losing the source-collection context. Our actual
-  `renameItem` flow is single-collection so this only happens with
-  hand-moved files. Defer until a real workflow surfaces it.
-  *Trigger:* artists reporting confusion about cross-collection
-  moves in the diff.
-
 - **Per-item Publish (publish A but not B).** Today's model is
   "publish everything pending." Per-item Publish would need
   per-session branches or a fancy diff-extraction trick.

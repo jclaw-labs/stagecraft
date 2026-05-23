@@ -358,15 +358,25 @@ function defaultSubject(count: number): string {
 
 function describeLabel(c: DraftChange): string {
   switch (c.kind) {
-    case "item":
-      // For renames where we successfully parsed the source slug, show
-      // "previous → current" so the artist can confirm the change is
-      // the one they meant. Falls through to plain slug when no
-      // previousItemSlug is set (non-renamed change, or rename with a
-      // non-item previous path).
-      return c.previousItemSlug && c.previousItemSlug !== c.itemSlug
-        ? `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`
-        : `${c.collectionSlug} · ${c.itemSlug}`;
+    case "item": {
+      // For renames we surface the source — slug, collection, or both
+      // — so the artist can confirm the change is the one they meant.
+      // Cross-collection renames always render the arrow (even when
+      // the slug didn't move) because the move itself is the change.
+      // Same-collection renames only render the arrow when the slug
+      // actually changed; otherwise GitHub flagged a content-mode
+      // shift as renamed and the arrow would be a spurious cue.
+      const sameSlug = c.previousItemSlug === c.itemSlug;
+      const crossCollection = c.previousCollectionSlug !== undefined;
+      if (crossCollection) {
+        const prevSlug = c.previousItemSlug ?? c.itemSlug;
+        return `${c.previousCollectionSlug} · ${prevSlug} → ${c.collectionSlug} · ${c.itemSlug}`;
+      }
+      if (c.previousItemSlug && !sameSlug) {
+        return `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`;
+      }
+      return `${c.collectionSlug} · ${c.itemSlug}`;
+    }
     case "singleton":
       return `${c.collectionSlug}`;
     case "def":
