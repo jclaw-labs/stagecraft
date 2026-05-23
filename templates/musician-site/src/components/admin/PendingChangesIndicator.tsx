@@ -27,14 +27,14 @@ import type { CSSProperties } from "react";
 
 type Status =
   | { kind: "loading" }
-  | { kind: "pending"; count: number }
+  | { kind: "pending"; count: number; truncated: boolean }
   | { kind: "clean" }
   | { kind: "hidden" };
 
 type DraftChangesResponseBody =
   | {
       ok: true;
-      status: { count: number; mode: "local" | "github" };
+      status: { count: number; mode: "local" | "github"; truncated?: boolean };
     }
   | { ok: false; code?: string; error?: string }
   | null;
@@ -73,7 +73,11 @@ export function PendingChangesIndicator() {
         }
         setStatus(
           body.status.count > 0
-            ? { kind: "pending", count: body.status.count }
+            ? {
+                kind: "pending",
+                count: body.status.count,
+                truncated: body.status.truncated ?? false,
+              }
             : { kind: "clean" },
         );
       } catch (cause) {
@@ -93,10 +97,17 @@ export function PendingChangesIndicator() {
   }
 
   if (status.kind === "pending") {
+    // Render "300+" when the diff hit the compare API's hard cap
+    // — we don't know the real total, only that there's at least
+    // that many. The "+" prevents the artist from reading "300"
+    // as an exact count.
+    const countLabel = status.truncated ? `${status.count}+` : `${status.count}`;
+    const nounLabel =
+      !status.truncated && status.count === 1 ? "change" : "changes";
     return (
       <div style={containerStyle} role="status" aria-live="polite">
         <span style={pendingTextStyle}>
-          {status.count} unpublished {status.count === 1 ? "change" : "changes"}
+          {countLabel} unpublished {nounLabel}
         </span>
       </div>
     );

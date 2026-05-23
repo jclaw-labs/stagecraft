@@ -51,6 +51,19 @@ describe("PendingChangesIndicator", () => {
     });
   });
 
+  it("renders '300+ unpublished changes' when the diff is truncated", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 300, mode: "github", truncated: true },
+      }),
+    );
+    render(<PendingChangesIndicator />);
+    await waitFor(() => {
+      expect(screen.getByText("300+ unpublished changes")).toBeTruthy();
+    });
+  });
+
   it("shows 'All published' when count === 0 on github", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ ok: true, status: { count: 0, mode: "github" } }),

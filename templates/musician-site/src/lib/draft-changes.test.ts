@@ -60,7 +60,7 @@ describe("getDraftChanges", () => {
     delete process.env.STAGECRAFT_SITE_ID;
     delete process.env.STAGECRAFT_BROKER_SECRET;
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "local" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "local", truncated: false });
     expect(fetchPublishTokenMock).not.toHaveBeenCalled();
   });
 
@@ -105,10 +105,15 @@ describe("getDraftChanges", () => {
     });
   });
 
-  it("returns count=0 when draft and main are in sync (empty files array)", async () => {
+  it("returns count=0 + truncated=false when draft and main are in sync (empty files array)", async () => {
     compareCommitsWithBasehead.mockResolvedValue(compareResponse([]));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({
+      count: 0,
+      changes: [],
+      mode: "github",
+      truncated: false,
+    });
   });
 
   it("handles the API omitting `files` entirely (treated as zero)", async () => {
@@ -116,8 +121,39 @@ describe("getDraftChanges", () => {
     // any commits between base and head can come back without it.
     compareCommitsWithBasehead.mockResolvedValue(compareResponse(null));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({
+      count: 0,
+      changes: [],
+      mode: "github",
+      truncated: false,
+    });
   });
+
+  it("flags truncated=true when the compare API returns the 300-file cap", async () => {
+    // GitHub's compare endpoint caps `files` at 300 with no pagination.
+    // Any response that fills the cap means we can't be sure whether
+    // there were exactly 300 changes or more — surface as truncated so
+    // the UI renders "300+".
+    const files = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(files));
+    const result = await getDraftChanges();
+    expect(result.truncated).toBe(true);
+    expect(result.count).toBe(300);
+  });
+
+  it("leaves truncated=false when the file count is below the cap", async () => {
+    const files = Array.from({ length: 5 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(files));
+    const result = await getDraftChanges();
+    expect(result.truncated).toBe(false);
+  });
+
 
   it("returns count=0 when the draft branch doesn't exist yet (fresh site)", async () => {
     // Saving the first item is what creates the branch — until then
@@ -126,7 +162,7 @@ describe("getDraftChanges", () => {
     // error.
     compareCommitsWithBasehead.mockRejectedValue(notFound());
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "github", truncated: false });
   });
 
   it("re-throws as DraftChangesError(github-failed) on non-404 GitHub errors", async () => {

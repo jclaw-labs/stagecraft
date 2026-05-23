@@ -465,6 +465,49 @@ describe("PublishConfirmModal", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it("surfaces a 'showing first N changes' notice when the response is truncated", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 2,
+          changes: sampleChanges,
+          mode: "github",
+          truncated: true,
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Showing the first 2 changes\. Publishing commits everything pending\./),
+      ).toBeTruthy();
+    });
+  });
+
+  it("doesn't render the truncation notice when the diff fits the cap", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 2,
+          changes: sampleChanges,
+          mode: "github",
+          truncated: false,
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · about")).toBeTruthy();
+    });
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
+  });
+
   it("renders one group per collection with a count in the heading", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
