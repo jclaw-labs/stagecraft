@@ -100,15 +100,3 @@ something worth fixing that doesn't fit the current PR's scope.
   into `Images` + `Embeds` if the count crosses ~8. From #173 deep
   review.
 
-## Puck inspector
-
-- **Cleaner null state on per-page `pageBackgroundOverlay`.** The
-  field's default is `null` (= "inherit site default"); the artist
-  can override with a number 0..1. Puck's `type: "number"` field
-  doesn't cleanly distinguish "empty / cleared" from "0" — the
-  serialised value may end up `0` (which `extractPageRootProps`
-  treats as "explicit no-tint override") instead of `null`. Runtime
-  is safe via the validator; UX is the wrinkle. Options: pair the
-  number field with an "Inherit site default" radio; or accept the
-  v1 contract that 0 = no tint here, null = inherit (works when
-  Puck preserves null). From pageBackgroundOverlay PR.

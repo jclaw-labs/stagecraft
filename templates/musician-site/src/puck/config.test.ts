@@ -1028,6 +1028,15 @@ describe("puckConfig", () => {
       expect(field?.type).toBe("custom");
       expect(puckConfig.root?.defaultProps?.pageBackground).toBeNull();
     });
+
+    it("declares pageBackgroundOverlay as a custom field with a null default (inherit)", () => {
+      // Custom (not number) so the editor can express null=inherit vs
+      // 0..1=explicit override unambiguously — see PageOverlayField.
+      const field = puckConfig.root?.fields?.pageBackgroundOverlay;
+      expect(field?.type).toBe("custom");
+      // Default null = inherit the site-wide overlay.
+      expect(puckConfig.root?.defaultProps?.pageBackgroundOverlay).toBeNull();
+    });
   });
 
   describe("NewsletterSignup — optional name field", () => {
