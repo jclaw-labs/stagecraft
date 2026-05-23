@@ -60,15 +60,6 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Card
 
-- **Inline audio / video players in the Card media slot.** The
-  icon-mode media tiles (audio / video / PDF / file glyphs) render
-  non-interactively so they're valid inside a link-card's `<a>`
-  wrapper. The legacy template renders audio / video `fileUrl`s as
-  actual `<audio controls>` / `<video controls>` players. For non-
-  link cards (where interactive content is valid), we could upgrade
-  the audio / video tiles to inline players. Gated on: detecting the
-  non-link case at render and swapping the glyph tile for a player.
-  From card-icon-media PR.
 - **Hover affordance on `minimal` cards.** A `minimal` link/hoverable
   card shares the `.stagecraft-card-link:hover` rule, which applies
   `box-shadow: var(--shadow-md)` + a lift on hover. The lift reads

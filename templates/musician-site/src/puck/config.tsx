@@ -547,16 +547,17 @@ function cardMediaStyle(orientation: CardOrientation): CSSProperties {
 /**
  * Media-slot preview for a Card that has no image but carries a
  * `fileUrl` — a downloadable asset (press-kit PDF, audio track, promo
- * video, zip). Renders a file-type icon tile inferred from the URL
- * extension so a download-list / press-kit card shows *something* in
- * the media slot instead of a bare title.
+ * video, zip). The kind is inferred from the URL extension:
  *
- * Deliberately non-interactive (a static glyph + filename, not an
- * `<audio>` / `<video>` player): the tile must be valid inside a
- * link-card's `<a>` wrapper, where interactive content would be both
- * invalid HTML and a click-target conflict with the card link. Inline
- * players for non-link cards are a possible future enhancement —
- * tracked in docs/follow-ups.md.
+ *   - `audio` / `video` → an inline `<audio>` / `<video controls>`
+ *     player, so a download-list card lets visitors preview the track
+ *     / clip in place.
+ *   - `pdf` / `file`    → a static file-type icon tile (a glyph +
+ *     filename) — there's nothing to play inline.
+ *
+ * Only rendered for non-link cards (the call site gates on `!href`),
+ * so the interactive players are never nested inside the card-link
+ * `<a>` — no invalid-HTML / click-target conflict.
  */
 function CardFilePreview({
   fileUrl,
@@ -566,6 +567,35 @@ function CardFilePreview({
   orientation: CardOrientation;
 }): ReactNode {
   const kind = inferCardMediaKind(fileUrl);
+
+  if (kind === "audio") {
+    return (
+      <div className="stagecraft-card-media" style={cardPlayerWrapperStyle}>
+        <audio
+          controls
+          preload="metadata"
+          src={fileUrl}
+          style={cardAudioStyle}
+          data-testid="card-audio"
+        />
+      </div>
+    );
+  }
+
+  if (kind === "video") {
+    return (
+      <div className="stagecraft-card-media" style={cardMediaStyle(orientation)}>
+        <video
+          controls
+          preload="metadata"
+          src={fileUrl}
+          style={cardVideoStyle}
+          data-testid="card-video"
+        />
+      </div>
+    );
+  }
+
   const filename = cardMediaFilename(fileUrl);
   return (
     <div className="stagecraft-card-media" style={cardMediaStyle(orientation)}>
@@ -686,6 +716,25 @@ const cardFileGlyphStyle: CSSProperties = {
   width: "var(--space-12)",
   height: "var(--space-12)",
   flex: "0 0 auto",
+};
+
+// Audio gets a plain rounded wrapper (no fixed aspect — the native
+// control is a thin bar, so a 4:3 box would leave a big empty gap).
+const cardPlayerWrapperStyle: CSSProperties = {
+  borderRadius: "var(--radius-sm)",
+  overflow: "hidden",
+};
+
+const cardAudioStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+};
+
+const cardVideoStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  // Intrinsic aspect; the surrounding Section / Columns owns width.
+  height: "auto",
 };
 
 const cardFileNameStyle: CSSProperties = {
