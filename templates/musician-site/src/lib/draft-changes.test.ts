@@ -18,7 +18,7 @@ vi.mock("./publish", async () => {
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
-import { getDraftChanges, parseChanges } from "./draft-changes";
+import { getDraftChanges, getPendingItemSlugs, parseChanges } from "./draft-changes";
 import { PublishError } from "./publish";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -396,5 +396,52 @@ describe("parseChanges", () => {
     ]);
     expect(out).toHaveLength(1);
     expect((out[0] as { itemSlug: string }).itemSlug).toBe("y");
+  });
+});
+
+describe("getPendingItemSlugs", () => {
+  it("returns the slugs with pending changes in the requested collection", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/photos/items/sunset.json", status: "modified" },
+        { filename: "src/content/collections/photos/items/dawn.json", status: "added" },
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    const slugs = await getPendingItemSlugs("photos");
+    expect(slugs).toEqual(new Set(["sunset", "dawn"]));
+  });
+
+  it("returns an empty set when nothing in the collection is pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+
+  it("degrades to an empty set when the platform isn't configured (local mode)", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("degrades to an empty set on a GitHub failure rather than throwing", async () => {
+    const serverErr = new RequestError("Server Error", 500, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 500, url: "x", headers: {}, data: {} },
+    });
+    compareCommitsWithBasehead.mockRejectedValue(serverErr);
+    // getDraftChanges would throw DraftChangesError here; the slug
+    // helper swallows it so the list renders badge-free.
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+
+  it("degrades to an empty set on a broker rejection", async () => {
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-rejected", "unknown site"),
+    );
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
   });
 });

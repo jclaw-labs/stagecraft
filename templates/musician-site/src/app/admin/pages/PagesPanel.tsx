@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { TextField } from "@/components/admin/form";
+import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+import { pendingItemSlugs } from "@/lib/draft-changes-filter";
 import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
 import {
   PAGE_SLUG_PATTERN,
@@ -93,17 +95,7 @@ export function PagesPanel({ initialPages }: Props) {
           | { ok: false }
           | null;
         if (ac.signal.aborted || !res.ok || !body || !body.ok) return;
-        const slugs = new Set<string>();
-        for (const change of body.status.changes) {
-          if (
-            change.kind === "item" &&
-            change.collectionSlug === "pages" &&
-            change.itemSlug
-          ) {
-            slugs.add(change.itemSlug);
-          }
-        }
-        setPendingSlugs(slugs);
+        setPendingSlugs(pendingItemSlugs(body.status.changes, "pages"));
       } catch (cause) {
         // Aborts on unmount are expected; everything else degrades to
         // "no badges" silently — the list itself isn't load-bearing
@@ -444,23 +436,7 @@ export function PagesPanel({ initialPages }: Props) {
                       {page.isSplashPage ? "/" : `/${page.slug}`}
                     </span>
                   </Link>
-                  {pendingSlugs.has(page.slug) ? (
-                    <span
-                      title="Has unpublished changes"
-                      style={{
-                        fontSize: "var(--font-size-xs)",
-                        fontWeight: "var(--font-weight-semibold)" as unknown as number,
-                        color: "var(--color-text-emphasis)",
-                        padding: "var(--space-1) var(--space-2)",
-                        background: "var(--color-surface-raised)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: "var(--radius-sm)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Unpublished
-                    </span>
-                  ) : null}
+                  {pendingSlugs.has(page.slug) ? <UnpublishedBadge /> : null}
                   {page.isSplashPage ? (
                     <span
                       title="Splash page — takes over /"
