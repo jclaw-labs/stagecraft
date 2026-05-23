@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { TextField } from "@/components/admin/form";
 import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
 import { pendingItemSlugs } from "@/lib/draft-changes-filter";
 import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
 import {
@@ -74,37 +75,18 @@ export function PagesPanel({ initialPages }: Props) {
   const [pendingSlugs, setPendingSlugs] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
-    const ac = new AbortController();
-    async function loadPending() {
-      try {
-        const res = await fetch("/api/draft-changes", {
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const body = (await res.json().catch(() => null)) as
-          | {
-              ok: true;
-              status: {
-                changes: Array<{
-                  kind: string;
-                  collectionSlug?: string;
-                  itemSlug?: string;
-                }>;
-              };
-            }
-          | { ok: false }
-          | null;
-        if (ac.signal.aborted || !res.ok || !body || !body.ok) return;
-        setPendingSlugs(pendingItemSlugs(body.status.changes, "pages"));
-      } catch (cause) {
-        // Aborts on unmount are expected; everything else degrades to
-        // "no badges" silently — the list itself isn't load-bearing
-        // on this data.
-        if (cause instanceof Error && cause.name === "AbortError") return;
-      }
-    }
-    void loadPending();
-    return () => ac.abort();
+    // Shares the draft-changes read with the sidebar indicator that
+    // also mounts on this page — one compare call instead of two. A
+    // failed read leaves the set empty (no badges); the fetcher never
+    // rejects, so there's nothing to catch.
+    let cancelled = false;
+    void fetchDraftChangesShared().then((result) => {
+      if (cancelled || !result.ok) return;
+      setPendingSlugs(pendingItemSlugs(result.status.changes, "pages"));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const effectiveSlug = hasSlugBeenEdited ? newSlug : slugifyTitle(newTitle);

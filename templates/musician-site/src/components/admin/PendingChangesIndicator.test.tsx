@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
+import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
+
 import { PendingChangesIndicator } from "./PendingChangesIndicator";
 
 const fetchMock = vi.fn();
@@ -10,6 +12,10 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  // The indicator reads through the shared draft-changes coalescer,
+  // which keeps a module-level in-flight reference; drop it so a
+  // pending-forever mock in one case can't bleed into the next.
+  __resetDraftChangesClientForTests();
 });
 
 afterEach(() => {
@@ -98,52 +104,23 @@ describe("PendingChangesIndicator", () => {
     });
   });
 
-  it("passes an AbortController signal so unmount cancels the fetch", async () => {
+  it("folds simultaneous consumers into one request (shared fetch)", async () => {
+    // Two consumers mounting in the same render pass — the indicator
+    // plus, on the real Pages screen, the panel's badges — must share a
+    // single compare call rather than each firing their own.
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, status: { count: 0, mode: "github" } }),
+      jsonResponse({ ok: true, status: { count: 2, mode: "github" } }),
     );
-    render(<PendingChangesIndicator />);
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
-    });
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("aborts the in-flight fetch on unmount", async () => {
-    // Capture the signal the indicator passes so we can observe it
-    // flipping to aborted when the component unmounts.
-    let capturedSignal: AbortSignal | null = null;
-    fetchMock.mockImplementation((_url, init?: RequestInit) => {
-      capturedSignal = init?.signal ?? null;
-      return new Promise(() => {}); // never resolves
-    });
-    const { unmount } = render(<PendingChangesIndicator />);
-    await waitFor(() => {
-      expect(capturedSignal).not.toBeNull();
-    });
-    expect(capturedSignal!.aborted).toBe(false);
-    unmount();
-    expect(capturedSignal!.aborted).toBe(true);
-  });
-
-  it("doesn't transition out of loading when the fetch throws AbortError", async () => {
-    // The unmount path rejects the pending fetch with an AbortError.
-    // The indicator should swallow it silently, not hide on it (a fast
-    // re-mount during navigation would otherwise see the wrong state).
-    fetchMock.mockImplementation(
-      () =>
-        new Promise((_, reject) => {
-          const err = new Error("aborted");
-          err.name = "AbortError";
-          // Reject on the next microtask so the component has time
-          // to register the cleanup before we throw.
-          queueMicrotask(() => reject(err));
-        }),
+    render(
+      <>
+        <PendingChangesIndicator />
+        <PendingChangesIndicator />
+      </>,
     );
-    const { container } = render(<PendingChangesIndicator />);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(container.firstChild).toBeNull();
+    await waitFor(() => {
+      expect(screen.getAllByText("2 unpublished changes")).toHaveLength(2);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("hides silently on a server error (don't surface load failures in chrome)", async () => {

@@ -25,71 +25,45 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
+import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
+
 type Status =
   | { kind: "loading" }
   | { kind: "pending"; count: number; truncated: boolean }
   | { kind: "clean" }
   | { kind: "hidden" };
 
-type DraftChangesResponseBody =
-  | {
-      ok: true;
-      status: { count: number; mode: "local" | "github"; truncated?: boolean };
-    }
-  | { ok: false; code?: string; error?: string }
-  | null;
-
 export function PendingChangesIndicator() {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
 
   useEffect(() => {
-    const ac = new AbortController();
-    async function load() {
-      try {
-        // `cache: "no-store"` so a save → navigate sequence doesn't
-        // serve a stale count from the browser cache. The route
-        // handler also returns `cache-control: no-store` — both
-        // belts.
-        //
-        // `signal: ac.signal` so navigating away from the admin
-        // while the request is in flight actually cancels the
-        // network request (the `cancelled` flag alone would gate
-        // the `setStatus` but leave the request running).
-        const res = await fetch("/api/draft-changes", {
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const body = (await res.json().catch(() => null)) as DraftChangesResponseBody;
-        if (ac.signal.aborted) return;
-        if (!res.ok || !body || !body.ok) {
-          // Don't surface fetch errors in chrome — the artist's
-          // immediate task isn't the indicator. Hide silently.
-          setStatus({ kind: "hidden" });
-          return;
-        }
-        if (body.status.mode === "local") {
-          setStatus({ kind: "hidden" });
-          return;
-        }
-        setStatus(
-          body.status.count > 0
-            ? {
-                kind: "pending",
-                count: body.status.count,
-                truncated: body.status.truncated ?? false,
-              }
-            : { kind: "clean" },
-        );
-      } catch (cause) {
-        // Aborts during teardown are expected — don't transition out
-        // of `loading` so a fast re-mount (e.g., back-button nav)
-        // doesn't show the wrong state momentarily.
-        if (cause instanceof Error && cause.name === "AbortError") return;
+    // Shared with the other chrome that reads the diff on the same page
+    // load (e.g. PagesPanel's badges) so they fold into one compare
+    // call. The fetcher never rejects — failures arrive as
+    // `{ ok: false }`, which we hide silently (the artist's task isn't
+    // the indicator). `cancelled` guards against an update after
+    // unmount; we leave `loading` in place on unmount so a fast
+    // re-mount during navigation doesn't flash the wrong state.
+    let cancelled = false;
+    void fetchDraftChangesShared().then((result) => {
+      if (cancelled) return;
+      if (!result.ok || result.status.mode === "local") {
         setStatus({ kind: "hidden" });
+        return;
       }
-    }
-    void load();
-    return () => ac.abort();
+      setStatus(
+        result.status.count > 0
+          ? {
+              kind: "pending",
+              count: result.status.count,
+              truncated: result.status.truncated,
+            }
+          : { kind: "clean" },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (status.kind === "loading" || status.kind === "hidden") {

@@ -40,6 +40,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
+import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
 import {
   MAX_COMMIT_MESSAGE_LENGTH,
   MAX_COMMIT_SUBJECT_LENGTH,
@@ -55,19 +56,6 @@ type LoadState =
   | { kind: "loading" }
   | { kind: "loaded"; changes: DraftChange[]; truncated: boolean }
   | { kind: "error" };
-
-type ResponseBody =
-  | {
-      ok: true;
-      status: {
-        count: number;
-        changes: DraftChange[];
-        mode: "local" | "github";
-        truncated?: boolean;
-      };
-    }
-  | { ok: false; code?: string; error?: string }
-  | null;
 
 export function PublishConfirmModal({
   onCancel,
@@ -89,31 +77,28 @@ export function PublishConfirmModal({
   const triggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const ac = new AbortController();
-    async function load() {
-      try {
-        const res = await fetch("/api/draft-changes", {
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const body = (await res.json().catch(() => null)) as ResponseBody;
-        if (ac.signal.aborted) return;
-        if (!res.ok || !body || !body.ok) {
-          setState({ kind: "error" });
-          return;
-        }
-        setState({
-          kind: "loaded",
-          changes: body.status.changes,
-          truncated: body.status.truncated ?? false,
-        });
-      } catch (cause) {
-        if (cause instanceof Error && cause.name === "AbortError") return;
+    // Uses the shared fetcher for consistency with the rest of the
+    // chrome; in practice the modal opens well after the page's initial
+    // read has settled, so this is usually a fresh fetch — which is what
+    // we want before publishing. Never rejects: failures surface as
+    // `{ ok: false }` → the error state. `cancelled` guards a late
+    // resolve after the artist closes the modal.
+    let cancelled = false;
+    void fetchDraftChangesShared().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
         setState({ kind: "error" });
+        return;
       }
-    }
-    void load();
-    return () => ac.abort();
+      setState({
+        kind: "loaded",
+        changes: result.status.changes,
+        truncated: result.status.truncated,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Sync the auto-generated default into the subject field whenever
