@@ -437,6 +437,22 @@ const CARD_SIZE_TITLE_FONT: Record<CardSize, string> = {
   lg: "var(--font-size-xl)",
 };
 
+/**
+ * Coerce a possibly-missing / unknown `size` to the `md` default.
+ * Card JSON saved before the size axis landed has no `size` key,
+ * and Puck's public `<Render>` path passes raw on-disk props through
+ * without backfilling `defaultProps` (those only apply in the
+ * editor). Without this guard, an old card's `size` arrives
+ * `undefined` at runtime — despite the `CardSize` prop type — and
+ * every size-driven token (`CARD_SIZE_GAP[undefined]` etc.) collapses
+ * to `undefined`, stripping the card's padding, gap, AND title font
+ * in one go. Falling back to `md` keeps old cards rendering at their
+ * original v2 scale.
+ */
+function normaliseCardSize(size: CardSize | undefined): CardSize {
+  return (CARD_SIZES as readonly string[]).includes(size as string) ? (size as CardSize) : "md";
+}
+
 function cardContainerStyle(
   orientation: CardOrientation,
   variant: CardVariant,
@@ -1167,11 +1183,14 @@ export const puckConfig: Config<
         isExternal,
         orientation,
         variant,
-        size,
+        size: rawSize,
         fileUrl,
         sizeLabel,
         isHoverable,
       }) => {
+        // Coerce missing/unknown size (old on-disk cards) to md before
+        // it feeds the size-driven token maps — see normaliseCardSize.
+        const size = normaliseCardSize(rawSize);
         const inner = (
           <>
             {image ? (

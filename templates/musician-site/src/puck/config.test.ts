@@ -766,14 +766,26 @@ describe("puckConfig", () => {
       expect(lg).toMatch(/font-size:\s*var\(--font-size-xl\)/);
     });
 
-    it("size=md is the default (parity with v2 single-size cards)", () => {
-      // A Card authored before the size axis landed deserialises with
-      // the md default — same padding/type as the v2 fixed size.
-      const withDefault = render("Card", cardProps({ title: "x" }));
-      const explicitMd = render("Card", cardProps({ title: "x", size: "md" }));
-      expect(withDefault).toMatch(/padding:\s*var\(--space-4\)/);
-      // Both render the same padding token.
-      expect(explicitMd).toMatch(/padding:\s*var\(--space-4\)/);
+    it("coerces a MISSING size key to md (old on-disk cards, no defaultProps backfill)", () => {
+      // Card JSON saved before the size axis landed has no `size`
+      // key. Puck's public <Render> passes raw props through without
+      // backfilling defaultProps, so `size` arrives undefined. Without
+      // the normaliseCardSize guard, every size-driven token collapses
+      // to `undefined` and the card loses padding + gap + title font.
+      // Simulate the old shape by deleting the key entirely.
+      const oldProps = cardProps({ title: "x" }) as Record<string, unknown>;
+      delete oldProps.size;
+      const html = render("Card", oldProps);
+      // Falls back to md: padding --space-4, title font --font-size-lg.
+      expect(html).toMatch(/padding:\s*var\(--space-4\)/);
+      expect(html).toMatch(/font-size:\s*var\(--font-size-lg\)/);
+      // And the gap is present (md gap is --space-3), not stripped.
+      expect(html).toMatch(/gap:\s*var\(--space-3\)/);
+    });
+
+    it("coerces an UNKNOWN size value to md (defensive against bad data)", () => {
+      const html = render("Card", cardProps({ title: "x", size: "gigantic" }));
+      expect(html).toMatch(/padding:\s*var\(--space-4\)/);
     });
 
     it("size select options match CARD_SIZES", () => {
