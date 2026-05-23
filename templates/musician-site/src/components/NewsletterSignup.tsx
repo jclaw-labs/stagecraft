@@ -8,6 +8,7 @@ import {
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
   newsletterFieldAutoComplete,
+  normaliseNewsletterFieldType,
   parseMailchimpAudienceHoneypotName,
   type NewsletterAdditionalField,
   type NewsletterService,
@@ -106,12 +107,6 @@ export function NewsletterSignup({
   additionalFields = [],
 }: NewsletterSignupProps) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-  // Drop incomplete rows (artist added a row in the inspector but
-  // hasn't filled label + name yet). A nameless input can't post to
-  // the provider; an unlabelled one fails the a11y contract.
-  const usableAdditional = additionalFields.filter(
-    (f) => f.label.trim() !== "" && f.name.trim() !== "",
-  );
   // Stable per-instance input ids so multiple signup forms on one
   // page don't collide on the `<label htmlFor>` association.
   const baseId = useId();
@@ -127,6 +122,35 @@ export function NewsletterSignup({
   // can't be derived.
   const mailchimpHoneypotName =
     service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+
+  // Names the form already owns. An additional field colliding with
+  // one of these would emit a duplicate `name=` input — the provider
+  // then receives two values for the same key (subscription breaks,
+  // silently, behind the opaque no-cors success), or a visible field
+  // shadows a honeypot. Colliding rows are dropped rather than shipped
+  // broken. `NAME_FIELD_NAME` is only reserved when the name field is
+  // actually rendered; the Mailchimp `b_*` honeypot only when present.
+  const reservedNames = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
+  if (hasNameField) reservedNames.add(NAME_FIELD_NAME[service]);
+  if (mailchimpHoneypotName) reservedNames.add(mailchimpHoneypotName);
+
+  // Clean the artist's additional fields for render:
+  //   1. Drop incomplete rows (label or name blank — the inspector
+  //      seeds new rows empty; a nameless input can't post and an
+  //      unlabelled one fails a11y). `?? ""` guards hand-edited JSON
+  //      with null/missing keys so a bad row skips instead of
+  //      throwing on `.trim()` and crashing the whole render.
+  //   2. Normalise (trim name/label, coerce an out-of-union type to
+  //      text — on-disk data is untyped at runtime).
+  //   3. Drop rows whose name collides with a reserved form field.
+  const usableAdditional = additionalFields
+    .filter((f) => (f?.label ?? "").trim() !== "" && (f?.name ?? "").trim() !== "")
+    .map((f) => ({
+      label: (f.label ?? "").trim(),
+      name: (f.name ?? "").trim(),
+      type: normaliseNewsletterFieldType(f.type),
+    }))
+    .filter((f) => !reservedNames.has(f.name));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -111,6 +111,24 @@ export type NewsletterAdditionalField = {
 };
 
 /**
+ * Coerce a possibly-unknown additional-field `type` to a member of
+ * the union, falling back to `text`. The TS type constrains the
+ * inspector, but Puck JSON on disk is untyped at runtime — a
+ * hand-edited file or a future enum change could carry
+ * `type: "number"` / `"hidden"` / etc., which would render an
+ * `<input>` of that type verbatim (a `hidden` field the artist
+ * can't see, a `number` field that rejects "+1 555…"). Same trust-
+ * boundary reasoning as `normaliseCardSize` in puck/config.tsx.
+ */
+export function normaliseNewsletterFieldType(
+  type: NewsletterFieldType | undefined,
+): NewsletterFieldType {
+  return (NEWSLETTER_FIELD_TYPES as readonly string[]).includes(type as string)
+    ? (type as NewsletterFieldType)
+    : "text";
+}
+
+/**
  * Map an additional-field input type to a reasonable `autocomplete`
  * token so browsers offer autofill. `text` is intentionally
  * unmapped (returns undefined) — a generic text field could be
