@@ -442,20 +442,24 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* artists ask why a settings change doesn't show pending
   state where a page edit does.
 
-- **Dedupe draft-changes reads across the chrome.** Every admin list
-  page now reads the draft diff twice: `PendingChangesIndicator` (in
-  `AdminShell`) fetches `/api/draft-changes` client-side on mount, and
-  the list itself reads the same diff for its per-row badges —
-  client-side in `PagesPanel`, server-side via `getPendingItemSlugs`
-  in the generic collection view. Each is a separate compare API
-  call. A shared cache would collapse them: a module-level promise
-  with a short TTL (or a small context provider) on the client; or,
-  on the collection pages, passing the count down from the server
-  render into the indicator so it skips its own fetch. Per-call cost
-  is modest (the broker token is process-cached per PR 5m; only the
-  compare differs) so this is amortise-later, not load-bearing.
-  *Trigger:* the duplicate compare calls show up in real traffic
-  profiles, or a fourth draft-changes consumer lands.
+- **Collapse the server/client draft-changes split on collection
+  pages.** The client-side reads are now coalesced:
+  `fetchDraftChangesShared` (a module-level in-flight promise) folds
+  the simultaneous on-mount reads — the sidebar
+  `PendingChangesIndicator` plus `PagesPanel`'s badges — into one
+  compare call, and the Publish modal shares it when open during the
+  window. It's in-flight-only, not a TTL cache, so a save → navigate
+  sequence still reflects immediately (the `no-store` freshness intent
+  is preserved; a lingering result cache would have regressed it).
+  What remains: on `/admin/collections/<slug>` the list reads the diff
+  server-side (`getPendingItemSlugs` at render) while the indicator
+  reads it client-side — two compare calls the client coalescer can't
+  bridge. Passing the server render's result down into the indicator
+  (so it skips its own fetch) would close it, but per-call cost is
+  modest (broker token process-cached per PR 5m) so it's
+  amortise-later.
+  *Trigger:* the remaining duplicate compare calls show up in traffic
+  profiles.
 
 ## Consequences
 
