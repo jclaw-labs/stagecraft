@@ -1286,13 +1286,49 @@ describe("puckConfig", () => {
       expect(hint.text).toMatch(/still submits/i);
     });
 
-    it("non-Mailchimp services get a generic paste hint regardless of URL state", () => {
+    it("non-Mailchimp services get a paste hint when the URL is empty", () => {
       expect(newsletterUrlDescription("buttondown", "").text).toMatch(
         /POST URL from your provider/i,
       );
-      expect(
-        newsletterUrlDescription("convertkit", "https://example.com/subscribe").text,
-      ).toMatch(/POST URL from your provider/i);
+      expect(newsletterUrlDescription("convertkit", "").text).toMatch(
+        /POST URL from your provider/i,
+      );
+    });
+
+    it("ConvertKit / Buttondown warn on a URL that doesn't match the provider pattern", () => {
+      // The per-service validation ported from #213: a non-matching
+      // URL now warns with the expected shape instead of silently
+      // falling through to the generic paste hint.
+      const ck = newsletterUrlDescription("convertkit", "https://example.com/subscribe");
+      expect(ck.kind).toBe("warn");
+      expect(ck.text).toMatch(/ConvertKit|Kit/);
+
+      const bd = newsletterUrlDescription("buttondown", "https://example.com/subscribe");
+      expect(bd.kind).toBe("warn");
+      expect(bd.text).toMatch(/Buttondown/);
+    });
+
+    it("ConvertKit / Buttondown confirm a well-formed embed URL", () => {
+      const ck = newsletterUrlDescription(
+        "convertkit",
+        "https://app.kit.com/forms/12345/subscriptions",
+      );
+      expect(ck.kind).toBe("ok");
+
+      const bd = newsletterUrlDescription(
+        "buttondown",
+        "https://buttondown.com/api/emails/embed-subscribe/artist",
+      );
+      expect(bd.kind).toBe("ok");
+    });
+
+    it("generic stays a neutral info hint (no provider contract to verify)", () => {
+      // A parseable generic URL can't be pattern-checked, so it's an
+      // info nudge, never a green "ok"; an unparseable one still warns.
+      expect(newsletterUrlDescription("generic", "https://artist.example/subscribe").kind).toBe(
+        "info",
+      );
+      expect(newsletterUrlDescription("generic", "not a url").kind).toBe("warn");
     });
 
     it("`resolveFields` rebuilds actionUrl as a custom field carrying the current hint", () => {

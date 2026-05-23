@@ -19,6 +19,7 @@ import {
   NEWSLETTER_SERVICE_LABELS,
   newsletterAdditionalFieldsLabel,
   parseMailchimpAudienceHoneypotName,
+  validateNewsletterActionUrl,
   type NewsletterAdditionalField,
   type NewsletterService,
 } from "@/components/newsletter-types";
@@ -154,27 +155,55 @@ export function newsletterUrlDescription(
   service: NewsletterService,
   actionUrl: string,
 ): { kind: "info" | "ok" | "warn"; text: string } {
-  if (service !== "mailchimp") {
+  // Mailchimp keeps its own messaging — the warn case is honeypot-
+  // specific (a malformed URL silently disables the per-audience bot
+  // trap), which is richer than the generic "wrong shape" hint the
+  // shared validator gives. The empty / ok / warn copy here is what
+  // the inspector tests pin.
+  if (service === "mailchimp") {
+    if (!actionUrl) {
+      return {
+        kind: "info",
+        text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
+      };
+    }
+    if (parseMailchimpAudienceHoneypotName(actionUrl)) {
+      return {
+        kind: "ok",
+        text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+      };
+    }
+    return {
+      kind: "warn",
+      text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+    };
+  }
+
+  // ConvertKit / Buttondown / generic: delegate the pattern check to
+  // the shared `validateNewsletterActionUrl`. Empty stays a paste
+  // hint (don't nag a fresh block); a non-matching URL warns with the
+  // provider's expected shape; `generic` can only confirm
+  // parseability (no provider contract to verify) so it stays a
+  // neutral nudge rather than a green "looks right".
+  if (!actionUrl.trim()) {
     return {
       kind: "info",
       text: "Paste the form's POST URL from your provider's embed code.",
     };
   }
-  if (!actionUrl) {
+  const validation = validateNewsletterActionUrl(service, actionUrl);
+  if (!validation.ok) {
+    return { kind: "warn", text: validation.message };
+  }
+  if (service === "generic") {
     return {
       kind: "info",
-      text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
-    };
-  }
-  if (parseMailchimpAudienceHoneypotName(actionUrl)) {
-    return {
-      kind: "ok",
-      text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+      text: "Looks like a URL. We can't verify a custom provider's field contract — make sure it's the form's POST URL.",
     };
   }
   return {
-    kind: "warn",
-    text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+    kind: "ok",
+    text: `Looks like a valid ${NEWSLETTER_SERVICE_LABELS[service]} embed URL.`,
   };
 }
 

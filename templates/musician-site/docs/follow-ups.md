@@ -37,17 +37,6 @@ something worth fixing that doesn't fit the current PR's scope.
   single-finger gesture when the touch count drops back to one.
   From lightbox-touch-swipe PR review.
 
-## Newsletter signup
-
-- **Per-service URL validation patterns.** The inspector hint
-  added in the Mailchimp validation PR only covers Mailchimp's
-  `?u=USER_ID&id=LIST_ID` shape; Buttondown / ConvertKit / generic
-  silently fall through to a paste hint. Each has its own URL
-  pattern (e.g. Buttondown's
-  `buttondown.email/api/emails/embed-subscribe/<slug>`), and a
-  per-service parser + matching hint would extend the same author-
-  time signal. Defer until artists ask. From newsletter-validation
-  PR review.
 ## Card
 
 - **Hover affordance on `minimal` cards.** A `minimal` link/hoverable

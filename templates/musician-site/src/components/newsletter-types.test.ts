@@ -12,6 +12,7 @@ import {
   newsletterFieldAutoComplete,
   newsletterReservedFieldNames,
   parseMailchimpAudienceHoneypotName,
+  validateNewsletterActionUrl,
   type NewsletterAdditionalField,
 } from "./newsletter-types";
 
@@ -121,6 +122,124 @@ describe("parseMailchimpAudienceHoneypotName", () => {
         "https://x.eu1.list-manage.com/subscribe/post?u=def456&id=ghi012",
       ),
     ).toBe("b_def456_ghi012");
+  });
+});
+
+describe("validateNewsletterActionUrl", () => {
+  it("treats an empty URL as ok (no hint on a brand-new block)", () => {
+    // The artist hasn't typed anything yet; popping a "required" hint
+    // before they've engaged with the field is hostile UX. The
+    // required-ness is enforced at publish time when (if) we add a
+    // form-level guard — not during inspector authoring.
+    for (const service of NEWSLETTER_SERVICES) {
+      expect(validateNewsletterActionUrl(service, "")).toEqual({ ok: true });
+      expect(validateNewsletterActionUrl(service, "   ")).toEqual({ ok: true });
+    }
+  });
+
+  it("rejects unparseable URLs across every service with a parse-hint message", () => {
+    for (const service of NEWSLETTER_SERVICES) {
+      const result = validateNewsletterActionUrl(service, "not-a-url");
+      expect(result.ok).toBe(false);
+      // Same hint for every service — the URL isn't even parseable, so
+      // a provider-specific message would be premature.
+      if (!result.ok) expect(result.message).toMatch(/doesn't look like a URL/i);
+    }
+  });
+
+  it("mailchimp: accepts URLs carrying ?u=...&id=...", () => {
+    expect(
+      validateNewsletterActionUrl(
+        "mailchimp",
+        "https://x.us20.list-manage.com/subscribe/post?u=abc&id=def",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("mailchimp: rejects URLs missing u or id", () => {
+    // Missing both
+    const a = validateNewsletterActionUrl(
+      "mailchimp",
+      "https://x.us20.list-manage.com/subscribe/post",
+    );
+    expect(a.ok).toBe(false);
+    if (!a.ok) expect(a.message).toMatch(/u=USER_ID&id=LIST_ID/);
+    // Missing one
+    const b = validateNewsletterActionUrl(
+      "mailchimp",
+      "https://x.us20.list-manage.com/subscribe/post?u=abc",
+    );
+    expect(b.ok).toBe(false);
+  });
+
+  it("convertkit: accepts /forms/<id>/subscriptions on app.kit.com or app.convertkit.com", () => {
+    expect(
+      validateNewsletterActionUrl(
+        "convertkit",
+        "https://app.kit.com/forms/12345/subscriptions",
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      validateNewsletterActionUrl(
+        "convertkit",
+        "https://app.convertkit.com/forms/12345/subscriptions",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("convertkit: rejects other hosts / paths", () => {
+    const wrongHost = validateNewsletterActionUrl(
+      "convertkit",
+      "https://example.com/forms/12345/subscriptions",
+    );
+    expect(wrongHost.ok).toBe(false);
+    const wrongPath = validateNewsletterActionUrl(
+      "convertkit",
+      "https://app.kit.com/something-else",
+    );
+    expect(wrongPath.ok).toBe(false);
+  });
+
+  it("buttondown: accepts /api/emails/embed-subscribe/<user> on buttondown.com or .email", () => {
+    expect(
+      validateNewsletterActionUrl(
+        "buttondown",
+        "https://buttondown.com/api/emails/embed-subscribe/alice",
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      validateNewsletterActionUrl(
+        "buttondown",
+        "https://buttondown.email/api/emails/embed-subscribe/alice",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("buttondown: rejects other hosts / paths", () => {
+    const wrongHost = validateNewsletterActionUrl(
+      "buttondown",
+      "https://example.com/api/emails/embed-subscribe/alice",
+    );
+    expect(wrongHost.ok).toBe(false);
+    const wrongPath = validateNewsletterActionUrl(
+      "buttondown",
+      "https://buttondown.com/something/else",
+    );
+    expect(wrongPath.ok).toBe(false);
+  });
+
+  it("generic: only validates URL parseability", () => {
+    // No host / path / query restrictions — the artist supplies the
+    // field-name contract themselves, so any reachable URL is in scope.
+    expect(
+      validateNewsletterActionUrl("generic", "https://example.com/anywhere"),
+    ).toEqual({ ok: true });
+    expect(
+      validateNewsletterActionUrl(
+        "generic",
+        "https://app.kit.com/different-path",
+      ),
+    ).toEqual({ ok: true });
   });
 });
 
