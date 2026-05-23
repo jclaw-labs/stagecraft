@@ -8,9 +8,11 @@ import {
   CUSTOM_PANEL_COLLECTION_SLUGS,
 } from "./admin-surfaces";
 import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink";
+import { GitHubUnavailableBanner } from "./GitHubUnavailableBanner";
 import { PendingChangesIndicator } from "./PendingChangesIndicator";
 import { PublishPendingChangesButton } from "./PublishPendingChangesButton";
 import {
+  getRequestReadStore,
   listCollectionSlugs,
   readCollectionDef,
   type CollectionDef,
@@ -143,6 +145,18 @@ export async function AdminShell({
   children: ReactNode;
 }) {
   const genericCollections = await cachedGenericCollections();
+  // Same per-request store the page already read through (React.cache),
+  // so the flag reflects this request's reads. On a page that did no
+  // content reads this also surfaces a broker-unreachable token mint.
+  // Never let the degraded check break the chrome: if even building the
+  // store throws (e.g. a permanent broker-rejected misconfig), just
+  // don't show the banner — the page's own reads surface that error.
+  let isDegraded = false;
+  try {
+    isDegraded = (await getRequestReadStore()).wasDegraded();
+  } catch {
+    isDegraded = false;
+  }
 
   return (
     <div style={shellStyle}>
@@ -212,7 +226,10 @@ export async function AdminShell({
           <AdminAccountButton email={email} />
         </div>
       </aside>
-      <main style={mainStyle}>{children}</main>
+      <main style={mainStyle}>
+        {isDegraded ? <GitHubUnavailableBanner /> : null}
+        {children}
+      </main>
     </div>
   );
 }

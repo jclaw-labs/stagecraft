@@ -375,12 +375,22 @@ The publish-token endpoint surface is unchanged.
 
 ### Runtime + storage
 
-- **GitHub dependency for admin reads.** With reads sourced from
-  `draft` via API, a GitHub outage breaks the admin. Graceful
-  degradation: container's baked-in main snapshot serves as a
-  stale-but-readable fallback, with edits disabled and a "GitHub
-  unavailable — read-only mode" banner.
-  *Trigger:* first user-reported incident. Mitigation is ~30 lines.
+- **GitHub-down admin resilience — banner shipped; edit-disabling
+  deferred.** Reads already degrade gracefully: the read store falls
+  back to the container's baked-in `main` snapshot when `draft` is
+  unreachable (`getReadStore` → `draft+fs-fallback`). PR 5v surfaces
+  that state — `ReadStore.wasDegraded()` flips on a genuine outage
+  (broker-unreachable token mint, or a per-read `github-unreachable` /
+  `rate-limited` fallback; deliberately *not* on `branch-missing` or a
+  single `too-large` file), and `AdminShell` renders a "GitHub
+  unavailable — you're viewing the last published version" banner.
+  Remaining: edits aren't *preemptively* disabled — a save while
+  degraded fails through the normal publish-error path (the SaveBar
+  shows the error) rather than the affordances being greyed out up
+  front. Wiring the `wasDegraded` signal into every edit surface
+  (SaveBars, Publish button, Puck) is the follow-up.
+  *Trigger:* artists report confusing save failures during an outage —
+  then disable the edit affordances behind the same signal.
 
 - **Per-session draft isolation.** Multi-artist sites with
   concurrent draft work share one branch. Publishing publishes
