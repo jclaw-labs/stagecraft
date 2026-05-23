@@ -6,12 +6,17 @@ import userEvent from "@testing-library/user-event";
 
 import { PublishConfirmModal, groupChanges } from "./PublishConfirmModal";
 import type { DraftChange } from "@/lib/draft-changes";
+import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
 
 const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  // The modal reads through the shared draft-changes coalescer; reset
+  // its in-flight reference between cases (e.g. the pending-forever
+  // mock) so they don't bleed.
+  __resetDraftChangesClientForTests();
 });
 
 afterEach(() => {

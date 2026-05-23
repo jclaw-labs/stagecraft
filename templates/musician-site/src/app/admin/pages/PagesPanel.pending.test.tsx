@@ -8,6 +8,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { type PageSummary } from "@/lib/site-config-types";
+import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
 
 import { PagesPanel } from "./PagesPanel";
 
@@ -21,6 +22,9 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  // PagesPanel badges read through the shared draft-changes coalescer;
+  // drop its in-flight reference so cases don't bleed.
+  __resetDraftChangesClientForTests();
 });
 
 afterEach(() => {
