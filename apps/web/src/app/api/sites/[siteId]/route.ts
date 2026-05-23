@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
-import { deleteRepo, setRepoArchived } from "@/lib/integrations/github";
-import { deleteSite as deleteNetlifySite } from "@/lib/integrations/netlify";
+import { setRepoArchived } from "@/lib/integrations/github";
+import { deleteSiteResources } from "@/lib/site-cleanup";
 
 export async function GET(
   _req: NextRequest,
@@ -105,28 +105,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Site not found" }, { status: 404 });
   }
 
-  const errors: string[] = [];
-
-  // Best-effort cleanup of external resources
-  if (site.githubRepoOwner && site.githubRepoName) {
-    try {
-      await deleteRepo(session.user.id, site.githubRepoOwner, site.githubRepoName);
-    } catch (e) {
-      const msg = `GitHub: ${e instanceof Error ? e.message : "unknown error"}`;
-      console.error(`[delete-site] ${msg}`);
-      errors.push(msg);
-    }
-  }
-
-  if (site.netlifySiteId) {
-    try {
-      await deleteNetlifySite(session.user.id, site.netlifySiteId);
-    } catch (e) {
-      const msg = `Netlify: ${e instanceof Error ? e.message : "unknown error"}`;
-      console.error(`[delete-site] ${msg}`);
-      errors.push(msg);
-    }
-  }
+  const errors = await deleteSiteResources(session.user.id, site);
 
   // Delete jobs first (FK constraint), then the site
   await prisma.siteJob.deleteMany({ where: { siteId } });

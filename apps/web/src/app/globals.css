@@ -21,6 +21,10 @@
    Design Tokens (CSS Custom Properties)
    ============================================================ */
 :root {
+  /* Tell the browser this site supports both schemes so form controls,
+     scrollbars, default focus rings, etc. pick the right variant. */
+  color-scheme: light dark;
+
   /* Brand */
   --color-brand: #0066cc;
   --color-brand-dark: #0052a3;
@@ -113,11 +117,79 @@
 }
 
 /* ============================================================
+   Dark Mode
+
+   Follows OS preference via `prefers-color-scheme: dark`. Only the
+   color tokens flip — typography, spacing, radii, etc. are
+   identical across schemes. All components that consume tokens via
+   `var(--*)` (which is everywhere — CLAUDE.md §7 forbids raw values)
+   automatically pick up the dark palette.
+
+   Status colors use translucent backgrounds (rgba) so they tint the
+   surface underneath rather than blocking it — visually consistent
+   with the light-mode pastels but without needing a separate dark
+   palette per status. Shadows ramp up to ~5x light-mode opacity so
+   they're still visible against the darker surface.
+   ============================================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Brand — brighter so it pops against dark surfaces */
+    --color-brand: #4d94ff;
+    --color-brand-dark: #80b1ff;
+    --color-brand-light: #1a2942;
+
+    /* Text */
+    --color-text: #f3f4f6;
+    --color-text-muted: #9ca3af;
+    --color-text-faint: #6b7280;
+
+    /* Surfaces */
+    --color-bg: #0f1115;
+    --color-surface: #161a20;
+    --color-surface-raised: #1f242b;
+    --color-border: #2d343d;
+    --color-border-focus: #4d94ff;
+
+    /* Status */
+    --color-success: #22c55e;
+    --color-success-bg: rgba(34, 197, 94, 0.15);
+    --color-warning: #fbbf24;
+    --color-warning-bg: rgba(251, 191, 36, 0.15);
+    --color-error: #f87171;
+    --color-error-bg: rgba(239, 68, 68, 0.15);
+    --color-info: #93c5fd;
+    --color-info-bg: rgba(96, 165, 250, 0.12);
+    --color-info-border: #1e3a5f;
+    --color-selected-bg: #1a2942;
+    --color-muted: #9ca3af;
+    --color-disabled: #2d343d;
+    --color-neutral-bg: #1f242b;
+
+    /* Shadows — bumped opacity so they're still visible on dark surfaces */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  }
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+
+/* Spinner used by deploy progress indicators. */
+@keyframes stagecraftSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
    Base Styles
    ============================================================ */
 body {
   font-family: var(--font-body);
   font-size: var(--font-size-base);
   color: var(--color-text);
+  background: var(--color-bg);
   line-height: 1.6;
 }

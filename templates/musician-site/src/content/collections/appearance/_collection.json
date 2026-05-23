@@ -1,0 +1,380 @@
+{
+  "schemaVersion": 1,
+  "slug": "appearance",
+  "singularName": "appearance",
+  "pluralName": "appearance",
+  "fields": [
+    {
+      "id": "fld_appearance_color_primary",
+      "key": "color_primary",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_secondary",
+      "key": "color_secondary",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_accent",
+      "key": "color_accent",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_linkColor",
+      "key": "color_linkColor",
+      "type": "text",
+      "required": false,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_background",
+      "key": "color_background",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_surface",
+      "key": "color_surface",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_text",
+      "key": "color_text",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_textMuted",
+      "key": "color_textMuted",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_color_border",
+      "key": "color_border",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_bodyFont",
+      "key": "bodyFont",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_appearance_headingMode",
+      "key": "headingMode",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "single",
+          "label": "Same font for everything"
+        },
+        {
+          "id": "o2",
+          "value": "split",
+          "label": "Different font for headings"
+        }
+      ]
+    },
+    {
+      "id": "fld_appearance_headingFont",
+      "key": "headingFont",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_appearance_bodyWeight_body",
+      "key": "bodyWeight_body",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "100",
+          "label": "100"
+        },
+        {
+          "id": "o2",
+          "value": "200",
+          "label": "200"
+        },
+        {
+          "id": "o3",
+          "value": "300",
+          "label": "300"
+        },
+        {
+          "id": "o4",
+          "value": "400",
+          "label": "400"
+        },
+        {
+          "id": "o5",
+          "value": "500",
+          "label": "500"
+        },
+        {
+          "id": "o6",
+          "value": "600",
+          "label": "600"
+        },
+        {
+          "id": "o7",
+          "value": "700",
+          "label": "700"
+        },
+        {
+          "id": "o8",
+          "value": "800",
+          "label": "800"
+        },
+        {
+          "id": "o9",
+          "value": "900",
+          "label": "900"
+        }
+      ]
+    },
+    {
+      "id": "fld_appearance_bodyWeight_bodyBold",
+      "key": "bodyWeight_bodyBold",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "100",
+          "label": "100"
+        },
+        {
+          "id": "o2",
+          "value": "200",
+          "label": "200"
+        },
+        {
+          "id": "o3",
+          "value": "300",
+          "label": "300"
+        },
+        {
+          "id": "o4",
+          "value": "400",
+          "label": "400"
+        },
+        {
+          "id": "o5",
+          "value": "500",
+          "label": "500"
+        },
+        {
+          "id": "o6",
+          "value": "600",
+          "label": "600"
+        },
+        {
+          "id": "o7",
+          "value": "700",
+          "label": "700"
+        },
+        {
+          "id": "o8",
+          "value": "800",
+          "label": "800"
+        },
+        {
+          "id": "o9",
+          "value": "900",
+          "label": "900"
+        }
+      ]
+    },
+    {
+      "id": "fld_appearance_headingWeight_h1",
+      "key": "headingWeight_h1",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "100",
+          "label": "100"
+        },
+        {
+          "id": "o2",
+          "value": "200",
+          "label": "200"
+        },
+        {
+          "id": "o3",
+          "value": "300",
+          "label": "300"
+        },
+        {
+          "id": "o4",
+          "value": "400",
+          "label": "400"
+        },
+        {
+          "id": "o5",
+          "value": "500",
+          "label": "500"
+        },
+        {
+          "id": "o6",
+          "value": "600",
+          "label": "600"
+        },
+        {
+          "id": "o7",
+          "value": "700",
+          "label": "700"
+        },
+        {
+          "id": "o8",
+          "value": "800",
+          "label": "800"
+        },
+        {
+          "id": "o9",
+          "value": "900",
+          "label": "900"
+        }
+      ]
+    },
+    {
+      "id": "fld_appearance_headingWeight_h2",
+      "key": "headingWeight_h2",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "100",
+          "label": "100"
+        },
+        {
+          "id": "o2",
+          "value": "200",
+          "label": "200"
+        },
+        {
+          "id": "o3",
+          "value": "300",
+          "label": "300"
+        },
+        {
+          "id": "o4",
+          "value": "400",
+          "label": "400"
+        },
+        {
+          "id": "o5",
+          "value": "500",
+          "label": "500"
+        },
+        {
+          "id": "o6",
+          "value": "600",
+          "label": "600"
+        },
+        {
+          "id": "o7",
+          "value": "700",
+          "label": "700"
+        },
+        {
+          "id": "o8",
+          "value": "800",
+          "label": "800"
+        },
+        {
+          "id": "o9",
+          "value": "900",
+          "label": "900"
+        }
+      ]
+    },
+    {
+      "id": "fld_appearance_headingWeight_h3",
+      "key": "headingWeight_h3",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "100",
+          "label": "100"
+        },
+        {
+          "id": "o2",
+          "value": "200",
+          "label": "200"
+        },
+        {
+          "id": "o3",
+          "value": "300",
+          "label": "300"
+        },
+        {
+          "id": "o4",
+          "value": "400",
+          "label": "400"
+        },
+        {
+          "id": "o5",
+          "value": "500",
+          "label": "500"
+        },
+        {
+          "id": "o6",
+          "value": "600",
+          "label": "600"
+        },
+        {
+          "id": "o7",
+          "value": "700",
+          "label": "700"
+        },
+        {
+          "id": "o8",
+          "value": "800",
+          "label": "800"
+        },
+        {
+          "id": "o9",
+          "value": "900",
+          "label": "900"
+        }
+      ]
+    }
+  ],
+  "slugSourceFieldId": null,
+  "detailUrlPrefix": null,
+  "defaultSort": null,
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": true
+}

@@ -3,11 +3,27 @@ import { redirect } from "next/navigation";
 import { prisma } from "@stagecraft/db";
 import Button from "@/components/Button";
 
+import { isStagecraftAdmin } from "@/lib/admin-allowlist";
+import { NukeAllSitesButton } from "./NukeAllSitesButton";
+
 export default async function DashboardPage() {
   const session = await auth();
 
-  if (!session?.user) {
+  if (!session?.user?.id) {
     redirect("/login");
+  }
+
+  // First-time-setup gate: until the artist has connected Resend (and
+  // verified an email through it), they can't usefully /create a site
+  // — the artist site's magic-link sign-in needs a real Resend account.
+  // /onboarding is the only path that doesn't redirect here.
+  const resend = await prisma.integrationAccount.findUnique({
+    where: {
+      userId_provider: { userId: session.user.id, provider: "resend" },
+    },
+  });
+  if (!resend) {
+    redirect("/onboarding");
   }
 
   const sites = await prisma.site.findMany({
@@ -54,31 +70,15 @@ export default async function DashboardPage() {
                     <a href={site.productionUrl} style={{ fontSize: "var(--font-size-sm)", color: "var(--color-brand)" }}>{site.productionUrl}</a>
                   </div>
                 )}
-                <div
-                  role="note"
-                  style={{
-                    marginTop: "var(--space-3)",
-                    padding: `var(--space-2) var(--space-3)`,
-                    background: "var(--color-warning-bg)",
-                    border: "1px solid var(--color-warning)",
-                    borderRadius: "var(--radius)",
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-warning)",
-                  }}
-                >
-                  <strong>Contact form setup required:</strong> Add a{" "}
-                  <code>RESEND_API_KEY</code> environment variable in your Netlify site settings to
-                  enable the contact form. Get a free API key at{" "}
-                  <a href="https://resend.com" style={{ color: "var(--color-warning)" }}>
-                    resend.com
-                  </a>
-                  .
-                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {isStagecraftAdmin(session.user.email) && (
+        <NukeAllSitesButton siteCount={sites.length} />
+      )}
     </main>
   );
 }

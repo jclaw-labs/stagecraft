@@ -74,7 +74,7 @@ model User {
 model IntegrationAccount {
   id                String   @id @default(cuid())
   userId            String
-  provider          String   // "github" | "netlify"
+  provider          String   // "github" | "netlify" | "vercel"
   providerAccountId String
   accessToken       String?  @db.Text
   refreshToken      String?  @db.Text
@@ -103,8 +103,23 @@ model Site {
   githubInstallationId  Int?
   githubAppSuspended    Boolean  @default(false)
   brokerSecretHash      String?  @db.Text
+  // Deploy target: which hosting provider this site is deployed to.
+  // Existing sites default to "netlify"; new sites may pick "vercel" if
+  // the artist has the Vercel integration connected.
+  deployTarget        String   @default("netlify") // "netlify" | "vercel"
+  // Netlify-specific fields (populated when deployTarget = "netlify").
   netlifySiteId       String?
   netlifyAdminUrl     String?
+  // Vercel-specific fields (populated when deployTarget = "vercel").
+  vercelProjectId     String?
+  vercelProjectName   String?
+  vercelTeamId        String?
+  // URL slug of the Vercel team that owns the project. Used to construct
+  // dashboard URLs (`https://vercel.com/<slug>/<project>`); the team_xxx
+  // ID isn't valid in that path. Resolved at create time via Vercel's
+  // /v2/teams/{teamId} endpoint.
+  vercelTeamSlug      String?
+  // Production URL is set regardless of target.
   productionUrl       String?
   archivedAt          DateTime?
   createdAt           DateTime @default(now())

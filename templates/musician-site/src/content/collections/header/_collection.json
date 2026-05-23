@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "slug": "header",
+  "singularName": "header & navigation",
+  "pluralName": "header & navigation",
+  "fields": [
+    {
+      "id": "fld_header_wordmark",
+      "key": "wordmark",
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_header_wordmarkSizeAdjust",
+      "key": "wordmarkSizeAdjust",
+      "type": "number",
+      "required": false,
+      "min": -2,
+      "max": 2,
+      "step": 1
+    },
+    {
+      "id": "fld_header_headerMode",
+      "key": "headerMode",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "solid-sticky",
+          "label": "Solid, sticky (default)"
+        },
+        {
+          "id": "o2",
+          "value": "solid-static",
+          "label": "Solid, scrolls with page"
+        },
+        {
+          "id": "o3",
+          "value": "transparent-static",
+          "label": "Transparent, scrolls with page"
+        }
+      ]
+    },
+    {
+      "id": "fld_header_headerForegroundColor",
+      "key": "headerForegroundColor",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_header_isHeaderTextUppercase",
+      "key": "isHeaderTextUppercase",
+      "type": "boolean"
+    },
+    {
+      "id": "fld_header_headerSubtitle",
+      "key": "headerSubtitle",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_header_headerLayout",
+      "key": "headerLayout",
+      "type": "select",
+      "required": true,
+      "systemLocked": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "logo-left-nav-right",
+          "label": "Logo left, nav right (default)"
+        },
+        {
+          "id": "o2",
+          "value": "logo-center-nav-below",
+          "label": "Logo centered, nav below"
+        },
+        {
+          "id": "o3",
+          "value": "logo-center-nav-split",
+          "label": "Logo centered, nav split left/right"
+        }
+      ]
+    }
+  ],
+  "slugSourceFieldId": null,
+  "detailUrlPrefix": null,
+  "defaultSort": null,
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": true
+}

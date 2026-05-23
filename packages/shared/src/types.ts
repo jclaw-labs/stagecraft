@@ -2,6 +2,7 @@
 export type FailureCategory =
   | "github_api_error"
   | "netlify_deploy_error"
+  | "vercel_github_app_missing"
   | "validation_error"
   | "ai_error"
   | "timeout"

@@ -6,6 +6,14 @@ import { auth } from "@/lib/auth";
 import { generateBrokerSecret } from "@/lib/broker-secret";
 import { listInstallationRepos } from "@/lib/github-app-install";
 import { GitHubAppMisconfiguredError } from "@/lib/github-app-token";
+import {
+  setEnvVars as setNetlifyEnvVars,
+  triggerBuild as triggerNetlifyBuild,
+} from "@/lib/integrations/netlify";
+import {
+  setEnvVars as setVercelEnvVars,
+  triggerDeployment as triggerVercelDeployment,
+} from "@/lib/integrations/vercel";
 import { verifyInstallState } from "@/lib/state-signing";
 
 const searchSchema = z.object({
@@ -74,6 +82,74 @@ function errorPage(status: number, title: string, message: string) {
   );
 }
 
+/**
+ * Push the broker secret + companion env vars to the artist's deploy
+ * target and kick off a fresh build so the next request picks them up.
+ *
+ * Returns `{ ok: true }` on success or `{ ok: false, reason }` when the
+ * site doesn't have a deploy target wired up (older sites pre-#90) or
+ * when the upstream API call fails. The caller falls back to showing
+ * the manual-setup instructions in either case.
+ */
+async function provisionBrokerSecret(args: {
+  userId: string;
+  site: {
+    id: string;
+    deployTarget: string;
+    netlifySiteId: string | null;
+    vercelProjectId: string | null;
+    vercelTeamId: string | null;
+  };
+  brokerSecret: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // STAGECRAFT_PLATFORM_URL is intentionally NOT provisioned here —
+  // the artist template's publish.ts defaults to the prod URL, so
+  // there's no per-site value to write.
+  const envVars: Record<string, string> = {
+    STAGECRAFT_SITE_ID: args.site.id,
+    STAGECRAFT_BROKER_SECRET: args.brokerSecret,
+  };
+
+  try {
+    if (args.site.deployTarget === "vercel") {
+      if (!args.site.vercelProjectId) {
+        return { ok: false, reason: "Site has no Vercel project id on file" };
+      }
+      await setVercelEnvVars({
+        userId: args.userId,
+        projectId: args.site.vercelProjectId,
+        teamId: args.site.vercelTeamId ?? undefined,
+        vars: envVars,
+      });
+      await triggerVercelDeployment(
+        args.userId,
+        args.site.vercelProjectId,
+        args.site.vercelTeamId ?? undefined,
+      );
+      return { ok: true };
+    }
+
+    if (args.site.deployTarget === "netlify") {
+      if (!args.site.netlifySiteId) {
+        return { ok: false, reason: "Site has no Netlify site id on file" };
+      }
+      await setNetlifyEnvVars(args.userId, args.site.netlifySiteId, envVars);
+      await triggerNetlifyBuild(args.userId, args.site.netlifySiteId);
+      return { ok: true };
+    }
+
+    return {
+      ok: false,
+      reason: `Unknown deploy target: ${args.site.deployTarget}`,
+    };
+  } catch (cause) {
+    return {
+      ok: false,
+      reason: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -127,17 +203,49 @@ export async function GET(request: Request) {
   }
 
   if (repos.length === 0) {
-    return errorPage(400, "No repositories selected", "Select exactly one repository during install. Restart and try again.");
-  }
-  if (repos.length > 1) {
     return errorPage(
       400,
-      "Multiple repositories selected",
-      `The install grants access to ${repos.length} repositories, but a Stagecraft site is one repo. Restart and select exactly one.`,
+      "No repositories selected",
+      "Add at least one repository to the install on GitHub.",
     );
   }
 
-  const [{ owner, name }] = repos;
+  // GitHub Apps install per account, not per repo — one artist with
+  // multiple Stagecraft sites has one installation whose repo list grows
+  // as they grant more repos. Find the specific repo this Site already
+  // owns (set by /create's createRepo step) inside the installation's
+  // list; don't reject just because the install spans many repos.
+  let owner: string;
+  let name: string;
+  if (site.githubRepoOwner && site.githubRepoName) {
+    const target = `${site.githubRepoOwner}/${site.githubRepoName}`;
+    const matched = repos.find(
+      (r) => r.owner === site.githubRepoOwner && r.name === site.githubRepoName,
+    );
+    if (!matched) {
+      return errorPage(
+        400,
+        "Repo not in install",
+        `This site needs the App on ${target}, but the installation grants access to ${repos.length} other ${repos.length === 1 ? "repository" : "repositories"}. Edit the install on GitHub to include ${target}.`,
+      );
+    }
+    owner = matched.owner;
+    name = matched.name;
+  } else {
+    // Fallback for sites that haven't been through /create's repo-creation
+    // step (currently every Site goes through it, but the schema allows
+    // these fields to be null). Single-repo installs only.
+    if (repos.length > 1) {
+      return errorPage(
+        400,
+        "Multiple repositories selected",
+        `The install grants access to ${repos.length} repositories, but this site has no repo on file yet. Edit the install on GitHub to select exactly one.`,
+      );
+    }
+    owner = repos[0].owner;
+    name = repos[0].name;
+  }
+
   const { plaintext, hash } = generateBrokerSecret();
 
   await prisma.site.update({
@@ -151,23 +259,45 @@ export async function GET(request: Request) {
     },
   });
 
+  const provisioned = await provisionBrokerSecret({
+    userId: session.user.id,
+    site: {
+      id: site.id,
+      deployTarget: site.deployTarget,
+      netlifySiteId: site.netlifySiteId,
+      vercelProjectId: site.vercelProjectId,
+      vercelTeamId: site.vercelTeamId,
+    },
+    brokerSecret: plaintext,
+  });
+
+  if (provisioned.ok) {
+    return htmlResponse(
+      200,
+      page(
+        "GitHub App connected",
+        `<h1 class="ok">Connected — your site is rebuilding</h1>
+<p>Site <code>${escape(site.name)}</code> is now linked to <code>${escape(owner)}/${escape(name)}</code>. We pushed the broker secret to your <strong>${escape(site.deployTarget)}</strong> deploy and triggered a fresh build — it will pick up the new env vars and start serving updates from the editor in a minute or two.</p>
+<p><a class="button" href="/dashboard">Continue to dashboard</a></p>`,
+      ),
+    );
+  }
+
+  // Auto-provision failed — fall back to showing the manual env-var
+  // block. Keep the broker secret on screen so the artist can recover
+  // without rotating; rotation invalidates the hash we just stored.
   return htmlResponse(
     200,
     page(
-      "GitHub App connected",
-      `<h1 class="ok">GitHub App connected</h1>
-<p>Site <code>${escape(site.name)}</code> is now connected to <code>${escape(owner)}/${escape(name)}</code>.</p>
+      "GitHub App connected — manual setup needed",
+      `<h1 class="warn">Connected — finish setup manually</h1>
+<p>Site <code>${escape(site.name)}</code> is linked to <code>${escape(owner)}/${escape(name)}</code>, but we couldn't push the broker secret to your <strong>${escape(site.deployTarget)}</strong> deploy automatically. Reason: <code>${escape(provisioned.reason)}</code>.</p>
 
-<h2>Your broker secret</h2>
-<p><strong>Copy this now.</strong> It is shown exactly once and never stored on the platform in plaintext. Set it as an env var on your deployed site.</p>
-<pre>${escape(plaintext)}</pre>
-
-<h2>Env vars to set on your deployed site</h2>
-<pre>STAGECRAFT_PLATFORM_URL=${escape(url.origin)}
-SITE_ID=${escape(site.id)}
+<h2>Set these env vars on your deployed site, then redeploy</h2>
+<pre>STAGECRAFT_SITE_ID=${escape(site.id)}
 STAGECRAFT_BROKER_SECRET=${escape(plaintext)}</pre>
 
-<p>If you lose the secret, rotate it from the dashboard; the previous one will stop working.</p>
+<p><strong>Copy the secret now</strong> — it is shown exactly once and never stored on the platform in plaintext. If you lose it, rotate it from the dashboard; the previous one will stop working.</p>
 <p><a class="button" href="/dashboard">Continue to dashboard</a></p>`,
     ),
   );

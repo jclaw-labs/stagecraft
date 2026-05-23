@@ -1,0 +1,255 @@
+/*
+ * Design tokens for templates/musician-site/.
+ *
+ * Per CLAUDE.md §7 (root): all visual values come from CSS custom properties.
+ * Naming conventions match the rest of the monorepo (apps/web, the legacy
+ * template) so reviewers can verify adherence the same way everywhere.
+ *
+ * Consumers reach these via `var(--token)` from CSS modules or inline
+ * `style={...}` props in React components — no raw hex / px / size /
+ * weight values anywhere else in the template.
+ */
+
+:root {
+  /* Colors */
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
+  --color-text-faint: #9ca3af;
+  --color-text-emphasis: #374151;
+  --color-text-error: #b91c1c;
+
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f9fafb;
+  --color-surface-raised: #f3f4f6;
+
+  --color-background: #fafafa;
+
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  --color-action: #111827;
+  --color-action-fg: #ffffff;
+  --color-action-disabled: #9ca3af;
+
+  --color-danger: #b91c1c;
+
+  /* Fonts */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+
+  --line-height-base: 1.5;
+
+  /* Spacing scale (rem multiples of 0.25). */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-32: 8rem;
+
+  /* Layout widths. */
+  --max-width-narrow: 32rem;
+  --max-width-content: 48rem;
+  --max-width-wide: 64rem;
+
+  /* Radii. */
+  --radius-sm: 0.25rem;
+  --radius: 0.375rem;
+  --radius-md: 0.5rem;
+
+  /* Shadows. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  /* Translucent overlays — text-on-image surfaces. Used by the
+     ImageCarousel caption and any future image-over-text component
+     (Quote with background, Card with overlay). Single token so
+     overlay opacity stays consistent across blocks. */
+  --color-overlay: rgba(0, 0, 0, 0.55);
+}
+
+/* Editor spinner — used by /admin's Puck publish-status pill. Defined
+   globally because the spinner element lives inside Puck's chrome
+   (overrides.headerActions), which doesn't accept scoped CSS modules. */
+@keyframes stagecraftSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Collection-block specialised layouts. The `CollectionBlockRender`
+   wraps every iterated collection in
+   `<div data-collection-view="<slug>">`; per-slug grid layout lives
+   here so the tile components (specialized-views.tsx) stay
+   layout-agnostic. Falls back to vertical flow for any collection
+   without a registered grid below. */
+[data-collection-view="photos"],
+[data-collection-view="videos"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-4);
+  margin-block: var(--space-4);
+}
+
+/* Videos benefit from a slightly larger min-track because the
+   16:9 frame collapses below ~280px. */
+[data-collection-view="videos"] {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* Constrain images inside the gallery grids — the public `<Image>`
+   component became layout-transparent in #164, so consumers own the
+   sizing. Without `max-width: 100%`, grid cells default to
+   `min-width: auto` which respects the image's intrinsic 1600px
+   width and overflows the viewport. `display: block` removes the
+   inline baseline whitespace below the figure / picture. */
+[data-collection-view="photos"] img,
+[data-collection-view="videos"] img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ImageCarousel — scroll-snap track + slide layout. Inline styles
+   in ImageCarousel.tsx handle per-instance values (aspectRatio)
+   and stateful look (arrow disabled, dot active); class hooks here
+   carry the layout machinery that's hard to express inline:
+   scroll-snap rules, hidden scrollbar, slide flex-shrink. */
+.stagecraft-carousel {
+  position: relative;
+  margin-block: var(--space-4);
+}
+
+.stagecraft-carousel-track {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  /* Hide the native scrollbar — arrows/dots are the canonical UI.
+     Touch / trackpad / wheel scroll still works. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  outline-offset: 2px;
+}
+
+.stagecraft-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+.stagecraft-carousel-slide {
+  position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+/* Carousel slide images — match the gallery-grid img reset.
+   `object-fit: cover` keeps the image filling the snap-shaped
+   slide regardless of source aspect ratio. */
+.stagecraft-carousel-slide picture,
+.stagecraft-carousel-slide img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stagecraft-carousel-slide img {
+  object-fit: cover;
+}
+
+/* EmbedResponsive — aspect-ratio wrapper around a pasted iframe.
+   Wrapper carries `aspect-ratio` (per-instance, inline in the
+   block render). The iframe-inside-wrapper rule absolutely
+   positions the iframe to fill the box, overriding the iframe's
+   own `width="N"` / `height="N"` attributes that pin it to a
+   smaller fixed size. Without this override the wrapper grows
+   but the iframe stays at its intrinsic size. */
+.stagecraft-embed-responsive {
+  position: relative;
+  width: 100%;
+}
+
+.stagecraft-embed-responsive iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Card media — the wrapper div carries `aspect-ratio` (horizontal
+   variant) or just `overflow: hidden` (vertical); the inner image
+   stretches to fill via `object-fit: cover` so titles align across
+   a grid of cards. Public `<Image>` became layout-transparent in
+   #164, so consumers (this rule) own the sizing. */
+.stagecraft-card-media,
+.stagecraft-card-media picture,
+.stagecraft-card-media img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stagecraft-card-media img {
+  object-fit: cover;
+}
+
+/* Card hover affordance. Inline styles in `puck/config.tsx` handle
+   the resting look; the hover :pseudo lives here because inline
+   styles can't carry pseudoclasses. Subtle border + shadow shift,
+   plus a 2px upward translation, so the artist-facing feedback is
+   visible without animating wildly. `transition` covers the lift so
+   motion-sensitive users with `prefers-reduced-motion: reduce` get
+   an instant change instead.
+
+   Two classes share the rule:
+   - `.stagecraft-card-link` — applied on every link-card (always
+     interactive, hover communicates clickability).
+   - `.stagecraft-card-hoverable` — applied on `<article>` cards
+     when the artist opts in via `isHoverable=true`. Visual-only
+     (no link semantics), useful for highlighting cards in a grid
+     on mouseover. */
+.stagecraft-card-link,
+.stagecraft-card-hoverable {
+  transition: transform 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.stagecraft-card-link:hover,
+.stagecraft-card-hoverable:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagecraft-card-link,
+  .stagecraft-card-hoverable {
+    transition: none;
+  }
+  .stagecraft-card-link:hover,
+  .stagecraft-card-hoverable:hover {
+    transform: none;
+  }
+}
+

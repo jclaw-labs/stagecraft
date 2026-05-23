@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "slug": "tour-dates",
+  "singularName": "tour date",
+  "pluralName": "tour dates",
+  "fields": [
+    {
+      "id": "fld_tour_dates_date",
+      "key": "date",
+      "systemLocked": true,
+      "type": "date",
+      "required": true,
+      "includeTime": true
+    },
+    {
+      "id": "fld_tour_dates_venue",
+      "key": "venue",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_tour_dates_city",
+      "key": "city",
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_tour_dates_country",
+      "key": "country",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_tour_dates_status",
+      "key": "status",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "id": "o1",
+          "value": "on_sale",
+          "label": "On sale"
+        },
+        {
+          "id": "o2",
+          "value": "sold_out",
+          "label": "Sold out"
+        },
+        {
+          "id": "o3",
+          "value": "cancelled",
+          "label": "Cancelled"
+        },
+        {
+          "id": "o4",
+          "value": "free",
+          "label": "Free"
+        }
+      ]
+    },
+    {
+      "id": "fld_tour_dates_ticketUrl",
+      "key": "ticketUrl",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_tour_dates_notes",
+      "key": "notes",
+      "type": "longText",
+      "required": false
+    }
+  ],
+  "slugSourceFieldId": "fld_tour_dates_venue",
+  "detailUrlPrefix": "/shows",
+  "defaultSort": {
+    "mode": "fieldSort",
+    "fieldId": "fld_tour_dates_date",
+    "direction": "desc"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

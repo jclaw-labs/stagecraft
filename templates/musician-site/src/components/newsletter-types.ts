@@ -1,0 +1,358 @@
+/**
+ * Server-safe constants for the NewsletterSignup block. Split out of
+ * `NewsletterSignup.tsx` (which has `"use client"`) so server-side
+ * importers — chiefly `puck/config.tsx`, which iterates
+ * `NEWSLETTER_SERVICES` to build the block's select-field options —
+ * get the real values instead of Next's client-reference proxy.
+ *
+ * Next treats every export from a `"use client"` module as a client-
+ * reference proxy. Constants come back as opaque proxy objects that
+ * don't carry their original methods (`.map(...)` blows up at server-
+ * render time). Splitting data-only exports into a non-`"use client"`
+ * sibling keeps both server and client consumers happy.
+ *
+ * The matching pattern in this codebase: `field-classification.ts`,
+ * `filter-schema.ts`, `puck-content-value.ts` — all isolate
+ * data/types from the runtime that imports `node:crypto` or owns
+ * `"use client"` boundaries.
+ */
+
+export const NEWSLETTER_SERVICES = [
+  "mailchimp",
+  "convertkit",
+  "buttondown",
+  "generic",
+] as const;
+export type NewsletterService = (typeof NEWSLETTER_SERVICES)[number];
+
+export const NEWSLETTER_SERVICE_LABELS: Record<NewsletterService, string> = {
+  mailchimp: "Mailchimp",
+  convertkit: "ConvertKit / Kit",
+  buttondown: "Buttondown",
+  generic: "Generic (custom)",
+};
+
+/**
+ * Per-service field name for the subscriber's email. Each provider's
+ * form handler reads a specific field name — POSTing the wrong name
+ * silently succeeds (no-cors response is opaque) but the subscriber
+ * never lands in the list, which the artist won't notice until
+ * checking their dashboard.
+ *
+ *   - Mailchimp:    `EMAIL`         (their merge-field convention)
+ *   - ConvertKit:   `email_address` (form-embed convention)
+ *   - Buttondown:   `email`         (embed + API)
+ *   - Generic:      `email`         (most permissive default; the
+ *                                   artist's "generic" provider chose
+ *                                   their own field name and the
+ *                                   actionUrl handler reads it)
+ *
+ * Adding a new service: extend `NEWSLETTER_SERVICES` + record the
+ * field name here. The dispatch table is the single source of truth.
+ */
+export const EMAIL_FIELD_NAME: Record<NewsletterService, string> = {
+  mailchimp: "EMAIL",
+  convertkit: "email_address",
+  buttondown: "email",
+  generic: "email",
+};
+
+/**
+ * Per-service field name for the subscriber's first name (when the
+ * optional name field is enabled). Same field-name-matters reasoning
+ * as `EMAIL_FIELD_NAME` — a wrong name posts silently and never
+ * lands in the list.
+ *
+ *   - Mailchimp:    `FNAME`              (their first-name merge field)
+ *   - ConvertKit:   `fields[first_name]` (form-embed nested-fields convention)
+ *   - Buttondown:   `metadata[name]`     (their custom-metadata bucket)
+ *   - Generic:      `name`               (most permissive default)
+ */
+export const NAME_FIELD_NAME: Record<NewsletterService, string> = {
+  mailchimp: "FNAME",
+  convertkit: "fields[first_name]",
+  buttondown: "metadata[name]",
+  generic: "name",
+};
+
+/**
+ * Input types offered for a custom additional field. Maps directly to
+ * the `<input type>` attribute. The set is deliberately small — the
+ * common asks beyond first-name are phone (`tel`), country / custom
+ * text (`text`), a secondary email (`email`), and a website (`url`).
+ * Richer types (date, select) would need provider-specific encoding
+ * we don't want to guess at; the artist drops to `text` for those.
+ */
+export const NEWSLETTER_FIELD_TYPES = ["text", "email", "tel", "url"] as const;
+export type NewsletterFieldType = (typeof NEWSLETTER_FIELD_TYPES)[number];
+
+export const NEWSLETTER_FIELD_TYPE_LABELS: Record<NewsletterFieldType, string> = {
+  text: "Text",
+  email: "Email",
+  tel: "Phone",
+  url: "Website / URL",
+};
+
+/**
+ * One artist-defined extra field beyond the curated email + name.
+ * Unlike the name field (which maps to a per-service attribute via
+ * `NAME_FIELD_NAME`), the `name` here is the raw form-field attribute
+ * the artist copies from their provider's embed code — we can't infer
+ * it, so it's verbatim. `autoComplete` is derived from `type` at
+ * render so browsers still offer sensible autofill.
+ */
+export type NewsletterAdditionalField = {
+  /** Visible (screen-reader) label. */
+  label: string;
+  /** Raw form-field `name` attribute, provider-specific. */
+  name: string;
+  /** Maps to the `<input type>`. */
+  type: NewsletterFieldType;
+};
+
+/**
+ * Coerce a possibly-unknown additional-field `type` to a member of
+ * the union, falling back to `text`. The TS type constrains the
+ * inspector, but Puck JSON on disk is untyped at runtime — a
+ * hand-edited file or a future enum change could carry
+ * `type: "number"` / `"hidden"` / etc., which would render an
+ * `<input>` of that type verbatim (a `hidden` field the artist
+ * can't see, a `number` field that rejects "+1 555…"). Same trust-
+ * boundary reasoning as `normaliseCardSize` in puck/config.tsx.
+ */
+export function normaliseNewsletterFieldType(
+  type: NewsletterFieldType | undefined,
+): NewsletterFieldType {
+  return (NEWSLETTER_FIELD_TYPES as readonly string[]).includes(type as string)
+    ? (type as NewsletterFieldType)
+    : "text";
+}
+
+/**
+ * Map an additional-field input type to a reasonable `autocomplete`
+ * token so browsers offer autofill. `text` is intentionally
+ * unmapped (returns undefined) — a generic text field could be
+ * anything (country, company, referral), and a wrong autocomplete
+ * hint is worse than none. Pure / synchronous.
+ */
+export function newsletterFieldAutoComplete(
+  type: NewsletterFieldType,
+): string | undefined {
+  switch (type) {
+    case "email":
+      return "email";
+    case "tel":
+      return "tel";
+    case "url":
+      return "url";
+    case "text":
+      return undefined;
+  }
+}
+
+/**
+ * Parse Mailchimp's actionUrl to extract the audience IDs that
+ * suffix the real honeypot field name `b_<u>_<id>`. Mailchimp's
+ * default embed URL is
+ * `https://example.us20.list-manage.com/subscribe/post?u=USER_ID&id=LIST_ID`;
+ * we read `u` + `id` and synthesise the suffixed name.
+ *
+ * The honeypot is a hidden field with the suffixed name that real
+ * users leave empty. Mailchimp's bot defense rejects a submission
+ * with anything in it. Without the right suffix, the field's name
+ * doesn't match Mailchimp's pattern and the bot defense is bypassed
+ * — which is to say, the legacy template's "generic placeholder"
+ * gave zero protection. This function fixes that.
+ *
+ * Returns null when the URL doesn't look like Mailchimp's pattern.
+ * Caller falls back to the universal client-side `_gotcha` honeypot
+ * checked before POSTing.
+ *
+ * Pure / synchronous; safe to call during render.
+ */
+export function parseMailchimpAudienceHoneypotName(
+  actionUrl: string,
+): string | null {
+  try {
+    const url = new URL(actionUrl);
+    const u = url.searchParams.get("u");
+    const id = url.searchParams.get("id");
+    if (!u || !id) return null;
+    // Mailchimp's u + id are hex strings; reject anything weird so
+    // we don't inject odd characters into the name attribute.
+    if (!/^[a-z0-9]+$/i.test(u) || !/^[a-z0-9]+$/i.test(id)) return null;
+    return `b_${u}_${id}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Author-time validation of the actionUrl for a given provider.
+ * Surfaced in the Puck inspector as a hint beneath the URL input,
+ * so the artist gets feedback the moment they paste an obviously-
+ * wrong URL — rather than discovering it days later when no
+ * subscribers land in their list.
+ *
+ * Each branch enforces the minimum the runtime relies on:
+ *
+ *   - `mailchimp`  — needs `?u=USER_ID&id=LIST_ID` query params so
+ *     `parseMailchimpAudienceHoneypotName` can synthesise the real
+ *     honeypot field name. Without them, the bot defense is silently
+ *     bypassed (still works for legitimate submits, but accepts
+ *     spam).
+ *   - `convertkit` — embed-form action URL is hosted at
+ *     `app.kit.com/forms/<id>/subscriptions` (or legacy
+ *     `app.convertkit.com/...`). The `/forms/<id>/subscriptions`
+ *     suffix is the canonical pattern; anything else likely won't
+ *     accept the POST.
+ *   - `buttondown` — embed-subscribe URL is hosted at
+ *     `buttondown.com/api/emails/embed-subscribe/<username>` (or
+ *     legacy `buttondown.email/...`).
+ *   - `generic`    — only validates URL parseability; the artist
+ *     supplies the field-name contract themselves.
+ *
+ * Empty `actionUrl` returns `{ ok: true }`: the hint shouldn't fire
+ * on a brand-new block before the artist has typed anything. The
+ * required-ness of the field is the artist's choice to make once
+ * they publish.
+ *
+ * Pure / synchronous; safe to call during render.
+ */
+export type NewsletterActionUrlValidation =
+  | { ok: true }
+  | { ok: false; message: string };
+
+export function validateNewsletterActionUrl(
+  service: NewsletterService,
+  actionUrl: string,
+): NewsletterActionUrlValidation {
+  if (!actionUrl.trim()) return { ok: true };
+  let url: URL;
+  try {
+    url = new URL(actionUrl);
+  } catch {
+    return {
+      ok: false,
+      message:
+        "This doesn't look like a URL — paste the form-submission " +
+        "URL from your provider's embed snippet.",
+    };
+  }
+  if (service === "mailchimp") {
+    const u = url.searchParams.get("u");
+    const id = url.searchParams.get("id");
+    if (!u || !id) {
+      return {
+        ok: false,
+        message:
+          "This URL is missing Mailchimp's audience parameters — " +
+          "expected `?u=USER_ID&id=LIST_ID`. Without them the form " +
+          "still posts but the bot defense is bypassed.",
+      };
+    }
+  } else if (service === "convertkit") {
+    // Both the modern (`app.kit.com`) and legacy (`app.convertkit.com`)
+    // hosts ship the same `/forms/<id>/subscriptions` path. Accept
+    // either host; reject anything else with a hint pointing at the
+    // canonical shape.
+    const host = url.host.toLowerCase();
+    const isHost = host === "app.kit.com" || host === "app.convertkit.com";
+    const isPath = /^\/forms\/[^/]+\/subscriptions\/?$/.test(url.pathname);
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the ConvertKit / Kit embed pattern — " +
+          "expected `https://app.kit.com/forms/FORM_ID/subscriptions` " +
+          "(or the legacy `app.convertkit.com` host).",
+      };
+    }
+  } else if (service === "buttondown") {
+    const host = url.host.toLowerCase();
+    const isHost = host === "buttondown.com" || host === "buttondown.email";
+    const isPath = /^\/api\/emails\/embed-subscribe\/[^/]+\/?$/.test(
+      url.pathname,
+    );
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the Buttondown embed pattern — " +
+          "expected `https://buttondown.com/api/emails/embed-subscribe/USERNAME`.",
+      };
+    }
+  }
+  // `generic` falls through — only URL parseability is checked above.
+  return { ok: true };
+}
+
+/**
+ * The form-field `name`s the NewsletterSignup form already owns for a
+ * given configuration. An additional field colliding with one of
+ * these emits a duplicate `name=` input — the provider then receives
+ * two values for the same key (subscription breaks silently behind
+ * the opaque no-cors success) or a visible field shadows a honeypot —
+ * so the renderer drops the colliding row.
+ *
+ * Single source of truth shared by the public form (which drops
+ * colliding rows) and the editor inspector (which warns about the
+ * drop). `NAME_FIELD_NAME` is reserved only when the name field is
+ * actually rendered; the Mailchimp `b_*` honeypot only when the
+ * actionUrl parses.
+ */
+export function newsletterReservedFieldNames(
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): Set<string> {
+  const reserved = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
+  if (hasNameField) reserved.add(NAME_FIELD_NAME[service]);
+  const honeypot =
+    service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+  if (honeypot) reserved.add(honeypot);
+  return reserved;
+}
+
+/**
+ * The (de-duplicated) `name`s among `additionalFields` that collide
+ * with a reserved form field and will therefore be dropped at render.
+ * Blank names are ignored (they're dropped for being incomplete, not
+ * for colliding). Used by the inspector to warn the artist that a
+ * field they added won't appear.
+ */
+export function collidingAdditionalFieldNames(
+  additionalFields: readonly NewsletterAdditionalField[] | undefined,
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): string[] {
+  const reserved = newsletterReservedFieldNames(service, hasNameField, actionUrl);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const field of additionalFields ?? []) {
+    const name = (field?.name ?? "").trim();
+    if (name !== "" && reserved.has(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Base inspector label for the additional-fields array. */
+export const NEWSLETTER_ADDITIONAL_FIELDS_LABEL = "Additional fields (advanced)";
+
+/**
+ * The inspector label for the additional-fields array, with a
+ * reserved-name warning appended when any configured field collides
+ * with a form field the signup already owns (and is therefore
+ * silently skipped at render). Puck's array field has no description
+ * slot, so the label is the surface available for this hint.
+ */
+export function newsletterAdditionalFieldsLabel(colliding: readonly string[]): string {
+  if (colliding.length === 0) return NEWSLETTER_ADDITIONAL_FIELDS_LABEL;
+  const names = colliding.join(", ");
+  const noun = colliding.length === 1 ? "name is reserved" : "names are reserved";
+  return `${NEWSLETTER_ADDITIONAL_FIELDS_LABEL} — ${names} ${noun} and won't be added (rename to avoid a clash with the email / name / spam-trap fields)`;
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createMagicLinkToken } from "@/lib/auth";
+import { createMagicLinkToken, getAllowedEditorEmails } from "@/lib/auth";
 import { sendMagicLink } from "@/lib/email";
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -11,20 +11,22 @@ export async function POST(request: Request) {
 
   const sentRedirect = NextResponse.redirect(new URL("/admin/login?sent=1", request.url), 303);
 
-  const allowed = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  if (!allowed) {
-    if (isDev) {
-      console.warn(
-        "[auth] ADMIN_EMAIL is not set — magic-link requests will silently no-op. " +
-          "Add ADMIN_EMAIL to .env.local (see .env.example).",
-      );
+  const allowlist = getAllowedEditorEmails();
+  if (allowlist.length === 0) {
+    if (!isDev) {
+      // Production: silently no-op to avoid signalling that the site
+      // is misconfigured.
+      return sentRedirect;
     }
-    return sentRedirect;
-  }
-  if (email !== allowed) {
+    console.warn(
+      "[auth] No editor allowlist set — dev fallback: sending magic link to " +
+        `"${email}". Set ADMIN_EMAILS in .env.local to lock the admin down ` +
+        "to specific editors.",
+    );
+  } else if (!allowlist.includes(email)) {
     if (isDev) {
       console.warn(
-        `[auth] Email "${email}" doesn't match ADMIN_EMAIL ("${allowed}"). ` +
+        `[auth] Email "${email}" is not on the editor allowlist. ` +
           "No magic link sent. (Production silently accepts any email to prevent enumeration.)",
       );
     }

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Button from "@/components/Button";
-import AssetManager from "@/components/AssetManager";
 import Input from "@/components/Input";
 
 type SiteStatus = "creating" | "active" | "error" | "deploy_failed" | "archived";
@@ -57,16 +56,41 @@ interface Site {
   githubRepoName?: string;
   githubInstallationId?: number | null;
   githubAppSuspended?: boolean;
+  /** "netlify" | "vercel" — which provider hosts this site. */
+  deployTarget?: string;
   netlifySiteId?: string;
   netlifyAdminUrl?: string;
+  vercelProjectId?: string;
+  vercelProjectName?: string;
+  vercelTeamId?: string;
+  vercelTeamSlug?: string;
   productionUrl?: string;
   archivedAt?: string;
   jobs: SiteJob[];
 }
 
+type DeployState =
+  | "queued"
+  | "initializing"
+  | "building"
+  | "finalizing"
+  | "ready"
+  | "error"
+  | "unknown";
+
+interface DeployStatus {
+  id: string | null;
+  state: DeployState;
+  url: string | null;
+  errorMessage?: string | null;
+  createdAt: string | null;
+}
+
 export default function SiteDetailPage() {
   const { siteId } = useParams<{ siteId: string }>();
   const [site, setSite] = useState<Site | null>(null);
+  const [deploy, setDeploy] = useState<DeployStatus | null>(null);
+  const [deployFetched, setDeployFetched] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -123,6 +147,36 @@ export default function SiteDetailPage() {
     };
   }, [siteId]);
 
+  // Poll the deploy target (Vercel/Netlify) for first-build status. Runs
+  // only once Site.status flips to "active" (the deploy project exists)
+  // and stops once the build is "ready" or "error" — after that the URL
+  // either works or the artist has actionable info.
+  useEffect(() => {
+    if (!site || site.status !== "active") return;
+    if (deploy?.state === "ready" || deploy?.state === "error") return;
+
+    let active = true;
+    async function fetchDeploy() {
+      try {
+        const res = await fetch(`/api/sites/${siteId}/deploy-status`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { deploy?: DeployStatus };
+        if (active && data.deploy) {
+          setDeploy(data.deploy);
+          setDeployFetched(true);
+        }
+      } catch {
+        // Transient errors don't block the UI; the next tick retries.
+      }
+    }
+    fetchDeploy();
+    const id = setInterval(fetchDeploy, 5000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [siteId, site, deploy?.state]);
+
   if (isLoading) {
     return (
       <main style={{ maxWidth: "var(--max-width-narrow)", margin: "2.5rem auto", fontFamily: "var(--font-body)" }}>
@@ -169,7 +223,11 @@ export default function SiteDetailPage() {
     setIsConnecting(true);
     try {
       const res = await fetch(`/api/sites/${siteId}/install-url`);
-      const data = (await res.json()) as { url?: string; error?: string };
+      const data = (await res.json()) as { url?: string; connected?: boolean; error?: string };
+      if (res.ok && data.connected) {
+        window.location.reload();
+        return;
+      }
       if (res.ok && data.url) {
         window.location.href = data.url;
         return;
@@ -219,9 +277,23 @@ export default function SiteDetailPage() {
     ? `${site.netlifyAdminUrl}/configuration/deploys#content`
     : null;
 
-  const statusBg = isCreating
+  // Treat the first-build state the same as platform-side "creating":
+  // until the deploy target says "ready", the production URL won't
+  // render anything useful and the success banner would be misleading.
+  //
+  // Pre-fetch window: we land on /sites/[id], render once, then ~3s later
+  // the first deploy-status poll returns. Treat that window as "building"
+  // (rather than a transient "Checking…" label) — the most likely truth
+  // for a freshly-active site, and consistent with the in-flight states
+  // (queued / initializing / building / finalizing).
+  const isCheckingStatus = isActive && !deployFetched;
+  const isBuilding = isActive && deployFetched && deploy && IN_FLIGHT_STATES.has(deploy.state);
+  const isDeployError = isActive && deployFetched && deploy?.state === "error";
+  const isReady = isActive && deployFetched && deploy?.state === "ready";
+
+  const statusBg = isCreating || isBuilding || isCheckingStatus
     ? "var(--color-warning-bg)"
-    : isError
+    : isError || isDeployError
     ? "var(--color-error-bg)"
     : isArchived
     ? "var(--color-neutral-bg)"
@@ -237,8 +309,18 @@ export default function SiteDetailPage() {
         {isCreating && latestJob?.type === "migrate_site" && "Migrating your site\u2026 Crawling pages and building your repo. This may take a minute."}
         {isCreating && latestJob?.type !== "migrate_site" && "Setting up your site\u2026 This may take a few minutes."}
         {site.status === "error" && `Something went wrong: ${latestJob?.errorMessage ?? "Unknown error"}`}
-        {site.status === "active" && !needsRepoLink && "Your site is live!"}
+        {(isBuilding || isCheckingStatus) && "Building your site\u2026 1\u20133 minutes for the first deploy."}
+        {isDeployError && `First deploy failed${deploy?.errorMessage ? `: ${deploy.errorMessage}` : "."} Check the deploy logs.`}
+        {isReady && !needsRepoLink && "Your site is live!"}
         {isArchived && "This site is archived. The GitHub repo is read-only."}
+        {(isCreating || isBuilding || isCheckingStatus) && (
+          <div style={{ marginTop: "0.5rem" }}>
+            <FirstDeployProgress
+              state={isCreating ? "creating" : deploy?.state ?? "queued"}
+              startedAt={deploy?.createdAt ?? latestJob?.createdAt ?? null}
+            />
+          </div>
+        )}
       </div>
 
       {/* GitHub App publishing — connect / suspended states */}
@@ -327,11 +409,39 @@ export default function SiteDetailPage() {
                 </td>
               </tr>
             )}
+            {site.vercelProjectName && (
+              <tr>
+                <td style={{ padding: "0.5rem", fontWeight: "var(--font-weight-semibold)" }}>Vercel</td>
+                <td style={{ padding: "0.5rem" }}>
+                  <a
+                    href={
+                      site.vercelTeamSlug
+                        ? `https://vercel.com/${site.vercelTeamSlug}/${site.vercelProjectName}`
+                        : `https://vercel.com/${site.vercelProjectName}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Project settings
+                  </a>
+                </td>
+              </tr>
+            )}
             {site.productionUrl && (
               <tr>
                 <td style={{ padding: "0.5rem", fontWeight: "var(--font-weight-semibold)" }}>Production URL</td>
                 <td style={{ padding: "0.5rem" }}>
-                  <a href={site.productionUrl} target="_blank" rel="noopener noreferrer">{site.productionUrl}</a>
+                  {/* Show the URL as a plain link both when confirmed live (isReady)
+                      and during the pre-fetch window (isCheckingStatus) — the
+                      muted "(available once the first build finishes)" treatment
+                      only applies when we have a firm "still building" signal. */}
+                  {isReady || isCheckingStatus ? (
+                    <a href={site.productionUrl} target="_blank" rel="noopener noreferrer">{site.productionUrl}</a>
+                  ) : (
+                    <span style={{ color: "var(--color-text-faint)" }}>
+                      {site.productionUrl} <em>(available once the first build finishes)</em>
+                    </span>
+                  )}
                 </td>
               </tr>
             )}
@@ -404,25 +514,6 @@ export default function SiteDetailPage() {
         </section>
       )}
 
-      {isActive && <AssetManager siteId={siteId} />}
-
-      {site.jobs.length > 0 && (
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2>Jobs</h2>
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {site.jobs.map((job) => (
-              <li key={job.id} style={{ padding: "0.75rem", border: `1px solid var(--color-border)`, borderRadius: "var(--radius-lg)", marginBottom: "0.5rem" }}>
-                <strong>{job.type}</strong>
-                <span style={{ marginLeft: "0.5rem", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{job.status}</span>
-                {job.errorMessage && (
-                  <p style={{ color: "var(--color-error)", fontSize: "var(--font-size-sm)", margin: "0.25rem 0 0" }}>{job.errorMessage}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {(site.status === "active" || isArchived) && (
         <section style={{ marginTop: "2rem" }}>
           <Button
@@ -445,7 +536,7 @@ export default function SiteDetailPage() {
       <section style={{ marginTop: "3rem", borderTop: `1px solid var(--color-border)`, paddingTop: "1.5rem" }}>
         <h2 style={{ color: "var(--color-error)" }}>Danger Zone</h2>
         <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-          Permanently delete this site, its GitHub repository, and Netlify deployment. This cannot be undone.
+          Permanently delete this site, its GitHub repository, and its {site.deployTarget === "vercel" ? "Vercel" : "Netlify"} {site.deployTarget === "vercel" ? "project" : "deployment"}. This cannot be undone.
         </p>
         <div style={{ maxWidth: "18.75rem" }}>
           <Input
@@ -467,5 +558,159 @@ export default function SiteDetailPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+// Deploy phases that count as "in flight" — anything that should render
+// the progress bar rather than the final-state banner. Used both for
+// gating the banner branches and (indirectly) for choosing the bar
+// percentage. Module-scope so the component below and the page-level
+// gate share one source of truth.
+const IN_FLIGHT_STATES = new Set<DeployState>([
+  "queued",
+  "initializing",
+  "building",
+  "finalizing",
+]);
+
+/**
+ * Where the progress bar sits for each phase. Reaching a stage means
+ * roughly that fraction of typical work is done — calibrated from a
+ * handful of observed builds, not from a real signal (neither Vercel
+ * nor Netlify expose a percentage). The bar asymptotes at 95% via the
+ * `finalizing` stage; only `ready` would push it to 100%, but at that
+ * point we render the success banner instead.
+ *
+ * `creating` is the platform's own work (createRepo, pushFiles, env
+ * vars, kick off first build); it precedes any provider state. Roughly
+ * 10s on average, which is why its baseline is small.
+ */
+const STAGE_PROGRESS: Record<DeployState | "creating", number> = {
+  creating: 0.05,
+  queued: 0.15,
+  initializing: 0.25,
+  building: 0.45,
+  finalizing: 0.90,
+  ready: 1.0,
+  error: 0,
+  unknown: 0.10,
+};
+
+/**
+ * User-visible label for each stage. Per intentional design we
+ * collapse `queued` and `initializing` into "Building" — the
+ * distinction between "waiting in queue" vs "VM spinning up" vs
+ * "build command running" isn't useful to the artist, and those two
+ * stages are usually <10s each. "Finalizing" gets its own label
+ * because it means almost-done (upload + alias swap + post-deploy
+ * plugins).
+ */
+function stageLabel(state: DeployState | "creating"): string {
+  switch (state) {
+    case "creating":
+      return "Preparing";
+    case "queued":
+    case "initializing":
+    case "building":
+      return "Building";
+    case "finalizing":
+      return "Finalizing";
+    case "ready":
+      return "Live";
+    case "error":
+      return "Failed";
+    default:
+      return "Working";
+  }
+}
+
+function useElapsed(startedAt: string | null): string | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  if (!startedAt) return null;
+  const startMs = new Date(startedAt).getTime();
+  if (Number.isNaN(startMs)) return null;
+  const seconds = Math.max(0, Math.floor((now - startMs) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}m ${remainder.toString().padStart(2, "0")}s`;
+}
+
+function FirstDeployProgress({
+  state,
+  startedAt,
+}: {
+  state: DeployState | "creating";
+  startedAt: string | null;
+}) {
+  const pct = (STAGE_PROGRESS[state] ?? 0.1) * 100;
+  const elapsed = useElapsed(startedAt);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+      <div
+        aria-hidden
+        style={{
+          width: "100%",
+          height: "0.375rem",
+          background: "var(--color-surface-raised)",
+          borderRadius: "var(--radius-sm)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            background: "var(--color-brand)",
+            borderRadius: "var(--radius-sm)",
+            // Smooth visual transition across stage jumps (e.g.
+            // building 45% → finalizing 90%). 800ms feels distinct
+            // without dragging.
+            transition: "width 800ms ease",
+          }}
+        />
+      </div>
+      <div
+        role="status"
+        style={{
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-text-muted)",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.375rem",
+        }}
+      >
+        <Spinner />
+        <strong style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-text)" }}>
+          {stageLabel(state)}
+        </strong>
+        {elapsed ? <span>· {elapsed}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-block",
+        width: "0.75em",
+        height: "0.75em",
+        border: "2px solid var(--color-text-muted)",
+        borderTopColor: "transparent",
+        borderRadius: "50%",
+        animation: "stagecraftSpin 0.8s linear infinite",
+        verticalAlign: "middle",
+        marginRight: "0.25em",
+      }}
+    />
   );
 }

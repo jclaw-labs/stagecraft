@@ -11,7 +11,7 @@ vi.mock("@stagecraft/db", () => ({
 
 vi.stubGlobal("fetch", mockFetch);
 
-const { createSite, setEnvVars } = await import("../integrations/netlify");
+const { createSite, setEnvVars, triggerBuild } = await import("../integrations/netlify");
 
 describe("Netlify integration", () => {
   beforeEach(() => {
@@ -110,6 +110,34 @@ describe("Netlify integration", () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body).toHaveLength(2);
       expect(body[0].key).toBe("CONTACT_EMAIL");
+    });
+  });
+
+  describe("triggerBuild", () => {
+    it("POSTs to /sites/{id}/builds and returns the build id", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "build-xyz" }),
+      });
+
+      const result = await triggerBuild("user-1", "netlify-site-id");
+
+      expect(result).toEqual({ buildId: "build-xyz" });
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toContain("/sites/netlify-site-id/builds");
+      expect(init.method).toBe("POST");
+    });
+
+    it("throws when the Netlify API fails", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: async () => "upstream error",
+      });
+
+      await expect(triggerBuild("user-1", "netlify-site-id")).rejects.toThrow(
+        /Netlify API error \(502\)/,
+      );
     });
   });
 });

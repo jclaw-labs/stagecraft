@@ -18,7 +18,6 @@ beforeEach(() => {
   prismaMock.site.findFirst.mockReset();
   process.env = { ...ORIGINAL_ENV };
   process.env.STAGECRAFT_STATE_SIGNING_SECRET = "test-state-secret";
-  process.env.GITHUB_APP_INSTALL_URL = "https://github.com/apps/test/installations/new";
 });
 
 afterEach(() => {
@@ -43,7 +42,7 @@ describe("GET /api/sites/[siteId]/install-url", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns a signed install URL with state encoding the right siteId + userId", async () => {
+  it("returns a signed install URL pointing at the canonical stagecraft-bot install page", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     prismaMock.site.findFirst.mockResolvedValue({ id: "s1" });
     const res = await GET(new Request("http://t/x"), fakeParams("s1"));
@@ -51,16 +50,9 @@ describe("GET /api/sites/[siteId]/install-url", () => {
     const body = (await res.json()) as { url: string };
     const parsed = new URL(body.url);
     expect(parsed.host).toBe("github.com");
+    expect(parsed.pathname).toBe("/apps/stagecraft-bot/installations/new");
     const state = parsed.searchParams.get("state");
     expect(state).toBeTruthy();
     expect(await verifyInstallState(state!)).toEqual({ siteId: "s1", userId: "u1" });
-  });
-
-  it("500 when GITHUB_APP_INSTALL_URL is not configured", async () => {
-    delete process.env.GITHUB_APP_INSTALL_URL;
-    authMock.mockResolvedValue({ user: { id: "u1" } });
-    prismaMock.site.findFirst.mockResolvedValue({ id: "s1" });
-    const res = await GET(new Request("http://t/x"), fakeParams("s1"));
-    expect(res.status).toBe(500);
   });
 });

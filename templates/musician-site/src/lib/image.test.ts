@@ -149,3 +149,260 @@ describe("processImage", () => {
   // reads — see processImage). Programmatic generation of a real EXIF-rotated JPEG
   // varies across sharp versions; verified manually with an iOS portrait photo.
 });
+
+// ---------------------------------------------------------------------------
+// Vector / icon formats (SVG + ICO) bypass the sharp variant pipeline.
+// The favicon UI in Site Settings explicitly accepts these — the legacy
+// template's `siteConfig.favicon` was a freeform string path; raster-only
+// favicons were a regression introduced by routing the field through the
+// sharp upload pipeline. These tests lock the bypass behaviour.
+// ---------------------------------------------------------------------------
+
+describe("processImage — vector / icon bypass (SVG + ICO)", () => {
+  /**
+   * Tiny valid SVG. Real SVG payload, not a placeholder — the test
+   * asserts sharp doesn't touch this content (no rasterisation,
+   * no LQIP regeneration).
+   */
+  const SVG_BYTES = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#abc"/></svg>',
+    "utf-8",
+  );
+
+  /**
+   * Minimal 16×16 ICO header. Sharp can't parse ICO at all — verifies
+   * the bypass path is hit (otherwise this test crashes on
+   * `sharp(buffer).metadata()`).
+   */
+  const ICO_BYTES = Buffer.from([
+    0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0, 64, 4, 0, 0, 22, 0, 0, 0,
+  ]);
+
+  it("SVG: writes original.svg, no variant files, default dimensions", async () => {
+    const result = await processImage({
+      buffer: SVG_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+    });
+    expect(result.processed).toBe(true);
+    expect(imageMetadataSchema.safeParse(result.metadata).success).toBe(true);
+    expect(result.metadata.originalExt).toBe("svg");
+
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    await expect(fs.stat(path.join(dir, "original.svg"))).resolves.toBeTruthy();
+    // No sharp variants written — vectors are scalable, srcSet doesn't apply.
+    for (const w of IMAGE_VARIANT_WIDTHS) {
+      for (const f of IMAGE_VARIANT_FORMATS) {
+        await expect(fs.stat(path.join(dir, variantFilename(w, f)))).rejects.toBeTruthy();
+      }
+    }
+  });
+
+  it("ICO: writes original.ico, no variant files (sharp can't parse ICO at all)", async () => {
+    const result = await processImage({
+      buffer: ICO_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "icon",
+      originalExt: "ico",
+    });
+    expect(result.processed).toBe(true);
+    expect(result.metadata.originalExt).toBe("ico");
+
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    await expect(fs.stat(path.join(dir, "original.ico"))).resolves.toBeTruthy();
+    for (const w of IMAGE_VARIANT_WIDTHS) {
+      for (const f of IMAGE_VARIANT_FORMATS) {
+        await expect(fs.stat(path.join(dir, variantFilename(w, f)))).rejects.toBeTruthy();
+      }
+    }
+  });
+
+  it("SVG content survives the sharp-bypass path (passed through the sanitiser, not rasterised)", async () => {
+    // The SVG fixture has no scripts / handlers / foreignObjects,
+    // so the sanitiser is a no-op on its semantic content. The
+    // byte equality check from before isn't reliable any more —
+    // DOMPurify normalises self-closing tags + whitespace — so
+    // assert structurally instead.
+    const result = await processImage({
+      buffer: SVG_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+    });
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    const written = (await fs.readFile(path.join(dir, "original.svg"))).toString("utf-8");
+    expect(written).toMatch(/<svg/);
+    expect(written).toMatch(/<circle/);
+    expect(written).toContain("#abc");
+  });
+
+  it("SVG upload strips embedded <script> before writing", async () => {
+    // The defense-in-depth case — even if the artist uploads a
+    // malicious SVG (knowingly or unknowingly), the on-disk file is
+    // safe to serve at /images/.../original.svg without script
+    // execution. The dedup branch reads from disk on re-upload, so
+    // the next read won't carry the script either.
+    const dangerous = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>window.x=1</script><circle r="1"/></svg>`,
+      "utf-8",
+    );
+    const result = await processImage({
+      buffer: dangerous,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "svg",
+    });
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    const written = (await fs.readFile(path.join(dir, "original.svg"))).toString("utf-8");
+    expect(written).not.toMatch(/<script/i);
+    expect(written).not.toMatch(/onload=/);
+    expect(written).not.toContain("alert");
+    expect(written).not.toContain("window.x");
+    // The legitimate <circle> survives.
+    expect(written).toMatch(/<circle/);
+  });
+
+  it("ICO upload is NOT routed through the SVG sanitiser (binary content)", async () => {
+    // ICO bytes are opaque binary; DOMPurify is XML-only and would
+    // mangle them. The pipeline branches on `originalExt` and
+    // sanitises only SVG.
+    const result = await processImage({
+      buffer: ICO_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "icon",
+      originalExt: "ico",
+    });
+    const dir = imageDir(TEST_SLUG, result.metadata.id);
+    const written = await fs.readFile(path.join(dir, "original.ico"));
+    expect(written.equals(ICO_BYTES)).toBe(true);
+  });
+
+  it("dedup on re-upload: same buffer → same id, processed=false, no sharp re-parse", async () => {
+    // First upload writes; second hits the existing-original branch.
+    // The dedup branch's `readImageMetadata` must also bypass sharp
+    // for vectors — otherwise re-uploading an ICO crashes (sharp
+    // can't read it).
+    const first = await processImage({
+      buffer: ICO_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "icon",
+      originalExt: "ico",
+    });
+    const second = await processImage({
+      buffer: ICO_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "icon",
+      originalExt: "ico",
+    });
+    expect(second.processed).toBe(false);
+    expect(second.metadata.id).toBe(first.metadata.id);
+  });
+
+  it("metadata satisfies the schema's placeholderDataUri regex", async () => {
+    const result = await processImage({
+      buffer: SVG_BYTES,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+    });
+    expect(result.metadata.placeholderDataUri).toMatch(/^data:image\/webp;base64,/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Editorial metadata propagation — caption / credit / focalPoint flow
+// straight through the pipeline as pure metadata (no sharp involvement).
+// The dedup branch must preserve them too — re-uploading the same bytes
+// with new metadata is the artist's "fix the caption" path, and dropping
+// the new values would be silently destructive.
+// ---------------------------------------------------------------------------
+
+describe("processImage — editorial metadata", () => {
+  it("threads caption + credit + focalPoint into the returned metadata", async () => {
+    const buffer = await makeFixture();
+    const result = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Soundcheck at the Fillmore",
+      credit: "Photo by Jane Smith",
+      focalPoint: { x: 0.3, y: 0.7 },
+    });
+    expect(result.metadata.caption).toBe("Soundcheck at the Fillmore");
+    expect(result.metadata.credit).toBe("Photo by Jane Smith");
+    expect(result.metadata.focalPoint).toEqual({ x: 0.3, y: 0.7 });
+  });
+
+  it("omits the editorial keys entirely when not provided", async () => {
+    // Persisted JSON should match the pre-feature shape so the on-
+    // disk diff for unchanged uploads stays empty.
+    const buffer = await makeFixture();
+    const result = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+    });
+    expect(result.metadata).not.toHaveProperty("caption");
+    expect(result.metadata).not.toHaveProperty("credit");
+    expect(result.metadata).not.toHaveProperty("focalPoint");
+  });
+
+  it("dedup re-upload preserves new editorial metadata (not the old)", async () => {
+    // The artist's edit-caption flow: re-upload the same image with
+    // updated caption / credit / focal-point. The dedup branch must
+    // emit the NEW values, not the originals.
+    const buffer = await makeFixture();
+    const first = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Original caption",
+    });
+    expect(first.processed).toBe(true);
+    expect(first.metadata.caption).toBe("Original caption");
+
+    const second = await processImage({
+      buffer,
+      contentSlug: TEST_SLUG,
+      alt: "x",
+      originalExt: "jpg",
+      caption: "Updated caption",
+      credit: "Added credit",
+      focalPoint: { x: 0.2, y: 0.4 },
+    });
+    expect(second.processed).toBe(false);
+    expect(second.metadata.id).toBe(first.metadata.id);
+    expect(second.metadata.caption).toBe("Updated caption");
+    expect(second.metadata.credit).toBe("Added credit");
+    expect(second.metadata.focalPoint).toEqual({ x: 0.2, y: 0.4 });
+  });
+
+  it("dedup re-upload also works for vector formats (sharp-free path)", async () => {
+    // Mirror of the raster case for the vector branch — the vector
+    // bypass also goes through the dedup branch on re-upload, and
+    // must preserve editorial metadata there too.
+    const SVG = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>',
+      "utf-8",
+    );
+    await processImage({
+      buffer: SVG,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+    });
+    const second = await processImage({
+      buffer: SVG,
+      contentSlug: TEST_SLUG,
+      alt: "logo",
+      originalExt: "svg",
+      caption: "Branding mark",
+    });
+    expect(second.processed).toBe(false);
+    expect(second.metadata.caption).toBe("Branding mark");
+  });
+});

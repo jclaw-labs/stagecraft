@@ -1,20 +1,385 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+/**
+ * Read/write helpers for pages and singletons.
+ *
+ * As of ADR-009 PR 3, storage lives under
+ * `src/content/collections/{pages,site,header,appearance}/` with each
+ * surface modelled as a `CollectionDef` (`./collections/seeds.ts`).
+ * This module is the compatibility layer between the old
+ * `PageData` / `SiteConfig` / `HeaderConfig` / `Appearance` API that
+ * the admin UI + public renderer still call, and the new item store.
+ *
+ * The translation goes both ways:
+ *
+ *   - read paths fetch an `Item`, run it through the converters in
+ *     `./collections/migrate-from-legacy.ts`, return the legacy shape.
+ *   - write paths take the legacy shape, convert to an `Item`, write
+ *     through the collection store.
+ *
+ * `pageOrder` and `hiddenFromNav` on `SiteConfig` are now derived from
+ * the pages collection (`items/_order.json` and each page's
+ * `showInNav` field). Writing them through `writeSiteConfig` routes
+ * to those locations transparently.
+ */
+
 import type { Data } from "@measured/puck";
 
 import type { BlockProps } from "@/puck/config";
 
-const PAGES_DIR = path.join(process.cwd(), "src/content/pages");
+import {
+  pagesCollectionDef,
+  siteCollectionDef,
+  headerCollectionDef,
+  appearanceCollectionDef,
+  PREBAKED_COLLECTIONS,
+  PAGES_FIELD_IDS,
+} from "./collections/seeds";
+import {
+  appearanceFromItem,
+  headerConfigFromItem,
+  pageDataFromItem,
+  pageDataToItem,
+  pageDataToItemValues,
+  siteConfigFromItem,
+} from "./collections/migrate-from-legacy";
+import {
+  collectionDefRepoPath,
+  deleteItem,
+  generateItemId,
+  itemRepoPath,
+  orderRepoPath,
+  readCollectionDef,
+  SINGLETON_ITEM_SLUG,
+  writeCollectionDef,
+  writeItem,
+  type ReadStore,
+} from "./collections";
+import { imageMetadataSchema, type ImageMetadata } from "./image-types";
+import {
+  DEFAULT_APPEARANCE,
+  DEFAULT_HEADER_CONFIG,
+  DEFAULT_SITE_CONFIG,
+  pageRootPropsSchema,
+  pageSlugSchema,
+  type Appearance,
+  type HeaderConfig,
+  type PageRootProps,
+  type PageSummary,
+  type SiteConfig,
+} from "./site-config-types";
+import { contentDir, purgeOrphanTmps } from "./fs-helpers";
 
 export type PageData = Data<BlockProps>;
 
-export async function readPage(slug: string): Promise<PageData> {
-  const file = path.join(PAGES_DIR, `${slug}.json`);
-  const raw = await fs.readFile(file, "utf-8");
-  return JSON.parse(raw) as PageData;
+// ---------------------------------------------------------------------------
+// Repo paths used by the publish layer (relative to repo root)
+// ---------------------------------------------------------------------------
+
+/** Where the on-disk site singleton ends up. Exported for publish targets. */
+export const SITE_SINGLETON_REPO_PATH = itemRepoPath("site", SINGLETON_ITEM_SLUG);
+export const HEADER_SINGLETON_REPO_PATH = itemRepoPath("header", SINGLETON_ITEM_SLUG);
+export const APPEARANCE_SINGLETON_REPO_PATH = itemRepoPath("appearance", SINGLETON_ITEM_SLUG);
+
+/** Path to the pages collection's order file (manual ordering). */
+export const PAGES_ORDER_REPO_PATH = orderRepoPath("pages");
+
+/** Path to a specific page item. */
+export function pageRepoPath(slug: string): string {
+  return itemRepoPath("pages", slug);
 }
 
-export async function writePage(slug: string, data: PageData): Promise<void> {
-  const file = path.join(PAGES_DIR, `${slug}.json`);
-  await fs.writeFile(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
+/**
+ * Path to a collection's `_collection.json` — used by the publish
+ * layer when the def needs to ship alongside its items (e.g. fresh
+ * artist site, or after a schema edit).
+ */
+export function collectionDefRepoPathFor(slug: string): string {
+  return collectionDefRepoPath(slug);
 }
+
+// ---------------------------------------------------------------------------
+// Bootstrap: ensure the prebaked CollectionDefs exist on disk
+// ---------------------------------------------------------------------------
+
+/**
+ * Write every prebaked `_collection.json` if it's not already on disk.
+ * Called lazily before any read so a fresh artist site (or one that
+ * pre-dates ADR-009) doesn't fail on "collection not found" for any of
+ * the ten prebaked surfaces. After the migration ships, every artist
+ * repo has these committed and this is a no-op.
+ *
+ * Iterates `PREBAKED_COLLECTIONS` directly so a new entry there
+ * automatically gets bootstrapped — no second place to keep in sync.
+ *
+ * Memoised per content-dir (the value of `STAGECRAFT_CONTENT_DIR`).
+ * Tests that run against multiple tmpdirs see independent caches;
+ * production sees a single one. Tests that wipe their content dir
+ * between cases should call `__resetBootstrapCacheForTests()` to
+ * force a re-check on the next read.
+ */
+const bootstrapped = new Set<string>();
+const bootstrapKey = () => process.env.STAGECRAFT_CONTENT_DIR ?? "<default>";
+
+async function ensurePrebakedCollections(): Promise<void> {
+  const key = bootstrapKey();
+  if (bootstrapped.has(key)) return;
+  await Promise.all(
+    Object.values(PREBAKED_COLLECTIONS).map((def) =>
+      ensureCollectionDef(def.slug, def),
+    ),
+  );
+  // Once per process, sweep any orphan `<file>.tmp-...` artifacts a
+  // previous hard-crash (OOM, SIGKILL, reboot) left behind. The
+  // atomic-write helpers in `fs-helpers.ts` clean up after JS-level
+  // throws but can't run during a crash. Threshold is the default
+  // 15 minutes — anything older than that is almost certainly
+  // orphaned. Fire-and-forget on failure: a janitor error
+  // shouldn't block normal content reads.
+  await purgeOrphanTmps(contentDir()).catch(() => {});
+  bootstrapped.add(key);
+}
+
+/** Test-only: clear the bootstrap cache so the next call re-checks disk. */
+export function __resetBootstrapCacheForTests(): void {
+  bootstrapped.clear();
+}
+
+async function ensureCollectionDef(
+  slug: string,
+  def: import("./collections/schema").CollectionDef,
+): Promise<void> {
+  const existing = await readCollectionDef(slug);
+  if (existing) return;
+  await writeCollectionDef(slug, def);
+}
+
+// ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+
+export class PageNotFoundError extends Error {
+  constructor(public slug: string) {
+    super(`No page with slug "${slug}"`);
+    this.name = "PageNotFoundError";
+  }
+}
+
+export class PageExistsError extends Error {
+  constructor(public slug: string) {
+    super(`A page with slug "${slug}" already exists`);
+    this.name = "PageExistsError";
+  }
+}
+
+export async function readPage(slug: string, store: ReadStore): Promise<PageData> {
+  pageSlugSchema.parse(slug);
+  await ensurePrebakedCollections();
+  const item = await store.readItem("pages", slug, pagesCollectionDef);
+  if (!item) throw new PageNotFoundError(slug);
+  return pageDataFromItem(item) as PageData;
+}
+
+export async function readPageOrNull(
+  slug: string,
+  store: ReadStore,
+): Promise<PageData | null> {
+  try {
+    return await readPage(slug, store);
+  } catch (cause) {
+    if (cause instanceof PageNotFoundError) return null;
+    throw cause;
+  }
+}
+
+export async function writePage(
+  slug: string,
+  data: PageData,
+  store: ReadStore,
+): Promise<void> {
+  pageSlugSchema.parse(slug);
+  await ensurePrebakedCollections();
+  // Preserve the existing id + createdAt + showInNav across updates
+  // so the collection model's stable-identity contract holds and the
+  // page's nav-visibility isn't reset on every save. Reads through
+  // the passed `store` so a write triggered on a fresh container
+  // still sees the artist's draft-branch state.
+  const existing = await store.readItem("pages", slug, pagesCollectionDef);
+  const showInNav = readShowInNav(existing) ?? true;
+  const item = pageDataToItem(slug, data, {
+    id: existing?.id ?? generateItemId(),
+    createdAt: existing?.createdAt,
+    showInNav,
+  });
+  await writeItem("pages", slug, item, pagesCollectionDef);
+}
+
+function readShowInNav(item: import("./collections/schema").Item | null): boolean | null {
+  if (!item) return null;
+  const v = item.values[PAGES_FIELD_IDS.showInNav];
+  return v && v.type === "boolean" ? v.value : null;
+}
+
+export async function deletePage(slug: string): Promise<void> {
+  pageSlugSchema.parse(slug);
+  await deleteItem("pages", slug);
+}
+
+export async function listPageSlugs(store: ReadStore): Promise<string[]> {
+  await ensurePrebakedCollections();
+  return store.listItemSlugs("pages");
+}
+
+/**
+ * Read the root props for a single page. Kept as an export because the
+ * editor's pre-mount hydration calls it. Reaches into the on-disk shape
+ * that the public renderer also consumes.
+ */
+export function extractPageRootProps(data: PageData): PageRootProps {
+  const props = (data?.root?.props ?? {}) as Record<string, unknown>;
+  return pageRootPropsSchema.parse({
+    title: typeof props.title === "string" ? props.title : "Untitled",
+    isSplashPage: props.isSplashPage === true,
+    isFooterHidden: props.isFooterHidden === true,
+    // Validate against `imageMetadataSchema` here rather than relying
+    // on `pageRootPropsSchema.parse(...)` — the outer parse throws on
+    // an invalid shape, but a malformed `pageBackground` (hand-edited
+    // JSON, schema drift) shouldn't take down the public page
+    // renderer. Fall back to null on any validation failure.
+    pageBackground: validatePageBackground(props.pageBackground),
+    // Per-page overlay opacity: null inherits site default; a number
+    // 0..1 overrides. Out-of-range / non-number values fall back to
+    // null (inherit) rather than throwing.
+    pageBackgroundOverlay: validateOverlayOpacity(props.pageBackgroundOverlay),
+  });
+}
+
+function validatePageBackground(value: unknown): ImageMetadata | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const result = imageMetadataSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
+function validateOverlayOpacity(value: unknown): number | null {
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  if (value < 0 || value > 1) return null;
+  return value;
+}
+
+export async function listPageSummaries(store: ReadStore): Promise<PageSummary[]> {
+  await ensurePrebakedCollections();
+  // listItemsInOrder honours the pages collection's manual `_order.json`,
+  // falling back to alphabetic for items not present in the file.
+  const items = await store.listItemsInOrder("pages", pagesCollectionDef);
+  const summaries: PageSummary[] = items.map((item) => {
+    const titleValue = item.values[PAGES_FIELD_IDS.title];
+    const splashValue = item.values[PAGES_FIELD_IDS.isSplashPage];
+    const showInNavValue = item.values[PAGES_FIELD_IDS.showInNav];
+    return {
+      slug: item.slug,
+      title: titleValue?.type === "text" ? titleValue.value : "Untitled",
+      isSplashPage: splashValue?.type === "boolean" ? splashValue.value : false,
+      // `showInNav` defaults to true if the field is absent (new pages
+      // appear in the nav unless explicitly hidden).
+      isHiddenFromNav:
+        showInNavValue?.type === "boolean" ? !showInNavValue.value : false,
+    };
+  });
+  // Splash pages always float to the top — same affordance as the
+  // legacy admin: the splash override is visible at a glance.
+  return summaries.sort((a, b) => (a.isSplashPage === b.isSplashPage ? 0 : a.isSplashPage ? -1 : 1));
+}
+
+/**
+ * Find the page that owns "/" — either the splash override, or the page
+ * with slug "home", or the first available page.
+ */
+export async function resolveRootPageSlug(store: ReadStore): Promise<string | null> {
+  const summaries = await listPageSummaries(store);
+  const splash = summaries.find((p) => p.isSplashPage);
+  if (splash) return splash.slug;
+  if (summaries.some((p) => p.slug === "home")) return "home";
+  return summaries[0]?.slug ?? null;
+}
+
+/**
+ * Build the starter content for a new page. The shape stays
+ * Puck-flavoured for the editor's onPublish handler.
+ */
+export function emptyPageData(title: string): PageData {
+  return {
+    content: [
+      {
+        type: "Heading",
+        props: {
+          id: `heading-${Date.now()}`,
+          text: title,
+          level: "h1",
+          textAlign: "start",
+        },
+      },
+    ],
+    root: { props: { title, isSplashPage: false, isFooterHidden: false } },
+  } as PageData;
+}
+
+// ---------------------------------------------------------------------------
+// Site singleton
+// ---------------------------------------------------------------------------
+
+export async function readSiteConfig(store: ReadStore): Promise<SiteConfig> {
+  await ensurePrebakedCollections();
+  const [siteItem, pageOrder, pages] = await Promise.all([
+    store.readSingleton("site", siteCollectionDef),
+    store.readOrder("pages"),
+    listPageSummaries(store),
+  ]);
+  const base = siteConfigFromItem(siteItem);
+  return {
+    ...base,
+    // pageOrder is the manual order file when present, otherwise the
+    // existing sort order from listPageSummaries (alphabetic).
+    pageOrder: pageOrder ?? pages.map((p) => p.slug),
+    hiddenFromNav: pages.filter((p) => p.isHiddenFromNav).map((p) => p.slug),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Header singleton
+// ---------------------------------------------------------------------------
+
+export async function readHeaderConfig(store: ReadStore): Promise<HeaderConfig> {
+  await ensurePrebakedCollections();
+  const item = await store.readSingleton("header", headerCollectionDef);
+  return headerConfigFromItem(item);
+}
+
+// ---------------------------------------------------------------------------
+// Appearance singleton
+// ---------------------------------------------------------------------------
+
+export async function readAppearance(store: ReadStore): Promise<Appearance> {
+  await ensurePrebakedCollections();
+  const item = await store.readSingleton("appearance", appearanceCollectionDef);
+  return appearanceFromItem(item);
+}
+
+// ---------------------------------------------------------------------------
+// Re-export legacy defaults for callers that still consume them
+// ---------------------------------------------------------------------------
+
+export { DEFAULT_APPEARANCE, DEFAULT_HEADER_CONFIG, DEFAULT_SITE_CONFIG };
+
+// ---------------------------------------------------------------------------
+// Surface the helpers used by per-build conversion paths (pageDataToItem
+// etc.) so callers don't have to know about the migrate-from-legacy
+// module. The value-only conversion helpers
+// (`{site,header,appearance}ConfigToItemValues`) are no longer re-
+// exported here — the custom singleton panels import them directly
+// from `collections/migrate-from-legacy-values` (client-bundle-safe).
+// ---------------------------------------------------------------------------
+
+export {
+  pageDataToItem,
+  pageDataToItemValues,
+};

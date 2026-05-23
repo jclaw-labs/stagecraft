@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "op run --env-file=.op.env -- next dev --turbopack",
+    "dev": "sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

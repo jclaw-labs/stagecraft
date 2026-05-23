@@ -313,3 +313,73 @@ export async function deleteRepo(userId: string, owner: string, repo: string): P
     throw new Error(`Failed to delete GitHub repo (${res.status}): ${body}`);
   }
 }
+
+interface GithubInstallation {
+  id: number;
+  app_slug: string;
+  account: { login: string };
+}
+
+/**
+ * Find the numeric installation id for a given GitHub App on a given owner
+ * (user or org). Used to thread `installation_id` through to deploy
+ * providers like Netlify whose API needs it for App-based repo cloning.
+ *
+ * GitHub's `/user/installations` endpoint returns every App installed on
+ * the authenticated user's accounts (personal + orgs they belong to).
+ * Match by `app_slug` (e.g. "netlify") AND `account.login` (the owner of
+ * the repo we're connecting), so artists with the same App installed on
+ * multiple accounts get the right installation.
+ *
+ * Returns null when no matching installation exists OR when GitHub denies
+ * the request (e.g. 403 because Stagecraft signs users in via a regular
+ * OAuth App, not a GitHub App — and `/user/installations` only accepts
+ * GitHub App user-to-server tokens). Either way the caller treats it as
+ * "no installation found" and falls back to its manual-link path; the
+ * site is created without the auto-link, and the artist clicks "Link to
+ * a different repository" in Netlify's UI to finish hookup.
+ */
+export async function findGithubAppInstallation(
+  userId: string,
+  appSlug: string,
+  ownerLogin: string,
+): Promise<number | null> {
+  const token = await getGitHubToken(userId);
+
+  let data: { installations: GithubInstallation[] } | null = null;
+  try {
+    data = (await githubApi(token, "/user/installations?per_page=100")) as {
+      installations: GithubInstallation[];
+    };
+  } catch (cause) {
+    // Don't kill the create_site job over a discovery API failure —
+    // log + continue. The most common case here is the 403 above; other
+    // errors (rate limits, network blips) also fall through to the env
+    // fallback below.
+    console.warn("[findGithubAppInstallation] discovery failed; trying env fallback", {
+      appSlug,
+      ownerLogin,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  const match = data?.installations.find(
+    (i) => i.app_slug === appSlug && i.account.login === ownerLogin,
+  );
+  if (match) return match.id;
+
+  // Single-tenant fallback: an operator may pin an installation id via env
+  // (e.g. `GITHUB_APP_INSTALLATION_ID_NETLIFY=15980838`). This unblocks
+  // App-based cloning while sign-in still uses an OAuth App and
+  // `/user/installations` returns 403. Per-tenant resolution requires
+  // migrating sign-in to a GitHub App.
+  const envKey = `GITHUB_APP_INSTALLATION_ID_${appSlug.toUpperCase().replace(/-/g, "_")}`;
+  const envValue = process.env[envKey];
+  if (envValue) {
+    const parsed = Number(envValue);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+    console.warn(`[findGithubAppInstallation] ${envKey} is set but not a positive integer: ${envValue}`);
+  }
+
+  return null;
+}

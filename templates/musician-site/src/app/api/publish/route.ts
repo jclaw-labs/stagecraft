@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { getRequestReadStore } from "@/lib/collections";
 import { PublishError, publishPage } from "@/lib/publish";
 import {
   type PublishError as PublishErrorPayload,
+  publishErrorHttpStatus,
   publishRequestSchema,
   publishResponseSchema,
 } from "@/lib/publish-types";
@@ -31,17 +33,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    const store = await getRequestReadStore();
     const result = await publishPage({
       pageSlug: parsed.data.pageSlug,
       data: parsed.data.data,
       authorEmail: session.email,
+      store,
     });
     return NextResponse.json(
       publishResponseSchema.parse({ ok: true, commitSha: result.commitSha }),
     );
   } catch (cause) {
     if (cause instanceof PublishError) {
-      const status = cause.code === "broker-rejected" ? 502 : 500;
+      const status = publishErrorHttpStatus(cause.code);
       return err(status, cause.code, cause.message);
     }
     return err(500, "github-failed", String(cause));

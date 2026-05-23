@@ -21,6 +21,13 @@ const summaries: Record<FailureCategory, FailureSummary> = {
     suggestedAction:
       "Check that your Netlify account is still connected in Settings, then retry. If the problem continues, review your Netlify project settings.",
   },
+  vercel_github_app_missing: {
+    title: "Vercel GitHub App not installed",
+    description:
+      "Vercel requires its GitHub App installed on your account before it can link a repository for auto-deploy.",
+    suggestedAction:
+      "Install Vercel's GitHub App at Settings → Vercel, then try creating your site again.",
+  },
   validation_error: {
     title: "Content validation failed",
     description:

@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "slug": "site",
+  "singularName": "site settings",
+  "pluralName": "site settings",
+  "fields": [
+    {
+      "id": "fld_site_artistName",
+      "key": "artistName",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_site_siteTitle",
+      "key": "siteTitle",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_site_siteDescription",
+      "key": "siteDescription",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_site_contactEmail",
+      "key": "contactEmail",
+      "systemLocked": true,
+      "type": "email",
+      "required": true
+    },
+    {
+      "id": "fld_site_copyrightName",
+      "key": "copyrightName",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_site_isFooterHidden",
+      "key": "isFooterHidden",
+      "type": "boolean"
+    },
+    {
+      "id": "fld_site_favicon",
+      "key": "favicon",
+      "systemLocked": true,
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_site_pageBackground",
+      "key": "pageBackground",
+      "systemLocked": true,
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_site_pageBackgroundOverlay",
+      "key": "pageBackgroundOverlay",
+      "systemLocked": true,
+      "type": "number",
+      "required": false
+    },
+    {
+      "id": "fld_site_hasCompletedFirstRun",
+      "key": "hasCompletedFirstRun",
+      "systemLocked": true,
+      "type": "boolean"
+    },
+    {
+      "id": "fld_site_social_instagram",
+      "key": "social_instagram",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_twitter",
+      "key": "social_twitter",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_facebook",
+      "key": "social_facebook",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_youtube",
+      "key": "social_youtube",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_spotify",
+      "key": "social_spotify",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_appleMusic",
+      "key": "social_appleMusic",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_bandcamp",
+      "key": "social_bandcamp",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_soundcloud",
+      "key": "social_soundcloud",
+      "type": "url",
+      "required": false
+    },
+    {
+      "id": "fld_site_social_tiktok",
+      "key": "social_tiktok",
+      "type": "url",
+      "required": false
+    }
+  ],
+  "slugSourceFieldId": null,
+  "detailUrlPrefix": null,
+  "defaultSort": null,
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": true
+}

@@ -1,0 +1,188 @@
+/**
+ * Admin per-collection view (ADR-009 PR 4).
+ *
+ *   /admin/collections/<slug>
+ *
+ * For non-singletons: lists every item with edit links.
+ * For singletons: redirects straight to the single item's edit form.
+ */
+
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+
+const chromeButtonStyle: React.CSSProperties = {
+  padding: "var(--space-2) var(--space-4)",
+  background: "var(--color-surface-raised)",
+  color: "var(--color-text)",
+  borderRadius: "var(--radius-sm)",
+  textDecoration: "none",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  fontSize: "var(--font-size-sm)",
+  border: "1px solid var(--color-border)",
+};
+
+import { AdminShell } from "@/components/admin/AdminShell";
+import { findCustomSurface } from "@/components/admin/admin-surfaces";
+import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+import { getSession } from "@/lib/auth";
+import {
+  getRequestReadStore,
+  itemDisplayLabel,
+  SINGLETON_ITEM_SLUG,
+  slugSchema,
+} from "@/lib/collections";
+import { getPendingItemSlugs } from "@/lib/draft-changes";
+
+type Params = { slug: string };
+
+export default async function CollectionView({ params }: { params: Promise<Params> }) {
+  const { slug } = await params;
+  const parsed = slugSchema.safeParse(slug);
+  if (!parsed.success) notFound();
+
+  // Custom-panel collections (Pages, Site Settings, etc.) bounce
+  // to their curated UX. For singletons that means the form;
+  // for multi-item panels (Pages) that means the custom list view.
+  const customSurface = findCustomSurface(parsed.data);
+  if (customSurface) {
+    redirect(customSurface.route);
+  }
+
+  const storePromise = getRequestReadStore();
+  const [session, def] = await Promise.all([
+    getSession(),
+    storePromise.then((s) => s.readCollectionDef(parsed.data)),
+  ]);
+  if (!def) notFound();
+
+  if (def.isSingleton) {
+    redirect(`/admin/collections/${parsed.data}/items/${SINGLETON_ITEM_SLUG}`);
+  }
+
+  const store = await storePromise;
+  // Pending-changes badges run alongside the listing — `getPendingItemSlugs`
+  // degrades to an empty set if the compare API is unreachable, so a
+  // GitHub blip drops the badges without failing the page.
+  const [items, pendingSlugs] = await Promise.all([
+    store.listItemsInOrder(parsed.data, def),
+    getPendingItemSlugs(parsed.data),
+  ]);
+
+  return (
+    <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>
+      <main
+        style={{
+          maxWidth: "var(--max-width-content)",
+          margin: "var(--space-8) auto",
+          padding: "0 var(--space-4)",
+        }}
+      >
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: "var(--space-6)",
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                fontSize: "var(--font-size-2xl)",
+                fontWeight: "var(--font-weight-bold)" as unknown as number,
+                margin: 0,
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {def.pluralName}
+            </h1>
+            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+              {def.fields.length} field{def.fields.length === 1 ? "" : "s"} ·{" "}
+              {items.length} item{items.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            <Link href={`/admin/collections/${parsed.data}/schema`} style={chromeButtonStyle}>
+              Edit schema
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/template/item`}
+              style={chromeButtonStyle}
+            >
+              Item template
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/template/detail`}
+              style={chromeButtonStyle}
+            >
+              Detail template
+            </Link>
+            <Link
+              href={`/admin/collections/${parsed.data}/items/new`}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-action)",
+                color: "var(--color-action-fg)",
+                borderRadius: "var(--radius-sm)",
+                textDecoration: "none",
+                fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              + New {def.singularName}
+            </Link>
+          </div>
+        </header>
+
+        {items.length === 0 ? (
+          <p style={{ color: "var(--color-text-muted)" }}>
+            No items yet. Click &ldquo;New {def.singularName}&rdquo; to add one.
+          </p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {items.map((item) => {
+              const label = itemDisplayLabel(def, item);
+              return (
+                <li
+                  key={item.slug}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-3)",
+                    padding: "var(--space-3) var(--space-4)",
+                    marginBottom: "var(--space-1)",
+                    background: "var(--color-surface-raised)",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <Link
+                    href={`/admin/collections/${parsed.data}/items/${item.slug}`}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      textDecoration: "none",
+                      color: "var(--color-text)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "var(--space-3)",
+                    }}
+                  >
+                    <span style={{ fontWeight: "var(--font-weight-semibold)" as unknown as number }}>
+                      {label}
+                    </span>
+                    <span style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+                      /{item.slug}
+                    </span>
+                  </Link>
+                  {pendingSlugs.has(item.slug) ? <UnpublishedBadge /> : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </main>
+    </AdminShell>
+  );
+}
