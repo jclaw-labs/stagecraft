@@ -41,6 +41,7 @@ import {
   type ReadStore,
 } from "./collections";
 import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
+import { changeKey } from "./draft-changes-keys";
 
 /**
  * Normalized per-file change shape. Discriminated by `kind` so the
@@ -357,28 +358,10 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
   };
 }
 
-/**
- * Stable identity for a change, used to map a publish-modal selection
- * back to the diff server-side. Image variants all collapse to one key
- * (`image:<contentSlug>/<imageId>`), so selecting an image selects its
- * whole variant set.
- */
-export function changeKey(change: DraftChange): string {
-  switch (change.kind) {
-    case "item":
-      return `item:${change.collectionSlug}/${change.itemSlug}`;
-    case "singleton":
-      return `singleton:${change.collectionSlug}`;
-    case "def":
-      return `def:${change.collectionSlug}`;
-    case "order":
-      return `order:${change.collectionSlug}`;
-    case "image":
-      return `image:${change.contentSlug}/${change.imageId}`;
-    case "other":
-      return `other:${change.path}`;
-  }
-}
+// `changeKey` lives in the client-safe `./draft-changes-keys` (so the
+// publish modal can import it without pulling this server module's deps
+// into the client bundle); re-exported here for server-side callers.
+export { changeKey };
 
 export type SelectedChangePaths = {
   /** Paths to copy to main (added / modified, + the new side of a rename). */
@@ -396,6 +379,12 @@ export type SelectedChangePaths = {
  * copy. Image variants share a key, so one image selection pulls in
  * every variant. Keys with no matching pending file are ignored.
  */
+/** Only content lives under these roots; never publish/delete anything else. */
+const CONTENT_PATH_PREFIXES = ["src/content/", "public/images/"] as const;
+function isPublishablePath(p: string): boolean {
+  return CONTENT_PATH_PREFIXES.some((prefix) => p.startsWith(prefix));
+}
+
 export async function resolveSelectedChangePaths(
   selectedKeys: string[],
   env: Env = readEnv(),
@@ -403,6 +392,15 @@ export async function resolveSelectedChangePaths(
   const selected = new Set(selectedKeys);
   const compared = await compareDraftToMain(env);
   if (!compared) return { copyPaths: [], deletePaths: [] };
+  // A truncated diff can split an image's variants across the 300-file
+  // cap, so a selective publish could ship a partial variant set. Refuse
+  // and let the artist use full Publish instead.
+  if (compared.truncated) {
+    throw new DraftChangesError(
+      "github-failed",
+      "Too many pending changes to publish selectively (the diff is truncated at 300 files). Publish all pending changes instead.",
+    );
+  }
 
   const copyPaths = new Set<string>();
   const deletePaths = new Set<string>();
@@ -413,12 +411,30 @@ export async function resolveSelectedChangePaths(
       deletePaths.add(file.filename);
     } else if (change.status === "renamed") {
       copyPaths.add(file.filename);
-      if (file.previous_filename) deletePaths.add(file.previous_filename);
+      // Only delete the old side for a SAME-collection item rename (our
+      // own renameItem flow). GitHub's similarity heuristic can flag two
+      // unrelated files across collections as a "rename"; deleting the
+      // old side there would remove a file the artist never selected.
+      if (
+        file.previous_filename &&
+        change.kind === "item" &&
+        change.previousItemSlug &&
+        !change.previousCollectionSlug
+      ) {
+        deletePaths.add(file.previous_filename);
+      }
     } else {
       copyPaths.add(file.filename);
     }
   }
-  return { copyPaths: [...copyPaths], deletePaths: [...deletePaths] };
+
+  // Restrict to content paths (defense-in-depth: a selected `other:`
+  // change must not publish/delete an arbitrary tracked repo file), and
+  // let copy win over delete so an A→B / B→A rename swap keeps both files.
+  const copyOut = [...copyPaths].filter(isPublishablePath);
+  const copySet = new Set(copyOut);
+  const deleteOut = [...deletePaths].filter((p) => isPublishablePath(p) && !copySet.has(p));
+  return { copyPaths: copyOut, deletePaths: deleteOut };
 }
 
 /**

@@ -134,7 +134,10 @@ deferred follow-up.
   expansion (image variants, rename, deletion, subset validation).
 - **PR 3 (UI).** Publish-modal checkboxes per item/group, "select all"
   default, a "Publish N of M" affordance, and discard-of-selection
-  semantics; wires the selection to the route.
+  semantics; wires the selection to the route. Must build `selectedKeys`
+  with the canonical `changeKey` from the client-safe
+  `lib/draft-changes-keys.ts` (and drop the modal's divergent local
+  copy), so the keys match the server's expansion.
 
 ## Known limitations and deferred work
 
@@ -149,6 +152,23 @@ deferred follow-up.
   same-editor multi-tab or a direct push mid-publish; recovery is Discard
   or resolve, then retry. *Trigger:* artists hit this in concurrent
   sessions — then add per-path reconciliation.
+
+- **A selected subset can be internally incoherent.** Nothing enforces
+  that interdependent changes publish together — selecting a new
+  collection's items without its `_collection.json` schema (`def`), or an
+  `_order.json` without the items it lists, can ship `main` referencing a
+  schema or slugs that aren't there yet. The artist composes the subset;
+  the modal (PR 3) should group/guide dependent changes, and a future
+  guard could auto-include a collection's `def`/`order` with its items.
+  *Trigger:* artists publish incoherent subsets in practice.
+
+- **Selective publish is content-only and refuses truncated diffs.** The
+  expansion restricts published paths to `src/content/` + `public/images/`
+  (a stray `other:` change can't ship an arbitrary repo file), only
+  deletes the old side of a *same-collection* item rename (GitHub's
+  cross-collection rename heuristic won't delete an unrelated file), and
+  throws when the compare is truncated at 300 files (so an image's
+  variants can't be split). Above the cap, full Publish is the path.
 
 - **Merge commits accrue on the draft branch.** Each partial publish
   adds a merge commit to the editor's branch. Harmless (the branch is

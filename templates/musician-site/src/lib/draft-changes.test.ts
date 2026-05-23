@@ -704,4 +704,62 @@ describe("resolveSelectedChangePaths", () => {
     const res = await resolveSelectedChangePaths(["item:pages/ghost"]);
     expect(res).toEqual({ copyPaths: [], deletePaths: [] });
   });
+
+  it("does not delete the old side of a cross-collection (heuristic) rename", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        {
+          filename: "src/content/collections/photos/items/sunset.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/sunset.json",
+        },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:photos/sunset"]);
+    // Copy the new photo item; do NOT delete the unrelated pages/sunset page.
+    expect(res.copyPaths).toEqual(["src/content/collections/photos/items/sunset.json"]);
+    expect(res.deletePaths).toEqual([]);
+  });
+
+  it("excludes non-content (other) paths from a selective publish", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([{ filename: "next.config.ts", status: "modified" }]),
+    );
+    const res = await resolveSelectedChangePaths(["other:next.config.ts"]);
+    expect(res).toEqual({ copyPaths: [], deletePaths: [] });
+  });
+
+  it("keeps both files on an A→B / B→A rename swap (copy wins over delete)", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        {
+          filename: "src/content/collections/pages/items/b.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/a.json",
+        },
+        {
+          filename: "src/content/collections/pages/items/a.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/b.json",
+        },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:pages/b", "item:pages/a"]);
+    expect(res.copyPaths.sort()).toEqual([
+      "src/content/collections/pages/items/a.json",
+      "src/content/collections/pages/items/b.json",
+    ]);
+    expect(res.deletePaths).toEqual([]);
+  });
+
+  it("refuses a selective publish when the diff is truncated", async () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(many));
+    await expect(resolveSelectedChangePaths(["item:pages/p0"])).rejects.toMatchObject({
+      name: "DraftChangesError",
+    });
+  });
 });
