@@ -776,8 +776,10 @@ describe("PublishConfirmModal — per-item selection (ADR-012)", () => {
     await waitFor(() => screen.getByRole("checkbox", { name: "pages · about" }));
 
     await userEvent.click(screen.getByRole("checkbox", { name: "pages · about" }));
+    // The default subject re-seeds to the selected count (B-1): publishing
+    // 1 of 2 commits "Publish 1 change", not the misleading "Publish 2".
     await userEvent.click(screen.getByRole("button", { name: "Publish 1 of 2" }));
-    expect(onConfirm).toHaveBeenCalledWith("Publish 2 changes", {
+    expect(onConfirm).toHaveBeenCalledWith("Publish 1 change", {
       selectedKeys: ["image:header/abc123"],
       allSelected: false,
     });

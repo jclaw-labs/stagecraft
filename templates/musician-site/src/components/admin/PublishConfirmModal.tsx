@@ -107,6 +107,10 @@ export function PublishConfirmModal({
         changes: result.status.changes,
         truncated: result.status.truncated,
       });
+      // Seed the selection to "all" in the same batched update as the
+      // loaded state, so the first loaded render already shows every box
+      // ticked (no one-frame "0 of N" flicker from a post-commit effect).
+      setSelected(new Set(result.status.changes.map(changeKey)));
     });
     return () => {
       cancelled = true;
@@ -116,19 +120,18 @@ export function PublishConfirmModal({
   // Sync the auto-generated default into the subject field whenever
   // changes load, as long as the artist hasn't typed in it yet.
   // Won't overwrite a user-edited value.
+  // Keep the auto-generated subject in sync with what's actually ticked
+  // (the selected count, or the total when per-item selection doesn't
+  // apply) until the artist edits the field — so a subset publish commits
+  // an accurate "Publish N changes" message, not the full pending count.
   useEffect(() => {
     if (state.kind !== "loaded" || subjectTouched) return;
-    setSubject(defaultSubject(state.changes.length));
-  }, [state, subjectTouched]);
-
-  // Seed the selection to "all" when the change list loads — publish-
-  // everything is the default; the artist unticks to hold items. The
-  // load effect fetches once, so this seeds once and never clobbers a
-  // later un-tick.
-  useEffect(() => {
-    if (state.kind !== "loaded") return;
-    setSelected(new Set(state.changes.map(changeKey)));
-  }, [state]);
+    const selectable = state.changes.length > 0 && !state.truncated;
+    const count = selectable
+      ? state.changes.filter((c) => selected.has(changeKey(c))).length
+      : state.changes.length;
+    setSubject(defaultSubject(count));
+  }, [state, subjectTouched, selected]);
 
   // Focus capture / restore. Runs once on mount + once on unmount;
   // intentionally has no deps so the cleanup fires only when the
@@ -154,10 +157,18 @@ export function PublishConfirmModal({
   // list; loading / error / truncated states fall back to "publish
   // everything pending" (the server refuses a selective publish on a
   // truncated diff, since an image's variants could be split — ADR-012).
-  const canSelect =
-    state.kind === "loaded" && totalChanges > 0 && !state.truncated;
-  const allSelected = canSelect && selected.size === totalChanges;
-  const nothingSelected = canSelect && selected.size === 0;
+  const canSelect = state.kind === "loaded" && totalChanges > 0 && !state.truncated;
+  // Count + collect only LOADED keys that are ticked. Basing the math on
+  // this (not `selected.size`) keeps it correct even if `selected` ever
+  // held a key not in the current list — a size-equality shortcut could
+  // otherwise route a desynced selection to the full squash.
+  const selectedLoadedKeys =
+    state.kind === "loaded"
+      ? state.changes.map(changeKey).filter((k) => selected.has(k))
+      : [];
+  const selectedCount = selectedLoadedKeys.length;
+  const allSelected = canSelect && selectedCount === totalChanges;
+  const nothingSelected = canSelect && selectedCount === 0;
 
   function toggleOne(key: string) {
     setSelected((prev) => {
@@ -179,7 +190,7 @@ export function PublishConfirmModal({
     const trimmed = subject.trim();
     const commitSubject = trimmed.length === 0 ? null : trimmed;
     const selection: PublishSelection = canSelect
-      ? { selectedKeys: [...selected], allSelected }
+      ? { selectedKeys: selectedLoadedKeys, allSelected }
       : // Couldn't show a list — publish whatever's pending (full draft).
         { selectedKeys: [], allSelected: true };
     onConfirm(commitSubject, selection);
@@ -288,7 +299,7 @@ export function PublishConfirmModal({
                 : primaryButtonStyle
             }
           >
-            {publishLabel(isPublishing, canSelect, selected.size, totalChanges)}
+            {publishLabel(isPublishing, canSelect, selectedCount, totalChanges)}
           </button>
         </div>
       </div>
