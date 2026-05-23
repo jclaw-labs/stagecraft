@@ -10,12 +10,6 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Photo lightbox
 
-- **Touch swipe gestures.** Mobile users currently navigate via the
-  arrow buttons (44×44 tap targets) or the close-to-cycle gestures
-  the browser provides on `<img>` swipes (none). The standard touch
-  UX is swipe-left-to-advance / swipe-right-to-go-back. Needs
-  pointer-event handling with `touchstart`/`touchmove`/`touchend`
-  delta + threshold logic, or a `usePan` hook abstraction. From #183.
 - **Pinch-zoom for high-DPR viewing.** Lightbox currently caps the
   image at `max-height: calc(100vh - var(--space-32))`; pinch-zoom
   on touch screens would let users inspect detail. Browser native

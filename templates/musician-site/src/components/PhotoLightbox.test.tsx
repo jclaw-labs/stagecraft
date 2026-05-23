@@ -224,6 +224,108 @@ describe("<PhotoLightbox> — edge cases", () => {
   });
 });
 
+describe("<PhotoLightbox> — touch swipe navigation", () => {
+  // Standard mobile photo-viewer convention: swipe LEFT advances
+  // (next image), swipe RIGHT goes back (previous image). The
+  // existing prev/next + arrow-key handlers already cover the
+  // semantics; these tests lock the touch → handler plumbing.
+
+  function fireSwipe(
+    target: Element,
+    { dx, dy = 0 }: { dx: number; dy?: number },
+  ): void {
+    // Synthesise a touch from (100, 100) to (100+dx, 100+dy).
+    fireEvent.touchStart(target, {
+      touches: [{ clientX: 100, clientY: 100 }],
+    });
+    fireEvent.touchEnd(target, {
+      changedTouches: [{ clientX: 100 + dx, clientY: 100 + dy }],
+      touches: [],
+    });
+  }
+
+  it("swipe LEFT advances to the next image", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: -120 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+  });
+
+  it("swipe RIGHT goes back to the previous image (with wrap)", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: 120 });
+    // Wraps to the last image.
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[2]!.url);
+  });
+
+  it("ignores swipes below the threshold (a tap shouldn't cycle)", () => {
+    // dx=20 is well under the 50px threshold — should look like a
+    // tap, not a swipe.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: 20 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("ignores mostly-vertical swipes (so scroll-like gestures don't cycle)", () => {
+    // |dx| = 60 > 50px threshold but |dy| = 120 dominates — this is
+    // a near-vertical gesture, not a cycle attempt.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: 60, dy: 120 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("ignores multi-touch starts (reserved for future pinch-zoom)", () => {
+    // Two-finger touchstart on the dialog should not arm the swipe
+    // state. Even a subsequent touchend with a large dx should be a
+    // no-op because the start ref was cleared.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.touchStart(dialog, {
+      touches: [
+        { clientX: 100, clientY: 100 },
+        { clientX: 200, clientY: 100 },
+      ],
+    });
+    fireEvent.touchEnd(dialog, {
+      changedTouches: [{ clientX: 0, clientY: 100 }],
+      touches: [],
+    });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("touchcancel discards the start coords (no swipe on subsequent touchend)", () => {
+    // Simulates a browser interrupt mid-gesture. The next touchend
+    // should be ignored — only a fresh touchstart re-arms the state.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.touchStart(dialog, {
+      touches: [{ clientX: 100, clientY: 100 }],
+    });
+    fireEvent.touchCancel(dialog);
+    fireEvent.touchEnd(dialog, {
+      changedTouches: [{ clientX: 0, clientY: 100 }],
+      touches: [],
+    });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("swipe LEFT at the last image wraps to the first", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={2} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: -120 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("swipes are no-ops on a single-image gallery", () => {
+    // next/prev guard on total <= 1; the swipe handler can call them
+    // freely without re-checking. Verify the image doesn't change.
+    render(
+      <PhotoLightbox images={[IMAGES[0]!]} initialIndex={0} onClose={vi.fn()} />,
+    );
+    fireSwipe(screen.getByRole("dialog"), { dx: -120 });
+    fireSwipe(screen.getByRole("dialog"), { dx: 120 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+});
+
 describe("<PhotoLightbox> — focus trap (Tab cycling)", () => {
   it("Tab from the last focusable wraps back to the first", () => {
     render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
