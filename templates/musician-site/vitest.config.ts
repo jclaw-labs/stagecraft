@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
@@ -12,9 +12,10 @@ export default defineConfig({
   test: {
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
-    // Playwright owns everything under e2e/. Excluding it here keeps
-    // `npm run test` (vitest) from picking up the `.spec.ts` files
-    // and double-loading the browser-driver code into a node context.
-    exclude: ["node_modules/**", "e2e/**", "playwright-report/**", "test-results/**"],
+    // Playwright owns everything under e2e/ and capture/. Excluding them
+    // (on top of vitest's built-in defaults) keeps `npm run test` from
+    // picking up those `.spec.ts` files and loading the browser-driver
+    // code into a node context.
+    exclude: [...configDefaults.exclude, "e2e/**", "capture/**"],
   },
 });

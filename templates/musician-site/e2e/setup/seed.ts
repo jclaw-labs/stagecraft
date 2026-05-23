@@ -22,9 +22,20 @@ import {
 } from "../../src/lib/collections/field-ids";
 import { E2E_CONTENT_DIR } from "../../playwright.config";
 
-const COLLECTIONS_DIR = path.join(E2E_CONTENT_DIR, "collections");
-const SITE_ITEMS_DIR = path.join(COLLECTIONS_DIR, "site/items");
-const PAGES_ITEMS_DIR = path.join(COLLECTIONS_DIR, "pages/items");
+/**
+ * The e2e suite seeds the shared `E2E_CONTENT_DIR`; the screenshot-
+ * capture config (`playwright.capture.config.ts`) reuses these
+ * helpers against its own content dir. Both default to
+ * `E2E_CONTENT_DIR` so existing callers are unchanged.
+ */
+function dirs(contentDir: string) {
+  const collections = path.join(contentDir, "collections");
+  return {
+    collections,
+    siteItems: path.join(collections, "site/items"),
+    pagesItems: path.join(collections, "pages/items"),
+  };
+}
 
 /**
  * Wipe every item-file out of every collection so the next admin
@@ -37,8 +48,11 @@ const PAGES_ITEMS_DIR = path.join(COLLECTIONS_DIR, "pages/items");
  * rather than hard-coding a list, so a new prebaked collection added
  * to `PREBAKED_COLLECTIONS` is wiped automatically.
  */
-export async function wipeContentDir(): Promise<void> {
-  await fs.mkdir(E2E_CONTENT_DIR, { recursive: true });
+export async function wipeContentDir(
+  contentDir: string = E2E_CONTENT_DIR,
+): Promise<void> {
+  const { collections: COLLECTIONS_DIR } = dirs(contentDir);
+  await fs.mkdir(contentDir, { recursive: true });
   let entries: string[];
   try {
     entries = await fs.readdir(COLLECTIONS_DIR);
@@ -68,8 +82,12 @@ export async function wipeContentDir(): Promise<void> {
  * reset spec's beforeEach so the wizard is skipped and we land in
  * /admin/pages.
  */
-export async function seedCompletedSite(artistName: string): Promise<void> {
-  await wipeContentDir();
+export async function seedCompletedSite(
+  artistName: string,
+  contentDir: string = E2E_CONTENT_DIR,
+): Promise<void> {
+  const { siteItems: SITE_ITEMS_DIR, pagesItems: PAGES_ITEMS_DIR } = dirs(contentDir);
+  await wipeContentDir(contentDir);
   await fs.mkdir(SITE_ITEMS_DIR, { recursive: true });
   const siteItem = {
     id: "item_e2e_site_singleton",

@@ -1,0 +1,47 @@
+name: PR Screenshots
+
+# Relays screenshots committed by cloud Claude Code sessions to a public
+# gist, then rewrites the PR body so they render inline. See
+# .github/scripts/upload-pr-screenshots.mjs and
+# claude/skills/create-pr/SKILL.md for the full flow.
+#
+# One-time setup (repo admin): create a personal access token with the
+# `gist` scope and add it as a repository secret named GIST_TOKEN.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".pr-screenshots/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pr-screenshots-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    name: Upload screenshots and rewrite PR body
+    runs-on: ubuntu-latest
+    # Skip fork PRs — GITHUB_TOKEN can't push the cleanup commit to a fork.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Upload + rewrite
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: node .github/scripts/upload-pr-screenshots.mjs

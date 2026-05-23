@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Use when opening or revising a pull request in the stagecraft monorepo. Enforces the screenshots convention — PRs that change rendered UI (public site or Keystatic admin) must embed screenshots from a public gist, since this repo is private and in-tree / raw.githubusercontent URLs don't render anonymously. Trigger phrases include "create a PR", "open a pull request", "update my PR description", or any task where a branch is ready for review.
+description: Use when opening or revising a pull request in the stagecraft monorepo. Enforces the screenshots convention — PRs that change rendered UI (public site or Keystatic admin) must embed screenshots from a public gist, since this repo is private and in-tree / raw.githubusercontent URLs don't render anonymously. Cloud Claude Code sessions commit captures to .pr-screenshots/ and a CI workflow relays them to a gist; local sessions can also run the gist push manually. Trigger phrases include "create a PR", "open a pull request", "update my PR description", or any task where a branch is ready for review.
 ---
 
 # Create PR
@@ -51,10 +51,32 @@ views, append the item slug: `admin-releases-item-first-album.png`.
 
 ## Workflow
 
-### 1. Capture
+There are two paths. Cloud Claude Code sessions (sandboxed VMs without
+`gh` CLI access) use the **automated relay**. Local sessions with a
+working `gh` auth can use either, but the relay is shorter.
 
-For the musician-site-legacy template, use the helper script — it covers
-site home, each nav page, and the Keystatic admin views:
+### Capture
+
+**`templates/musician-site` (Next.js + Puck artist site).** One command
+captures the standard set — the public home page plus the authenticated
+admin surfaces (Pages, Site Settings, Header & Nav, Appearance,
+Collections, and the Puck page editor):
+
+```bash
+cd templates/musician-site
+npx playwright install chromium   # local only — cloud sessions auto-detect
+npm run capture:screenshots       # writes .pr-screenshots/artist-*.{jpg,png}
+```
+
+It's a Playwright capture config (`playwright.capture.config.ts`) that
+boots its own dev server against a seeded, completed site and signs in
+via the dev-login escape hatch — so no manual server/auth setup. Output
+lands directly in the repo-root `.pr-screenshots/` (the relay path).
+Override the dir with `PR_SCREENSHOTS_DIR=...`.
+
+**`templates/musician-site-legacy` (Astro + Keystatic).** Use its helper
+script — it covers site home, each nav page, and the Keystatic admin
+views:
 
 ```bash
 # Terminal 1: dev server
@@ -63,14 +85,73 @@ npm run dev
 
 # Terminal 2: capture
 node scripts/capture-pr-screenshots.mjs http://localhost:4321 \
-     /tmp/pr-<N>-screenshots
+     <output-dir>
 ```
 
-See the script header for flags (`--only`, `--jpeg-quality`,
-`--site-format`). For other projects, capture manually at 1440×900
-using the same naming convention.
+`<output-dir>` is `.pr-screenshots/` at the repo root for the relay path,
+or `/tmp/pr-<N>-screenshots/` for the manual path. See the script header
+for flags (`--only`, `--jpeg-quality`, `--site-format`).
 
-### 2. Upload to a public gist
+**`apps/web` (platform dashboard).** One command captures the
+authenticated platform surfaces (Dashboard, Settings, and a site-detail
+page). Sign-in is GitHub-OAuth-only with no dev-login bypass, so the
+capture seeds a NextAuth session directly in Postgres and hands
+Playwright the matching cookie — which means it needs a running,
+migrated database:
+
+```bash
+docker compose up -d              # Postgres (see docker-compose.yml)
+npm run db:migrate                # apply migrations (first run only)
+cd apps/web
+npx playwright install chromium   # local only — cloud sessions auto-detect
+npm run capture:screenshots       # writes .pr-screenshots/platform-*.png
+```
+
+It's a Playwright capture config (`playwright.capture.config.ts`) whose
+global setup seeds a user + a Resend integration + an active site + a
+session row, then boots its own dev server with a minimal env (real
+`DATABASE_URL` + dummy auth secrets — no 1Password needed). The seeded
+session works because the platform uses Auth.js's database session
+strategy: the cookie value is the raw `Session.sessionToken`, looked up
+verbatim. Output lands in the repo-root `.pr-screenshots/`; override
+with `PR_SCREENSHOTS_DIR=...`.
+
+### Path A: Automated relay (cloud sessions, default)
+
+1. Capture screenshots into `.pr-screenshots/` at the repo root.
+2. Commit those files to the PR branch (use `mcp__github__push_files`
+   in cloud sessions).
+3. In the PR body, reference each screenshot by basename-without-ext via
+   a placeholder comment:
+
+   ```markdown
+   ## Screenshots
+
+   ### Site
+   <!-- screenshot:site-home -->
+
+   ### Admin
+   <!-- screenshot:admin-releases -->
+   ```
+
+   Placeholders are optional. Any uploaded file without a matching
+   placeholder gets appended under a `## Screenshots` section
+   automatically.
+4. Push the PR. The `.github/workflows/pr-screenshots.yml` workflow will:
+   - Push the images to a per-PR public gist (created on first run,
+     reused after).
+   - Replace each placeholder with rendered image markdown, or append
+     unmatched files under a `## Screenshots` section.
+   - Commit a `[skip ci]` cleanup that removes `.pr-screenshots/` from
+     the branch so binary blobs don't pile up.
+
+   The workflow only runs on PRs from this repo (not forks) and needs a
+   `GIST_TOKEN` secret — a PAT with the `gist` scope. One-time repo
+   admin setup.
+
+### Path B: Manual gist upload (fallback)
+
+For local sessions when you'd rather skip the CI round-trip:
 
 ```bash
 # Seed the gist (needs at least one file to create it)
@@ -92,7 +173,7 @@ git remote set-url origin \
 git push
 ```
 
-### 3. Embed in the PR body
+Then embed in the PR body:
 
 ```markdown
 ## Screenshots
