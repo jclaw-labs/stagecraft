@@ -162,7 +162,7 @@ function normalizeStatus(s: string): DraftChangeStatus | null {
   return "modified";
 }
 
-function parseChange(file: {
+export function parseChange(file: {
   filename: string;
   status: string;
   previous_filename?: string;
@@ -289,10 +289,18 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChanges> {
-  if (!isPlatformConfigured(env)) {
-    return { count: 0, changes: [], mode: "local", truncated: false };
-  }
+type RawCompareFile = { filename: string; status: string; previous_filename?: string };
+
+/**
+ * Run the editor's draft-vs-main compare and return the raw file list.
+ * `null` in dev / unconfigured mode (no draft branch to diff). Shared by
+ * `getDraftChanges` (collapse + count) and `resolveSelectedChangePaths`
+ * (expand a selection to paths).
+ */
+async function compareDraftToMain(
+  env: Env,
+): Promise<{ files: RawCompareFile[]; truncated: boolean } | null> {
+  if (!isPlatformConfigured(env)) return null;
 
   let token: string;
   let owner: string;
@@ -320,25 +328,97 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
       basehead: `${env.branch}...${draftBranch}`,
     });
     const files = compare.data.files ?? [];
-    const changes = parseChanges(files);
-    return {
-      count: changes.length,
-      changes,
-      mode: "github",
-      truncated: files.length >= COMPARE_FILES_PAGE_SIZE,
-    };
+    return { files, truncated: files.length >= COMPARE_FILES_PAGE_SIZE };
   } catch (cause) {
     // Fresh site: no `draft` branch yet → compare 404s on the head.
     // Saving the first item is what creates the branch; until then
     // there's nothing to publish.
     if (cause instanceof RequestError && cause.status === 404) {
-      return { count: 0, changes: [], mode: "github", truncated: false };
+      return { files: [], truncated: false };
     }
     throw new DraftChangesError(
       "github-failed",
       `compare ${env.branch}...${draftBranch}: ${errorMessage(cause)}`,
     );
   }
+}
+
+export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChanges> {
+  const compared = await compareDraftToMain(env);
+  if (!compared) {
+    return { count: 0, changes: [], mode: "local", truncated: false };
+  }
+  const changes = parseChanges(compared.files);
+  return {
+    count: changes.length,
+    changes,
+    mode: "github",
+    truncated: compared.truncated,
+  };
+}
+
+/**
+ * Stable identity for a change, used to map a publish-modal selection
+ * back to the diff server-side. Image variants all collapse to one key
+ * (`image:<contentSlug>/<imageId>`), so selecting an image selects its
+ * whole variant set.
+ */
+export function changeKey(change: DraftChange): string {
+  switch (change.kind) {
+    case "item":
+      return `item:${change.collectionSlug}/${change.itemSlug}`;
+    case "singleton":
+      return `singleton:${change.collectionSlug}`;
+    case "def":
+      return `def:${change.collectionSlug}`;
+    case "order":
+      return `order:${change.collectionSlug}`;
+    case "image":
+      return `image:${change.contentSlug}/${change.imageId}`;
+    case "other":
+      return `other:${change.path}`;
+  }
+}
+
+export type SelectedChangePaths = {
+  /** Paths to copy to main (added / modified, + the new side of a rename). */
+  copyPaths: string[];
+  /** Paths to delete from main (removed, + the old side of a rename). */
+  deletePaths: string[];
+};
+
+/**
+ * Expand a selection of change keys (from the publish modal) into the
+ * concrete repo paths to publish, re-deriving the diff server-side so a
+ * stale client can't desync or partially publish an image. Each raw file
+ * whose change matches a selected key contributes: a removed file →
+ * delete; a rename → copy the new path + delete the old; anything else →
+ * copy. Image variants share a key, so one image selection pulls in
+ * every variant. Keys with no matching pending file are ignored.
+ */
+export async function resolveSelectedChangePaths(
+  selectedKeys: string[],
+  env: Env = readEnv(),
+): Promise<SelectedChangePaths> {
+  const selected = new Set(selectedKeys);
+  const compared = await compareDraftToMain(env);
+  if (!compared) return { copyPaths: [], deletePaths: [] };
+
+  const copyPaths = new Set<string>();
+  const deletePaths = new Set<string>();
+  for (const file of compared.files) {
+    const change = parseChange(file);
+    if (!change || !selected.has(changeKey(change))) continue;
+    if (change.status === "removed") {
+      deletePaths.add(file.filename);
+    } else if (change.status === "renamed") {
+      copyPaths.add(file.filename);
+      if (file.previous_filename) deletePaths.add(file.previous_filename);
+    } else {
+      copyPaths.add(file.filename);
+    }
+  }
+  return { copyPaths: [...copyPaths], deletePaths: [...deletePaths] };
 }
 
 /**
