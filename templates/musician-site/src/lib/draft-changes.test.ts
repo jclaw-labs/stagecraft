@@ -19,11 +19,13 @@ vi.mock("./publish", async () => {
 });
 
 import {
+  changeKey,
   enrichItemLabels,
   getDraftChanges,
   getHasPendingSingletonChange,
   getPendingItemSlugs,
   parseChanges,
+  resolveSelectedChangePaths,
   type DraftChange,
 } from "./draft-changes";
 import { type CollectionDef, type Item, type ReadStore } from "./collections";
@@ -583,5 +585,181 @@ describe("enrichItemLabels", () => {
     const out = await enrichItemLabels([itemChange("boom"), itemChange("ok")], store);
     expect(out[0]).not.toHaveProperty("displayName");
     expect(out[1]).toMatchObject({ displayName: "Fine" });
+  });
+});
+
+describe("changeKey", () => {
+  it("derives a stable key per change kind", () => {
+    expect(
+      changeKey({
+        kind: "item",
+        status: "modified",
+        collectionSlug: "pages",
+        itemSlug: "about",
+        path: "src/content/collections/pages/items/about.json",
+      }),
+    ).toBe("item:pages/about");
+    expect(
+      changeKey({ kind: "singleton", status: "modified", collectionSlug: "site", path: "p" }),
+    ).toBe("singleton:site");
+    expect(
+      changeKey({ kind: "order", status: "modified", collectionSlug: "pages", path: "p" }),
+    ).toBe("order:pages");
+    expect(
+      changeKey({ kind: "def", status: "modified", collectionSlug: "tour-dates", path: "p" }),
+    ).toBe("def:tour-dates");
+    expect(
+      changeKey({
+        kind: "image",
+        status: "added",
+        contentSlug: "hero",
+        imageId: "abc123",
+        path: "public/images/hero/abc123/original.webp",
+      }),
+    ).toBe("image:hero/abc123");
+    expect(changeKey({ kind: "other", status: "modified", path: "README.md" })).toBe(
+      "other:README.md",
+    );
+  });
+});
+
+describe("resolveSelectedChangePaths", () => {
+  it("returns empty in dev / unconfigured mode", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    delete process.env.STAGECRAFT_BROKER_SECRET;
+    const res = await resolveSelectedChangePaths(["item:pages/about"]);
+    expect(res).toEqual({ copyPaths: [], deletePaths: [] });
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("copies an added/modified item and ignores unselected changes", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+        { filename: "src/content/collections/pages/items/contact.json", status: "modified" },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:pages/about"]);
+    expect(res).toEqual({
+      copyPaths: ["src/content/collections/pages/items/about.json"],
+      deletePaths: [],
+    });
+  });
+
+  it("expands an image selection to all its variant paths", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "public/images/hero/abc123/original.webp", status: "added" },
+        { filename: "public/images/hero/abc123/400.webp", status: "added" },
+        { filename: "public/images/hero/abc123/800.avif", status: "added" },
+        { filename: "public/images/other/zzz/original.webp", status: "added" },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["image:hero/abc123"]);
+    expect(res.deletePaths).toEqual([]);
+    expect(res.copyPaths.sort()).toEqual([
+      "public/images/hero/abc123/400.webp",
+      "public/images/hero/abc123/800.avif",
+      "public/images/hero/abc123/original.webp",
+    ]);
+  });
+
+  it("publishes a rename as copy-new + delete-old", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        {
+          filename: "src/content/collections/pages/items/about-us.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/about.json",
+        },
+      ]),
+    );
+    // Key uses the NEW slug (what the modal shows).
+    const res = await resolveSelectedChangePaths(["item:pages/about-us"]);
+    expect(res).toEqual({
+      copyPaths: ["src/content/collections/pages/items/about-us.json"],
+      deletePaths: ["src/content/collections/pages/items/about.json"],
+    });
+  });
+
+  it("publishes a deletion as a delete path", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/old.json", status: "removed" },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:pages/old"]);
+    expect(res).toEqual({
+      copyPaths: [],
+      deletePaths: ["src/content/collections/pages/items/old.json"],
+    });
+  });
+
+  it("ignores selected keys with no matching pending file", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:pages/ghost"]);
+    expect(res).toEqual({ copyPaths: [], deletePaths: [] });
+  });
+
+  it("does not delete the old side of a cross-collection (heuristic) rename", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        {
+          filename: "src/content/collections/photos/items/sunset.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/sunset.json",
+        },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:photos/sunset"]);
+    // Copy the new photo item; do NOT delete the unrelated pages/sunset page.
+    expect(res.copyPaths).toEqual(["src/content/collections/photos/items/sunset.json"]);
+    expect(res.deletePaths).toEqual([]);
+  });
+
+  it("excludes non-content (other) paths from a selective publish", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([{ filename: "next.config.ts", status: "modified" }]),
+    );
+    const res = await resolveSelectedChangePaths(["other:next.config.ts"]);
+    expect(res).toEqual({ copyPaths: [], deletePaths: [] });
+  });
+
+  it("keeps both files on an A→B / B→A rename swap (copy wins over delete)", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        {
+          filename: "src/content/collections/pages/items/b.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/a.json",
+        },
+        {
+          filename: "src/content/collections/pages/items/a.json",
+          status: "renamed",
+          previous_filename: "src/content/collections/pages/items/b.json",
+        },
+      ]),
+    );
+    const res = await resolveSelectedChangePaths(["item:pages/b", "item:pages/a"]);
+    expect(res.copyPaths.sort()).toEqual([
+      "src/content/collections/pages/items/a.json",
+      "src/content/collections/pages/items/b.json",
+    ]);
+    expect(res.deletePaths).toEqual([]);
+  });
+
+  it("refuses a selective publish when the diff is truncated", async () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(many));
+    await expect(resolveSelectedChangePaths(["item:pages/p0"])).rejects.toMatchObject({
+      name: "DraftChangesError",
+    });
   });
 });
