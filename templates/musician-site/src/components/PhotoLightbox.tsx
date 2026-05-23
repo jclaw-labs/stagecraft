@@ -20,6 +20,16 @@ import {
 const SWIPE_THRESHOLD_PX = 50;
 
 /**
+ * Window after a successful swipe within which a backdrop click
+ * gets suppressed. Mobile browsers synthesise a `click` from
+ * touchstart+touchend on a normally-passive listener; without this
+ * suppression, a backdrop swipe would cycle the photo AND fire the
+ * backdrop-close handler. 500ms covers the worst-case touch→click
+ * latency seen in the wild on slow Android devices.
+ */
+const SWIPE_CLICK_SUPPRESS_MS = 500;
+
+/**
  * Single photo's worth of data the lightbox displays. The boot
  * component reads these off the `[data-photo-tile]` anchor's data-*
  * attributes — keeps the wire shape declarative and JSON-encoding-
@@ -72,6 +82,14 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
   // Touch swipe start point. Null when no active single-touch gesture
   // is in flight; reset on touchend / touchcancel / multi-touch start.
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Wall-clock millisecond at which the most recent swipe fired.
+  // Mobile browsers synthesise a `click` from a `touchstart`+
+  // `touchend` sequence (since the listeners can't preventDefault —
+  // React 17+ attaches synthetic touch listeners as passive), so a
+  // backdrop swipe would otherwise hit `handleBackdropClick` and
+  // close the modal. The click follows within ~300ms; we suppress
+  // any backdrop close that lands in a wider window.
+  const lastSwipeAtRef = useRef<number>(0);
 
   const total = images.length;
   const current = images[index];
@@ -173,7 +191,16 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
   function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
     // Only close when the click landed on the backdrop itself, not
     // on a descendant (image, button, caption).
-    if (event.target === event.currentTarget) close();
+    if (event.target !== event.currentTarget) return;
+    // Suppress the synthesised click that follows a backdrop swipe:
+    // a horizontal swipe across the empty space beside the image
+    // would otherwise cycle AND close (browsers fire `click` after
+    // `touchend` when the move stays under their internal
+    // movement-cancels-click threshold, which is much larger than
+    // our 50px swipe threshold). Window is generous — touch→click
+    // synthesis can lag a few hundred ms on slow Android devices.
+    if (Date.now() - lastSwipeAtRef.current < SWIPE_CLICK_SUPPRESS_MS) return;
+    close();
   }
 
   // Touch-swipe gesture handlers. Standard mobile photo-viewer
@@ -214,6 +241,9 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     // self-guards on `total <= 1`, so single-image galleries
     // silently ignore swipes here too.
     if (Math.abs(dx) <= Math.abs(dy)) return;
+    // Stamp the time so the follow-up synthesised click on the
+    // backdrop (touch→click compat) doesn't close the modal.
+    lastSwipeAtRef.current = Date.now();
     if (dx < 0) next();
     else prev();
   }

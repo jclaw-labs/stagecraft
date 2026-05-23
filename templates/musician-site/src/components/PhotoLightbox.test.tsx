@@ -324,6 +324,54 @@ describe("<PhotoLightbox> — touch swipe navigation", () => {
     fireSwipe(screen.getByRole("dialog"), { dx: 120 });
     expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
   });
+
+  it("does NOT close the modal when the synthesised backdrop click follows a swipe", () => {
+    // Browsers synthesise a `click` after a `touchstart`+`touchend`
+    // sequence even on a 120px swipe (the touch→click cancel
+    // threshold is wider than our swipe threshold). Without
+    // suppression, a swipe across the backdrop would cycle AND
+    // close. The implementation stamps a swipe time and the
+    // backdrop click handler skips when within the suppression
+    // window — verified here by firing the swipe then the click
+    // synchronously.
+    const onClose = vi.fn();
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog");
+    fireSwipe(dialog, { dx: -120 });
+    // Simulate the synthesised click. Backdrop click means the
+    // event.target equals event.currentTarget.
+    fireEvent.click(dialog, { target: dialog, currentTarget: dialog });
+    expect(onClose).not.toHaveBeenCalled();
+    // The swipe itself should have advanced the photo.
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+  });
+
+  it("still closes on a backdrop click that wasn't preceded by a swipe", () => {
+    // The suppression must not be sticky — a plain backdrop tap
+    // after the swipe window expires (or with no swipe at all)
+    // still closes. Without a prior swipe, lastSwipeAtRef stays
+    // at 0, and Date.now() - 0 is well outside the 500ms window.
+    const onClose = vi.fn();
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog, { target: dialog, currentTarget: dialog });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("exactly 50px horizontal swipe does NOT cycle (strict-less-than threshold)", () => {
+    // Locks the threshold boundary: the implementation uses
+    // `Math.abs(dx) < 50`, so dx=50 is the first value that counts.
+    // dx=49 is the last value that does NOT.
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: -49 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("exactly 50px horizontal swipe DOES cycle (strict-less-than threshold)", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    fireSwipe(screen.getByRole("dialog"), { dx: -50 });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+  });
 });
 
 describe("<PhotoLightbox> — focus trap (Tab cycling)", () => {

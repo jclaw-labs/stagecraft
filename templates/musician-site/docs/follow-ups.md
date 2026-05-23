@@ -15,6 +15,26 @@ something worth fixing that doesn't fit the current PR's scope.
   on touch screens would let users inspect detail. Browser native
   pinch-zoom on the page is suppressed by the body-scroll-lock; we'd
   need an explicit transform-based zoom inside the modal. From #183.
+- **iOS edge-swipe-back conflict.** A right-swipe starting near the
+  left edge of the screen can trigger iOS Safari's system-level
+  back-navigation instead of cycling to the previous photo. The
+  React-synthetic touch listeners are passive (React ≥17), so
+  `event.preventDefault()` inside the swipe handler is a no-op.
+  Fix would attach the touch listeners via a `useEffect` +
+  `addEventListener('touchstart', ..., { passive: false })` ref
+  pattern, then `preventDefault()` when the gesture starts within
+  ~20px of the viewport edge. Defer until artists report it. From
+  lightbox-touch-swipe PR review.
+- **Multi-touch palm-grazing kills a swipe in progress.** If a
+  second finger briefly touches the screen mid-swipe (palm graze,
+  thumb of the holding hand), the multi-touch guard clears
+  `touchStartRef`; finger 1 then completing the swipe + lifting
+  hits a null ref and no-ops. The user has to lift everything and
+  start over. Two-finger phone use is common enough to surface
+  this occasionally. Fix would distinguish "started single-touch
+  AND still single-touch at end" by tracking the primary touch's
+  `identifier` and reading it back out of `changedTouches`. From
+  lightbox-touch-swipe PR review.
 
 ## Newsletter signup
 
