@@ -1179,6 +1179,22 @@ describe("puckConfig", () => {
       expect(resolved.additionalFields?.label).toMatch(/reserved/);
     });
 
+    it("still warns when `service` is absent from props (defaults to mailchimp, matching render)", () => {
+      // Puck doesn't merge defaultProps into resolveFields' props, so
+      // an old/hand-edited block can arrive without `service`. The
+      // render path defaults it to mailchimp and drops an "EMAIL"
+      // field; the warning must default the same way so it doesn't
+      // under-fire exactly when the drop still happens.
+      const resolved = resolveNewsletterFields({
+        // service intentionally omitted
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
     it("preserves the array sub-field config when resolveFields rebuilds the label", () => {
       // Spreading the static field must keep arrayFields intact, not
       // replace the array with a bare labelled field.

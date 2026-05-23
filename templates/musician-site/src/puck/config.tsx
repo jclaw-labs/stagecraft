@@ -1587,6 +1587,16 @@ export const puckConfig: Config<
       // helps the artist paste the right URL up-front instead of
       // discovering "spam protection isn't working" months later.
       resolveFields: (data, { fields }) => {
+        // Puck doesn't merge `defaultProps` into the props handed to
+        // resolveFields, so a block whose on-disk JSON omits a key
+        // arrives with it `undefined` (the render path defaults it).
+        // Default here to the SAME values render uses, so both hints
+        // describe what the artist actually sees — otherwise an old
+        // block missing `service` would under-warn even though its
+        // preview drops the colliding field.
+        const service = data.props.service ?? "mailchimp";
+        const hasNameField = data.props.hasNameField ?? false;
+        const actionUrl = data.props.actionUrl ?? "";
         // Names among the configured additional fields that collide
         // with a form field the signup already owns — those rows are
         // silently dropped at render. Surface the drop in the array
@@ -1594,16 +1604,16 @@ export const puckConfig: Config<
         // artist isn't left wondering why a field they added vanished.
         const colliding = collidingAdditionalFieldNames(
           data.props.additionalFields,
-          data.props.service,
-          data.props.hasNameField,
-          data.props.actionUrl,
+          service,
+          hasNameField,
+          actionUrl,
         );
         return {
-          // `service` is the only sibling field the actionUrl hint
-          // depends on — bake it into the custom field's closure so
-          // the render recomputes the hint against the live `value`.
+          // `service` is the sibling field the actionUrl hint depends
+          // on — bake it into the custom field's closure so the render
+          // recomputes the hint against the live `value`.
           ...fields,
-          actionUrl: newsletterUrlField(data.props.service),
+          actionUrl: newsletterUrlField(service),
           additionalFields: {
             ...fields.additionalFields,
             label: newsletterAdditionalFieldsLabel(colliding),
