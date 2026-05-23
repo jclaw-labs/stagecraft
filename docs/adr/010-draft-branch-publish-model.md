@@ -1,7 +1,8 @@
 # ADR-010: Save vs Publish via persistent draft branch
 
 ## Status
-Proposed
+Accepted — implemented and shipped. The two-branch save/publish model
+is live on `main`.
 
 ## Context
 
