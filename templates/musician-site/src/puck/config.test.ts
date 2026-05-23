@@ -936,6 +936,75 @@ describe("puckConfig", () => {
         expect(field.options.map((o) => o.value)).toEqual([false, true]);
       }
     });
+
+    // -------------------------------------------------------------------
+    // v3.1: icon-mode media for non-image files. When a Card has no
+    // image but a fileUrl, the media slot shows a file-type tile
+    // (press-kit / download-list parity).
+    // -------------------------------------------------------------------
+
+    it("renders a file tile in the media slot when fileUrl is set and there's no image", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/uploads/press-kit.pdf" }),
+      );
+      expect(html).toContain('data-testid="card-file-tile"');
+      expect(html).toMatch(/data-media-kind="pdf"/);
+      // The filename is surfaced as the tile caption.
+      expect(html).toContain("press-kit.pdf");
+    });
+
+    it("infers the tile kind from the fileUrl extension (audio / video / file)", () => {
+      expect(
+        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/track.mp3" })),
+      ).toMatch(/data-media-kind="audio"/);
+      expect(
+        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/promo.mp4" })),
+      ).toMatch(/data-media-kind="video"/);
+      expect(
+        render("Card", cardProps({ title: "x", image: null, fileUrl: "/a/stems.zip" })),
+      ).toMatch(/data-media-kind="file"/);
+    });
+
+    it("prefers the image over the file tile when both are present", () => {
+      const html = render(
+        "Card",
+        cardProps({
+          title: "x",
+          image: IMAGE_FIXTURE,
+          fileUrl: "/uploads/press-kit.pdf",
+        }),
+      );
+      // Image wins the media slot; no file tile.
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Download button still renders in the body (fileUrl + no href).
+      expect(html).toContain("Download");
+    });
+
+    it("omits the file tile when neither image nor fileUrl is set", () => {
+      const html = render("Card", cardProps({ title: "Just text" }));
+      expect(html).not.toContain('data-testid="card-file-tile"');
+    });
+
+    it("renders the (non-interactive) file tile inside a link card without nested anchors", () => {
+      // The tile is a static glyph + filename — valid inside the
+      // card-link <a>. The download button is suppressed (href wins),
+      // so there's no nested <a download> either.
+      const html = render(
+        "Card",
+        cardProps({
+          title: "EPK",
+          image: null,
+          fileUrl: "/uploads/epk.pdf",
+          href: "/press",
+        }),
+      );
+      expect(html).toContain('data-testid="card-file-tile"');
+      // Exactly one anchor (the card link); the tile adds none and the
+      // download button is suppressed under href.
+      expect((html.match(/<a /g) ?? [])).toHaveLength(1);
+      expect(html).toContain('href="/press"');
+    });
   });
 
   describe("root pageBackground", () => {
