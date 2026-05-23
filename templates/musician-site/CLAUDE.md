@@ -432,14 +432,18 @@ Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
 ## What's intentionally not here yet
 
 - **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
-- **Collection-consuming Puck blocks** (`<TourDatesList>`,
-  `<ReleasesGrid>`, etc.) — the generic collection *editor* UI has
-  landed (`/admin/collections/<slug>/items/<itemSlug>` + `ItemEditor`),
-  so structured collections (releases, tour dates, posts, store items)
-  are editable. What's missing is the public-render blocks that read a
-  collection's items and lay them out on a page; until they ship, those
-  collections are editable but not yet renderable on the public site
-  beyond the pages/singletons the legacy `content.ts` shim covers.
+- **Collection blocks in the general page editor.** Structured
+  collections (releases, tour dates, posts, store items) are both
+  editable (the generic `/admin/collections/<slug>/items/<itemSlug>`
+  editor + `ItemEditor`) and renderable — each collection gets a
+  `<Name>View` block (`TourDatesView`, `ReleasesView`, …) that reads
+  its items at render time, wired into the public catch-all for a
+  collection's own detail/item *templates* (`buildTemplatePuckConfig`).
+  What's not here: those `*View` blocks aren't registered in the main
+  page editor's `puckConfig`, so an artist can't yet drop e.g. a
+  tour-dates list onto an arbitrary hand-authored page (Home, etc.) —
+  collection content renders on its own templates, not embedded into
+  general pages.
 - **Curated Google Fonts picker** — Appearance currently takes a free-text
   family name. The legacy template's category + curated-per-category
   picker can come back later (the Zod shape we persist is already
