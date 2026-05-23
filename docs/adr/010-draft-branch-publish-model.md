@@ -437,6 +437,18 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* artists working in the generic collection lists ask
   why Pages shows pending state and the others don't.
 
+- **Dedupe `/api/draft-changes` fetches across the chrome.** On
+  `/admin/pages` two components now fetch the endpoint independently
+  on mount: `PendingChangesIndicator` (in `AdminShell`) and
+  `PagesPanel` (for its per-row badges). Each is a separate compare
+  API call. A shared client cache (a module-level promise with a
+  short TTL, or a small context provider) would collapse them to
+  one. Per-call cost is modest (the broker token is process-cached
+  per PR 5m; only the compare differs) so this is amortise-later,
+  not load-bearing.
+  *Trigger:* the duplicate compare calls show up in real traffic
+  profiles, or a third draft-changes consumer lands.
+
 ## Consequences
 
 - **ADR-007 §5 (Publishing) is superseded.** The "every save
