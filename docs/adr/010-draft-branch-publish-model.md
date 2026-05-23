@@ -453,14 +453,6 @@ The publish-token endpoint surface is unchanged.
   *Trigger:* when more than ~5 items are routinely pending
   between publishes.
 
-- **Pending-changes count caps at 300.** GitHub's compare API
-  truncates the `files` array at 300 entries; `PendingChangesIndicator`
-  reads the array length, so the count maxes out there. The
-  boolean "anything pending?" signal stays accurate because the
-  array is non-empty when any change exists. Fix is either "300+"
-  affordance or paging via `ahead_by` + per-commit walks.
-  *Trigger:* an artist reports the count looks wrong.
-
 ## Consequences
 
 - **ADR-007 §5 (Publishing) is superseded.** The "every save

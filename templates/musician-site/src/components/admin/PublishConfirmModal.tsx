@@ -50,13 +50,18 @@ import { MAX_COMMIT_SUBJECT_LENGTH } from "@/lib/publish-types";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "loaded"; changes: DraftChange[] }
+  | { kind: "loaded"; changes: DraftChange[]; truncated: boolean }
   | { kind: "error" };
 
 type ResponseBody =
   | {
       ok: true;
-      status: { count: number; changes: DraftChange[]; mode: "local" | "github" };
+      status: {
+        count: number;
+        changes: DraftChange[];
+        mode: "local" | "github";
+        truncated?: boolean;
+      };
     }
   | { ok: false; code?: string; error?: string }
   | null;
@@ -94,7 +99,11 @@ export function PublishConfirmModal({
           setState({ kind: "error" });
           return;
         }
-        setState({ kind: "loaded", changes: body.status.changes });
+        setState({
+          kind: "loaded",
+          changes: body.status.changes,
+          truncated: body.status.truncated ?? false,
+        });
       } catch (cause) {
         if (cause instanceof Error && cause.name === "AbortError") return;
         setState({ kind: "error" });
@@ -248,6 +257,15 @@ function Body({ state }: { state: LoadState }): ReactNode {
   const groups = groupChanges(state.changes);
   return (
     <div style={groupsContainerStyle}>
+      {/* Heads-up when the compare API truncated the file list. The
+          publish flow still commits the full draft tree — the cap
+          only affects what we can show, not what we push. */}
+      {state.truncated ? (
+        <p style={truncatedNoticeStyle} role="status">
+          Showing the first {state.changes.length} changes. Publishing
+          commits everything pending.
+        </p>
+      ) : null}
       {groups.map((group) => (
         <section key={group.key} style={groupSectionStyle}>
           <h3 style={groupHeadingStyle}>
@@ -407,6 +425,16 @@ const mutedCopyStyle: CSSProperties = {
   margin: 0,
   fontSize: "var(--font-size-sm)",
   color: "var(--color-text-muted)",
+};
+
+const truncatedNoticeStyle: CSSProperties = {
+  margin: 0,
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-emphasis)",
+  background: "var(--color-surface-raised)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
 };
 
 const groupsContainerStyle: CSSProperties = {

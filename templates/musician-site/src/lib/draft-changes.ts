@@ -101,16 +101,37 @@ export type DraftChange =
  * - `mode: "github"` — production. `count` is the length of
  *   `changes` (image variants collapsed). A fresh site with no
  *   `draft` branch yet resolves to `count: 0`, `changes: []`.
+ *
+ * `truncated` flips to `true` when the compare API's file list hits
+ * its hard cap (`COMPARE_FILES_PAGE_SIZE`, 300). The cap is documented
+ * GitHub behaviour with no pagination on this endpoint; consumers
+ * should render "300+" rather than "300" and surface the cap in the
+ * Publish modal so the artist understands the diff preview is
+ * incomplete. The actual publish commits the full draft tree
+ * regardless — the cap only affects what we can show, not what we
+ * push.
  */
 export type DraftChanges = {
   count: number;
   changes: DraftChange[];
   mode: "local" | "github";
+  truncated: boolean;
 };
 
 const ITEM_PATH = /^src\/content\/collections\/([^/]+)\/items\/([^/]+)\.json$/;
 const DEF_PATH = /^src\/content\/collections\/([^/]+)\/_collection\.json$/;
 const IMAGE_PATH = /^public\/images\/([^/]+)\/([^/]+)\//;
+
+/**
+ * GitHub's `compareCommitsWithBasehead` returns at most this many
+ * file entries — documented + observed behaviour, no pagination
+ * available on this endpoint. We treat any response whose
+ * `files.length` hits this exactly as "truncated" defensively
+ * (a real 300-change diff renders as "300+", a 301-change diff
+ * renders as "300+"; we can't tell them apart from a single
+ * compare call).
+ */
+const COMPARE_FILES_PAGE_SIZE = 300;
 
 function normalizeStatus(s: string): DraftChangeStatus | null {
   if (s === "added") return "added";
@@ -244,7 +265,7 @@ function errorMessage(cause: unknown): string {
 
 export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChanges> {
   if (!isPlatformConfigured(env)) {
-    return { count: 0, changes: [], mode: "local" };
+    return { count: 0, changes: [], mode: "local", truncated: false };
   }
 
   let token: string;
@@ -269,18 +290,20 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
       repo,
       basehead: `${env.branch}...${DRAFT_BRANCH}`,
     });
-    const changes = parseChanges(compare.data.files ?? []);
+    const files = compare.data.files ?? [];
+    const changes = parseChanges(files);
     return {
       count: changes.length,
       changes,
       mode: "github",
+      truncated: files.length >= COMPARE_FILES_PAGE_SIZE,
     };
   } catch (cause) {
     // Fresh site: no `draft` branch yet → compare 404s on the head.
     // Saving the first item is what creates the branch; until then
     // there's nothing to publish.
     if (cause instanceof RequestError && cause.status === 404) {
-      return { count: 0, changes: [], mode: "github" };
+      return { count: 0, changes: [], mode: "github", truncated: false };
     }
     throw new DraftChangesError(
       "github-failed",
