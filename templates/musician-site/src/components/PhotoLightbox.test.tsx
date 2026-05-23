@@ -374,6 +374,117 @@ describe("<PhotoLightbox> — touch swipe navigation", () => {
   });
 });
 
+describe("<PhotoLightbox> — pinch zoom", () => {
+  // Two-finger pinch scales the image; one-finger gestures then pan
+  // instead of navigating. jsdom reports offsetWidth=0 so pan
+  // translation clamps to 0 here — the pan math is unit-tested in
+  // lightbox-zoom.test.ts; these cover the gesture → transform wiring.
+
+  type Pt = { clientX: number; clientY: number };
+
+  function pinch(target: Element, start: [Pt, Pt], move: [Pt, Pt]): void {
+    fireEvent.touchStart(target, { touches: start });
+    fireEvent.touchMove(target, { touches: move });
+  }
+
+  function scaleFromTransform(img: Element): number {
+    const t = (img as HTMLElement).style.transform;
+    const m = t.match(/scale\(([\d.]+)\)/);
+    return m ? Number(m[1]) : 1;
+  }
+
+  it("starts un-zoomed (scale 1, no translation)", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(1);
+  });
+
+  it("scales the image up when the pinch span widens", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    // Span 100 → 200 = 2× from start scale 1.
+    pinch(
+      dialog,
+      [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+      [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }],
+    );
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(2);
+  });
+
+  it("clamps the scale to the max zoom", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    // Span 50 → 1000 = 20× — clamps to MAX_ZOOM (4).
+    pinch(
+      dialog,
+      [{ clientX: 100, clientY: 100 }, { clientX: 150, clientY: 100 }],
+      [{ clientX: 0, clientY: 100 }, { clientX: 1000, clientY: 100 }],
+    );
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(4);
+  });
+
+  it("does not navigate on a one-finger swipe while zoomed (it pans instead)", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    pinch(
+      dialog,
+      [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+      [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }],
+    );
+    // End the pinch (both fingers up), leaving zoom in place.
+    fireEvent.touchEnd(dialog, { touches: [], changedTouches: [] });
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(2);
+
+    // A horizontal one-finger swipe should now pan, NOT cycle.
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchEnd(dialog, {
+      touches: [],
+      changedTouches: [{ clientX: 250, clientY: 100 }],
+    });
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[0]!.url);
+  });
+
+  it("resets zoom when navigating to another image (via the next button)", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    pinch(
+      dialog,
+      [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+      [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }],
+    );
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(2);
+    // Nav buttons work regardless of zoom; navigating resets it.
+    fireEvent.click(screen.getByRole("button", { name: /next photo/i }));
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(1);
+  });
+
+  it("snaps back to un-zoomed when a pinch settles at or below 1x", () => {
+    render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    // Pinch inward (span shrinks) → scale clamps to 1.
+    pinch(
+      dialog,
+      [{ clientX: 0, clientY: 100 }, { clientX: 400, clientY: 100 }],
+      [{ clientX: 150, clientY: 100 }, { clientX: 250, clientY: 100 }],
+    );
+    fireEvent.touchEnd(dialog, { touches: [], changedTouches: [] });
+    expect(scaleFromTransform(screen.getByRole("img"))).toBe(1);
+    // Un-zoomed again → a one-finger swipe navigates.
+    fireSwipeOnDialog(dialog, -120);
+    expect(screen.getByRole("img").getAttribute("src")).toBe(IMAGES[1]!.url);
+  });
+});
+
+// Shared helper for the snap-back test (mirrors the swipe describe's
+// local helper without coupling the two blocks).
+function fireSwipeOnDialog(dialog: Element, dx: number): void {
+  fireEvent.touchStart(dialog, { touches: [{ clientX: 100, clientY: 100 }] });
+  fireEvent.touchEnd(dialog, {
+    touches: [],
+    changedTouches: [{ clientX: 100 + dx, clientY: 100 }],
+  });
+}
+
 describe("<PhotoLightbox> — focus trap (Tab cycling)", () => {
   it("Tab from the last focusable wraps back to the first", () => {
     render(<PhotoLightbox images={IMAGES} initialIndex={0} onClose={vi.fn()} />);
