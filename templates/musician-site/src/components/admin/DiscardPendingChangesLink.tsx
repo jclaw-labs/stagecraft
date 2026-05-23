@@ -35,7 +35,16 @@ type Status =
   | { kind: "noop" }
   | { kind: "error"; message: string };
 
-export function DiscardPendingChangesLink() {
+export function DiscardPendingChangesLink({
+  isDegraded = false,
+}: {
+  /**
+   * GitHub is unreachable. Discard force-updates the `draft` ref via
+   * GitHub, so it can't run — disabled, with the AdminShell banner
+   * explaining why (ADR-010 §5).
+   */
+  isDegraded?: boolean;
+} = {}) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function fire() {
@@ -66,6 +75,7 @@ export function DiscardPendingChangesLink() {
   // the confirm flow (so the artist can chain discards if they
   // want, though there's nothing to discard after the first).
   function onPrimaryClick() {
+    if (isDegraded) return;
     if (status.kind === "idle" || status.kind === "discarded" || status.kind === "noop" || status.kind === "error") {
       setStatus({ kind: "confirming" });
     }
@@ -85,7 +95,8 @@ export function DiscardPendingChangesLink() {
       <button
         type="button"
         onClick={onPrimaryClick}
-        disabled={status.kind === "discarding"}
+        disabled={status.kind === "discarding" || isDegraded}
+        title={isDegraded ? "Unavailable while GitHub is unreachable" : undefined}
         style={linkStyle}
       >
         {status.kind === "discarding" ? "Discarding…" : "Discard pending changes"}
