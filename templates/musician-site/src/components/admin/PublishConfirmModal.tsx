@@ -40,11 +40,20 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
+import { changeKey } from "@/lib/draft-changes-keys";
 import { fetchDraftChangesWithLabels } from "@/lib/draft-changes-client";
 import {
   MAX_COMMIT_MESSAGE_LENGTH,
   MAX_COMMIT_SUBJECT_LENGTH,
 } from "@/lib/publish-types";
+
+/**
+ * What the artist chose to publish (ADR-012). `allSelected` lets the
+ * button take the cheaper whole-draft squash (`/api/publish-draft`)
+ * when nothing is deselected, and the per-item path
+ * (`/api/publish-selected`) only for a genuine subset.
+ */
+export type PublishSelection = { selectedKeys: string[]; allSelected: boolean };
 
 // Match `PagesPanel.tsx`'s modal pattern: capture the
 // previously-focused element on mount, focus the primary action
@@ -63,11 +72,15 @@ export function PublishConfirmModal({
   isPublishing,
 }: {
   onCancel: () => void;
-  onConfirm: (commitSubject: string | null) => void;
+  onConfirm: (commitSubject: string | null, selection: PublishSelection) => void;
   isPublishing: boolean;
 }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [subject, setSubject] = useState<string>("");
+  // Which changes are ticked for publishing (ADR-012), keyed by the
+  // canonical `changeKey`. Seeded to "all" once the list loads (the
+  // default is publish-everything); the artist unticks to hold items.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   // Tracks whether the artist has touched the input. Until they do,
   // the loaded-changes effect keeps the field synced to the
   // auto-generated default — so the count reflects late-arriving
@@ -108,6 +121,15 @@ export function PublishConfirmModal({
     setSubject(defaultSubject(state.changes.length));
   }, [state, subjectTouched]);
 
+  // Seed the selection to "all" when the change list loads — publish-
+  // everything is the default; the artist unticks to hold items. The
+  // load effect fetches once, so this seeds once and never clobbers a
+  // later un-tick.
+  useEffect(() => {
+    if (state.kind !== "loaded") return;
+    setSelected(new Set(state.changes.map(changeKey)));
+  }, [state]);
+
   // Focus capture / restore. Runs once on mount + once on unmount;
   // intentionally has no deps so the cleanup fires only when the
   // modal actually closes.
@@ -127,6 +149,42 @@ export function PublishConfirmModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [isPublishing, onCancel]);
 
+  const totalChanges = state.kind === "loaded" ? state.changes.length : 0;
+  // Per-item selection only applies to a fully-loaded, non-truncated
+  // list; loading / error / truncated states fall back to "publish
+  // everything pending" (the server refuses a selective publish on a
+  // truncated diff, since an image's variants could be split — ADR-012).
+  const canSelect =
+    state.kind === "loaded" && totalChanges > 0 && !state.truncated;
+  const allSelected = canSelect && selected.size === totalChanges;
+  const nothingSelected = canSelect && selected.size === 0;
+
+  function toggleOne(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (state.kind !== "loaded") return;
+    setSelected((prev) =>
+      prev.size === state.changes.length ? new Set() : new Set(state.changes.map(changeKey)),
+    );
+  }
+
+  function confirm() {
+    const trimmed = subject.trim();
+    const commitSubject = trimmed.length === 0 ? null : trimmed;
+    const selection: PublishSelection = canSelect
+      ? { selectedKeys: [...selected], allSelected }
+      : // Couldn't show a list — publish whatever's pending (full draft).
+        { selectedKeys: [], allSelected: true };
+    onConfirm(commitSubject, selection);
+  }
+
   return (
     <div
       role="dialog"
@@ -143,7 +201,13 @@ export function PublishConfirmModal({
           Publishing commits everything below to your live site and triggers a
           deploy.
         </p>
-        <Body state={state} />
+        <Body
+          state={state}
+          selected={selected}
+          allSelected={allSelected}
+          onToggle={toggleOne}
+          onToggleAll={toggleAll}
+        />
         <div style={labelStyle}>
           {/* Explicit `htmlFor` association (vs the previous label-
               wrapping pattern) so the counter span next to the label
@@ -215,14 +279,16 @@ export function PublishConfirmModal({
           <button
             ref={publishButtonRef}
             type="button"
-            onClick={() => {
-              const trimmed = subject.trim();
-              onConfirm(trimmed.length === 0 ? null : trimmed);
-            }}
-            disabled={isPublishing}
-            style={primaryButtonStyle}
+            onClick={confirm}
+            disabled={isPublishing || nothingSelected}
+            title={nothingSelected ? "Select at least one change to publish" : undefined}
+            style={
+              isPublishing || nothingSelected
+                ? { ...primaryButtonStyle, ...primaryButtonDisabledStyle }
+                : primaryButtonStyle
+            }
           >
-            {isPublishing ? "Publishing…" : "Publish"}
+            {publishLabel(isPublishing, canSelect, selected.size, totalChanges)}
           </button>
         </div>
       </div>
@@ -230,7 +296,19 @@ export function PublishConfirmModal({
   );
 }
 
-function Body({ state }: { state: LoadState }): ReactNode {
+function Body({
+  state,
+  selected,
+  allSelected,
+  onToggle,
+  onToggleAll,
+}: {
+  state: LoadState;
+  selected: Set<string>;
+  allSelected: boolean;
+  onToggle: (key: string) => void;
+  onToggleAll: () => void;
+}): ReactNode {
   if (state.kind === "loading") {
     return <p style={mutedCopyStyle}>Loading the change list…</p>;
   }
@@ -246,28 +324,58 @@ function Body({ state }: { state: LoadState }): ReactNode {
     return <p style={mutedCopyStyle}>Nothing to publish.</p>;
   }
   const groups = groupChanges(state.changes);
+  // A truncated diff can't be published item-by-item (an image's
+  // variants could straddle the cap), so the list goes read-only and
+  // Publish commits everything pending (ADR-012).
+  const selectable = !state.truncated;
   return (
     <div style={groupsContainerStyle}>
-      {/* Heads-up when the compare API truncated the file list. The
-          publish flow still commits the full draft tree — the cap
-          only affects what we can show, not what we push. */}
       {state.truncated ? (
         <p style={truncatedNoticeStyle} role="status">
-          Showing the first {state.changes.length} changes. Publishing
-          commits everything pending.
+          Showing the first {state.changes.length} changes — too many to
+          publish item-by-item. Publish commits everything pending.
         </p>
-      ) : null}
+      ) : (
+        <label style={selectAllRowStyle}>
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = !allSelected && selected.size > 0;
+            }}
+            onChange={onToggleAll}
+          />
+          <span>Select all</span>
+        </label>
+      )}
       {groups.map((group) => (
         <section key={group.key} style={groupSectionStyle}>
           <h3 style={groupHeadingStyle}>
             {`${group.heading} · ${group.items.length}`}
           </h3>
           <ul style={listStyle}>
-            {group.items.map((c) => (
-              <li key={changeKey(c)} style={listItemStyle}>
-                <ChangeRow change={c} />
-              </li>
-            ))}
+            {group.items.map((c) => {
+              const key = changeKey(c);
+              const label = describeLabel(c);
+              return (
+                <li key={key} style={listItemStyle}>
+                  {selectable ? (
+                    <label style={changeRowLabelStyle}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(key)}
+                        onChange={() => onToggle(key)}
+                        aria-label={label}
+                      />
+                      <span style={changeLabelStyle}>{label}</span>
+                    </label>
+                  ) : (
+                    <span style={changeLabelStyle}>{label}</span>
+                  )}
+                  <span style={changeStatusStyle}>{c.status}</span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
@@ -324,13 +432,21 @@ function collectionOf(c: DraftChange): string | null {
   }
 }
 
-function ChangeRow({ change }: { change: DraftChange }): ReactNode {
-  return (
-    <>
-      <span style={changeLabelStyle}>{describeLabel(change)}</span>
-      <span style={changeStatusStyle}>{change.status}</span>
-    </>
-  );
+/**
+ * Publish button label that reflects the selection (ADR-012): a count
+ * of what's about to ship when a subset is selectable, plain "Publish"
+ * otherwise (loading / error / truncated all publish everything).
+ */
+function publishLabel(
+  isPublishing: boolean,
+  canSelect: boolean,
+  selectedCount: number,
+  total: number,
+): string {
+  if (isPublishing) return "Publishing…";
+  if (!canSelect) return "Publish";
+  if (selectedCount === total) return total === 1 ? "Publish 1 change" : `Publish all ${total}`;
+  return `Publish ${selectedCount} of ${total}`;
 }
 
 /**
@@ -382,13 +498,6 @@ function describeLabel(c: DraftChange): string {
     case "other":
       return c.path;
   }
-}
-
-function changeKey(c: DraftChange): string {
-  // Stable per-change identity for React's key prop. The path is
-  // unique within one diff (one file = one entry, image collapse
-  // notwithstanding — which keeps the original.* path).
-  return c.kind === "image" ? `image:${c.contentSlug}/${c.imageId}` : c.path;
 }
 
 const backdropStyle: CSSProperties = {
@@ -482,6 +591,27 @@ const listItemStyle: CSSProperties = {
   background: "var(--color-surface-subtle)",
   borderRadius: "var(--radius-sm)",
   fontSize: "var(--font-size-sm)",
+};
+
+const selectAllRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  fontSize: "var(--font-size-xs)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  cursor: "pointer",
+};
+
+const changeRowLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "var(--space-2)",
+  flex: 1,
+  minWidth: 0,
+  cursor: "pointer",
 };
 
 const changeLabelStyle: CSSProperties = {
@@ -627,4 +757,9 @@ const primaryButtonStyle: CSSProperties = {
   color: "var(--color-action-fg)",
   borderRadius: "var(--radius-sm)",
   cursor: "pointer",
+};
+
+const primaryButtonDisabledStyle: CSSProperties = {
+  background: "var(--color-action-disabled)",
+  cursor: "not-allowed",
 };

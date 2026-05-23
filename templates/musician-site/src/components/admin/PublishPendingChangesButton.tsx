@@ -30,7 +30,7 @@ import type { CSSProperties } from "react";
 
 import type { PublishError as PublishErrorPayload } from "@/lib/publish-types";
 
-import { PublishConfirmModal } from "./PublishConfirmModal";
+import { PublishConfirmModal, type PublishSelection } from "./PublishConfirmModal";
 import { useDeployStatus } from "./useDeployStatus";
 
 type Status =
@@ -81,18 +81,30 @@ export function PublishPendingChangesButton({
     }
   }, [status, deployStatus]);
 
-  async function fire(commitSubject: string | null) {
+  async function fire(commitSubject: string | null, selection: PublishSelection) {
     setStatus({ kind: "publishing" });
     try {
-      const res = await fetch("/api/publish-draft", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // Send a body only when the artist supplied a subject; the
-        // route's request schema is `partial({ commitSubject? })`,
-        // so an empty body (no `commitSubject` at all) is the path
-        // the route falls back to its own default on.
-        body: commitSubject !== null ? JSON.stringify({ commitSubject }) : undefined,
-      });
+      // "All selected" takes the cheaper whole-draft squash; a genuine
+      // subset goes through the per-item route (ADR-012). Both return
+      // the same `{ ok, mode, commitSha, alreadyInSync }` envelope, so
+      // `statusForFetchResponse` handles either.
+      const res = selection.allSelected
+        ? await fetch("/api/publish-draft", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            // Send a body only when the artist supplied a subject; the
+            // route's request schema is `partial({ commitSubject? })`,
+            // so an empty body falls back to the route's own default.
+            body: commitSubject !== null ? JSON.stringify({ commitSubject }) : undefined,
+          })
+        : await fetch("/api/publish-selected", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              selectedKeys: selection.selectedKeys,
+              ...(commitSubject !== null ? { commitSubject } : {}),
+            }),
+          });
       const body = (await res.json().catch(() => null)) as PublishDraftResponseBody;
       setStatus(statusForFetchResponse(res, body, Date.now()));
     } catch (cause) {
