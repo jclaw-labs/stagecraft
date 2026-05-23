@@ -4,6 +4,7 @@ import { createElement } from "react";
 
 import {
   BLOCK_DESCRIPTIONS,
+  newsletterUrlDescription,
   puckConfig,
   HEADING_LEVELS,
   SECTION_WIDTHS,
@@ -585,6 +586,7 @@ describe("puckConfig", () => {
         isExternal: false,
         orientation: "vertical" as const,
         variant: "filled" as const,
+        size: "md" as const,
         fileUrl: "",
         sizeLabel: "",
         isHoverable: false,
@@ -722,8 +724,85 @@ describe("puckConfig", () => {
       const field = puckConfig.components.Card.fields?.variant;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
-        expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined"]);
+        expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined", "minimal"]);
       }
+    });
+
+    // ---------------------------------------------------------------------
+    // v3 additions: minimal variant + size axis
+    // ---------------------------------------------------------------------
+
+    it("variant=minimal drops the border + background + padding (flush list-item)", () => {
+      const html = render("Card", cardProps({ title: "x", variant: "minimal" }));
+      // No border declaration and no surface fill — the card reads as
+      // bare content. (filled/outlined both carry a 1px border.)
+      expect(html).not.toMatch(/border:\s*1px solid/);
+      expect(html).toMatch(/background:\s*transparent/);
+      // Padding collapses to 0 so adjacent prose sits flush.
+      expect(html).toMatch(/padding:\s*0(?:px|;|")/);
+    });
+
+    it("variant=minimal still applies the size gap (media ↔ body breathing room)", () => {
+      // Minimal drops chrome but is not gap-less — md gap is --space-3.
+      const html = render("Card", cardProps({ title: "x", variant: "minimal", size: "md" }));
+      expect(html).toMatch(/gap:\s*var\(--space-3\)/);
+    });
+
+    it("size axis scales the chromed padding (sm < md < lg)", () => {
+      const sm = render("Card", cardProps({ title: "x", size: "sm" }));
+      const md = render("Card", cardProps({ title: "x", size: "md" }));
+      const lg = render("Card", cardProps({ title: "x", size: "lg" }));
+      expect(sm).toMatch(/padding:\s*var\(--space-3\)/);
+      expect(md).toMatch(/padding:\s*var\(--space-4\)/);
+      expect(lg).toMatch(/padding:\s*var\(--space-5\)/);
+    });
+
+    it("size axis scales the title type (sm=base, md=lg, lg=xl)", () => {
+      const sm = render("Card", cardProps({ title: "Title", size: "sm" }));
+      const md = render("Card", cardProps({ title: "Title", size: "md" }));
+      const lg = render("Card", cardProps({ title: "Title", size: "lg" }));
+      expect(sm).toMatch(/font-size:\s*var\(--font-size-base\)/);
+      expect(md).toMatch(/font-size:\s*var\(--font-size-lg\)/);
+      expect(lg).toMatch(/font-size:\s*var\(--font-size-xl\)/);
+    });
+
+    it("coerces a MISSING size key to md (old on-disk cards, no defaultProps backfill)", () => {
+      // Card JSON saved before the size axis landed has no `size`
+      // key. Puck's public <Render> passes raw props through without
+      // backfilling defaultProps, so `size` arrives undefined. Without
+      // the normaliseCardSize guard, every size-driven token collapses
+      // to `undefined` and the card loses padding + gap + title font.
+      // Simulate the old shape by deleting the key entirely.
+      const oldProps = cardProps({ title: "x" }) as Record<string, unknown>;
+      delete oldProps.size;
+      const html = render("Card", oldProps);
+      // Falls back to md: padding --space-4, title font --font-size-lg.
+      expect(html).toMatch(/padding:\s*var\(--space-4\)/);
+      expect(html).toMatch(/font-size:\s*var\(--font-size-lg\)/);
+      // And the gap is present (md gap is --space-3), not stripped.
+      expect(html).toMatch(/gap:\s*var\(--space-3\)/);
+    });
+
+    it("coerces an UNKNOWN size value to md (defensive against bad data)", () => {
+      const html = render("Card", cardProps({ title: "x", size: "gigantic" }));
+      expect(html).toMatch(/padding:\s*var\(--space-4\)/);
+    });
+
+    it("size select options match CARD_SIZES", () => {
+      const field = puckConfig.components.Card.fields?.size;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["sm", "md", "lg"]);
+      }
+    });
+
+    it("minimal variant works as a link card too (chrome-free clickable tile)", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "x", variant: "minimal", href: "/somewhere" }),
+      );
+      expect(html).toContain('href="/somewhere"');
+      expect(html).not.toMatch(/border:\s*1px solid/);
     });
 
     it("renders a download anchor when fileUrl is set", () => {
@@ -857,6 +936,132 @@ describe("puckConfig", () => {
         expect(field.options.map((o) => o.value)).toEqual([false, true]);
       }
     });
+
+    // -------------------------------------------------------------------
+    // v3.1: icon-mode media for non-image files. When a Card has no
+    // image but a fileUrl, the media slot shows a file-type tile
+    // (press-kit / download-list parity).
+    // -------------------------------------------------------------------
+
+    it("renders a file tile in the media slot when fileUrl is set and there's no image", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/uploads/press-kit.pdf" }),
+      );
+      expect(html).toContain('data-testid="card-file-tile"');
+      expect(html).toMatch(/data-media-kind="pdf"/);
+      // The filename is surfaced as the tile caption.
+      expect(html).toContain("press-kit.pdf");
+    });
+
+    it("renders an inline <audio> player for an audio fileUrl", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "Demo", image: null, fileUrl: "/a/track.mp3" }),
+      );
+      expect(html).toContain('data-testid="card-audio"');
+      expect(html).toMatch(/<audio[^>]*controls/);
+      expect(html).toContain('src="/a/track.mp3"');
+      // Not the static icon tile.
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // The player must NOT use the image sizing class — that global
+      // rule forces height:100%, which stretches the thin audio bar in
+      // equal-height card rows. Intrinsic size only.
+      expect(html).not.toContain("stagecraft-card-media");
+    });
+
+    it("renders an inline <video> player for a video fileUrl", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "Promo", image: null, fileUrl: "/a/promo.mp4" }),
+      );
+      expect(html).toContain('data-testid="card-video"');
+      expect(html).toMatch(/<video[^>]*controls/);
+      expect(html).toContain('src="/a/promo.mp4"');
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Video renders at intrinsic aspect — NOT the image's forced 4:3
+      // box (which would letterbox a 16:9 clip or clip a tall one's
+      // controls). The image sizing class must be absent.
+      expect(html).not.toContain("stagecraft-card-media");
+    });
+
+    it("renders a static icon tile (not a player) for pdf / other files", () => {
+      const pdf = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/a/deck.pdf" }),
+      );
+      expect(pdf).toMatch(/data-media-kind="pdf"/);
+      expect(pdf).not.toContain('data-testid="card-audio"');
+
+      const zip = render(
+        "Card",
+        cardProps({ title: "Stems", image: null, fileUrl: "/a/stems.zip" }),
+      );
+      expect(zip).toMatch(/data-media-kind="file"/);
+    });
+
+    it("inline players only appear for non-link cards (gated on !href, like the tile)", () => {
+      // A link card suppresses the whole media-from-fileUrl branch, so
+      // an interactive player never lands inside the card-link <a>.
+      const html = render(
+        "Card",
+        cardProps({ title: "Demo", image: null, fileUrl: "/a/track.mp3", href: "/listen" }),
+      );
+      expect(html).not.toContain('data-testid="card-audio"');
+      expect((html.match(/<a /g) ?? [])).toHaveLength(1);
+    });
+
+    it("prefers the image over the file tile when both are present", () => {
+      const html = render(
+        "Card",
+        cardProps({
+          title: "x",
+          image: IMAGE_FIXTURE,
+          fileUrl: "/uploads/press-kit.pdf",
+        }),
+      );
+      // Image wins the media slot; no file tile.
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Download button still renders in the body (fileUrl + no href).
+      expect(html).toContain("Download");
+    });
+
+    it("omits the file tile when neither image nor fileUrl is set", () => {
+      const html = render("Card", cardProps({ title: "Just text" }));
+      expect(html).not.toContain('data-testid="card-file-tile"');
+    });
+
+    it("suppresses the file tile when the card is a link (file would be unreachable)", () => {
+      // When href is set, the card navigates on click and the download
+      // button is suppressed (no nested anchors). A file tile captioned
+      // with the filename would advertise a download the card can't
+      // deliver — so the tile is gated on `!href`, same as the
+      // download button. The link card just has no media slot here.
+      const html = render(
+        "Card",
+        cardProps({
+          title: "EPK",
+          image: null,
+          fileUrl: "/uploads/epk.pdf",
+          href: "/press",
+        }),
+      );
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Exactly one anchor — the card link. No tile, no download anchor.
+      expect((html.match(/<a /g) ?? [])).toHaveLength(1);
+      expect(html).toContain('href="/press"');
+    });
+
+    it("renders the file tile + download together for a non-link card (coherent pair)", () => {
+      // The honest case: no href, so the tile previews the file AND
+      // the download button delivers it.
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/uploads/epk.pdf" }),
+      );
+      expect(html).toContain('data-testid="card-file-tile"');
+      expect(html).toContain("Download");
+    });
   });
 
   describe("root pageBackground", () => {
@@ -867,6 +1072,15 @@ describe("puckConfig", () => {
       const field = puckConfig.root?.fields?.pageBackground;
       expect(field?.type).toBe("custom");
       expect(puckConfig.root?.defaultProps?.pageBackground).toBeNull();
+    });
+
+    it("declares pageBackgroundOverlay as a custom field with a null default (inherit)", () => {
+      // Custom (not number) so the editor can express null=inherit vs
+      // 0..1=explicit override unambiguously — see PageOverlayField.
+      const field = puckConfig.root?.fields?.pageBackgroundOverlay;
+      expect(field?.type).toBe("custom");
+      // Default null = inherit the site-wide overlay.
+      expect(puckConfig.root?.defaultProps?.pageBackgroundOverlay).toBeNull();
     });
   });
 
@@ -887,6 +1101,263 @@ describe("puckConfig", () => {
       >;
       expect(defaults.hasNameField).toBe(false);
       expect(defaults.nameLabel).toBe("First name");
+    });
+  });
+
+  describe("NewsletterSignup — additional fields array", () => {
+    it("exposes additionalFields as an array field with label / name / type sub-fields", () => {
+      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+        string,
+        { type?: string; arrayFields?: Record<string, { type?: string }> }
+      >;
+      const af = fields.additionalFields;
+      expect(af?.type).toBe("array");
+      expect(af?.arrayFields?.label?.type).toBe("text");
+      expect(af?.arrayFields?.name?.type).toBe("text");
+      expect(af?.arrayFields?.type?.type).toBe("select");
+    });
+
+    it("the type sub-field options match NEWSLETTER_FIELD_TYPES", () => {
+      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+        string,
+        {
+          arrayFields?: Record<
+            string,
+            { type?: string; options?: Array<{ value: string }> }
+          >;
+        }
+      >;
+      const typeField = fields.additionalFields?.arrayFields?.type;
+      expect(typeField?.options?.map((o) => o.value)).toEqual([
+        "text",
+        "email",
+        "tel",
+        "url",
+      ]);
+    });
+
+    it("defaults additionalFields to an empty array (no extra fields out of the box)", () => {
+      const defaults = puckConfig.components.NewsletterSignup.defaultProps as Record<
+        string,
+        unknown
+      >;
+      expect(defaults.additionalFields).toEqual([]);
+    });
+
+    it("renders configured additional fields into the public form markup", () => {
+      // End-to-end through the Puck render fn → component: a phone
+      // field should appear with its raw provider name + tel type.
+      const html = render(
+        "NewsletterSignup",
+        {
+          service: "mailchimp" as const,
+          actionUrl: "https://example.us1.list-manage.com/subscribe/post?u=a&id=b",
+          title: "",
+          emailLabel: "Email",
+          submitLabel: "Subscribe",
+          successMessage: "ok",
+          hasNameField: false,
+          nameLabel: "First name",
+          additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" as const }],
+        },
+      );
+      expect(html).toMatch(/name="PHONE"/);
+      expect(html).toMatch(/type="tel"/);
+    });
+
+    it("tolerates missing additionalFields on old content (renders without crashing)", () => {
+      // Card lesson: Puck's public <Render> doesn't backfill
+      // defaultProps. A NewsletterSignup saved before this field
+      // landed has no `additionalFields` key; the component's default
+      // param coerces undefined → [] so the form still renders.
+      const props = {
+        service: "generic" as const,
+        actionUrl: "https://artist.example/subscribe",
+        title: "",
+        emailLabel: "Email",
+        submitLabel: "Subscribe",
+        successMessage: "ok",
+        hasNameField: false,
+        nameLabel: "First name",
+        // additionalFields intentionally omitted
+      } as Record<string, unknown>;
+      const html = render("NewsletterSignup", props);
+      expect(html).toMatch(/<form/);
+      expect(html).toMatch(/name="email"/);
+    });
+
+    // resolveFields surfaces a reserved-name collision in the array
+    // field's label (Puck arrays have no description slot). The
+    // renderer silently drops the colliding row, so without this the
+    // artist would just see their field vanish.
+    function resolveNewsletterFields(props: Record<string, unknown>) {
+      const config = puckConfig.components.NewsletterSignup as unknown as {
+        resolveFields: (
+          data: { props: Record<string, unknown> },
+          params: { fields: Record<string, { label?: string }> },
+        ) => Record<string, { label?: string }>;
+        fields: Record<string, { label?: string }>;
+      };
+      return config.resolveFields({ props }, { fields: config.fields });
+    }
+
+    it("keeps the plain additionalFields label when no field name collides", () => {
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" }],
+      });
+      expect(resolved.additionalFields?.label).toBe("Additional fields (advanced)");
+    });
+
+    it("appends a reserved-name warning to the label when a field collides", () => {
+      // "EMAIL" is Mailchimp's email field name — a collision.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("Additional fields (advanced)");
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
+    it("still warns when `service` is absent from props (defaults to mailchimp, matching render)", () => {
+      // Puck doesn't merge defaultProps into resolveFields' props, so
+      // an old/hand-edited block can arrive without `service`. The
+      // render path defaults it to mailchimp and drops an "EMAIL"
+      // field; the warning must default the same way so it doesn't
+      // under-fire exactly when the drop still happens.
+      const resolved = resolveNewsletterFields({
+        // service intentionally omitted
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
+    it("preserves the array sub-field config when resolveFields rebuilds the label", () => {
+      // Spreading the static field must keep arrayFields intact, not
+      // replace the array with a bare labelled field.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "x", name: "EMAIL", type: "text" }],
+      }) as Record<string, { type?: string; arrayFields?: Record<string, unknown> }>;
+      expect(resolved.additionalFields?.type).toBe("array");
+      expect(resolved.additionalFields?.arrayFields).toBeTruthy();
+    });
+  });
+
+  describe("newsletterUrlDescription (inspector helper text)", () => {
+    it("Mailchimp + empty URL → paste-hint pointing at the embed code", () => {
+      const hint = newsletterUrlDescription("mailchimp", "");
+      expect(hint.kind).toBe("info");
+      expect(hint.text).toMatch(/audience embed code/i);
+    });
+
+    it("Mailchimp + valid audience URL → ok hint confirming the honeypot will fire", () => {
+      const hint = newsletterUrlDescription(
+        "mailchimp",
+        "https://example.us21.list-manage.com/subscribe/post?u=abc123&id=def456",
+      );
+      expect(hint.kind).toBe("ok");
+      expect(hint.text).toMatch(/looks like a mailchimp/i);
+      expect(hint.text).toMatch(/honeypot/i);
+    });
+
+    it("Mailchimp + malformed URL → warn hint about reduced spam protection", () => {
+      const hint = newsletterUrlDescription(
+        "mailchimp",
+        "https://example.com/oops",
+      );
+      expect(hint.kind).toBe("warn");
+      expect(hint.text).toMatch(/doesn't look like/i);
+      // The hint must spell out the expected query params so the
+      // artist can correct the paste without leaving the inspector.
+      expect(hint.text).toContain("?u=USER_ID&id=LIST_ID");
+      // Must clarify that the signup still works — we don't want
+      // artists thinking their form is broken.
+      expect(hint.text).toMatch(/still submits/i);
+    });
+
+    it("non-Mailchimp services get a paste hint when the URL is empty", () => {
+      expect(newsletterUrlDescription("buttondown", "").text).toMatch(
+        /POST URL from your provider/i,
+      );
+      expect(newsletterUrlDescription("convertkit", "").text).toMatch(
+        /POST URL from your provider/i,
+      );
+    });
+
+    it("ConvertKit / Buttondown warn on a URL that doesn't match the provider pattern", () => {
+      // The per-service validation ported from #213: a non-matching
+      // URL now warns with the expected shape instead of silently
+      // falling through to the generic paste hint.
+      const ck = newsletterUrlDescription("convertkit", "https://example.com/subscribe");
+      expect(ck.kind).toBe("warn");
+      expect(ck.text).toMatch(/ConvertKit|Kit/);
+
+      const bd = newsletterUrlDescription("buttondown", "https://example.com/subscribe");
+      expect(bd.kind).toBe("warn");
+      expect(bd.text).toMatch(/Buttondown/);
+    });
+
+    it("ConvertKit / Buttondown confirm a well-formed embed URL", () => {
+      const ck = newsletterUrlDescription(
+        "convertkit",
+        "https://app.kit.com/forms/12345/subscriptions",
+      );
+      expect(ck.kind).toBe("ok");
+
+      const bd = newsletterUrlDescription(
+        "buttondown",
+        "https://buttondown.com/api/emails/embed-subscribe/artist",
+      );
+      expect(bd.kind).toBe("ok");
+    });
+
+    it("generic stays a neutral info hint (no provider contract to verify)", () => {
+      // A parseable generic URL can't be pattern-checked, so it's an
+      // info nudge, never a green "ok"; an unparseable one still warns.
+      expect(newsletterUrlDescription("generic", "https://artist.example/subscribe").kind).toBe(
+        "info",
+      );
+      expect(newsletterUrlDescription("generic", "not a url").kind).toBe("warn");
+    });
+
+    it("`resolveFields` rebuilds actionUrl as a custom field carrying the current hint", () => {
+      // Spot-check the production hook: call resolveFields with a
+      // small data shape and confirm the returned actionUrl is a
+      // custom field — render is the only public surface of the
+      // hint, so we render it and assert the warning text appears.
+      const config = puckConfig.components.NewsletterSignup as unknown as {
+        resolveFields: (
+          data: { props: { service: string; actionUrl: string } },
+          params: { fields: Record<string, { type?: string }> },
+        ) => Record<string, { type?: string; render?: (p: { value: string; onChange: (n: string) => void }) => React.ReactElement }>;
+        fields: Record<string, { type?: string }>;
+      };
+      const out = config.resolveFields(
+        { props: { service: "mailchimp", actionUrl: "https://nope.example/" } },
+        { fields: config.fields },
+      );
+      expect(out.actionUrl?.type).toBe("custom");
+      // The render function should produce JSX that includes the
+      // warning text — render it to a static string and grep.
+      const html = renderToStaticMarkup(
+        out.actionUrl!.render!({ value: "https://nope.example/", onChange: () => {} }),
+      );
+      // `renderToStaticMarkup` HTML-escapes the apostrophe in
+      // "doesn't" to `&#x27;` — grep for a substring that doesn't
+      // span the apostrophe.
+      expect(html).toMatch(/look like a Mailchimp/i);
+      expect(html).toContain("?u=USER_ID");
     });
   });
 

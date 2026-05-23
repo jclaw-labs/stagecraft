@@ -33,12 +33,15 @@ vi.mock("./git-commit", async () => {
 });
 
 import {
+  __resetPublishTokenCacheForTests,
   discardDraft,
+  fetchPublishToken,
   isPlatformConfigured,
   publish,
   publishDraftToMain,
   publishPage,
   PublishError,
+  readEnv,
   saveToDraft,
 } from "./publish";
 import { ConcurrentEditError } from "./git-commit";
@@ -99,6 +102,10 @@ beforeEach(() => {
   delete process.env.STAGECRAFT_SITE_ID;
   delete process.env.STAGECRAFT_BROKER_SECRET;
   process.env.STAGECRAFT_CONTENT_DIR = TMP_CONTENT_DIR;
+  // The token cache is module-scoped and persists across test files
+  // / cases. Without this, the second `configurePlatform` call would
+  // hit the cache instead of the per-test fetch mock.
+  __resetPublishTokenCacheForTests();
 });
 
 afterEach(async () => {
@@ -880,5 +887,84 @@ describe("discardDraft", () => {
       code: "github-failed",
       message: expect.stringMatching(/discard draft: /),
     });
+  });
+});
+
+describe("fetchPublishToken — cache", () => {
+  function brokerOk(opts: { expiresAt: string; token?: string }) {
+    process.env.STAGECRAFT_PLATFORM_URL = "https://platform.example.com";
+    process.env.STAGECRAFT_SITE_ID = "site-cache-test";
+    process.env.STAGECRAFT_BROKER_SECRET = "broker-secret";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          token: opts.token ?? "ghs_cached",
+          expiresAt: opts.expiresAt,
+          repo: { owner: "artist", name: "site" },
+        }),
+    }) as unknown as typeof fetch;
+  }
+
+  it("returns the cached token on the second call without re-hitting the broker", async () => {
+    brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z" });
+    const env = readEnv();
+    const first = await fetchPublishToken(env);
+    const second = await fetchPublishToken(env);
+    expect(first).toEqual(second);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-fetches when the cached token is within the renew buffer of expiry", async () => {
+    // Expires in 30 seconds — inside the 60s renew buffer, so the
+    // cache treats it as expired and re-mints.
+    const soon = new Date(Date.now() + 30_000).toISOString();
+    brokerOk({ expiresAt: soon, token: "ghs_first" });
+    const env = readEnv();
+    await fetchPublishToken(env);
+
+    // Second call comes back with a fresh token.
+    brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z", token: "ghs_second" });
+    const second = await fetchPublishToken(env);
+    expect(second.token).toBe("ghs_second");
+  });
+
+  it("re-fetches after the cache is reset (covers cross-test contamination)", async () => {
+    brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z", token: "ghs_one" });
+    const env = readEnv();
+    await fetchPublishToken(env);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    __resetPublishTokenCacheForTests();
+    brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z", token: "ghs_two" });
+    const next = await fetchPublishToken(env);
+    expect(next.token).toBe("ghs_two");
+  });
+
+  it("does not surface a cached token under a different siteId", async () => {
+    brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z", token: "ghs_alpha" });
+    const envA = await import("./publish").then((m) => m.readEnv());
+    await fetchPublishToken(envA);
+
+    // Switch siteId — fresh cache key, broker called again.
+    process.env.STAGECRAFT_SITE_ID = "different-site";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          token: "ghs_beta",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          repo: { owner: "artist", name: "site" },
+        }),
+    }) as unknown as typeof fetch;
+    const envB = await import("./publish").then((m) => m.readEnv());
+    const second = await fetchPublishToken(envB);
+    expect(second.token).toBe("ghs_beta");
   });
 });

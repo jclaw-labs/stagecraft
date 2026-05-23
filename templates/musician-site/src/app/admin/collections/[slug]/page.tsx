@@ -23,12 +23,15 @@ const chromeButtonStyle: React.CSSProperties = {
 
 import { AdminShell } from "@/components/admin/AdminShell";
 import { findCustomSurface } from "@/components/admin/admin-surfaces";
+import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
 import { getSession } from "@/lib/auth";
 import {
   getRequestReadStore,
+  itemDisplayLabel,
   SINGLETON_ITEM_SLUG,
   slugSchema,
 } from "@/lib/collections";
+import { getPendingItemSlugs } from "@/lib/draft-changes";
 
 type Params = { slug: string };
 
@@ -57,7 +60,13 @@ export default async function CollectionView({ params }: { params: Promise<Param
   }
 
   const store = await storePromise;
-  const items = await store.listItemsInOrder(parsed.data, def);
+  // Pending-changes badges run alongside the listing — `getPendingItemSlugs`
+  // degrades to an empty set if the compare API is unreachable, so a
+  // GitHub blip drops the badges without failing the page.
+  const [items, pendingSlugs] = await Promise.all([
+    store.listItemsInOrder(parsed.data, def),
+    getPendingItemSlugs(parsed.data),
+  ]);
 
   return (
     <AdminShell activeSection={`collection:${parsed.data}`} email={session?.email ?? ""}>
@@ -132,15 +141,14 @@ export default async function CollectionView({ params }: { params: Promise<Param
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {items.map((item) => {
-              const labelValue = def.slugSourceFieldId && item.values[def.slugSourceFieldId];
-              const label =
-                labelValue && "value" in labelValue && typeof labelValue.value === "string"
-                  ? labelValue.value
-                  : item.slug;
+              const label = itemDisplayLabel(def, item);
               return (
                 <li
                   key={item.slug}
                   style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-3)",
                     padding: "var(--space-3) var(--space-4)",
                     marginBottom: "var(--space-1)",
                     background: "var(--color-surface-raised)",
@@ -151,11 +159,14 @@ export default async function CollectionView({ params }: { params: Promise<Param
                   <Link
                     href={`/admin/collections/${parsed.data}/items/${item.slug}`}
                     style={{
+                      flex: 1,
+                      minWidth: 0,
                       textDecoration: "none",
                       color: "var(--color-text)",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      gap: "var(--space-3)",
                     }}
                   >
                     <span style={{ fontWeight: "var(--font-weight-semibold)" as unknown as number }}>
@@ -165,6 +176,7 @@ export default async function CollectionView({ params }: { params: Promise<Param
                       /{item.slug}
                     </span>
                   </Link>
+                  {pendingSlugs.has(item.slug) ? <UnpublishedBadge /> : null}
                 </li>
               );
             })}

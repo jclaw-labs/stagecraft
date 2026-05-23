@@ -36,6 +36,8 @@ type Props = {
    * has to match the admin sign-in email or messages won't arrive.
    */
   isResendSandbox: boolean;
+  /** Badge the panel title when the `site` singleton has unpublished edits. */
+  hasPendingChanges?: boolean;
 };
 
 /**
@@ -44,7 +46,12 @@ type Props = {
  * `PUT /api/collections/site/items/_singleton` endpoint — same path
  * the generic editor uses — so the two surfaces stay in lockstep.
  */
-export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props) {
+export function SiteSettingsForm({
+  initial,
+  adminEmail,
+  isResendSandbox,
+  hasPendingChanges,
+}: Props) {
   const form = useSettingsForm<SiteConfig>({
     initial,
     collectionSlug: "site",
@@ -66,6 +73,7 @@ export function SiteSettingsForm({ initial, adminEmail, isResendSandbox }: Props
     <AdminPanel
       title="Site Settings"
       description="Identity (artist name, site title), social links shown in the footer, contact email used by forms, and the copyright line."
+      hasPendingChanges={hasPendingChanges}
       saveBar={<SaveBar {...form.saveBarProps} />}
     >
       <FieldGroup

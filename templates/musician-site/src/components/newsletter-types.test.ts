@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collidingAdditionalFieldNames,
   EMAIL_FIELD_NAME,
   NAME_FIELD_NAME,
+  NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
+  NEWSLETTER_FIELD_TYPES,
+  NEWSLETTER_FIELD_TYPE_LABELS,
   NEWSLETTER_SERVICES,
+  newsletterAdditionalFieldsLabel,
+  newsletterFieldAutoComplete,
+  newsletterReservedFieldNames,
   parseMailchimpAudienceHoneypotName,
   validateNewsletterActionUrl,
+  type NewsletterAdditionalField,
 } from "./newsletter-types";
+
+function field(name: string): NewsletterAdditionalField {
+  return { label: name, name, type: "text" };
+}
 
 describe("EMAIL_FIELD_NAME + NAME_FIELD_NAME", () => {
   it("declares an entry for every service", () => {
@@ -19,6 +31,32 @@ describe("EMAIL_FIELD_NAME + NAME_FIELD_NAME", () => {
       expect(EMAIL_FIELD_NAME[service]).toBeTruthy();
       expect(NAME_FIELD_NAME[service]).toBeTruthy();
     }
+  });
+});
+
+describe("NEWSLETTER_FIELD_TYPES + labels", () => {
+  it("has a human-readable label for every field type", () => {
+    for (const type of NEWSLETTER_FIELD_TYPES) {
+      expect(NEWSLETTER_FIELD_TYPE_LABELS[type]).toBeTruthy();
+    }
+  });
+
+  it("offers the four common input types", () => {
+    expect([...NEWSLETTER_FIELD_TYPES]).toEqual(["text", "email", "tel", "url"]);
+  });
+});
+
+describe("newsletterFieldAutoComplete", () => {
+  it("maps email / tel / url to their autocomplete tokens", () => {
+    expect(newsletterFieldAutoComplete("email")).toBe("email");
+    expect(newsletterFieldAutoComplete("tel")).toBe("tel");
+    expect(newsletterFieldAutoComplete("url")).toBe("url");
+  });
+
+  it("returns undefined for generic text (a wrong hint is worse than none)", () => {
+    // A text field could be country, company, referral — there's no
+    // single correct autocomplete token, so emit none.
+    expect(newsletterFieldAutoComplete("text")).toBeUndefined();
   });
 });
 
@@ -202,5 +240,104 @@ describe("validateNewsletterActionUrl", () => {
         "https://app.kit.com/different-path",
       ),
     ).toEqual({ ok: true });
+  });
+});
+
+describe("newsletterReservedFieldNames", () => {
+  it("always reserves the universal honeypot + the service email field", () => {
+    const reserved = newsletterReservedFieldNames("mailchimp", false, "");
+    expect(reserved.has("_gotcha")).toBe(true);
+    expect(reserved.has(EMAIL_FIELD_NAME.mailchimp)).toBe(true); // "EMAIL"
+  });
+
+  it("reserves the name field only when the name field is enabled", () => {
+    expect(newsletterReservedFieldNames("mailchimp", false, "").has(NAME_FIELD_NAME.mailchimp)).toBe(
+      false,
+    );
+    expect(newsletterReservedFieldNames("mailchimp", true, "").has(NAME_FIELD_NAME.mailchimp)).toBe(
+      true,
+    ); // "FNAME"
+  });
+
+  it("reserves the Mailchimp b_* honeypot only when the actionUrl parses", () => {
+    const withHoneypot = newsletterReservedFieldNames(
+      "mailchimp",
+      false,
+      "https://x.us1.list-manage.com/subscribe/post?u=abc&id=xyz",
+    );
+    expect(withHoneypot.has("b_abc_xyz")).toBe(true);
+
+    // Unparseable URL → no honeypot reserved.
+    const noHoneypot = newsletterReservedFieldNames("mailchimp", false, "https://artist.example/x");
+    expect([...noHoneypot].some((n) => n.startsWith("b_"))).toBe(false);
+  });
+
+  it("doesn't reserve a b_* honeypot for non-Mailchimp services", () => {
+    const reserved = newsletterReservedFieldNames(
+      "buttondown",
+      false,
+      "https://x.us1.list-manage.com/subscribe/post?u=abc&id=xyz",
+    );
+    expect([...reserved].some((n) => n.startsWith("b_"))).toBe(false);
+  });
+});
+
+describe("collidingAdditionalFieldNames", () => {
+  it("finds a field colliding with the service email name", () => {
+    // Mailchimp email field is "EMAIL".
+    const colliding = collidingAdditionalFieldNames(
+      [field("EMAIL"), field("PHONE")],
+      "mailchimp",
+      false,
+      "",
+    );
+    expect(colliding).toEqual(["EMAIL"]);
+  });
+
+  it("finds a name-field collision only when the name field is on", () => {
+    const off = collidingAdditionalFieldNames([field("FNAME")], "mailchimp", false, "");
+    expect(off).toEqual([]);
+    const on = collidingAdditionalFieldNames([field("FNAME")], "mailchimp", true, "");
+    expect(on).toEqual(["FNAME"]);
+  });
+
+  it("ignores blank names and de-duplicates", () => {
+    const colliding = collidingAdditionalFieldNames(
+      [field("_gotcha"), field("_gotcha"), { label: "x", name: "  ", type: "text" }],
+      "mailchimp",
+      false,
+      "",
+    );
+    expect(colliding).toEqual(["_gotcha"]);
+  });
+
+  it("returns empty when nothing collides", () => {
+    expect(
+      collidingAdditionalFieldNames([field("PHONE"), field("COUNTRY")], "mailchimp", false, ""),
+    ).toEqual([]);
+  });
+
+  it("tolerates undefined / null-ish rows (hand-edited JSON)", () => {
+    expect(collidingAdditionalFieldNames(undefined, "mailchimp", false, "")).toEqual([]);
+  });
+});
+
+describe("newsletterAdditionalFieldsLabel", () => {
+  it("returns the bare base label when nothing collides", () => {
+    expect(newsletterAdditionalFieldsLabel([])).toBe(NEWSLETTER_ADDITIONAL_FIELDS_LABEL);
+  });
+
+  it("appends a singular warning naming the reserved field", () => {
+    const label = newsletterAdditionalFieldsLabel(["EMAIL"]);
+    expect(label.startsWith(NEWSLETTER_ADDITIONAL_FIELDS_LABEL)).toBe(true);
+    expect(label).toContain("EMAIL");
+    expect(label).toMatch(/name is reserved/);
+    expect(label).toMatch(/won't be added/);
+  });
+
+  it("appends a plural warning listing all reserved names", () => {
+    const label = newsletterAdditionalFieldsLabel(["EMAIL", "_gotcha"]);
+    expect(label).toContain("EMAIL, _gotcha");
+    expect(label).toMatch(/names are reserved/);
   });
 });

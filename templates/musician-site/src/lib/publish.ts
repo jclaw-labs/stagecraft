@@ -121,11 +121,59 @@ export function isPlatformConfigured(env: Env = readEnv()): boolean {
   return Boolean(env.siteId && env.brokerSecret);
 }
 
+/**
+ * Per-process cache of broker-minted publish tokens, keyed by
+ * `siteId`. Each admin request normally takes one of these — without
+ * a cache, navigating the admin (or hitting the indicator's polling)
+ * mints a fresh installation token every time, which pressures the
+ * platform broker and wastes ~50-100ms per request.
+ *
+ * Lifetime: lives for the life of the serverless instance / Node
+ * process. A cold start re-mints. Cross-instance is fine because
+ * tokens are GitHub-issued and valid in any process for the artist
+ * site.
+ *
+ * Re-mint trigger: we treat the token as expired `TOKEN_RENEW_BUFFER_MS`
+ * before the broker's declared `expiresAt`. The buffer keeps us from
+ * returning a token that'd expire mid-publish, which would surface
+ * as a confusing `auth-failed` from GitHub. The broker mints
+ * 1-hour tokens today, so a 60s buffer leaves the artist's commit
+ * comfortably within the valid window.
+ */
+type CachedToken = {
+  token: string;
+  owner: string;
+  repo: string;
+  expiresAtMs: number;
+};
+
+const TOKEN_RENEW_BUFFER_MS = 60_000;
+
+const tokenCache = new Map<string, CachedToken>();
+
+/**
+ * Test-only: clear the per-process token cache. Module-level cache
+ * leaks across test files unless reset, so any test that exercises
+ * the real `fetchPublishToken` (rather than mocking the export
+ * outright) should call this in `beforeEach`.
+ */
+export function __resetPublishTokenCacheForTests(): void {
+  tokenCache.clear();
+}
+
 export async function fetchPublishToken(env: Env): Promise<{
   token: string;
   owner: string;
   repo: string;
 }> {
+  const siteId = env.siteId;
+  if (siteId) {
+    const cached = tokenCache.get(siteId);
+    if (cached && cached.expiresAtMs - Date.now() > TOKEN_RENEW_BUFFER_MS) {
+      return { token: cached.token, owner: cached.owner, repo: cached.repo };
+    }
+  }
+
   let response: Response;
   try {
     response = await fetch(`${env.platformUrl}/api/publish-token`, {
@@ -157,11 +205,18 @@ export async function fetchPublishToken(env: Env): Promise<{
       `Token broker returned malformed response: ${parsed.error.message}`,
     );
   }
-  return {
-    token: parsed.data.token,
-    owner: parsed.data.repo.owner,
-    repo: parsed.data.repo.name,
-  };
+  const token = parsed.data.token;
+  const owner = parsed.data.repo.owner;
+  const repo = parsed.data.repo.name;
+  if (siteId) {
+    tokenCache.set(siteId, {
+      token,
+      owner,
+      repo,
+      expiresAtMs: new Date(parsed.data.expiresAt).getTime(),
+    });
+  }
+  return { token, owner, repo };
 }
 
 /**

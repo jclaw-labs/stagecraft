@@ -6,12 +6,17 @@ import userEvent from "@testing-library/user-event";
 
 import { PublishConfirmModal, groupChanges } from "./PublishConfirmModal";
 import type { DraftChange } from "@/lib/draft-changes";
+import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
 
 const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  // The modal reads through the shared draft-changes coalescer; reset
+  // its in-flight reference between cases (e.g. the pending-forever
+  // mock) so they don't bleed.
+  __resetDraftChangesClientForTests();
 });
 
 afterEach(() => {
@@ -82,6 +87,80 @@ describe("PublishConfirmModal", () => {
     );
     await waitFor(() => {
       expect(screen.getByText("pages · about → about-us")).toBeTruthy();
+    });
+  });
+
+  it("shows the item display name when the labeled read resolves one", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 1,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "modified" as const,
+              collectionSlug: "pages",
+              itemSlug: "about",
+              path: "src/content/collections/pages/items/about.json",
+              displayName: "About Us",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · About Us")).toBeTruthy();
+    });
+    expect(screen.queryByText("pages · about")).toBeNull();
+  });
+
+  it("falls back to the slug when no display name is present", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 1, changes: [sampleChanges[0]], mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · about")).toBeTruthy();
+    });
+  });
+
+  it("includes the source collection in the label for cross-collection renames", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 1,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "renamed" as const,
+              collectionSlug: "photos",
+              itemSlug: "sunset",
+              path: "src/content/collections/photos/items/sunset.json",
+              previousPath: "src/content/collections/pages/items/sunset.json",
+              previousItemSlug: "sunset",
+              previousCollectionSlug: "pages",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · sunset → photos · sunset")).toBeTruthy();
     });
   });
 
@@ -306,10 +385,61 @@ describe("PublishConfirmModal", () => {
     await waitFor(() => {
       expect(screen.getByText("17 / 200")).toBeTruthy();
     });
-    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
     await userEvent.clear(input);
     await userEvent.type(input, "abc");
     expect(screen.getByText("3 / 200")).toBeTruthy();
+  });
+
+  it("preserves newlines through onConfirm (multi-line commit body)", async () => {
+    const onConfirm = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+    // Direct value-set + change event keeps the test stable across
+    // userEvent's interpretation of Enter inside contenteditable / textarea.
+    fireEvent.change(input, {
+      target: { value: "About-page rewrite\n\nReplaced placeholder copy" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      "About-page rewrite\n\nReplaced placeholder copy",
+    );
+  });
+
+  it("tracks first-line length in the counter rather than total message length", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+    // "first" is 5 chars; the counter ignores everything after the
+    // first newline since the subject line is what git-tooling
+    // truncates.
+    fireEvent.change(input, {
+      target: { value: "first\nlots and lots of body content here" },
+    });
+    expect(screen.getByText("5 / 200")).toBeTruthy();
   });
 
   it("passes the edited subject through onConfirm", async () => {
@@ -463,6 +593,49 @@ describe("PublishConfirmModal", () => {
     const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
     fireEvent.click(dialog);
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a 'showing first N changes' notice when the response is truncated", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 2,
+          changes: sampleChanges,
+          mode: "github",
+          truncated: true,
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Showing the first 2 changes\. Publishing commits everything pending\./),
+      ).toBeTruthy();
+    });
+  });
+
+  it("doesn't render the truncation notice when the diff fits the cap", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 2,
+          changes: sampleChanges,
+          mode: "github",
+          truncated: false,
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · about")).toBeTruthy();
+    });
+    expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 
   it("renders one group per collection with a count in the heading", async () => {

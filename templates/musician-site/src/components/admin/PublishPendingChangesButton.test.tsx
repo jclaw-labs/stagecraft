@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  PublishPendingChangesButton,
   __StatusLine as StatusLine,
   __statusForFetchResponse as statusForFetchResponse,
 } from "./PublishPendingChangesButton";
@@ -140,5 +141,19 @@ describe("PublishPendingChangesButton > statusForFetchResponse", () => {
       kind: "in_flight",
       publishedAt: FIXED_NOW,
     });
+  });
+});
+
+describe("PublishPendingChangesButton > isDegraded", () => {
+  it("disables the publish button while GitHub is unreachable", () => {
+    const html = renderToStaticMarkup(<PublishPendingChangesButton isDegraded />);
+    expect(html).toContain("disabled");
+    expect(html).toContain("Unavailable while GitHub is unreachable");
+  });
+
+  it("renders an enabled button normally", () => {
+    const html = renderToStaticMarkup(<PublishPendingChangesButton />);
+    expect(html).not.toContain("Unavailable while GitHub is unreachable");
+    expect(html).not.toContain("disabled");
   });
 });

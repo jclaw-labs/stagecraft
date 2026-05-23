@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sanitiseSvg } from "./svg-sanitise";
 
 function sanitise(svg: string): string {
-  return sanitiseSvg(Buffer.from(svg, "utf-8")).toString("utf-8");
+  return sanitiseSvg(Buffer.from(svg, "utf-8")).buffer.toString("utf-8");
 }
 
 describe("sanitiseSvg — script injection", () => {
@@ -119,9 +119,9 @@ describe("sanitiseSvg — legitimate content preserved", () => {
 });
 
 describe("sanitiseSvg — buffer / encoding round-trip", () => {
-  it("returns a Buffer, not a string", () => {
+  it("returns a Buffer on the .buffer field, not a string", () => {
     const out = sanitiseSvg(Buffer.from("<svg/>", "utf-8"));
-    expect(Buffer.isBuffer(out)).toBe(true);
+    expect(Buffer.isBuffer(out.buffer)).toBe(true);
   });
 
   it("preserves UTF-8 content for non-ASCII characters", () => {
@@ -250,5 +250,79 @@ describe("sanitiseSvg — telemetry on removal", () => {
       ),
     );
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("sanitiseSvg — removed descriptors on the result", () => {
+  // Beyond the log line, callers can read what was stripped off the
+  // return value. The upload route forwards it to the client so the
+  // picker can surface a "we stripped N items from your SVG" hint
+  // inline — same signal as the server log, but in front of the
+  // artist who just uploaded the file.
+
+  it("returns an empty `removed[]` and removedTotal=0 when the SVG is clean", () => {
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removed).toEqual([]);
+    expect(result.removedTotal).toBe(0);
+  });
+
+  it("returns describable strings for stripped elements / attributes", () => {
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg"><script>x</script><circle r="1" onclick="y"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removed).toContain("<script>");
+    expect(result.removed).toContain("onclick=");
+    expect(result.removedTotal).toBe(result.removed.length);
+  });
+
+  it("caps `removed[]` at 20 entries to bound the API payload", () => {
+    // The route forwards `removed` straight through; a pathological
+    // SVG with 100+ stripped tags shouldn't push a multi-KB JSON
+    // response. The log line keeps the full count for ops.
+    const manyScripts = Array.from({ length: 50 }, (_, i) => `<script>a${i}</script>`).join("");
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg">${manyScripts}<circle r="1"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removed.length).toBeLessThanOrEqual(20);
+  });
+
+  it("`removedTotal` preserves the pre-cap count when descriptors overflow", () => {
+    // Without this, the picker's banner would say "20 items removed"
+    // for an SVG the log line correctly reports as "50 items removed"
+    // — confusing for support / forensic correlation.
+    const manyScripts = Array.from({ length: 50 }, (_, i) => `<script>a${i}</script>`).join("");
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg">${manyScripts}<circle r="1"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removedTotal).toBe(50);
+    expect(result.removed.length).toBe(20);
+  });
+
+  it("excludes implicit-wrapper removals from `removed[]` (parser artefact)", () => {
+    // Mirrors the log-line filtering: a clean SVG shouldn't claim
+    // `<html>` / `<body>` strips just because jsdom wrapped the
+    // parse target. Otherwise the picker would always show a
+    // "stripped" banner.
+    const result = sanitiseSvg(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>`,
+        "utf-8",
+      ),
+    );
+    expect(result.removed.find((d) => /html|head|body/i.test(d))).toBeUndefined();
   });
 });

@@ -8,10 +8,21 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { ImagePickerField } from "./ImagePickerField";
+const { uploadImageFromClientMock } = vi.hoisted(() => ({
+  uploadImageFromClientMock: vi.fn(),
+}));
+vi.mock("@/lib/upload-image-client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/upload-image-client")>(
+      "@/lib/upload-image-client",
+    );
+  return { ...actual, uploadImageFromClient: uploadImageFromClientMock };
+});
+
+import { ImagePickerField, SanitisedHint } from "./ImagePickerField";
 import { asImageId, type ImageMetadata } from "@/lib/image-types";
 
 const VALUE: ImageMetadata = {
@@ -261,5 +272,217 @@ describe("<ImagePickerField> — empty state", () => {
     render(<ImagePickerField value={null} onChange={vi.fn()} />);
     expect(screen.queryByTestId("image-picker-preview")).toBeNull();
     expect(screen.queryByPlaceholderText(/Soundcheck/)).toBeNull();
+  });
+});
+
+describe("<ImagePickerField> — sanitised banner scoping", () => {
+  // Coverage for the live banner-state plumbing inside ImagePickerField:
+  // the report's image-id pairing protects against showing a stale
+  // banner if the parent swaps `value` (Puck undo / history) without
+  // firing handleClear.
+
+  function svgUpload(removedTotal: number) {
+    return {
+      image: {
+        ...VALUE,
+        id: asImageId("svg11112222333344"),
+        originalExt: "svg" as const,
+      },
+      sanitised: {
+        removed: ["<script>"],
+        removedTotal,
+      },
+    };
+  }
+
+  function pickFile(file: File): void {
+    const fileInput = document.querySelector("input[type=file]") as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+  }
+
+  it("hides the banner when the parent swaps `value` to a different image id", async () => {
+    // Artist uploads a dirty SVG → banner appears tied to that image's
+    // id. Parent then restores a previous version (Puck undo), swapping
+    // `value` to a different image without firing handleClear. The
+    // stored banner state is still set, but the render guard sees
+    // `lastSanitised.imageId !== value.id` and hides the banner.
+    uploadImageFromClientMock.mockReset().mockResolvedValueOnce(svgUpload(3));
+
+    let currentValue: ImageMetadata | null = null;
+    const onChange = vi.fn((next: ImageMetadata | null) => {
+      currentValue = next;
+    });
+
+    const { rerender } = render(
+      <ImagePickerField value={currentValue} onChange={onChange} />,
+    );
+
+    // Drive the upload flow: pick a file → click Upload.
+    pickFile(new File(["<svg/>"], "evil.svg", { type: "image/svg+xml" }));
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: /Upload image/i }));
+    });
+
+    // The mock resolved with the new image; rerender with it as the
+    // current value (mimics the parent reacting to onChange).
+    rerender(<ImagePickerField value={currentValue} onChange={onChange} />);
+    expect(screen.getByTestId("image-picker-sanitised-hint")).not.toBeNull();
+
+    // Parent restores an unrelated image (different id) without
+    // firing handleClear — the stale banner should disappear.
+    const otherImage: ImageMetadata = {
+      ...VALUE,
+      id: asImageId("differentid12345"),
+    };
+    rerender(<ImagePickerField value={otherImage} onChange={onChange} />);
+    expect(screen.queryByTestId("image-picker-sanitised-hint")).toBeNull();
+  });
+
+  it("does not show the banner when the server reports removedTotal=0 (clean SVG)", async () => {
+    // A clean SVG upload with a defensive `sanitised: { removed: [],
+    // removedTotal: 0 }` payload — the schema permits this, but the
+    // UI should still treat it as "no banner."
+    uploadImageFromClientMock.mockReset().mockResolvedValueOnce({
+      image: { ...VALUE, id: asImageId("clean11112222aaaa"), originalExt: "svg" as const },
+      sanitised: { removed: [], removedTotal: 0 },
+    });
+
+    let currentValue: ImageMetadata | null = null;
+    const onChange = vi.fn((next: ImageMetadata | null) => {
+      currentValue = next;
+    });
+    const { rerender } = render(
+      <ImagePickerField value={currentValue} onChange={onChange} />,
+    );
+    pickFile(new File(["<svg/>"], "clean.svg", { type: "image/svg+xml" }));
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: /Upload image/i }));
+    });
+    rerender(<ImagePickerField value={currentValue} onChange={onChange} />);
+    expect(screen.queryByTestId("image-picker-sanitised-hint")).toBeNull();
+  });
+});
+
+describe("<SanitisedHint>", () => {
+  // The hint surfaces what the SVG sanitiser stripped from an upload.
+  // Coverage focuses on the rendering contract — singular vs plural
+  // language, the inline preview cap, and the "+ N more" tail — since
+  // the picker's plumbing (setLastSanitised → render → clear on
+  // Remove) is exercised by the live editor flow.
+
+  it("shows the singular phrasing when exactly one item was removed", () => {
+    render(
+      <SanitisedHint sanitised={{ removed: ["<script>"], removedTotal: 1 }} />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/1 item was removed/);
+    expect(hint.textContent).toContain("<script>");
+  });
+
+  it("shows the plural phrasing when more than one item was removed", () => {
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: ["<script>", "onclick=", "<foreignObject>"],
+          removedTotal: 3,
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/3 items were removed/);
+  });
+
+  it("lists every removed item inline when under the preview cap", () => {
+    // 5 items is right at the inline cap — every one appears in the
+    // visible preview, no "+ N more" tail.
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: ["<script>", "<iframe>", "onclick=", "onload=", "<foreignObject>"],
+          removedTotal: 5,
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    for (const removed of [
+      "<script>",
+      "<iframe>",
+      "onclick=",
+      "onload=",
+      "<foreignObject>",
+    ]) {
+      expect(hint.textContent).toContain(removed);
+    }
+    expect(hint.textContent).not.toMatch(/more/);
+  });
+
+  it("collapses the tail into '+ N more' when the removed list exceeds the inline cap", () => {
+    // 8 items > 5-item cap → first 5 shown, remaining 3 as "and 3 more".
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: [
+            "<script>",
+            "<iframe>",
+            "onclick=",
+            "onload=",
+            "<foreignObject>",
+            "onmouseover=",
+            "onfocus=",
+            "<animate>",
+          ],
+          removedTotal: 8,
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/and 3 more/);
+    // The first five appear inline; the last three appear in the count
+    // but not by name.
+    expect(hint.textContent).toContain("<foreignObject>");
+    expect(hint.textContent).not.toContain("onmouseover=");
+  });
+
+  it("uses `removedTotal` for the count (not the descriptor list length)", () => {
+    // The server caps the descriptor list at 20 but tracks the true
+    // count separately. For a pathological SVG with 50 stripped items,
+    // the banner should say "50 items removed" — matching the server
+    // log — not "20" (the visible sample size). Otherwise support
+    // gets reports of "the log said 50 but my screen said 20."
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: Array.from({ length: 20 }, (_, i) => `<bad${i}>`),
+          removedTotal: 50,
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/50 items were removed/);
+    // The "+N more" tail accounts for the gap between visible preview
+    // (5) and total (50).
+    expect(hint.textContent).toMatch(/and 45 more/);
+  });
+
+  it("renders gracefully when removed[] is empty but removedTotal > 0 (defensive)", () => {
+    // Schema permits this contract drift; the UI shouldn't render
+    // a stray ": " with nothing after it.
+    render(
+      <SanitisedHint sanitised={{ removed: [], removedTotal: 7 }} />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/7 items were removed for your security\./);
+    expect(hint.textContent).not.toMatch(/: \./);
+  });
+
+  it("uses role=status so the hint is announced to assistive tech", () => {
+    // The artist hits Upload and the banner appears below — without
+    // role=status, screen-reader users wouldn't notice the sanitiser
+    // changed anything.
+    render(
+      <SanitisedHint sanitised={{ removed: ["<script>"], removedTotal: 1 }} />,
+    );
+    // `getByRole` throws if missing — implicit assertion.
+    expect(screen.getByRole("status")).not.toBeNull();
   });
 });

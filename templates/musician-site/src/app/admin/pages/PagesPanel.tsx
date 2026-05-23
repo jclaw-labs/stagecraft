@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { TextField } from "@/components/admin/form";
+import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
+import { pendingItemSlugs } from "@/lib/draft-changes-filter";
 import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
 import {
   PAGE_SLUG_PATTERN,
@@ -60,6 +63,31 @@ export function PagesPanel({ initialPages }: Props) {
   const [draggingSlug, setDraggingSlug] = useState<string | null>(null);
   const [dragOverSlug, setDragOverSlug] = useState<string | null>(null);
   const [renamingPage, setRenamingPage] = useState<PageSummary | null>(null);
+  // Slugs of pages with unpublished (draft-vs-main) changes. Fetched
+  // once on mount from `/api/draft-changes` — the same endpoint the
+  // sidebar indicator polls — so each row can show an "Unpublished"
+  // badge. Best-effort: a failed fetch leaves the set empty (no
+  // badges) rather than blocking the list, and the set isn't
+  // live-refreshed after local mutations (create / rename / delete)
+  // — it reflects draft state as of page load, refreshed on the next
+  // navigation. In dev / unconfigured the endpoint returns an empty
+  // change list, so no badges show.
+  const [pendingSlugs, setPendingSlugs] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    // Shares the draft-changes read with the sidebar indicator that
+    // also mounts on this page — one compare call instead of two. A
+    // failed read leaves the set empty (no badges); the fetcher never
+    // rejects, so there's nothing to catch.
+    let cancelled = false;
+    void fetchDraftChangesShared().then((result) => {
+      if (cancelled || !result.ok) return;
+      setPendingSlugs(pendingItemSlugs(result.status.changes, "pages"));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const effectiveSlug = hasSlugBeenEdited ? newSlug : slugifyTitle(newTitle);
   const isSlugValid = effectiveSlug.length > 0 && PAGE_SLUG_PATTERN.test(effectiveSlug);
@@ -390,6 +418,7 @@ export function PagesPanel({ initialPages }: Props) {
                       {page.isSplashPage ? "/" : `/${page.slug}`}
                     </span>
                   </Link>
+                  {pendingSlugs.has(page.slug) ? <UnpublishedBadge /> : null}
                   {page.isSplashPage ? (
                     <span
                       title="Splash page — takes over /"

@@ -107,7 +107,35 @@ function formatPercent(unit: number): string {
   return `${rounded}%`;
 }
 
-export const uploadResponseSchema = z.object({ ok: z.literal(true), image: imageMetadataSchema });
+/**
+ * SVG-only: descriptors of items the sanitiser stripped from the
+ * uploaded bytes (e.g. `<script>`, `onclick=`). `removed` is capped
+ * server-side at `REMOVED_DESCRIPTOR_CAP` in `lib/svg-sanitise.ts`;
+ * `removedTotal` is the true (uncapped) count, so the picker's
+ * banner stays aligned with the server log even when the descriptor
+ * list is truncated.
+ *
+ * The picker UI uses this to surface "we stripped N items from your
+ * SVG" inline so the artist learns something was removed instead of
+ * silently seeing a different image.
+ *
+ * Permissive on `removed` (no `.min(1)`): the server guards against
+ * emitting an empty `sanitised` object, but a contract drift in
+ * either direction shouldn't turn a successful upload into a
+ * client-side error. The UI checks `removedTotal > 0` to decide
+ * whether to render the banner.
+ */
+export const sanitisedInfoSchema = z.object({
+  removed: z.array(z.string()),
+  removedTotal: z.number().int().min(0),
+});
+export type SanitisedInfoWire = z.infer<typeof sanitisedInfoSchema>;
+
+export const uploadResponseSchema = z.object({
+  ok: z.literal(true),
+  image: imageMetadataSchema,
+  sanitised: sanitisedInfoSchema.optional(),
+});
 export type UploadResponse = z.infer<typeof uploadResponseSchema>;
 
 export const uploadErrorSchema = z.object({ ok: z.literal(false), error: z.string() });

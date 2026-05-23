@@ -10,6 +10,33 @@ import {
   type MouseEvent,
 } from "react";
 
+import {
+  clampPan,
+  isZoomed,
+  pinchScale,
+  touchDistance,
+  ZOOM_RESET,
+  type ZoomState,
+} from "@/lib/lightbox-zoom";
+
+/**
+ * Minimum horizontal pixel delta for a touch gesture to count as a
+ * swipe (not a tap or jitter). Matches the value most mobile photo
+ * viewers settle on — small enough to feel responsive, big enough
+ * that a deliberate tap doesn't accidentally cycle the gallery.
+ */
+const SWIPE_THRESHOLD_PX = 50;
+
+/**
+ * Window after a successful swipe within which a backdrop click
+ * gets suppressed. Mobile browsers synthesise a `click` from
+ * touchstart+touchend on a normally-passive listener; without this
+ * suppression, a backdrop swipe would cycle the photo AND fire the
+ * backdrop-close handler. 500ms covers the worst-case touch→click
+ * latency seen in the wild on slow Android devices.
+ */
+const SWIPE_CLICK_SUPPRESS_MS = 500;
+
 /**
  * Single photo's worth of data the lightbox displays. The boot
  * component reads these off the `[data-photo-tile]` anchor's data-*
@@ -58,8 +85,38 @@ export type PhotoLightboxProps = {
  */
 export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxProps) {
   const [index, setIndex] = useState(() => clamp(initialIndex, images.length));
+  const [zoom, setZoom] = useState<ZoomState>(ZOOM_RESET);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // Touch swipe start point. Null when no active single-touch swipe
+  // is in flight; reset on touchend / touchcancel / gesture switch.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Active pinch (two-finger) gesture: the finger span + scale at the
+  // moment the second finger landed. Null when not pinching.
+  const pinchRef = useRef<{ startDistance: number; startScale: number } | null>(null);
+  // Active pan (one-finger drag while zoomed): the start point + the
+  // translation at drag start. Null when not panning.
+  const panRef = useRef<{
+    startX: number;
+    startY: number;
+    startTx: number;
+    startTy: number;
+  } | null>(null);
+  // Synchronous mirror of `zoom`, read inside the native touch
+  // listeners. It must be the source of truth (not a `[zoom]`-effect
+  // copy): the listeners decide pan-vs-swipe at gesture START off
+  // this value, and a one-finger touch landing immediately after a
+  // pinch ends (a separate browser task) would read a stale scale if
+  // the mirror only updated on a post-commit passive effect. `applyZoom`
+  // writes the ref and schedules the render together.
+  const zoomRef = useRef<ZoomState>(ZOOM_RESET);
+  // Wall-clock millisecond at which the most recent touch GESTURE
+  // ended (swipe, pinch, or pan). Mobile browsers synthesise a
+  // `click` from a touch sequence, so without this a gesture that
+  // ends on the backdrop would hit `handleBackdropClick` and close
+  // the modal. We suppress any backdrop close in a wide window after.
+  const lastSwipeAtRef = useRef<number>(0);
 
   const total = images.length;
   const current = images[index];
@@ -75,6 +132,15 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
     if (total <= 1) return;
     setIndex((i) => (i - 1 + total) % total);
   }, [total]);
+
+  // Single mutation path for zoom: compute the next state from the
+  // live ref, write the ref synchronously, then schedule the render.
+  // Stable identity (no deps) so the listener effect doesn't churn.
+  const applyZoom = useCallback((producer: (prev: ZoomState) => ZoomState) => {
+    const nextZoom = producer(zoomRef.current);
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  }, []);
 
   // Move keyboard focus into the modal on first paint so Esc / arrow
   // keys land on the dialog's keydown handler rather than whatever
@@ -94,6 +160,174 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
       document.body.style.overflow = previousOverflow;
     };
   }, []);
+
+  // Reset zoom whenever the active image changes — a pan/zoom from the
+  // previous photo shouldn't carry over to the next. `applyZoom` keeps
+  // zoomRef in sync synchronously.
+  useEffect(() => {
+    applyZoom(() => ZOOM_RESET);
+    pinchRef.current = null;
+    panRef.current = null;
+  }, [index, applyZoom]);
+
+  // Touch-gesture pipeline. Attached as NATIVE non-passive listeners
+  // (not React's synthetic onTouch*, which are passive since React 17)
+  // so the pinch / pan handlers can `preventDefault()` to stop the
+  // browser's own page-zoom + scroll while a gesture is in flight.
+  //
+  // Arbitration by touch count + zoom state:
+  //   - 2 fingers              → pinch-zoom
+  //   - 1 finger while zoomed  → pan
+  //   - 1 finger while at 1x   → swipe-to-navigate (the un-zoomed case)
+  useEffect(() => {
+    const el = dialogRef.current;
+    if (!el) return;
+
+    function measure(): { w: number; h: number } {
+      const img = imgRef.current;
+      // offsetWidth/Height are the layout size (unaffected by the CSS
+      // transform), i.e. the rendered size at scale 1 — exactly what
+      // clampPan needs to bound the translation.
+      return { w: img?.offsetWidth ?? 0, h: img?.offsetHeight ?? 0 };
+    }
+
+    function onTouchStart(event: globalThis.TouchEvent) {
+      if (event.touches.length === 2) {
+        const a = event.touches[0]!;
+        const b = event.touches[1]!;
+        pinchRef.current = {
+          startDistance: touchDistance(a, b),
+          startScale: zoomRef.current.scale,
+        };
+        panRef.current = null;
+        touchStartRef.current = null;
+        return;
+      }
+      if (event.touches.length === 1) {
+        const t = event.touches[0]!;
+        pinchRef.current = null;
+        if (isZoomed(zoomRef.current)) {
+          panRef.current = {
+            startX: t.clientX,
+            startY: t.clientY,
+            startTx: zoomRef.current.tx,
+            startTy: zoomRef.current.ty,
+          };
+          touchStartRef.current = null;
+        } else {
+          touchStartRef.current = { x: t.clientX, y: t.clientY };
+          panRef.current = null;
+        }
+        return;
+      }
+      // 3+ fingers — abandon any gesture.
+      pinchRef.current = null;
+      panRef.current = null;
+      touchStartRef.current = null;
+    }
+
+    function onTouchMove(event: globalThis.TouchEvent) {
+      if (pinchRef.current && event.touches.length === 2) {
+        event.preventDefault();
+        const a = event.touches[0]!;
+        const b = event.touches[1]!;
+        const scale = pinchScale(
+          pinchRef.current.startScale,
+          pinchRef.current.startDistance,
+          touchDistance(a, b),
+        );
+        const { w, h } = measure();
+        applyZoom((z) => clampPan({ scale, tx: z.tx, ty: z.ty }, w, h));
+        return;
+      }
+      if (panRef.current && event.touches.length === 1) {
+        event.preventDefault();
+        const t = event.touches[0]!;
+        const tx = panRef.current.startTx + (t.clientX - panRef.current.startX);
+        const ty = panRef.current.startTy + (t.clientY - panRef.current.startY);
+        const { w, h } = measure();
+        applyZoom((z) => clampPan({ scale: z.scale, tx, ty }, w, h));
+      }
+      // Un-zoomed single-finger move = a swipe in progress. We don't
+      // preventDefault (the body scroll-lock + touch-action already
+      // stop the browser doing anything) so the synthesised click
+      // still fires and the lastSwipeAtRef suppression can catch it.
+    }
+
+    function onTouchEnd(event: globalThis.TouchEvent) {
+      const wasGesturing =
+        pinchRef.current !== null ||
+        panRef.current !== null ||
+        touchStartRef.current !== null;
+
+      // Swipe-to-navigate: only when a swipe was armed (un-zoomed,
+      // single finger) and the gesture cleared the threshold.
+      const start = touchStartRef.current;
+      if (start && !isZoomed(zoomRef.current)) {
+        const t = event.changedTouches[0];
+        if (t) {
+          const dx = t.clientX - start.x;
+          const dy = t.clientY - start.y;
+          if (Math.abs(dx) >= SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)) {
+            if (dx < 0) next();
+            else prev();
+          }
+        }
+      }
+
+      // Pinch → pan handoff: one of two fingers lifted while zoomed.
+      // Seed a pan from the surviving finger so "pinch to zoom, then
+      // keep dragging with one finger" works without re-touching.
+      if (pinchRef.current && event.touches.length === 1) {
+        pinchRef.current = null;
+        if (isZoomed(zoomRef.current)) {
+          const t = event.touches[0]!;
+          panRef.current = {
+            startX: t.clientX,
+            startY: t.clientY,
+            startTx: zoomRef.current.tx,
+            startTy: zoomRef.current.ty,
+          };
+        }
+      } else if (pinchRef.current) {
+        // Pinch fully ended. If it settled back to ~1x, snap to reset
+        // so isZoomed() flips false and any residual translation clears.
+        applyZoom((z) => (isZoomed(z) ? z : ZOOM_RESET));
+      }
+
+      // Stamp any gesture end (swipe / pinch / pan) so the synthesised
+      // click the browser fires next on the backdrop is suppressed by
+      // handleBackdropClick — otherwise a gesture ending on the empty
+      // area beside the image could close the modal.
+      if (wasGesturing) {
+        lastSwipeAtRef.current = Date.now();
+      }
+
+      // Clear gesture state once every finger has lifted.
+      if (event.touches.length === 0) {
+        pinchRef.current = null;
+        panRef.current = null;
+        touchStartRef.current = null;
+      }
+    }
+
+    function onTouchCancel() {
+      pinchRef.current = null;
+      panRef.current = null;
+      touchStartRef.current = null;
+    }
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, [next, prev, applyZoom]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     switch (event.key) {
@@ -161,7 +395,16 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
   function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
     // Only close when the click landed on the backdrop itself, not
     // on a descendant (image, button, caption).
-    if (event.target === event.currentTarget) close();
+    if (event.target !== event.currentTarget) return;
+    // Suppress the synthesised click that follows a backdrop swipe:
+    // a horizontal swipe across the empty space beside the image
+    // would otherwise cycle AND close (browsers fire `click` after
+    // `touchend` when the move stays under their internal
+    // movement-cancels-click threshold, which is much larger than
+    // our 50px swipe threshold). Window is generous — touch→click
+    // synthesis can lag a few hundred ms on slow Android devices.
+    if (Date.now() - lastSwipeAtRef.current < SWIPE_CLICK_SUPPRESS_MS) return;
+    close();
   }
 
   if (!current) return null;
@@ -211,6 +454,7 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
       <figure style={figureStyle}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={current.url}
           alt={current.alt}
           // `width` + `height` are the intrinsic source dimensions
@@ -231,7 +475,17 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
           {...(current.width > 0 && current.height > 0
             ? { width: current.width, height: current.height }
             : {})}
-          style={imageStyle}
+          style={{
+            ...imageStyle,
+            transform: `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`,
+            transformOrigin: "center center",
+            // `grab` cursor hints the image is pannable once zoomed.
+            cursor: isZoomed(zoom) ? "grab" : undefined,
+            // Promote to a compositor layer only while zoomed so the
+            // per-touchmove transform updates stay on the GPU; release
+            // the layer at rest to avoid a permanent memory cost.
+            willChange: isZoomed(zoom) ? "transform" : undefined,
+          }}
           // The lightbox image is above the fold (it's the whole
           // viewport on open); eager load + high fetchpriority avoid
           // the blank-canvas-then-paint flash.
@@ -287,6 +541,11 @@ const overlayStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   padding: "var(--space-4)",
+  // We own all touch gestures (swipe / pinch / pan) via native
+  // listeners, so tell the browser not to run its own pan/zoom here.
+  // Taps + clicks are unaffected (touch-action only gates continuous
+  // gestures), so the close / nav buttons + backdrop click still work.
+  touchAction: "none",
 };
 
 const figureStyle: CSSProperties = {

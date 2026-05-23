@@ -7,7 +7,11 @@ import {
   NAME_FIELD_NAME,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  newsletterFieldAutoComplete,
+  newsletterReservedFieldNames,
+  normaliseNewsletterFieldType,
   parseMailchimpAudienceHoneypotName,
+  type NewsletterAdditionalField,
   type NewsletterService,
 } from "./newsletter-types";
 
@@ -81,6 +85,15 @@ export type NewsletterSignupProps = {
   hasNameField?: boolean;
   /** Label for the name field when `hasNameField` is true. */
   nameLabel?: string;
+  /**
+   * Extra fields beyond email + name. Each renders as a labelled
+   * input between the name field and the email row. The `name`
+   * attribute is verbatim from the artist's provider embed (we can't
+   * infer it the way we do for the curated name field). Rows missing
+   * a label or name are skipped at render — an artist mid-edit who
+   * added a row but hasn't filled it shouldn't ship a nameless input.
+   */
+  additionalFields?: NewsletterAdditionalField[];
 };
 
 export function NewsletterSignup({
@@ -92,6 +105,7 @@ export function NewsletterSignup({
   successMessage = "Thanks for subscribing! Check your inbox to confirm.",
   hasNameField = false,
   nameLabel = "First name",
+  additionalFields = [],
 }: NewsletterSignupProps) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Stable per-instance input ids so multiple signup forms on one
@@ -109,6 +123,33 @@ export function NewsletterSignup({
   // can't be derived.
   const mailchimpHoneypotName =
     service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+
+  // Names the form already owns. An additional field colliding with
+  // one of these would emit a duplicate `name=` input — the provider
+  // then receives two values for the same key (subscription breaks,
+  // silently, behind the opaque no-cors success), or a visible field
+  // shadows a honeypot. Colliding rows are dropped rather than shipped
+  // broken. Shared with the editor inspector's collision warning via
+  // `newsletterReservedFieldNames` (single source of truth).
+  const reservedNames = newsletterReservedFieldNames(service, hasNameField, actionUrl);
+
+  // Clean the artist's additional fields for render:
+  //   1. Drop incomplete rows (label or name blank — the inspector
+  //      seeds new rows empty; a nameless input can't post and an
+  //      unlabelled one fails a11y). `?? ""` guards hand-edited JSON
+  //      with null/missing keys so a bad row skips instead of
+  //      throwing on `.trim()` and crashing the whole render.
+  //   2. Normalise (trim name/label, coerce an out-of-union type to
+  //      text — on-disk data is untyped at runtime).
+  //   3. Drop rows whose name collides with a reserved form field.
+  const usableAdditional = additionalFields
+    .filter((f) => (f?.label ?? "").trim() !== "" && (f?.name ?? "").trim() !== "")
+    .map((f) => ({
+      label: (f.label ?? "").trim(),
+      name: (f.name ?? "").trim(),
+      type: normaliseNewsletterFieldType(f.type),
+    }))
+    .filter((f) => !reservedNames.has(f.name));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -212,6 +253,28 @@ export function NewsletterSignup({
           />
         </div>
       ) : null}
+
+      {usableAdditional.map((field, i) => {
+        // Index-keyed id: stable within a render, unique per field.
+        // Each field is its own row so labels stack cleanly above the
+        // primary email + submit row.
+        const fieldId = `${baseId}-additional-${i}`;
+        return (
+          <div key={fieldId} style={fieldRowStyle}>
+            <label htmlFor={fieldId} style={emailLabelStyle}>
+              {field.label}
+            </label>
+            <input
+              id={fieldId}
+              name={field.name}
+              type={field.type}
+              autoComplete={newsletterFieldAutoComplete(field.type)}
+              style={emailInputStyle}
+              placeholder={field.label}
+            />
+          </div>
+        );
+      })}
 
       <div style={fieldRowStyle}>
         <label htmlFor={emailId} style={emailLabelStyle}>

@@ -10,50 +10,48 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Photo lightbox
 
-- **Touch swipe gestures.** Mobile users currently navigate via the
-  arrow buttons (44×44 tap targets) or the close-to-cycle gestures
-  the browser provides on `<img>` swipes (none). The standard touch
-  UX is swipe-left-to-advance / swipe-right-to-go-back. Needs
-  pointer-event handling with `touchstart`/`touchmove`/`touchend`
-  delta + threshold logic, or a `usePan` hook abstraction. From #183.
-- **Pinch-zoom for high-DPR viewing.** Lightbox currently caps the
-  image at `max-height: calc(100vh - var(--space-32))`; pinch-zoom
-  on touch screens would let users inspect detail. Browser native
-  pinch-zoom on the page is suppressed by the body-scroll-lock; we'd
-  need an explicit transform-based zoom inside the modal. From #183.
-
-## Newsletter signup
-
-- **Generic "additional fields" array.** Today `hasNameField`
-  toggles a single first-name input. Artists may want phone, country,
-  or a custom field. An `additionalFields: { label, name, type }[]`
-  array would generalise; for v1 the name field covered the most-
-  common ask. From #181.
+- **Double-tap + desktop zoom controls.** Pinch-to-zoom ships for
+  touch (two-finger pinch + one-finger pan when zoomed), but there's
+  no zoom affordance for mouse/trackpad users — they have the full
+  lightbox-size variant already, but a double-tap-to-toggle gesture
+  and/or +/− buttons would round it out (double-tap also helps on
+  touch where a precise pinch is awkward). The gesture pipeline +
+  `ZoomState` are in place; this is additive. From lightbox-pinch-
+  zoom PR.
+- **iOS edge-swipe-back conflict.** A right-swipe starting near the
+  left edge of the screen can trigger iOS Safari's system-level
+  back-navigation instead of cycling to the previous photo. The
+  pinch-zoom PR moved the touch listeners to native non-passive
+  `addEventListener` (so `preventDefault` now works) and set
+  `touch-action: none` on the overlay, which should suppress most
+  of this — but the system edge gesture can still win from the very
+  screen edge. Remaining fix: `preventDefault()` on a swipe-start
+  within ~20px of the viewport edge. Defer until artists report it.
+  From lightbox-touch-swipe PR review.
+- **Multi-touch palm-grazing interrupts a swipe.** If a second
+  finger lands mid-swipe, the gesture switches to pinch and the
+  original one-finger swipe is abandoned; when the extra finger
+  lifts, the remaining finger doesn't re-arm a swipe until a fresh
+  touchstart. Two-finger phone use surfaces this occasionally. Fix
+  would track the primary touch's `identifier` and resume the
+  single-finger gesture when the touch count drops back to one.
+  From lightbox-touch-swipe PR review.
 
 ## Card
 
-- **`minimal` variant + `size` axis.** v2 ships with `filled` /
-  `outlined` and a single size. The legacy template adds a
-  `minimal` variant (no border, no padding — list-item-scale) and
-  a `size: sm / md / lg` axis. Skipped pending demand. From #187.
-- **Icon-mode media for non-image previews.** Audio / video / PDF
-  files render as generic icons in the legacy template via the
-  `mediaKind` inference. The new template's Card only supports
-  image previews. Audio / video / PDF tiles are useful for press-
-  kit / download list use cases. From #187.
+- **Hover affordance on `minimal` cards.** A `minimal` link/hoverable
+  card shares the `.stagecraft-card-link:hover` rule, which applies
+  `box-shadow: var(--shadow-md)` + a lift on hover. The lift reads
+  as a fine clickability cue, but the drop-shadow on a chrome-less
+  card (no border, no surface) floats around the content bounding
+  box, which can look slightly detached from the "bare list-item"
+  resting intent. The `border-color` shift in the same rule is a
+  no-op (minimal has no `border-style`), so there's no visible
+  border bug — only the shadow is debatable. A `minimal`-specific
+  hover rule that drops the shadow (keeping the lift) would tidy
+  this; it's a cosmetic judgment call, deferred. From card-minimal-
+  size PR review.
 
-
-## SVG handling
-
-- **Surface sanitisation removals in the upload response.** The
-  sanitiser already logs to `console.warn` when DOMPurify strips
-  content (admin-visible in Vercel / Netlify function logs). The
-  next step is to return the removal summary alongside the buffer
-  so the upload route can include it in the API response — the
-  picker UI could then surface a hint inline ("we stripped 2 items
-  from your SVG: `<script>`, `onclick=`"). Needs an API change to
-  `sanitiseSvg` to return `{ buffer, removed }` and a small UI
-  affordance in `ImagePickerField`. From svg-hardening-bundle PR.
 
 ## Carousel
 
@@ -65,36 +63,10 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Drawer search + categories
 
-- **Short-circuit the visibility dispatch when no filter is active.**
-  `DrawerCategoryVisibilitySync` currently dispatches `setUi` on every
-  mount and every filter change, even when `filter === ""` (the
-  branch where every category resolves to `visible: true` — a no-op
-  against Puck's initialisation). An early return on empty filter
-  would save one dispatch per drawer mount and per filter clear. Pure
-  perf nit; the unconditional path is correct and cheap. From #189
-  deep review.
 - **`Media` category split as it grows.** Currently holds Image,
   ImageCarousel, Embed, EmbedResponsive (visuals + iframes mixed).
   As ADR-009 collection blocks land (`<TourDatesList>`,
   `<ReleasesGrid>` etc.), this bucket will swell. Worth splitting
   into `Images` + `Embeds` if the count crosses ~8. From #173 deep
   review.
-- **Regression test for the drawer-filter category sync.** The
-  expanded-preservation + recordHistory:false fix shipped in #189
-  without a unit test — driving Puck's reducer is heavy and we
-  verified manually instead. Could be testable if the `(filter,
-  categories) → visibility-map` reduction is extracted into a pure
-  helper. From #189 deep review.
 
-## Puck inspector
-
-- **Cleaner null state on per-page `pageBackgroundOverlay`.** The
-  field's default is `null` (= "inherit site default"); the artist
-  can override with a number 0..1. Puck's `type: "number"` field
-  doesn't cleanly distinguish "empty / cleared" from "0" — the
-  serialised value may end up `0` (which `extractPageRootProps`
-  treats as "explicit no-tint override") instead of `null`. Runtime
-  is safe via the validator; UX is the wrinkle. Options: pair the
-  number field with an "Inherit site default" radio; or accept the
-  v1 contract that 0 = no tint here, null = inherit (works when
-  Puck preserves null). From pageBackgroundOverlay PR.

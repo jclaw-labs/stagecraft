@@ -29,6 +29,7 @@ import type { Data as PuckData } from "@measured/puck";
 import type { ImageMetadata } from "../image-types";
 
 import type {
+  CollectionDef,
   CollectionRefValue,
   FieldId,
   FieldValue,
@@ -163,3 +164,24 @@ export const getPuckContentOrNull = (i: Item, f: FieldId): PuckData | null =>
 
 export const hasField = (i: Item, f: FieldId): boolean => f in i.values;
 export const getFieldValue = (i: Item, f: FieldId): FieldValue | undefined => i.values[f];
+
+// ---------------------------------------------------------------------------
+// Display label
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-facing label for an item — the value of its `slugSourceFieldId`
+ * (e.g. a page's title, "About Us"), falling back to the slug when the
+ * collection has no slug source, the field is missing, or it's empty.
+ * Used by the admin list views and the publish modal so an artist reads
+ * names, not slugs. Never throws — `slugSourceFieldId` is a text field
+ * by schema, but this tolerates drift (wrong type / absent) by falling
+ * back to the slug rather than raising.
+ */
+export function itemDisplayLabel(def: CollectionDef, item: Item): string {
+  if (def.slugSourceFieldId) {
+    const fv = item.values[def.slugSourceFieldId];
+    if (fv && fv.type === "text" && fv.value.trim()) return fv.value.trim();
+  }
+  return item.slug;
+}

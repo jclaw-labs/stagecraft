@@ -33,7 +33,14 @@ import {
   readEnv,
   type Env,
 } from "./publish";
-import { ORDER_FILE_NAME, SINGLETON_ITEM_SLUG } from "./collections";
+import {
+  itemDisplayLabel,
+  ORDER_FILE_NAME,
+  SINGLETON_ITEM_SLUG,
+  type CollectionDef,
+  type ReadStore,
+} from "./collections";
+import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
 
 /**
  * Normalized per-file change shape. Discriminated by `kind` so the
@@ -61,6 +68,17 @@ export type DraftChange =
       // Unset when previous path is missing or in a non-item shape
       // (cross-directory move, etc.).
       previousItemSlug?: string;
+      // Populated only when the rename's previous path was in a
+      // *different* collection than the current one (an unusual
+      // "moved across collections" case, normally from hand-edited
+      // files — our own renameItem flow is single-collection). When
+      // unset, the previous item sits in the same `collectionSlug`.
+      previousCollectionSlug?: string;
+      // Human-facing label (the `slugSourceFieldId` value, e.g.
+      // "About Us") resolved by `enrichItemLabels` for the publish
+      // modal. Unset on the base diff and on removed items (gone from
+      // draft, so unreadable) — consumers fall back to `itemSlug`.
+      displayName?: string;
     }
   | {
       kind: "singleton";
@@ -101,16 +119,37 @@ export type DraftChange =
  * - `mode: "github"` — production. `count` is the length of
  *   `changes` (image variants collapsed). A fresh site with no
  *   `draft` branch yet resolves to `count: 0`, `changes: []`.
+ *
+ * `truncated` flips to `true` when the compare API's file list hits
+ * its hard cap (`COMPARE_FILES_PAGE_SIZE`, 300). The cap is documented
+ * GitHub behaviour with no pagination on this endpoint; consumers
+ * should render "300+" rather than "300" and surface the cap in the
+ * Publish modal so the artist understands the diff preview is
+ * incomplete. The actual publish commits the full draft tree
+ * regardless — the cap only affects what we can show, not what we
+ * push.
  */
 export type DraftChanges = {
   count: number;
   changes: DraftChange[];
   mode: "local" | "github";
+  truncated: boolean;
 };
 
 const ITEM_PATH = /^src\/content\/collections\/([^/]+)\/items\/([^/]+)\.json$/;
 const DEF_PATH = /^src\/content\/collections\/([^/]+)\/_collection\.json$/;
 const IMAGE_PATH = /^public\/images\/([^/]+)\/([^/]+)\//;
+
+/**
+ * GitHub's `compareCommitsWithBasehead` returns at most this many
+ * file entries — documented + observed behaviour, no pagination
+ * available on this endpoint. We treat any response whose
+ * `files.length` hits this exactly as "truncated" defensively
+ * (a real 300-change diff renders as "300+", a 301-change diff
+ * renders as "300+"; we can't tell them apart from a single
+ * compare call).
+ */
+const COMPARE_FILES_PAGE_SIZE = 300;
 
 function normalizeStatus(s: string): DraftChangeStatus | null {
   if (s === "added") return "added";
@@ -155,9 +194,17 @@ function parseChange(file: {
       // moves, etc.) flow through as `previousPath` only.
       const prevItemMatch = file.previous_filename.match(ITEM_PATH);
       if (prevItemMatch) {
-        const [, , prevSlug] = prevItemMatch;
+        const [, prevCollectionSlug, prevSlug] = prevItemMatch;
         if (prevSlug !== SINGLETON_ITEM_SLUG && prevSlug !== ORDER_FILE_NAME) {
           out.previousItemSlug = prevSlug;
+          // Only record the source collection when it actually
+          // differs — the modal uses presence of this field to
+          // decide whether to render the expanded
+          // `prevColl · prevSlug → currColl · newSlug` form vs the
+          // compact same-collection one.
+          if (prevCollectionSlug !== collectionSlug) {
+            out.previousCollectionSlug = prevCollectionSlug;
+          }
         }
       }
     }
@@ -244,7 +291,7 @@ function errorMessage(cause: unknown): string {
 
 export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChanges> {
   if (!isPlatformConfigured(env)) {
-    return { count: 0, changes: [], mode: "local" };
+    return { count: 0, changes: [], mode: "local", truncated: false };
   }
 
   let token: string;
@@ -269,22 +316,121 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
       repo,
       basehead: `${env.branch}...${DRAFT_BRANCH}`,
     });
-    const changes = parseChanges(compare.data.files ?? []);
+    const files = compare.data.files ?? [];
+    const changes = parseChanges(files);
     return {
       count: changes.length,
       changes,
       mode: "github",
+      truncated: files.length >= COMPARE_FILES_PAGE_SIZE,
     };
   } catch (cause) {
     // Fresh site: no `draft` branch yet → compare 404s on the head.
     // Saving the first item is what creates the branch; until then
     // there's nothing to publish.
     if (cause instanceof RequestError && cause.status === 404) {
-      return { count: 0, changes: [], mode: "github" };
+      return { count: 0, changes: [], mode: "github", truncated: false };
     }
     throw new DraftChangesError(
       "github-failed",
       `compare ${env.branch}...${DRAFT_BRANCH}: ${errorMessage(cause)}`,
     );
   }
+}
+
+/**
+ * Slugs of items in `collectionSlug` that have unpublished changes,
+ * for the admin list views that badge pending rows.
+ *
+ * Degrades to an empty set on any `DraftChangesError` (broker blip,
+ * GitHub 5xx): the badge is a hint, not load-bearing, so a list that
+ * can't reach the compare API renders without badges rather than
+ * failing. Dev / unconfigured returns an empty change list (no error),
+ * so badges simply don't appear locally. The page render still pays
+ * one compare call — the same the sidebar indicator already makes —
+ * so list surfaces stay self-contained until the fetch-dedup work
+ * lands (see ADR-010 deferred work).
+ */
+export async function getPendingItemSlugs(
+  collectionSlug: string,
+  env: Env = readEnv(),
+): Promise<Set<string>> {
+  try {
+    const { changes } = await getDraftChanges(env);
+    return pendingItemSlugs(changes, collectionSlug);
+  } catch (cause) {
+    if (cause instanceof DraftChangesError) {
+      return new Set();
+    }
+    throw cause;
+  }
+}
+
+/**
+ * Whether `collectionSlug`'s singleton has unpublished changes, for the
+ * custom singleton panels (Site Settings, Header & Navigation,
+ * Appearance) to badge their title. Degrades to `false` on a
+ * `DraftChangesError` for the same reason `getPendingItemSlugs`
+ * degrades to an empty set — the badge is a hint, not load-bearing.
+ */
+export async function getHasPendingSingletonChange(
+  collectionSlug: string,
+  env: Env = readEnv(),
+): Promise<boolean> {
+  try {
+    const { changes } = await getDraftChanges(env);
+    return hasPendingSingleton(changes, collectionSlug);
+  } catch (cause) {
+    if (cause instanceof DraftChangesError) {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+/**
+ * Enrich `item` changes with a human-facing `displayName` (the
+ * `slugSourceFieldId` value, e.g. "About Us") for the publish modal,
+ * reading each present item from the draft store.
+ *
+ * NOT folded into `getDraftChanges`: the indicator + per-row badges
+ * don't need labels and shouldn't pay N item reads. Only the modal
+ * opts in (via `/api/draft-changes?labels=1`).
+ *
+ * - `removed` items are skipped (gone from draft, so unreadable) —
+ *   consumers fall back to the slug.
+ * - Reads run in parallel; the collection def is read once per
+ *   collection (a publish often touches several items in one).
+ * - A per-item failure leaves that change un-enriched rather than
+ *   failing the batch: labels are a nicety, the publish doesn't depend
+ *   on them.
+ */
+export async function enrichItemLabels(
+  changes: DraftChange[],
+  store: ReadStore,
+): Promise<DraftChange[]> {
+  const defByCollection = new Map<string, Promise<CollectionDef | null>>();
+  const readDef = (slug: string): Promise<CollectionDef | null> => {
+    let pending = defByCollection.get(slug);
+    if (!pending) {
+      pending = store.readCollectionDef(slug);
+      defByCollection.set(slug, pending);
+    }
+    return pending;
+  };
+
+  return Promise.all(
+    changes.map(async (change) => {
+      if (change.kind !== "item" || change.status === "removed") return change;
+      try {
+        const def = await readDef(change.collectionSlug);
+        if (!def) return change;
+        const item = await store.readItem(change.collectionSlug, change.itemSlug, def);
+        if (!item) return change;
+        return { ...change, displayName: itemDisplayLabel(def, item) };
+      } catch {
+        return change;
+      }
+    }),
+  );
 }

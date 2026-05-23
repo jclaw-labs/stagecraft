@@ -95,5 +95,28 @@ export function publishErrorHttpStatus(code: PublishError["code"]): number {
  * 200 matches what git tooling and most code-review surfaces show
  * before truncation; content longer than that usually belongs in a
  * body, not the subject.
+ *
+ * Kept distinct from `MAX_COMMIT_MESSAGE_LENGTH` because the
+ * indicator's character counter is still subject-only for the
+ * counter ramp's purpose — the cap a *subject* is too long, vs
+ * "the whole message is too long" — but the route accepts a
+ * multi-line message up to the larger length so the artist can
+ * write a body if they want.
  */
 export const MAX_COMMIT_SUBJECT_LENGTH = 200;
+
+/**
+ * Hard cap on the artist's override of the publish commit message
+ * (subject + optional body, separated by a blank line per git
+ * convention). The modal's `<textarea>` enforces this client-side
+ * and the route's `z.string().max()` matches. Picked at 2000 to
+ * accommodate a paragraph or two of free-form context without
+ * letting the artist paste a novel.
+ *
+ * The first line of the message is the commit subject for `git
+ * log --oneline`; lines after a blank line are the body. Our
+ * route appends a `Stagecraft-Publish-Id` trailer after the
+ * artist's message, so the artist's content never collides with
+ * the trailer's namespace.
+ */
+export const MAX_COMMIT_MESSAGE_LENGTH = 2000;

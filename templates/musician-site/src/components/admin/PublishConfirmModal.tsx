@@ -40,7 +40,11 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
-import { MAX_COMMIT_SUBJECT_LENGTH } from "@/lib/publish-types";
+import { fetchDraftChangesWithLabels } from "@/lib/draft-changes-client";
+import {
+  MAX_COMMIT_MESSAGE_LENGTH,
+  MAX_COMMIT_SUBJECT_LENGTH,
+} from "@/lib/publish-types";
 
 // Match `PagesPanel.tsx`'s modal pattern: capture the
 // previously-focused element on mount, focus the primary action
@@ -50,16 +54,8 @@ import { MAX_COMMIT_SUBJECT_LENGTH } from "@/lib/publish-types";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "loaded"; changes: DraftChange[] }
+  | { kind: "loaded"; changes: DraftChange[]; truncated: boolean }
   | { kind: "error" };
-
-type ResponseBody =
-  | {
-      ok: true;
-      status: { count: number; changes: DraftChange[]; mode: "local" | "github" };
-    }
-  | { ok: false; code?: string; error?: string }
-  | null;
 
 export function PublishConfirmModal({
   onCancel,
@@ -81,27 +77,27 @@ export function PublishConfirmModal({
   const triggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const ac = new AbortController();
-    async function load() {
-      try {
-        const res = await fetch("/api/draft-changes", {
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const body = (await res.json().catch(() => null)) as ResponseBody;
-        if (ac.signal.aborted) return;
-        if (!res.ok || !body || !body.ok) {
-          setState({ kind: "error" });
-          return;
-        }
-        setState({ kind: "loaded", changes: body.status.changes });
-      } catch (cause) {
-        if (cause instanceof Error && cause.name === "AbortError") return;
+    // Labeled read (`?labels=1`) so the change list shows item display
+    // names ("About Us") rather than slugs — it costs a per-item store
+    // read server-side, which the lightweight chrome reads skip. Never
+    // rejects: failures surface as `{ ok: false }` → the error state.
+    // `cancelled` guards a late resolve after the artist closes the modal.
+    let cancelled = false;
+    void fetchDraftChangesWithLabels().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
         setState({ kind: "error" });
+        return;
       }
-    }
-    void load();
-    return () => ac.abort();
+      setState({
+        kind: "loaded",
+        changes: result.status.changes,
+        truncated: result.status.truncated,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Sync the auto-generated default into the subject field whenever
@@ -180,22 +176,26 @@ export function PublishConfirmModal({
             {/* Counter is `aria-hidden` because user agents already
                 announce remaining `maxLength` via the input's
                 attribute; surfacing "N / 200" verbally on every
-                keypress would be noisy. The visible count is for
-                sighted users tracking proximity to the cap. */}
+                keypress would be noisy. The visible count tracks
+                the *first line* (git's subject), since the artist
+                ramp + body convention only cares about the subject
+                length — long bodies are fine, long subject lines
+                aren't. Total message length is capped separately by
+                `MAX_COMMIT_MESSAGE_LENGTH` on the textarea + route. */}
             <span
               aria-hidden="true"
-              style={counterStyleFor(subject.length, MAX_COMMIT_SUBJECT_LENGTH)}
+              style={counterStyleFor(subjectLineLength(subject), MAX_COMMIT_SUBJECT_LENGTH)}
             >
-              {`${subject.length} / ${MAX_COMMIT_SUBJECT_LENGTH}`}
+              {`${subjectLineLength(subject)} / ${MAX_COMMIT_SUBJECT_LENGTH}`}
             </span>
           </div>
-          <input
+          <textarea
             id="publish-commit-subject"
-            type="text"
             value={subject}
-            maxLength={MAX_COMMIT_SUBJECT_LENGTH}
+            maxLength={MAX_COMMIT_MESSAGE_LENGTH}
             placeholder="Publish pending changes"
             disabled={isPublishing}
+            rows={3}
             onChange={(e) => {
               setSubject(e.target.value);
               setSubjectTouched(true);
@@ -248,6 +248,15 @@ function Body({ state }: { state: LoadState }): ReactNode {
   const groups = groupChanges(state.changes);
   return (
     <div style={groupsContainerStyle}>
+      {/* Heads-up when the compare API truncated the file list. The
+          publish flow still commits the full draft tree — the cap
+          only affects what we can show, not what we push. */}
+      {state.truncated ? (
+        <p style={truncatedNoticeStyle} role="status">
+          Showing the first {state.changes.length} changes. Publishing
+          commits everything pending.
+        </p>
+      ) : null}
       {groups.map((group) => (
         <section key={group.key} style={groupSectionStyle}>
           <h3 style={groupHeadingStyle}>
@@ -340,15 +349,28 @@ function defaultSubject(count: number): string {
 
 function describeLabel(c: DraftChange): string {
   switch (c.kind) {
-    case "item":
-      // For renames where we successfully parsed the source slug, show
-      // "previous → current" so the artist can confirm the change is
-      // the one they meant. Falls through to plain slug when no
-      // previousItemSlug is set (non-renamed change, or rename with a
-      // non-item previous path).
-      return c.previousItemSlug && c.previousItemSlug !== c.itemSlug
-        ? `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`
-        : `${c.collectionSlug} · ${c.itemSlug}`;
+    case "item": {
+      // For renames we surface the source — slug, collection, or both
+      // — so the artist can confirm the change is the one they meant.
+      // Cross-collection renames always render the arrow (even when
+      // the slug didn't move) because the move itself is the change.
+      // Same-collection renames only render the arrow when the slug
+      // actually changed; otherwise GitHub flagged a content-mode
+      // shift as renamed and the arrow would be a spurious cue.
+      const sameSlug = c.previousItemSlug === c.itemSlug;
+      const crossCollection = c.previousCollectionSlug !== undefined;
+      if (crossCollection) {
+        const prevSlug = c.previousItemSlug ?? c.itemSlug;
+        return `${c.previousCollectionSlug} · ${prevSlug} → ${c.collectionSlug} · ${c.itemSlug}`;
+      }
+      if (c.previousItemSlug && !sameSlug) {
+        return `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`;
+      }
+      // Plain edit / add: prefer the artist's display name ("About Us")
+      // over the slug ("about") when the labeled read resolved one.
+      // Renames keep slugs above — the slug move is the point there.
+      return `${c.collectionSlug} · ${c.displayName ?? c.itemSlug}`;
+    }
     case "singleton":
       return `${c.collectionSlug}`;
     case "def":
@@ -407,6 +429,16 @@ const mutedCopyStyle: CSSProperties = {
   margin: 0,
   fontSize: "var(--font-size-sm)",
   color: "var(--color-text-muted)",
+};
+
+const truncatedNoticeStyle: CSSProperties = {
+  margin: 0,
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-emphasis)",
+  background: "var(--color-surface-raised)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
 };
 
 const groupsContainerStyle: CSSProperties = {
@@ -513,6 +545,18 @@ const labelTextStyle: CSSProperties = {
  * "at". Below 180 stays default-muted so the counter is unobtrusive
  * during normal use.
  */
+/**
+ * Length of the first line of the commit message — what git
+ * stores as the "subject" and what tooling shows in `git log
+ * --oneline`. The counter ramp tracks this rather than the whole
+ * message because a long body is fine; a long subject is the
+ * thing that gets truncated by code-review surfaces.
+ */
+function subjectLineLength(message: string): number {
+  const newline = message.indexOf("\n");
+  return newline === -1 ? message.length : newline;
+}
+
 function counterStyleFor(length: number, max: number): CSSProperties {
   if (length >= max) return atLimitCounterStyle;
   if (length >= Math.floor(max * 0.9)) return nearLimitCounterStyle;
@@ -540,12 +584,22 @@ const atLimitCounterStyle: CSSProperties = {
 const inputStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   fontSize: "var(--font-size-sm)",
+  // `inherit` so the textarea picks up the modal's body font
+  // rather than the user-agent monospace default. Multi-line
+  // commit messages read better in the same family as the rest of
+  // the modal copy.
+  fontFamily: "inherit",
+  lineHeight: "var(--line-height-base)",
   border: "1px solid var(--color-border-strong)",
   background: "var(--color-surface)",
   color: "var(--color-text)",
   borderRadius: "var(--radius-sm)",
   width: "100%",
   boxSizing: "border-box",
+  // Vertical-only resize keeps the modal's column layout intact —
+  // a horizontally-stretched textarea would push past the modal
+  // chrome.
+  resize: "vertical",
 };
 
 const buttonRowStyle: CSSProperties = {

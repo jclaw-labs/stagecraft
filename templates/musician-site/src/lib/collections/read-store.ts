@@ -87,6 +87,17 @@ export interface ReadStore {
   listCollectionSlugs(): Promise<string[]>;
   /** Which backend the store ended up using. Useful for logging / debugging. */
   readonly mode: ReadStoreMode;
+  /**
+   * Whether this request is serving the stale FS snapshot because the
+   * live `draft` was unreachable — either the broker token mint failed
+   * (`broker-unreachable`) or a per-read draft fetch fell back. False
+   * in normal dev (unconfigured → FS by design, not a degradation) and
+   * in healthy production. For the draft-backed store the flag flips as
+   * reads fall back, so read it *after* the request's reads have run
+   * (the admin chrome checks it once the page's data is loaded). Drives
+   * the "GitHub unavailable — read-only" banner.
+   */
+  wasDegraded(): boolean;
 }
 
 /**
@@ -120,6 +131,22 @@ function isRecoverable(err: unknown): err is DraftReadError {
 }
 
 /**
+ * The subset of recoverable codes that mean "the live draft is
+ * genuinely unreachable" — what the read-only banner is for. We fall
+ * back for every recoverable code, but only these flip `wasDegraded()`:
+ *
+ * - `branch-missing` is a normal fresh-site state (the FS snapshot is
+ *   the truth), not an outage — no banner.
+ * - `too-large` is a single oversized file; the draft is still
+ *   reachable, so the site isn't in read-only-fallback mode — no
+ *   banner for one file.
+ */
+const DEGRADED_CODES: ReadonlySet<DraftReadError["code"]> = new Set([
+  "github-unreachable",
+  "rate-limited",
+]);
+
+/**
  * Build a read store for the current request. In dev / unconfigured
  * environments, returns a FS-only store immediately (no network).
  * In production, mints a draft token + returns a draft-backed store
@@ -151,7 +178,10 @@ export async function getReadStore(): Promise<ReadStore> {
       console.warn(
         `[read-store] Broker unreachable; falling back to FS snapshot for this request: ${cause.message}`,
       );
-      return fsReadStore();
+      // Degraded: the platform IS configured but we couldn't reach the
+      // broker, so this is a stale-but-readable fallback (banner-worthy),
+      // unlike the unconfigured-dev path below.
+      return fsReadStore(true);
     }
     throw cause;
   }
@@ -189,9 +219,10 @@ export const getFsReadStore = cache((): ReadStore => fsReadStore());
  * must read the build-time FS snapshot of `main` (what visitors see)
  * rather than the artist's live draft branch.
  */
-function fsReadStore(): ReadStore {
+function fsReadStore(degraded = false): ReadStore {
   return {
     mode: "fs",
+    wasDegraded: () => degraded,
     readCollectionDef: (slug) => fsStore.readCollectionDef(slug),
     readItem: (slug, itemSlug, def) => fsStore.readItem(slug, itemSlug, def),
     readSingleton: (slug, def) => fsStore.readSingleton(slug, def),
@@ -207,6 +238,10 @@ function fsReadStore(): ReadStore {
  * error codes. Non-recoverable errors bubble.
  */
 function draftReadStoreWithFallback(ctx: DraftStoreContext): ReadStore {
+  // Flips true the first time any read falls back to the FS snapshot.
+  // Read via `wasDegraded()` after the request's reads have run.
+  let degraded = false;
+
   async function wrap<T>(
     draftCall: () => Promise<T>,
     fsCall: () => Promise<T>,
@@ -218,6 +253,7 @@ function draftReadStoreWithFallback(ctx: DraftStoreContext): ReadStore {
         console.warn(
           `[read-store] Draft fetch failed (${err.code}); falling back to FS snapshot.`,
         );
+        if (DEGRADED_CODES.has(err.code)) degraded = true;
         return fsCall();
       }
       throw err;
@@ -226,6 +262,7 @@ function draftReadStoreWithFallback(ctx: DraftStoreContext): ReadStore {
 
   return {
     mode: "draft+fs-fallback",
+    wasDegraded: () => degraded,
     readCollectionDef: (slug) =>
       wrap(
         () => draftStore.readCollectionDefFromDraft(ctx, slug),

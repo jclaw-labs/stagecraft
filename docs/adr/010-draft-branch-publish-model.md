@@ -375,12 +375,25 @@ The publish-token endpoint surface is unchanged.
 
 ### Runtime + storage
 
-- **GitHub dependency for admin reads.** With reads sourced from
-  `draft` via API, a GitHub outage breaks the admin. Graceful
-  degradation: container's baked-in main snapshot serves as a
-  stale-but-readable fallback, with edits disabled and a "GitHub
-  unavailable — read-only mode" banner.
-  *Trigger:* first user-reported incident. Mitigation is ~30 lines.
+- **GitHub-down admin resilience — banner shipped; edit-disabling
+  deferred.** Reads already degrade gracefully: the read store falls
+  back to the container's baked-in `main` snapshot when `draft` is
+  unreachable (`getReadStore` → `draft+fs-fallback`). PR 5v surfaces
+  that state — `ReadStore.wasDegraded()` flips on a genuine outage
+  (broker-unreachable token mint, or a per-read `github-unreachable` /
+  `rate-limited` fallback; deliberately *not* on `branch-missing` or a
+  single `too-large` file), and `AdminShell` renders a "GitHub
+  unavailable — you're viewing the last published version" banner.
+  The chrome's global mutate actions — **Publish** and **Discard** —
+  are now disabled while degraded (PR 5w), since both require GitHub and
+  would otherwise fail; `AdminShell` threads `isDegraded` into them.
+  Remaining: the per-surface save affordances (the singleton-panel /
+  generic-editor `SaveBar`s and the Puck editor's publish) aren't yet
+  greyed out — a save there fails through the normal publish-error path
+  (the SaveBar shows the error) rather than being blocked up front.
+  Threading `wasDegraded` into those surfaces is the follow-up.
+  *Trigger:* artists report confusing save failures during an outage —
+  then disable the per-surface save affordances behind the same signal.
 
 - **Per-session draft isolation.** Multi-artist sites with
   concurrent draft work share one branch. Publishing publishes
@@ -413,61 +426,58 @@ The publish-token endpoint surface is unchanged.
 
 ### Publish UX
 
-- **Commit message: multi-line body.** The override input is
-  subject-only (single-line). Git commits also accept a body
-  separated by a blank line; the auto-generated message that the
-  ADR §3 example sketches uses one (with bulleted items). A
-  textarea variant could expose this when an artist wants
-  richer notes.
-  *Trigger:* an artist asks for line breaks in the commit
-  message.
-
-- **Diff preview: richer item labels.** The publish modal shows
-  collection slugs + item slugs ("pages · about"). The artist's
-  display name for the item (e.g., the `slugSourceFieldId`'s
-  value — "About Us") would read better but needs a per-item
-  read at modal-open time.
-  *Trigger:* artists routinely confuse "about" with "about-us"
-  or similar near-duplicate slugs.
-
-- **Diff preview: cross-collection rename context.** Renames within
-  one collection render as "X · old → new" (shipped). When GitHub's
-  rename heuristic detects a similarity across collections (file
-  manually moved from `collections/A/items/x.json` to
-  `collections/B/items/x.json`), the label reads "B · old → new"
-  and drops "A" — losing the source-collection context. Our actual
-  `renameItem` flow is single-collection so this only happens with
-  hand-moved files. Defer until a real workflow surfaces it.
-  *Trigger:* artists reporting confusion about cross-collection
-  moves in the diff.
+- **Diff preview: richer item labels — shipped.** The publish modal
+  now shows the artist's display name ("pages · About Us") instead of
+  the slug, via an opt-in `/api/draft-changes?labels=1` read that
+  resolves each item's `slugSourceFieldId` value server-side
+  (`enrichItemLabels` + the shared `itemDisplayLabel` helper). The
+  lightweight chrome reads (indicator + per-row badges) skip labels so
+  they don't pay the per-item reads. Renames keep slugs
+  ("pages · about → about-us") — the slug move is the point there.
+  Remaining cost: a publish near the 300-file compare cap does up to
+  ~300 parallel item reads on modal-open (fine for typical publishes;
+  the modal shows a loading state).
+  *Trigger:* the per-item reads show up as slow modal opens on large
+  publishes — then batch the reads or cap enrichment.
 
 - **Per-item Publish (publish A but not B).** Today's model is
   "publish everything pending." Per-item Publish would need
   per-session branches or a fancy diff-extraction trick.
   *Trigger:* a real workflow where it matters.
 
-- **Diff view: what's pending on draft vs main.** The admin
-  could surface a per-item "modified since last publish" badge.
-  Useful at scale; v1 only surfaces the global "has pending
-  changes" indicator.
-  *Trigger:* when more than ~5 items are routinely pending
-  between publishes.
+- **Pending badge on the generic per-item editor — declined.** The
+  "Unpublished" badge now covers every surface where it helps an artist
+  scan for pending work: the Pages list (PR 5q), the generic collection
+  lists (`/admin/collections/<slug>`, PR 5r), and the custom singleton
+  panels (Site Settings, Header & Navigation, Appearance — PR 5t,
+  badged on the panel title via `getHasPendingSingletonChange`). All
+  routed through the shared `pendingItemSlugs` / `hasPendingSingleton`
+  filters + the `UnpublishedBadge` component. The one surface left
+  without it is the generic per-item editor
+  (`/admin/collections/<slug>/items/<slug>`) — deliberately: you're
+  already editing that item, so a "this has unpublished changes" hint
+  there adds nothing.
+  *Trigger:* an artist asks for an at-a-glance pending marker while
+  inside the editor (unlikely).
 
-- **Pending-changes count caps at 300.** GitHub's compare API
-  truncates the `files` array at 300 entries; `PendingChangesIndicator`
-  reads the array length, so the count maxes out there. The
-  boolean "anything pending?" signal stays accurate because the
-  array is non-empty when any change exists. Fix is either "300+"
-  affordance or paging via `ahead_by` + per-commit walks.
-  *Trigger:* an artist reports the count looks wrong.
-
-- **Cross-request broker-token cache.** Every admin nav re-mints a
-  fresh GitHub App installation token (`fetchPublishToken`). The
-  read-store dedupes per-request via `React.cache`, but each new
-  request pays the broker round-trip again. A short-TTL module-
-  level cache would amortise this across the artist's session.
-  *Trigger:* broker mint latency shows up as a real fraction of
-  admin page load times.
+- **Collapse the server/client draft-changes split on collection
+  pages.** The client-side reads are now coalesced:
+  `fetchDraftChangesShared` (a module-level in-flight promise) folds
+  the simultaneous on-mount reads — the sidebar
+  `PendingChangesIndicator` plus `PagesPanel`'s badges — into one
+  compare call, and the Publish modal shares it when open during the
+  window. It's in-flight-only, not a TTL cache, so a save → navigate
+  sequence still reflects immediately (the `no-store` freshness intent
+  is preserved; a lingering result cache would have regressed it).
+  What remains: on `/admin/collections/<slug>` the list reads the diff
+  server-side (`getPendingItemSlugs` at render) while the indicator
+  reads it client-side — two compare calls the client coalescer can't
+  bridge. Passing the server render's result down into the indicator
+  (so it skips its own fetch) would close it, but per-call cost is
+  modest (broker token process-cached per PR 5m) so it's
+  amortise-later.
+  *Trigger:* the remaining duplicate compare calls show up in traffic
+  profiles.
 
 ## Consequences
 

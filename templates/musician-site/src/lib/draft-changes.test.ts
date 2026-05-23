@@ -18,7 +18,15 @@ vi.mock("./publish", async () => {
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
-import { getDraftChanges, parseChanges } from "./draft-changes";
+import {
+  enrichItemLabels,
+  getDraftChanges,
+  getHasPendingSingletonChange,
+  getPendingItemSlugs,
+  parseChanges,
+  type DraftChange,
+} from "./draft-changes";
+import { type CollectionDef, type Item, type ReadStore } from "./collections";
 import { PublishError } from "./publish";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -60,7 +68,7 @@ describe("getDraftChanges", () => {
     delete process.env.STAGECRAFT_SITE_ID;
     delete process.env.STAGECRAFT_BROKER_SECRET;
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "local" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "local", truncated: false });
     expect(fetchPublishTokenMock).not.toHaveBeenCalled();
   });
 
@@ -105,10 +113,15 @@ describe("getDraftChanges", () => {
     });
   });
 
-  it("returns count=0 when draft and main are in sync (empty files array)", async () => {
+  it("returns count=0 + truncated=false when draft and main are in sync (empty files array)", async () => {
     compareCommitsWithBasehead.mockResolvedValue(compareResponse([]));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({
+      count: 0,
+      changes: [],
+      mode: "github",
+      truncated: false,
+    });
   });
 
   it("handles the API omitting `files` entirely (treated as zero)", async () => {
@@ -116,8 +129,39 @@ describe("getDraftChanges", () => {
     // any commits between base and head can come back without it.
     compareCommitsWithBasehead.mockResolvedValue(compareResponse(null));
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({
+      count: 0,
+      changes: [],
+      mode: "github",
+      truncated: false,
+    });
   });
+
+  it("flags truncated=true when the compare API returns the 300-file cap", async () => {
+    // GitHub's compare endpoint caps `files` at 300 with no pagination.
+    // Any response that fills the cap means we can't be sure whether
+    // there were exactly 300 changes or more — surface as truncated so
+    // the UI renders "300+".
+    const files = Array.from({ length: 300 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(files));
+    const result = await getDraftChanges();
+    expect(result.truncated).toBe(true);
+    expect(result.count).toBe(300);
+  });
+
+  it("leaves truncated=false when the file count is below the cap", async () => {
+    const files = Array.from({ length: 5 }, (_, i) => ({
+      filename: `src/content/collections/pages/items/p${i}.json`,
+      status: "modified",
+    }));
+    compareCommitsWithBasehead.mockResolvedValue(compareResponse(files));
+    const result = await getDraftChanges();
+    expect(result.truncated).toBe(false);
+  });
+
 
   it("returns count=0 when the draft branch doesn't exist yet (fresh site)", async () => {
     // Saving the first item is what creates the branch — until then
@@ -126,7 +170,7 @@ describe("getDraftChanges", () => {
     // error.
     compareCommitsWithBasehead.mockRejectedValue(notFound());
     const result = await getDraftChanges();
-    expect(result).toEqual({ count: 0, changes: [], mode: "github" });
+    expect(result).toEqual({ count: 0, changes: [], mode: "github", truncated: false });
   });
 
   it("re-throws as DraftChangesError(github-failed) on non-404 GitHub errors", async () => {
@@ -275,7 +319,7 @@ describe("parseChanges", () => {
     ]);
   });
 
-  it("preserves previous_filename + extracts previousItemSlug on renames", () => {
+  it("preserves previous_filename + extracts previousItemSlug on same-collection renames", () => {
     const out = parseChanges([
       {
         filename: "src/content/collections/pages/items/about.json",
@@ -288,6 +332,31 @@ describe("parseChanges", () => {
       status: "renamed",
       previousPath: "src/content/collections/pages/items/old-about.json",
       previousItemSlug: "old-about",
+    });
+    // Same collection on both sides — previousCollectionSlug stays
+    // unset so the modal renders the compact form.
+    expect((out[0] as { previousCollectionSlug?: string }).previousCollectionSlug).toBeUndefined();
+  });
+
+  it("extracts previousCollectionSlug when the rename crosses collections", () => {
+    // Hand-moved file across collections — our `renameItem` flow is
+    // single-collection, but GitHub's similarity heuristic may
+    // detect a manual move as a rename and set previous_filename
+    // accordingly.
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/photos/items/sunset.json",
+        status: "renamed",
+        previous_filename: "src/content/collections/pages/items/sunset.json",
+      },
+    ]);
+    expect(out[0]).toMatchObject({
+      kind: "item",
+      status: "renamed",
+      collectionSlug: "photos",
+      itemSlug: "sunset",
+      previousItemSlug: "sunset",
+      previousCollectionSlug: "pages",
     });
   });
 
@@ -335,5 +404,184 @@ describe("parseChanges", () => {
     ]);
     expect(out).toHaveLength(1);
     expect((out[0] as { itemSlug: string }).itemSlug).toBe("y");
+  });
+});
+
+describe("getPendingItemSlugs", () => {
+  it("returns the slugs with pending changes in the requested collection", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/photos/items/sunset.json", status: "modified" },
+        { filename: "src/content/collections/photos/items/dawn.json", status: "added" },
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    const slugs = await getPendingItemSlugs("photos");
+    expect(slugs).toEqual(new Set(["sunset", "dawn"]));
+  });
+
+  it("returns an empty set when nothing in the collection is pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+
+  it("degrades to an empty set when the platform isn't configured (local mode)", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("degrades to an empty set on a GitHub failure rather than throwing", async () => {
+    const serverErr = new RequestError("Server Error", 500, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 500, url: "x", headers: {}, data: {} },
+    });
+    compareCommitsWithBasehead.mockRejectedValue(serverErr);
+    // getDraftChanges would throw DraftChangesError here; the slug
+    // helper swallows it so the list renders badge-free.
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+
+  it("degrades to an empty set on a broker rejection", async () => {
+    fetchPublishTokenMock.mockRejectedValue(
+      new PublishError("broker-rejected", "unknown site"),
+    );
+    expect(await getPendingItemSlugs("photos")).toEqual(new Set());
+  });
+});
+
+describe("getHasPendingSingletonChange", () => {
+  it("is true when the collection's singleton is pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/site/items/_singleton.json", status: "modified" },
+      ]),
+    );
+    expect(await getHasPendingSingletonChange("site")).toBe(true);
+  });
+
+  it("is false when only other collections / kinds are pending", async () => {
+    compareCommitsWithBasehead.mockResolvedValue(
+      compareResponse([
+        { filename: "src/content/collections/header/items/_singleton.json", status: "modified" },
+        { filename: "src/content/collections/pages/items/about.json", status: "modified" },
+      ]),
+    );
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
+  });
+
+  it("degrades to false when the platform isn't configured (local mode)", async () => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
+    expect(compareCommitsWithBasehead).not.toHaveBeenCalled();
+  });
+
+  it("degrades to false on a GitHub failure rather than throwing", async () => {
+    const serverErr = new RequestError("Server Error", 500, {
+      request: { method: "GET", url: "x", headers: {} },
+      response: { status: 500, url: "x", headers: {}, data: {} },
+    });
+    compareCommitsWithBasehead.mockRejectedValue(serverErr);
+    expect(await getHasPendingSingletonChange("site")).toBe(false);
+  });
+});
+
+describe("enrichItemLabels", () => {
+  const def = {
+    slug: "pages",
+    slugSourceFieldId: "fld_title",
+  } as unknown as CollectionDef;
+
+  function item(slug: string, title: string): Item {
+    return {
+      id: `id_${slug}`,
+      slug,
+      values: { fld_title: { type: "text", value: title } },
+    } as unknown as Item;
+  }
+
+  function itemChange(itemSlug: string, status: DraftChange["status"] = "modified"): DraftChange {
+    return {
+      kind: "item",
+      status,
+      collectionSlug: "pages",
+      itemSlug,
+      path: `src/content/collections/pages/items/${itemSlug}.json`,
+    };
+  }
+
+  function makeStore(
+    items: Record<string, Item | null>,
+    overrides: Partial<ReadStore> = {},
+  ): ReadStore {
+    return {
+      readCollectionDef: vi.fn(async () => def),
+      readItem: vi.fn(async (_slug: string, itemSlug: string) => items[itemSlug] ?? null),
+      ...overrides,
+    } as unknown as ReadStore;
+  }
+
+  it("resolves displayName from the slugSource field", async () => {
+    const store = makeStore({ home: item("home", "Home Page") });
+    const [out] = await enrichItemLabels([itemChange("home")], store);
+    expect(out).toMatchObject({ kind: "item", itemSlug: "home", displayName: "Home Page" });
+  });
+
+  it("skips removed items (gone from draft) and leaves them un-enriched", async () => {
+    const store = makeStore({});
+    const [out] = await enrichItemLabels([itemChange("gone", "removed")], store);
+    expect(out).not.toHaveProperty("displayName");
+    expect(store.readItem).not.toHaveBeenCalled();
+  });
+
+  it("leaves non-item changes untouched", async () => {
+    const store = makeStore({});
+    const singleton: DraftChange = {
+      kind: "singleton",
+      status: "modified",
+      collectionSlug: "site",
+      path: "src/content/collections/site/items/_singleton.json",
+    };
+    const [out] = await enrichItemLabels([singleton], store);
+    expect(out).toEqual(singleton);
+    expect(store.readItem).not.toHaveBeenCalled();
+  });
+
+  it("falls back (no displayName) when the item can't be read", async () => {
+    const store = makeStore({ home: null });
+    const [out] = await enrichItemLabels([itemChange("home")], store);
+    expect(out).not.toHaveProperty("displayName");
+  });
+
+  it("reads each collection's def once across multiple items", async () => {
+    const store = makeStore({
+      home: item("home", "Home"),
+      about: item("about", "About Us"),
+    });
+    const out = await enrichItemLabels([itemChange("home"), itemChange("about")], store);
+    expect(out.map((c) => (c.kind === "item" ? c.displayName : null))).toEqual([
+      "Home",
+      "About Us",
+    ]);
+    expect(store.readCollectionDef).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a change un-enriched when its item read throws (one bad item doesn't blank the batch)", async () => {
+    const store = makeStore(
+      { ok: item("ok", "Fine") },
+      {
+        readItem: vi.fn(async (_slug: string, itemSlug: string) => {
+          if (itemSlug === "boom") throw new Error("read failed");
+          return item("ok", "Fine");
+        }),
+      },
+    );
+    const out = await enrichItemLabels([itemChange("boom"), itemChange("ok")], store);
+    expect(out[0]).not.toHaveProperty("displayName");
+    expect(out[1]).toMatchObject({ displayName: "Fine" });
   });
 });

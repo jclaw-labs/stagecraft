@@ -76,6 +76,81 @@ export const NAME_FIELD_NAME: Record<NewsletterService, string> = {
 };
 
 /**
+ * Input types offered for a custom additional field. Maps directly to
+ * the `<input type>` attribute. The set is deliberately small — the
+ * common asks beyond first-name are phone (`tel`), country / custom
+ * text (`text`), a secondary email (`email`), and a website (`url`).
+ * Richer types (date, select) would need provider-specific encoding
+ * we don't want to guess at; the artist drops to `text` for those.
+ */
+export const NEWSLETTER_FIELD_TYPES = ["text", "email", "tel", "url"] as const;
+export type NewsletterFieldType = (typeof NEWSLETTER_FIELD_TYPES)[number];
+
+export const NEWSLETTER_FIELD_TYPE_LABELS: Record<NewsletterFieldType, string> = {
+  text: "Text",
+  email: "Email",
+  tel: "Phone",
+  url: "Website / URL",
+};
+
+/**
+ * One artist-defined extra field beyond the curated email + name.
+ * Unlike the name field (which maps to a per-service attribute via
+ * `NAME_FIELD_NAME`), the `name` here is the raw form-field attribute
+ * the artist copies from their provider's embed code — we can't infer
+ * it, so it's verbatim. `autoComplete` is derived from `type` at
+ * render so browsers still offer sensible autofill.
+ */
+export type NewsletterAdditionalField = {
+  /** Visible (screen-reader) label. */
+  label: string;
+  /** Raw form-field `name` attribute, provider-specific. */
+  name: string;
+  /** Maps to the `<input type>`. */
+  type: NewsletterFieldType;
+};
+
+/**
+ * Coerce a possibly-unknown additional-field `type` to a member of
+ * the union, falling back to `text`. The TS type constrains the
+ * inspector, but Puck JSON on disk is untyped at runtime — a
+ * hand-edited file or a future enum change could carry
+ * `type: "number"` / `"hidden"` / etc., which would render an
+ * `<input>` of that type verbatim (a `hidden` field the artist
+ * can't see, a `number` field that rejects "+1 555…"). Same trust-
+ * boundary reasoning as `normaliseCardSize` in puck/config.tsx.
+ */
+export function normaliseNewsletterFieldType(
+  type: NewsletterFieldType | undefined,
+): NewsletterFieldType {
+  return (NEWSLETTER_FIELD_TYPES as readonly string[]).includes(type as string)
+    ? (type as NewsletterFieldType)
+    : "text";
+}
+
+/**
+ * Map an additional-field input type to a reasonable `autocomplete`
+ * token so browsers offer autofill. `text` is intentionally
+ * unmapped (returns undefined) — a generic text field could be
+ * anything (country, company, referral), and a wrong autocomplete
+ * hint is worse than none. Pure / synchronous.
+ */
+export function newsletterFieldAutoComplete(
+  type: NewsletterFieldType,
+): string | undefined {
+  switch (type) {
+    case "email":
+      return "email";
+    case "tel":
+      return "tel";
+    case "url":
+      return "url";
+    case "text":
+      return undefined;
+  }
+}
+
+/**
  * Parse Mailchimp's actionUrl to extract the audience IDs that
  * suffix the real honeypot field name `b_<u>_<id>`. Mailchimp's
  * default embed URL is
@@ -210,4 +285,74 @@ export function validateNewsletterActionUrl(
   }
   // `generic` falls through — only URL parseability is checked above.
   return { ok: true };
+}
+
+/**
+ * The form-field `name`s the NewsletterSignup form already owns for a
+ * given configuration. An additional field colliding with one of
+ * these emits a duplicate `name=` input — the provider then receives
+ * two values for the same key (subscription breaks silently behind
+ * the opaque no-cors success) or a visible field shadows a honeypot —
+ * so the renderer drops the colliding row.
+ *
+ * Single source of truth shared by the public form (which drops
+ * colliding rows) and the editor inspector (which warns about the
+ * drop). `NAME_FIELD_NAME` is reserved only when the name field is
+ * actually rendered; the Mailchimp `b_*` honeypot only when the
+ * actionUrl parses.
+ */
+export function newsletterReservedFieldNames(
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): Set<string> {
+  const reserved = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
+  if (hasNameField) reserved.add(NAME_FIELD_NAME[service]);
+  const honeypot =
+    service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+  if (honeypot) reserved.add(honeypot);
+  return reserved;
+}
+
+/**
+ * The (de-duplicated) `name`s among `additionalFields` that collide
+ * with a reserved form field and will therefore be dropped at render.
+ * Blank names are ignored (they're dropped for being incomplete, not
+ * for colliding). Used by the inspector to warn the artist that a
+ * field they added won't appear.
+ */
+export function collidingAdditionalFieldNames(
+  additionalFields: readonly NewsletterAdditionalField[] | undefined,
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): string[] {
+  const reserved = newsletterReservedFieldNames(service, hasNameField, actionUrl);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const field of additionalFields ?? []) {
+    const name = (field?.name ?? "").trim();
+    if (name !== "" && reserved.has(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Base inspector label for the additional-fields array. */
+export const NEWSLETTER_ADDITIONAL_FIELDS_LABEL = "Additional fields (advanced)";
+
+/**
+ * The inspector label for the additional-fields array, with a
+ * reserved-name warning appended when any configured field collides
+ * with a form field the signup already owns (and is therefore
+ * silently skipped at render). Puck's array field has no description
+ * slot, so the label is the surface available for this hint.
+ */
+export function newsletterAdditionalFieldsLabel(colliding: readonly string[]): string {
+  if (colliding.length === 0) return NEWSLETTER_ADDITIONAL_FIELDS_LABEL;
+  const names = colliding.join(", ");
+  const noun = colliding.length === 1 ? "name is reserved" : "names are reserved";
+  return `${NEWSLETTER_ADDITIONAL_FIELDS_LABEL} — ${names} ${noun} and won't be added (rename to avoid a clash with the email / name / spam-trap fields)`;
 }

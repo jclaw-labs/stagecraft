@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+
 /**
  * Standard page-frame around a single admin panel. Holds the title +
  * description, leaves the body for the panel itself, and lets the
@@ -10,6 +12,10 @@ import type { ReactNode } from "react";
  * `AppearanceForm`) only need this component — importing `AdminShell`
  * would drag in its server-only collection-listing code through the
  * client bundle.
+ *
+ * `hasPendingChanges` badges the title with "Unpublished" when the
+ * panel's singleton has draft-vs-main edits — the form-surface
+ * equivalent of the per-row badges on the list views.
  */
 
 export function AdminPanel({
@@ -17,11 +23,13 @@ export function AdminPanel({
   description,
   children,
   saveBar,
+  hasPendingChanges,
 }: {
   title: string;
   description?: ReactNode;
   children: ReactNode;
   saveBar?: ReactNode;
+  hasPendingChanges?: boolean;
 }) {
   return (
     <>
@@ -33,15 +41,24 @@ export function AdminPanel({
         }}
       >
         <header style={{ marginBottom: "var(--space-8)" }}>
-          <h1
+          <div
             style={{
-              fontSize: "1.5rem",
-              fontWeight: "var(--font-weight-semibold)" as unknown as number,
-              margin: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-3)",
             }}
           >
-            {title}
-          </h1>
+            <h1
+              style={{
+                fontSize: "1.5rem",
+                fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                margin: 0,
+              }}
+            >
+              {title}
+            </h1>
+            {hasPendingChanges ? <UnpublishedBadge /> : null}
+          </div>
           {description ? (
             <p
               style={{

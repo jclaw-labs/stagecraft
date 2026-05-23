@@ -1,5 +1,5 @@
 import type { Config, Slot } from "@measured/puck";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";
 import { ImageCarousel } from "@/components/ImageCarousel";
@@ -11,15 +11,28 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  collidingAdditionalFieldNames,
+  NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
+  NEWSLETTER_FIELD_TYPES,
+  NEWSLETTER_FIELD_TYPE_LABELS,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  newsletterAdditionalFieldsLabel,
+  parseMailchimpAudienceHoneypotName,
+  validateNewsletterActionUrl,
+  type NewsletterAdditionalField,
   type NewsletterService,
 } from "@/components/newsletter-types";
+import {
+  cardMediaFilename,
+  inferCardMediaKind,
+  type CardMediaKind,
+} from "@/lib/card-media";
 import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
-import { NewsletterUrlField } from "./NewsletterUrlField";
+import { PageOverlayField } from "./PageOverlayField";
 
 export const HEADING_LEVELS = ["h1", "h2", "h3"] as const;
 export type HeadingLevel = (typeof HEADING_LEVELS)[number];
@@ -100,15 +113,186 @@ export const CARD_ORIENTATION_LABELS: Record<CardOrientation, string> = {
 // Card visual variant — `filled` has the surface background +
 // border (the v1 default); `outlined` drops the background for a
 // lighter touch (useful on busy page backgrounds where the white
-// surface fights with the imagery). The legacy template adds a
-// `minimal` variant; skipped here pending demand.
-export const CARD_VARIANTS = ["filled", "outlined"] as const;
+// surface fights with the imagery); `minimal` drops all chrome —
+// no border, no background, no padding — so the card reads as a
+// flush list-item (media + text with only the size gap between
+// them).
+export const CARD_VARIANTS = ["filled", "outlined", "minimal"] as const;
 export type CardVariant = (typeof CARD_VARIANTS)[number];
 
 export const CARD_VARIANT_LABELS: Record<CardVariant, string> = {
   filled: "Filled (default surface)",
   outlined: "Outlined (transparent background)",
+  minimal: "Minimal (no border or padding)",
 };
+
+// Card size axis — scales the internal gap, the filled/outlined
+// padding, and the title type. `md` is the v1 default; `sm` packs
+// list rows tighter, `lg` gives a feature tile more presence. The
+// `minimal` variant ignores the padding component (it has none) but
+// still honours the gap + type scale.
+export const CARD_SIZES = ["sm", "md", "lg"] as const;
+export type CardSize = (typeof CARD_SIZES)[number];
+
+export const CARD_SIZE_LABELS: Record<CardSize, string> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+};
+
+/**
+ * Inspector helper text + severity for the NewsletterSignup block's
+ * `actionUrl` field. Surfaces three states for Mailchimp authors —
+ * empty (paste hint), looks-valid (positive confirmation),
+ * looks-broken (warn about reduced spam protection). Other
+ * providers get a generic paste hint.
+ *
+ * Exported so the unit test asserts the message strings without
+ * having to drive Puck. Pure / synchronous; safe to call during
+ * the editor's render path.
+ */
+export function newsletterUrlDescription(
+  service: NewsletterService,
+  actionUrl: string,
+): { kind: "info" | "ok" | "warn"; text: string } {
+  // Mailchimp keeps its own messaging — the warn case is honeypot-
+  // specific (a malformed URL silently disables the per-audience bot
+  // trap), which is richer than the generic "wrong shape" hint the
+  // shared validator gives. The empty / ok / warn copy here is what
+  // the inspector tests pin.
+  if (service === "mailchimp") {
+    if (!actionUrl) {
+      return {
+        kind: "info",
+        text: "Paste the embed form's action URL (the ?u=…&id=… link from your audience embed code).",
+      };
+    }
+    if (parseMailchimpAudienceHoneypotName(actionUrl)) {
+      return {
+        kind: "ok",
+        text: "Looks like a Mailchimp audience URL — the per-audience honeypot will activate.",
+      };
+    }
+    return {
+      kind: "warn",
+      text: "This URL doesn't look like a Mailchimp embed URL (expected ?u=USER_ID&id=LIST_ID). The signup still submits, but the per-audience honeypot won't activate — falls back to the universal honeypot only.",
+    };
+  }
+
+  // ConvertKit / Buttondown / generic: delegate the pattern check to
+  // the shared `validateNewsletterActionUrl`. Empty stays a paste
+  // hint (don't nag a fresh block); a non-matching URL warns with the
+  // provider's expected shape; `generic` can only confirm
+  // parseability (no provider contract to verify) so it stays a
+  // neutral nudge rather than a green "looks right".
+  if (!actionUrl.trim()) {
+    return {
+      kind: "info",
+      text: "Paste the form's POST URL from your provider's embed code.",
+    };
+  }
+  const validation = validateNewsletterActionUrl(service, actionUrl);
+  if (!validation.ok) {
+    return { kind: "warn", text: validation.message };
+  }
+  if (service === "generic") {
+    return {
+      kind: "info",
+      text: "Looks like a URL. We can't verify a custom provider's field contract — make sure it's the form's POST URL.",
+    };
+  }
+  return {
+    kind: "ok",
+    text: `Looks like a valid ${NEWSLETTER_SERVICE_LABELS[service]} embed URL.`,
+  };
+}
+
+/**
+ * Puck custom field for the NewsletterSignup `actionUrl`, with a
+ * dynamic helper / warning rendered below the input. Returned by
+ * `resolveFields` per-call so the helper text refreshes whenever
+ * `service` or `actionUrl` changes.
+ *
+ * Why custom instead of `type: "text"`: Puck's TextField has no
+ * `description` / help-text slot. The custom render reproduces the
+ * native text input (single-line, controlled, blur-on-change) and
+ * appends a paragraph below — the input UX is intentionally minimal
+ * here because actionUrl is paste-only in practice.
+ */
+function newsletterUrlField(service: NewsletterService) {
+  return {
+    type: "custom" as const,
+    label: "Form submission URL",
+    // `value` updates live as the artist types — recompute the hint
+    // inside render so it tracks the current input. Pre-baking the
+    // hint outside the closure (at resolveFields time) would leave
+    // the warning stale on every keystroke because Puck reuses the
+    // existing custom-field render function and only updates its
+    // `value` prop.
+    render: ({
+      value,
+      onChange,
+    }: {
+      value: string;
+      onChange: (next: string) => void;
+    }): ReactElement => {
+      const current = typeof value === "string" ? value : "";
+      const hint = newsletterUrlDescription(service, current);
+      return (
+        <div style={newsletterUrlFieldStyle}>
+          <input
+            type="text"
+            value={current}
+            onChange={(e) => onChange(e.target.value)}
+            style={newsletterUrlInputStyle}
+          />
+          {/* `aria-live` so screen-reader users hear the warning /
+              confirmation cycle as they paste; sighted users get
+              the colour swap. `polite` rather than `assertive`
+              because nothing is broken — the message is advisory. */}
+          <p
+            role="status"
+            aria-live="polite"
+            style={newsletterUrlHintStyle(hint.kind)}
+          >
+            {hint.text}
+          </p>
+        </div>
+      );
+    },
+  };
+}
+
+const newsletterUrlFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+};
+
+const newsletterUrlInputStyle: CSSProperties = {
+  width: "100%",
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "var(--font-mono)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+
+function newsletterUrlHintStyle(kind: "info" | "ok" | "warn"): CSSProperties {
+  return {
+    margin: 0,
+    fontSize: "var(--font-size-xs)",
+    lineHeight: "var(--line-height-base)",
+    color:
+      kind === "warn"
+        ? "var(--color-text-error)"
+        : kind === "ok"
+          ? "var(--color-text-emphasis)"
+          : "var(--color-text-muted)",
+  };
+}
 
 // All visual values come from CSS custom properties (see app/globals.css).
 // CLAUDE.md §7 forbids raw hex/px/size values in inline styles.
@@ -211,6 +395,7 @@ export type BlockProps = {
     successMessage: string;
     hasNameField: boolean;
     nameLabel: string;
+    additionalFields: NewsletterAdditionalField[];
   };
   ImageCarousel: {
     slides: Array<{ image: ImageMetadata | null; caption: string }>;
@@ -235,6 +420,7 @@ export type BlockProps = {
     isExternal: boolean;
     orientation: CardOrientation;
     variant: CardVariant;
+    size: CardSize;
     /** Optional downloadable file URL. Renders a download button. */
     fileUrl: string;
     /** Free-text label beside the download button (e.g. "2.3 MB"). */
@@ -269,22 +455,67 @@ function textAlignStyle(align: TextAlignment): CSSProperties {
 // Card styles
 // ---------------------------------------------------------------------------
 
+// Size → internal gap (media ↔ body) token. The same scale the
+// legacy template's `.card-sm/md/lg` gap rules used.
+const CARD_SIZE_GAP: Record<CardSize, string> = {
+  sm: "var(--space-2)",
+  md: "var(--space-3)",
+  lg: "var(--space-4)",
+};
+
+// Size → padding token for the chromed (filled / outlined) variants.
+// `minimal` ignores this (no padding).
+const CARD_SIZE_PADDING: Record<CardSize, string> = {
+  sm: "var(--space-3)",
+  md: "var(--space-4)",
+  lg: "var(--space-5)",
+};
+
+// Size → title type scale. Bumps the visual weight of a feature
+// tile and tightens a packed list row.
+const CARD_SIZE_TITLE_FONT: Record<CardSize, string> = {
+  sm: "var(--font-size-base)",
+  md: "var(--font-size-lg)",
+  lg: "var(--font-size-xl)",
+};
+
+/**
+ * Coerce a possibly-missing / unknown `size` to the `md` default.
+ * Card JSON saved before the size axis landed has no `size` key,
+ * and Puck's public `<Render>` path passes raw on-disk props through
+ * without backfilling `defaultProps` (those only apply in the
+ * editor). Without this guard, an old card's `size` arrives
+ * `undefined` at runtime — despite the `CardSize` prop type — and
+ * every size-driven token (`CARD_SIZE_GAP[undefined]` etc.) collapses
+ * to `undefined`, stripping the card's padding, gap, AND title font
+ * in one go. Falling back to `md` keeps old cards rendering at their
+ * original v2 scale.
+ */
+function normaliseCardSize(size: CardSize | undefined): CardSize {
+  return (CARD_SIZES as readonly string[]).includes(size as string) ? (size as CardSize) : "md";
+}
+
 function cardContainerStyle(
   orientation: CardOrientation,
   variant: CardVariant,
+  size: CardSize,
 ): CSSProperties {
+  // `minimal` strips all chrome — no border, no background, no
+  // padding — so the card sits flush like a list item. The size
+  // gap between media + body still applies. `filled` / `outlined`
+  // keep the border + radius and pad by size; only `filled` carries
+  // the surface fill (outlined drops it so the page background shows
+  // through on busy / image-heavy surfaces).
+  const isMinimal = variant === "minimal";
   return {
     display: orientation === "horizontal" ? "grid" : "flex",
     gridTemplateColumns: orientation === "horizontal" ? "1fr 2fr" : undefined,
     flexDirection: orientation === "vertical" ? "column" : undefined,
-    gap: "var(--space-3)",
+    gap: CARD_SIZE_GAP[size],
     margin: "var(--space-4) 0",
-    padding: "var(--space-4)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-md)",
-    // `outlined` drops the filled background so the card reads as a
-    // light boundary on busy / image-heavy page surfaces (where the
-    // solid surface would fight the imagery). Same border + radius.
+    padding: isMinimal ? 0 : CARD_SIZE_PADDING[size],
+    border: isMinimal ? undefined : "1px solid var(--color-border)",
+    borderRadius: isMinimal ? undefined : "var(--radius-md)",
     background: variant === "filled" ? "var(--color-surface)" : "transparent",
   };
 }
@@ -345,18 +576,148 @@ function cardMediaStyle(orientation: CardOrientation): CSSProperties {
   };
 }
 
+/**
+ * Media-slot preview for a Card that has no image but carries a
+ * `fileUrl` — a downloadable asset (press-kit PDF, audio track, promo
+ * video, zip). The kind is inferred from the URL extension:
+ *
+ *   - `audio` / `video` → an inline `<audio>` / `<video controls>`
+ *     player, so a download-list card lets visitors preview the track
+ *     / clip in place.
+ *   - `pdf` / `file`    → a static file-type icon tile (a glyph +
+ *     filename) — there's nothing to play inline.
+ *
+ * Only rendered for non-link cards (the call site gates on `!href`),
+ * so the interactive players are never nested inside the card-link
+ * `<a>` — no invalid-HTML / click-target conflict.
+ */
+function CardFilePreview({
+  fileUrl,
+  orientation,
+}: {
+  fileUrl: string;
+  orientation: CardOrientation;
+}): ReactNode {
+  const kind = inferCardMediaKind(fileUrl);
+
+  // Audio + video render at their intrinsic size in a plain rounded
+  // wrapper — NOT the `stagecraft-card-media` class / `cardMediaStyle`
+  // the image + icon-tile use. That class carries a global
+  // `width/height: 100%` rule (globals.css) and `cardMediaStyle`
+  // forces a 4:3 box for horizontal cards; both are wrong for media
+  // players: 4:3 + a 16:9 video letterboxes, and a taller-than-4:3
+  // clip overflows + clips its own controls (unplayable). Intrinsic
+  // aspect keeps the controls visible and the framing intact.
+  if (kind === "audio") {
+    return (
+      <div style={cardPlayerWrapperStyle}>
+        <audio
+          controls
+          preload="metadata"
+          src={fileUrl}
+          style={cardAudioStyle}
+          data-testid="card-audio"
+        />
+      </div>
+    );
+  }
+
+  if (kind === "video") {
+    return (
+      <div style={cardPlayerWrapperStyle}>
+        <video
+          controls
+          preload="metadata"
+          src={fileUrl}
+          style={cardVideoStyle}
+          data-testid="card-video"
+        />
+      </div>
+    );
+  }
+
+  const filename = cardMediaFilename(fileUrl);
+  return (
+    <div className="stagecraft-card-media" style={cardMediaStyle(orientation)}>
+      <div style={cardFileTileStyle} data-testid="card-file-tile" data-media-kind={kind}>
+        <CardFileGlyph kind={kind} />
+        <span style={cardFileNameStyle}>{filename}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-kind line glyph for the file tile. Stroke-only, `currentColor`,
+ * so it inherits the tile's muted text colour. `aria-hidden` — the
+ * filename text beside it carries the accessible meaning.
+ */
+function CardFileGlyph({ kind }: { kind: CardMediaKind }): ReactNode {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.25,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    style: cardFileGlyphStyle,
+    "aria-hidden": true,
+  };
+  if (kind === "audio") {
+    // Music note.
+    return (
+      <svg {...common}>
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    );
+  }
+  if (kind === "video") {
+    // Play triangle in a rounded frame.
+    return (
+      <svg {...common}>
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  // pdf + file share the document outline; pdf stamps a "PDF" label.
+  return (
+    <svg {...common}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      {kind === "pdf" ? (
+        <text
+          x="12"
+          y="17"
+          textAnchor="middle"
+          fontSize="5.5"
+          fill="currentColor"
+          stroke="none"
+          fontWeight="700"
+        >
+          PDF
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
 const cardBodyStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-2)",
 };
 
-const cardTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-lg)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  color: "var(--color-text)",
-};
+function cardTitleStyle(size: CardSize): CSSProperties {
+  return {
+    margin: 0,
+    fontSize: CARD_SIZE_TITLE_FONT[size],
+    fontWeight: "var(--font-weight-semibold)" as unknown as number,
+    color: "var(--color-text)",
+  };
+}
 
 const cardDescriptionStyle: CSSProperties = {
   margin: 0,
@@ -371,6 +732,56 @@ const cardEyebrowStyle: CSSProperties = {
   color: "var(--color-text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
+};
+
+const cardFileTileStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-2)",
+  height: "100%",
+  // Vertical cards have no fixed media height (the slot normally
+  // takes the image's intrinsic aspect); a min-height keeps the tile
+  // visible. Horizontal cards constrain the wrapper to 4:3, so the
+  // tile fills that.
+  minHeight: "var(--space-20)",
+  padding: "var(--space-4)",
+  background: "var(--color-surface-subtle)",
+  color: "var(--color-text-muted)",
+  textAlign: "center",
+};
+
+const cardFileGlyphStyle: CSSProperties = {
+  width: "var(--space-12)",
+  height: "var(--space-12)",
+  flex: "0 0 auto",
+};
+
+// Audio gets a plain rounded wrapper (no fixed aspect — the native
+// control is a thin bar, so a 4:3 box would leave a big empty gap).
+const cardPlayerWrapperStyle: CSSProperties = {
+  borderRadius: "var(--radius-sm)",
+  overflow: "hidden",
+};
+
+const cardAudioStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+};
+
+const cardVideoStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  // Intrinsic aspect; the surrounding Section / Columns owns width.
+  height: "auto",
+};
+
+const cardFileNameStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  // Long filenames shouldn't blow out the tile width; wrap + clamp.
+  wordBreak: "break-word",
+  maxWidth: "100%",
 };
 
 const cardDownloadRowStyle: CSSProperties = {
@@ -473,11 +884,19 @@ export const puckConfig: Config<
         ),
       },
       pageBackgroundOverlay: {
-        type: "number",
-        label: "Background tint opacity (leave blank to inherit site)",
-        min: 0,
-        max: 1,
-        step: 0.05,
+        type: "custom",
+        label: "Background tint opacity",
+        // Custom (not `type: "number"`) so the artist can explicitly
+        // choose Inherit (→ null) vs a Custom tint (→ 0..1). Puck's
+        // number field can't cleanly express "cleared = inherit" —
+        // a cleared value can serialise as 0, which reads as an
+        // explicit no-tint override instead. See PageOverlayField.
+        render: ({ value, onChange }) => (
+          <PageOverlayField
+            value={(value as number | null) ?? null}
+            onChange={(next) => onChange(next as number | null)}
+          />
+        ),
       },
     },
     defaultProps: {
@@ -897,12 +1316,11 @@ export const puckConfig: Config<
       // becomes a link when `href` is set.
       //
       // Adds over v1: eyebrow (small label above title), variant
-      // (filled / outlined), file-download affordance (button at the
-      // bottom with optional size label). The legacy template adds
-      // a `minimal` variant + `size` axis + icon-mode media; skipped
-      // here pending demand — artists who want richer compositions
-      // drop multiple Cards into a Columns block or compose a
-      // Section + Heading + RichText + Image manually.
+      // (filled / outlined / minimal), size axis (sm / md / lg),
+      // file-download affordance (button at the bottom with optional
+      // size label). The legacy template also has icon-mode media for
+      // non-image previews (audio / video / PDF tiles); skipped here
+      // pending demand — see docs/follow-ups.md.
       //
       // Mutual exclusivity: `href` makes the WHOLE card a link;
       // `fileUrl` makes the download button a link instead. When
@@ -951,6 +1369,14 @@ export const puckConfig: Config<
             value: v,
           })),
         },
+        size: {
+          type: "select",
+          label: "Size",
+          options: CARD_SIZES.map((v) => ({
+            label: CARD_SIZE_LABELS[v],
+            value: v,
+          })),
+        },
         fileUrl: { type: "text", label: "Downloadable file URL (optional)" },
         sizeLabel: { type: "text", label: "Size label (e.g. '2.3 MB')" },
         isHoverable: {
@@ -971,6 +1397,7 @@ export const puckConfig: Config<
         isExternal: false,
         orientation: "vertical",
         variant: "filled",
+        size: "md",
         fileUrl: "",
         sizeLabel: "",
         isHoverable: false,
@@ -984,10 +1411,14 @@ export const puckConfig: Config<
         isExternal,
         orientation,
         variant,
+        size: rawSize,
         fileUrl,
         sizeLabel,
         isHoverable,
       }) => {
+        // Coerce missing/unknown size (old on-disk cards) to md before
+        // it feeds the size-driven token maps — see normaliseCardSize.
+        const size = normaliseCardSize(rawSize);
         const inner = (
           <>
             {image ? (
@@ -1004,6 +1435,17 @@ export const puckConfig: Config<
                   }
                 />
               </div>
+            ) : fileUrl && !href ? (
+              // No image, but a downloadable file is attached: show a
+              // file-type icon tile in the media slot (press-kit /
+              // download-list parity). The download button renders in
+              // the body below. Both are gated on `!href`: when the
+              // whole card is a link, the download is suppressed (no
+              // nested anchors), so a tile captioned with the filename
+              // would advertise a download the card can't deliver —
+              // clicking navigates to href, not the file. Pairing the
+              // tile with the download keeps the affordance honest.
+              <CardFilePreview fileUrl={fileUrl} orientation={orientation} />
             ) : null}
             <div style={cardBodyStyle}>
               {eyebrow ? <div style={cardEyebrowStyle}>{eyebrow}</div> : null}
@@ -1013,7 +1455,7 @@ export const puckConfig: Config<
                   navigating by heading would have to skip past.
                   Visual emphasis still reads as a title. Same
                   choice the legacy template made. */}
-              <div style={cardTitleStyle}>{title}</div>
+              <div style={cardTitleStyle(size)}>{title}</div>
               {description ? (
                 <p style={cardDescriptionStyle}>{description}</p>
               ) : null}
@@ -1028,7 +1470,7 @@ export const puckConfig: Config<
           </>
         );
 
-        const containerStyle = cardContainerStyle(orientation, variant);
+        const containerStyle = cardContainerStyle(orientation, variant, size);
 
         if (href) {
           // Whole card is a link. Drop the default underline (the
@@ -1217,6 +1659,53 @@ export const puckConfig: Config<
       // (Mailchimp / ConvertKit / Buttondown / generic). No server
       // route on this template — the no-cors fetch in
       // NewsletterSignup.tsx posts straight to the provider.
+      //
+      // `resolveFields` rebuilds `actionUrl` as a custom field whose
+      // render adds an inline helper / warning beneath the input —
+      // Puck's stock `TextField` has no description / help-text slot.
+      // The helper surfaces three states for Mailchimp authors:
+      //   - empty → paste hint
+      //   - parseable → positive confirmation (per-audience honeypot
+      //     will activate)
+      //   - non-parseable → warning that the per-audience honeypot
+      //     can't be derived (falls back to the universal `_gotcha`).
+      // The signup keeps submitting either way; the warning just
+      // helps the artist paste the right URL up-front instead of
+      // discovering "spam protection isn't working" months later.
+      resolveFields: (data, { fields }) => {
+        // Puck doesn't merge `defaultProps` into the props handed to
+        // resolveFields, so a block whose on-disk JSON omits a key
+        // arrives with it `undefined` (the render path defaults it).
+        // Default here to the SAME values render uses, so both hints
+        // describe what the artist actually sees — otherwise an old
+        // block missing `service` would under-warn even though its
+        // preview drops the colliding field.
+        const service = data.props.service ?? "mailchimp";
+        const hasNameField = data.props.hasNameField ?? false;
+        const actionUrl = data.props.actionUrl ?? "";
+        // Names among the configured additional fields that collide
+        // with a form field the signup already owns — those rows are
+        // silently dropped at render. Surface the drop in the array
+        // field's label (Puck arrays have no description slot) so the
+        // artist isn't left wondering why a field they added vanished.
+        const colliding = collidingAdditionalFieldNames(
+          data.props.additionalFields,
+          service,
+          hasNameField,
+          actionUrl,
+        );
+        return {
+          // `service` is the sibling field the actionUrl hint depends
+          // on — bake it into the custom field's closure so the render
+          // recomputes the hint against the live `value`.
+          ...fields,
+          actionUrl: newsletterUrlField(service),
+          additionalFields: {
+            ...fields.additionalFields,
+            label: newsletterAdditionalFieldsLabel(colliding),
+          },
+        };
+      },
       fields: {
         service: {
           type: "select",
@@ -1226,20 +1715,11 @@ export const puckConfig: Config<
             value: s,
           })),
         },
-        actionUrl: {
-          type: "custom",
-          label: "Form submission URL",
-          render: ({ id, name, field, value, onChange, readOnly }) => (
-            <NewsletterUrlField
-              id={id}
-              name={name}
-              label={field.label}
-              value={(value as string | undefined) ?? ""}
-              onChange={onChange}
-              readOnly={readOnly}
-            />
-          ),
-        },
+        // Placeholder field — `resolveFields` above rebuilds this
+        // every render against the current `service`. Puck needs a
+        // value here at static-config parse time; the service arg
+        // doesn't matter (any value is replaced before display).
+        actionUrl: newsletterUrlField("mailchimp"),
         title: {
           type: "text",
           label: "Title (optional)",
@@ -1268,6 +1748,34 @@ export const puckConfig: Config<
           type: "text",
           label: "Name field label",
         },
+        // Generic escape hatch for fields beyond email + name (phone,
+        // country, custom). Unlike the name field, the `name`
+        // attribute is verbatim from the artist's provider embed —
+        // we can't infer it per-service, so the inspector label spells
+        // that out.
+        additionalFields: {
+          type: "array",
+          // Base label; `resolveFields` appends a reserved-name
+          // warning when a configured field would be dropped.
+          label: NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
+          arrayFields: {
+            label: { type: "text", label: "Field label" },
+            name: { type: "text", label: "Field name (from your provider's embed code)" },
+            type: {
+              type: "select",
+              label: "Input type",
+              options: NEWSLETTER_FIELD_TYPES.map((t) => ({
+                label: NEWSLETTER_FIELD_TYPE_LABELS[t],
+                value: t,
+              })),
+            },
+          },
+          defaultItemProps: { label: "", name: "", type: "text" },
+          getItemSummary: (item, i) => {
+            const v = item as NewsletterAdditionalField;
+            return v.label || v.name || `Field ${(i ?? 0) + 1}`;
+          },
+        },
       },
       defaultProps: {
         service: "mailchimp" satisfies NewsletterService,
@@ -1278,6 +1786,7 @@ export const puckConfig: Config<
         successMessage: "Thanks for subscribing! Check your inbox to confirm.",
         hasNameField: false,
         nameLabel: "First name",
+        additionalFields: [],
       },
       render: ({
         service,
@@ -1288,6 +1797,7 @@ export const puckConfig: Config<
         successMessage,
         hasNameField,
         nameLabel,
+        additionalFields,
       }) => (
         <NewsletterSignup
           service={service}
@@ -1298,6 +1808,7 @@ export const puckConfig: Config<
           successMessage={successMessage}
           hasNameField={hasNameField}
           nameLabel={nameLabel}
+          additionalFields={additionalFields}
         />
       ),
     },

@@ -57,6 +57,14 @@ export type ProcessImageResult = {
   metadata: ImageMetadata;
   /** True when sharp ran. False when an existing original was found at the target path. */
   processed: boolean;
+  /**
+   * SVG-only: items DOMPurify stripped from the uploaded bytes (e.g.
+   * `<script>`, `onclick=`). Absent for non-SVG uploads and absent on
+   * the dedup branch (the bytes on disk were already sanitised, no
+   * fresh removal report). The upload route forwards it to the client
+   * so the picker can surface a "we stripped N items" hint.
+   */
+  sanitised?: SanitisedInfo;
 };
 
 /**
@@ -76,6 +84,18 @@ export type GenerateImageVariantsResult = {
   originalBuffer: Buffer;
   /** All resized + reformatted variants. */
   variants: ImageVariant[];
+  /** See `ProcessImageResult.sanitised`. */
+  sanitised?: SanitisedInfo;
+};
+
+/**
+ * Per-upload summary of what the SVG sanitiser stripped. Matches the
+ * `SanitiseSvgResult` shape (capped descriptor list + true total) so
+ * the route can forward it without re-shaping.
+ */
+export type SanitisedInfo = {
+  removed: string[];
+  removedTotal: number;
 };
 
 export function computeImageId(buffer: Buffer): ImageId {
@@ -137,8 +157,8 @@ export async function generateImageVariants(
     // standard `<link rel="icon">` surface, so we leave them alone.
     // The id stays keyed off the raw input bytes — dedup keys on
     // what the artist uploaded, not on the sanitised output.
-    const originalBuffer =
-      input.originalExt === "svg" ? sanitiseSvg(input.buffer) : input.buffer;
+    const svgResult = input.originalExt === "svg" ? sanitiseSvg(input.buffer) : null;
+    const originalBuffer = svgResult ? svgResult.buffer : input.buffer;
     return {
       metadata: {
         id,
@@ -152,6 +172,17 @@ export async function generateImageVariants(
       },
       originalBuffer,
       variants: [],
+      // Only emit `sanitised` when the sanitiser actually stripped
+      // something — a clean SVG shouldn't carry an empty-array signal
+      // through the layers. Absent on ICO (binary; no sanitiser pass).
+      ...(svgResult && svgResult.removedTotal > 0
+        ? {
+            sanitised: {
+              removed: svgResult.removed,
+              removedTotal: svgResult.removedTotal,
+            },
+          }
+        : {}),
     };
   }
 
@@ -239,7 +270,11 @@ export async function processImage(input: ProcessImageInput): Promise<ProcessIma
     ),
   );
 
-  return { metadata: generated.metadata, processed: true };
+  return {
+    metadata: generated.metadata,
+    processed: true,
+    ...(generated.sanitised ? { sanitised: generated.sanitised } : {}),
+  };
 }
 
 async function readImageMetadata(input: ProcessImageInput): Promise<ImageMetadata> {
