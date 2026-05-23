@@ -426,28 +426,36 @@ The publish-token endpoint surface is unchanged.
   per-session branches or a fancy diff-extraction trick.
   *Trigger:* a real workflow where it matters.
 
-- **Diff view: per-item badges beyond the Pages list.** The Pages
-  admin (`/admin/pages`) shows an "Unpublished" badge per row,
-  driven by a client-side `/api/draft-changes` fetch filtered to
-  the `pages` collection. The generic collection list views
-  (`/admin/collections/<slug>`) don't carry the badge yet — they'd
-  filter the same change list to their own slug. Server components,
-  so they'd fetch `getDraftChanges` at render or hydrate a client
-  island like PagesPanel does.
-  *Trigger:* artists working in the generic collection lists ask
-  why Pages shows pending state and the others don't.
+- **Diff view: pending badges on singleton panels.** Both the Pages
+  admin (`/admin/pages`, client-side `/api/draft-changes` fetch) and
+  the generic collection list views (`/admin/collections/<slug>`,
+  server-side `getPendingItemSlugs` at render) now show an
+  "Unpublished" badge on each row with a pending draft-vs-main change
+  — both routed through the shared `pendingItemSlugs` filter +
+  `UnpublishedBadge` component. The custom singleton panels (Site
+  Settings, Header & Navigation, Appearance) are forms, not lists, so
+  there's no row to badge: a pending singleton change shows in the
+  publish modal + the count but not on the panel itself. Surfacing
+  "this form has unpublished edits" inline would need a per-panel
+  check against the singleton's `kind: "singleton"` / `kind: "def"`
+  change.
+  *Trigger:* artists ask why a settings change doesn't show pending
+  state where a page edit does.
 
-- **Dedupe `/api/draft-changes` fetches across the chrome.** On
-  `/admin/pages` two components now fetch the endpoint independently
-  on mount: `PendingChangesIndicator` (in `AdminShell`) and
-  `PagesPanel` (for its per-row badges). Each is a separate compare
-  API call. A shared client cache (a module-level promise with a
-  short TTL, or a small context provider) would collapse them to
-  one. Per-call cost is modest (the broker token is process-cached
-  per PR 5m; only the compare differs) so this is amortise-later,
-  not load-bearing.
+- **Dedupe draft-changes reads across the chrome.** Every admin list
+  page now reads the draft diff twice: `PendingChangesIndicator` (in
+  `AdminShell`) fetches `/api/draft-changes` client-side on mount, and
+  the list itself reads the same diff for its per-row badges —
+  client-side in `PagesPanel`, server-side via `getPendingItemSlugs`
+  in the generic collection view. Each is a separate compare API
+  call. A shared cache would collapse them: a module-level promise
+  with a short TTL (or a small context provider) on the client; or,
+  on the collection pages, passing the count down from the server
+  render into the indicator so it skips its own fetch. Per-call cost
+  is modest (the broker token is process-cached per PR 5m; only the
+  compare differs) so this is amortise-later, not load-bearing.
   *Trigger:* the duplicate compare calls show up in real traffic
-  profiles, or a third draft-changes consumer lands.
+  profiles, or a fourth draft-changes consumer lands.
 
 ## Consequences
 

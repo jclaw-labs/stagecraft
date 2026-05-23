@@ -34,6 +34,7 @@ import {
   type Env,
 } from "./publish";
 import { ORDER_FILE_NAME, SINGLETON_ITEM_SLUG } from "./collections";
+import { pendingItemSlugs } from "./draft-changes-filter";
 
 /**
  * Normalized per-file change shape. Discriminated by `kind` so the
@@ -323,5 +324,33 @@ export async function getDraftChanges(env: Env = readEnv()): Promise<DraftChange
       "github-failed",
       `compare ${env.branch}...${DRAFT_BRANCH}: ${errorMessage(cause)}`,
     );
+  }
+}
+
+/**
+ * Slugs of items in `collectionSlug` that have unpublished changes,
+ * for the admin list views that badge pending rows.
+ *
+ * Degrades to an empty set on any `DraftChangesError` (broker blip,
+ * GitHub 5xx): the badge is a hint, not load-bearing, so a list that
+ * can't reach the compare API renders without badges rather than
+ * failing. Dev / unconfigured returns an empty change list (no error),
+ * so badges simply don't appear locally. The page render still pays
+ * one compare call — the same the sidebar indicator already makes —
+ * so list surfaces stay self-contained until the fetch-dedup work
+ * lands (see ADR-010 deferred work).
+ */
+export async function getPendingItemSlugs(
+  collectionSlug: string,
+  env: Env = readEnv(),
+): Promise<Set<string>> {
+  try {
+    const { changes } = await getDraftChanges(env);
+    return pendingItemSlugs(changes, collectionSlug);
+  } catch (cause) {
+    if (cause instanceof DraftChangesError) {
+      return new Set();
+    }
+    throw cause;
   }
 }
