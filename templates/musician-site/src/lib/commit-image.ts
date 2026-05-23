@@ -1,5 +1,10 @@
 import { type FileToCommit } from "./git-commit";
-import { generateImageVariants, variantFilename, type ProcessImageInput } from "./image";
+import {
+  generateImageVariants,
+  variantFilename,
+  type ProcessImageInput,
+  type SanitisedInfo,
+} from "./image";
 import { type ImageMetadata } from "./image-types";
 import {
   _commitToDraft as commitToDraft,
@@ -52,7 +57,7 @@ export async function commitUploadedImage(args: {
   input: ProcessImageInput;
   authorEmail: string;
   authorName?: string;
-}): Promise<{ metadata: ImageMetadata; commitSha: string }> {
+}): Promise<{ metadata: ImageMetadata; commitSha: string; sanitised?: SanitisedInfo }> {
   const env = readEnv();
   if (!isPlatformConfigured(env)) {
     throw new PublishError(
@@ -88,5 +93,9 @@ export async function commitUploadedImage(args: {
     author: { name: args.authorName ?? "Artist", email: args.authorEmail },
   });
 
-  return { metadata: generated.metadata, commitSha };
+  return {
+    metadata: generated.metadata,
+    commitSha,
+    ...(generated.sanitised ? { sanitised: generated.sanitised } : {}),
+  };
 }

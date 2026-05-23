@@ -1,6 +1,33 @@
 import DOMPurify from "isomorphic-dompurify";
 
 /**
+ * Maximum number of removal descriptors returned in the
+ * `SanitiseSvgResult.removed` array. A pathological SVG with hundreds
+ * of removed items would otherwise produce a multi-KB API response
+ * (the route forwards the descriptor list to the client). The total
+ * count is preserved separately in `removedTotal` so the picker's
+ * banner can report the true number even when the list is capped.
+ */
+const REMOVED_DESCRIPTOR_CAP = 20;
+
+/**
+ * The result of sanitising an SVG: the cleaned buffer plus a stable,
+ * UI-friendly description of what DOMPurify stripped. Callers that
+ * don't care about the removal summary read `.buffer`; the upload
+ * route forwards `.removed` + `.removedTotal` to the client so the
+ * picker can show a "we stripped N items from your SVG" hint.
+ *
+ * `removed` is capped at `REMOVED_DESCRIPTOR_CAP` items; `removedTotal`
+ * is the pre-cap count so the UI's banner stays aligned with the
+ * server log line (which also reports the full count).
+ */
+export type SanitiseSvgResult = {
+  buffer: Buffer;
+  removed: string[];
+  removedTotal: number;
+};
+
+/**
  * Strip executable content from an uploaded SVG before it lands on
  * disk. Runs at upload time inside `processImage` / `generateImage
  * Variants` so the public-served file never carries an unsanitised
@@ -44,7 +71,7 @@ import DOMPurify from "isomorphic-dompurify";
  * also strips `on*` by default but pinning a few common names
  * surfaces in code review what we care about.
  */
-export function sanitiseSvg(buffer: Buffer): Buffer {
+export function sanitiseSvg(buffer: Buffer): SanitiseSvgResult {
   // Defensive: the pipeline only calls this for `originalExt === "svg"`,
   // but a misconfigured caller passing binary bytes (PNG mis-routed
   // here, say) would silently produce ASCII-stripped junk. Surface
@@ -91,11 +118,9 @@ export function sanitiseSvg(buffer: Buffer): Buffer {
   // just this call's removals.
   //
   // `console.warn` lands in Vercel / Netlify function logs in
-  // production and the dev server in local. A future improvement:
-  // return the removal summary alongside the buffer so the
-  // upload route can also surface it in the API response (the
-  // picker UI could then show "we stripped N items from your
-  // SVG"). Tracked in docs/follow-ups.md.
+  // production and the dev server in local. The same summary now
+  // also rides back through the upload-image route so the picker
+  // can show "we stripped N items from your SVG" inline.
   const removed = describeMeaningfulRemovals(DOMPurify.removed ?? []);
   if (removed.length > 0) {
     console.warn(
@@ -103,7 +128,15 @@ export function sanitiseSvg(buffer: Buffer): Buffer {
     );
   }
 
-  return Buffer.from(sanitisedString, "utf-8");
+  return {
+    buffer: Buffer.from(sanitisedString, "utf-8"),
+    // Cap the descriptor list at a defensive ceiling so a pathological
+    // upload doesn't push a multi-KB payload back through the route.
+    // The total count rides alongside so the banner can still say
+    // "25 items removed" even when the visible sample is 20.
+    removed: removed.slice(0, REMOVED_DESCRIPTOR_CAP),
+    removedTotal: removed.length,
+  };
 }
 
 /**

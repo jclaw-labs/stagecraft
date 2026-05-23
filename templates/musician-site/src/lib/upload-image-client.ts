@@ -4,6 +4,7 @@ import {
   type AllowedInputMimeType,
   type FocalPoint,
   type ImageMetadata,
+  type SanitisedInfoWire,
   uploadResponseSchema,
 } from "./image-types";
 
@@ -19,6 +20,16 @@ export type UploadImageError = {
   /** Stable error code so the UI can branch without parsing strings. */
   code: "invalid-mime" | "too-large" | "empty" | "request-failed" | "server-error";
   message: string;
+};
+
+/**
+ * Successful upload result. `sanitised` is only present when the file
+ * was an SVG AND the sanitiser stripped something — the picker UI
+ * branches on its presence to show the "we stripped N items" hint.
+ */
+export type UploadImageResult = {
+  image: ImageMetadata;
+  sanitised?: SanitisedInfoWire;
 };
 
 /**
@@ -39,7 +50,7 @@ export async function uploadImageFromClient(args: {
   focalPoint?: FocalPoint;
   /** Defaults to global fetch; injectable for tests. */
   fetchImpl?: typeof fetch;
-}): Promise<ImageMetadata> {
+}): Promise<UploadImageResult> {
   const { file, alt, caption, credit, focalPoint } = args;
   const contentSlug = args.contentSlug ?? EDITOR_UPLOAD_SLUG;
   const fetchImpl = args.fetchImpl ?? fetch;
@@ -103,5 +114,8 @@ export async function uploadImageFromClient(args: {
       message: `Upload response was malformed: ${parsed.error.message}`,
     } satisfies UploadImageError;
   }
-  return parsed.data.image;
+  return {
+    image: parsed.data.image,
+    ...(parsed.data.sanitised ? { sanitised: parsed.data.sanitised } : {}),
+  };
 }

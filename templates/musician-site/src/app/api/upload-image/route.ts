@@ -131,11 +131,17 @@ export async function POST(request: Request) {
   // serverless artifact, and disappear on the next cold start.
   if (isPlatformConfigured()) {
     try {
-      const { metadata } = await commitUploadedImage({
+      const { metadata, sanitised } = await commitUploadedImage({
         input,
         authorEmail: session.email,
       });
-      return NextResponse.json(uploadResponseSchema.parse({ ok: true, image: metadata }));
+      return NextResponse.json(
+        uploadResponseSchema.parse({
+          ok: true,
+          image: metadata,
+          ...(sanitised ? { sanitised } : {}),
+        }),
+      );
     } catch (cause) {
       if (cause instanceof PublishError) {
         const status = publishErrorHttpStatus(cause.code);
@@ -149,5 +155,11 @@ export async function POST(request: Request) {
   // STAGECRAFT_PLATFORM_URL/SITE_ID/BROKER_SECRET unset, files land in
   // public/images for local Next.js dev to serve.
   const result = await processImage(input);
-  return NextResponse.json(uploadResponseSchema.parse({ ok: true, image: result.metadata }));
+  return NextResponse.json(
+    uploadResponseSchema.parse({
+      ok: true,
+      image: result.metadata,
+      ...(result.sanitised ? { sanitised: result.sanitised } : {}),
+    }),
+  );
 }
