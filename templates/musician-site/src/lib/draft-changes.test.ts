@@ -311,7 +311,7 @@ describe("parseChanges", () => {
     ]);
   });
 
-  it("preserves previous_filename + extracts previousItemSlug on renames", () => {
+  it("preserves previous_filename + extracts previousItemSlug on same-collection renames", () => {
     const out = parseChanges([
       {
         filename: "src/content/collections/pages/items/about.json",
@@ -324,6 +324,31 @@ describe("parseChanges", () => {
       status: "renamed",
       previousPath: "src/content/collections/pages/items/old-about.json",
       previousItemSlug: "old-about",
+    });
+    // Same collection on both sides — previousCollectionSlug stays
+    // unset so the modal renders the compact form.
+    expect((out[0] as { previousCollectionSlug?: string }).previousCollectionSlug).toBeUndefined();
+  });
+
+  it("extracts previousCollectionSlug when the rename crosses collections", () => {
+    // Hand-moved file across collections — our `renameItem` flow is
+    // single-collection, but GitHub's similarity heuristic may
+    // detect a manual move as a rename and set previous_filename
+    // accordingly.
+    const out = parseChanges([
+      {
+        filename: "src/content/collections/photos/items/sunset.json",
+        status: "renamed",
+        previous_filename: "src/content/collections/pages/items/sunset.json",
+      },
+    ]);
+    expect(out[0]).toMatchObject({
+      kind: "item",
+      status: "renamed",
+      collectionSlug: "photos",
+      itemSlug: "sunset",
+      previousItemSlug: "sunset",
+      previousCollectionSlug: "pages",
     });
   });
 

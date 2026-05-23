@@ -61,6 +61,12 @@ export type DraftChange =
       // Unset when previous path is missing or in a non-item shape
       // (cross-directory move, etc.).
       previousItemSlug?: string;
+      // Populated only when the rename's previous path was in a
+      // *different* collection than the current one (an unusual
+      // "moved across collections" case, normally from hand-edited
+      // files — our own renameItem flow is single-collection). When
+      // unset, the previous item sits in the same `collectionSlug`.
+      previousCollectionSlug?: string;
     }
   | {
       kind: "singleton";
@@ -176,9 +182,17 @@ function parseChange(file: {
       // moves, etc.) flow through as `previousPath` only.
       const prevItemMatch = file.previous_filename.match(ITEM_PATH);
       if (prevItemMatch) {
-        const [, , prevSlug] = prevItemMatch;
+        const [, prevCollectionSlug, prevSlug] = prevItemMatch;
         if (prevSlug !== SINGLETON_ITEM_SLUG && prevSlug !== ORDER_FILE_NAME) {
           out.previousItemSlug = prevSlug;
+          // Only record the source collection when it actually
+          // differs — the modal uses presence of this field to
+          // decide whether to render the expanded
+          // `prevColl · prevSlug → currColl · newSlug` form vs the
+          // compact same-collection one.
+          if (prevCollectionSlug !== collectionSlug) {
+            out.previousCollectionSlug = prevCollectionSlug;
+          }
         }
       }
     }

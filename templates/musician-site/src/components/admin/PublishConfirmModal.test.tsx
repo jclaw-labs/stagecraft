@@ -85,6 +85,36 @@ describe("PublishConfirmModal", () => {
     });
   });
 
+  it("includes the source collection in the label for cross-collection renames", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: {
+          count: 1,
+          changes: [
+            {
+              kind: "item" as const,
+              status: "renamed" as const,
+              collectionSlug: "photos",
+              itemSlug: "sunset",
+              path: "src/content/collections/photos/items/sunset.json",
+              previousPath: "src/content/collections/pages/items/sunset.json",
+              previousItemSlug: "sunset",
+              previousCollectionSlug: "pages",
+            },
+          ],
+          mode: "github",
+        },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("pages · sunset → photos · sunset")).toBeTruthy();
+    });
+  });
+
   it("renders the change list once the fetch resolves", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
