@@ -231,6 +231,44 @@ describe("publishPage — broker + GitHub path", () => {
     );
   });
 
+  it("commits an editor to their own draft-<key> sibling branch on a multi-editor site (ADR-011)", async () => {
+    configurePlatform();
+    process.env.ADMIN_EMAILS = "first@example.com, second@example.com";
+    commitFilesMock.mockResolvedValue("draft-commit-sha");
+
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "second@example.com",
+      store,
+    });
+
+    const branch = commitFilesMock.mock.calls[0][0].branch as string;
+    // Hyphen sibling (not draft/<key>, which would D/F-conflict with `draft`).
+    expect(branch).toMatch(/^draft-[0-9a-f]{12}$/);
+    // The per-editor branch is ensured/rebased off main before the commit.
+    expect(ensureBranchExistsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch, fromBranch: "main" }),
+    );
+  });
+
+  it("keeps a single-editor site on the shared draft branch (ADR-011 no-op)", async () => {
+    configurePlatform();
+    process.env.ADMIN_EMAIL = "solo@example.com";
+    commitFilesMock.mockResolvedValue("sha");
+
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "solo@example.com",
+      store,
+    });
+
+    expect(commitFilesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft" }),
+    );
+  });
+
   it("appends [skip ci] to the draft commit message (deploy gate)", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");

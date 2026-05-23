@@ -229,7 +229,12 @@ admin work goes through the generic collection routes
 canonical because of its drag-and-drop / nav-toggle UX.
 
 **Client-bundle discipline.** `schema.ts` imports `node:crypto` for
-`generateFieldId` / `generateItemId`; `store.ts` imports `node:fs`.
+`generateFieldId` / `generateItemId`; `store.ts` imports `node:fs`. As
+of ADR-011 the barrel also transitively reaches `next/headers`
+(server-only): `read-store.ts` → `publish.ts` → `draft-branch.ts` →
+`auth.ts` (which imports `cookies`). Same hazard as the node imports — a
+*value* import of `@/lib/collections` from a `"use client"` file drags
+these into the client bundle and fails the build.
 Client components that need types or runtime helpers from those files
 import via sibling submodules that have no node imports:
 

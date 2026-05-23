@@ -80,16 +80,16 @@ Extends ADR-010's glossary.
   names so raw emails (which contain `@`, `.`, and other characters
   that are awkward-to-invalid in git ref names, and are PII) never
   appear in a ref.
-- **Per-editor draft branch.** `draft/<editorKey>`. The editor's
+- **Per-editor draft branch.** `draft-<editorKey>`. The editor's
   private companion branch, playing the exact role ADR-010's single
   `draft` plays — but scoped to one editor.
 - **Pending changes (per editor).** Diff between `main` and
-  `draft/<editorKey>`. Each editor sees only their own.
+  `draft-<editorKey>`. Each editor sees only their own.
 
 ## Decision
 
 Generalize ADR-010's single `draft` branch to **one draft branch per
-editor**, `draft/<editorKey>`, resolved from the current session at
+editor**, `draft-<editorKey>`, resolved from the current session at
 every read/write/publish/discard. Single-editor sites keep using the
 literal `draft` branch (the resolver returns `"draft"` when a site has
 ≤1 editor), so existing sites and the dev path are unchanged until a
@@ -97,10 +97,10 @@ second editor is actually added.
 
 ADR-010's invariants hold per branch:
 
-1. For each editor key `k`: `draft/<k>.sha === main.sha` OR
-   `draft/<k>` is a strict descendant of `main`.
+1. For each editor key `k`: `draft-<k>.sha === main.sha` OR
+   `draft-<k>` is a strict descendant of `main`.
 2. The public site builds exclusively from `main`.
-3. An editor reads exclusively from *their own* `draft/<k>`.
+3. An editor reads exclusively from *their own* `draft-<k>`.
 
 ### 1. Branch resolution (the seam)
 
@@ -111,18 +111,24 @@ A single resolver decides which branch a request targets:
 export const DRAFT_BRANCH = "draft"; // moved out of publish.ts
 
 // Returns the literal "draft" for single-editor sites (today's
-// behavior) and `draft/<editorKey>` once a site has multiple editors.
-export function resolveDraftBranch(session: Session | null): string;
+// behavior) and `draft-<editorKey>` for every editor once a site has
+// multiple editors — keyed on the editor's own email, and a hyphen
+// (not slash) so it can't directory/file-conflict with the `draft` ref.
+export function resolveDraftBranch(editorEmail: string): string;
+// Same, resolved from the current request's session — for the read +
+// pending-changes paths, which carry no explicit author argument.
+export function resolveDraftBranchForRequest(): Promise<string>;
 ```
 
-Every place that currently hardcodes `DRAFT_BRANCH` instead calls
-`resolveDraftBranch(session)`:
+Every place that currently hardcodes `DRAFT_BRANCH` instead resolves
+the editor's branch — from the commit's `authorEmail` on the write
+path, or from the session on the read / pending-changes paths:
 
 - `publish.ts`: `ensureDraftAndRebase`, `commitToDraft` / `saveToDraft`,
   `publishDraftToMain` (squash *from* the editor's branch), `discardDraft`
   (reset *the editor's* branch).
 - `draft-changes.ts`: the compare basehead becomes
-  `main...draft/<editorKey>`.
+  `main...draft-<editorKey>`.
 - `collections/read-store.ts` → `draft-store.ts`: admin reads come from
   the editor's branch.
 
@@ -142,13 +148,13 @@ cache without collision.
 
 ### 3. Publish — now "publish my edits"
 
-Publish squashes **the editor's own** `draft/<k>` onto `main`, then
+Publish squashes **the editor's own** `draft-<k>` onto `main`, then
 fast-forwards *that* branch. Other editors' branches are untouched.
 This is exactly the "publish only my edits" semantics the shared model
 couldn't offer — it falls out of per-editor branches for free.
 
 After one editor publishes, `main` has moved. Other editors'
-`draft/<k>` branches are now behind `main`. ADR-010 §7's **auto-rebase
+`draft-<k>` branches are now behind `main`. ADR-010 §7's **auto-rebase
 on next save** already handles this per branch:
 
 - No file overlap → silent rebase; the other editor keeps working.
@@ -170,7 +176,7 @@ conflict surfaces as §3's structured error.
 
 ### 5. Discard
 
-Reset **the editor's own** `draft/<k>` to `main`'s current HEAD
+Reset **the editor's own** `draft-<k>` to `main`'s current HEAD
 (ADR-010 §4 mechanics, scoped). One editor's Discard never affects
 another's pending work.
 
@@ -184,7 +190,7 @@ another's pending work.
   branch equal to `main` (nothing pending) is a single cheap ref;
   leaving it is fine.
 - **Removal:** when an editor is removed from a site's allowlist,
-  delete their `draft/<k>` (it may carry unpublished work — surface a
+  delete their `draft-<k>` (it may carry unpublished work — surface a
   confirmation to the remover, same "this can't be undone" weight as
   Discard). An optional periodic sweep can delete per-editor branches
   that have equalled `main` for longer than a retention window; not
@@ -223,13 +229,30 @@ on the dev path.
 
 - Existing single-editor sites: nothing changes — resolver returns
   `"draft"`, the branch they already have.
-- When a site gains its second editor: the **owner keeps `"draft"`**
-  (the branch already exists with their pending work), and each
-  additional editor gets `draft/<k>` lazily on first save. This avoids
-  re-pointing an existing branch and means the common case (one busy
-  owner + occasional collaborators) creates the fewest refs. The
-  asymmetry (owner on `"draft"`, others on `draft/<k>`) lives entirely
-  inside `resolveDraftBranch` and is invisible to callers.
+- When a site gains its second editor: **every** editor (including the
+  one who was the sole editor) resolves to their own `draft-<editorKey>`
+  on first save, lazily created off `main`. The literal `"draft"` ref is
+  no longer read or written on a multi-editor site.
+
+  Earlier drafts of this ADR proposed keeping the "owner" on `"draft"`
+  and giving only additional editors `draft-<k>`. That was rejected for
+  two reasons surfaced in review: (1) **git can't represent it** —
+  `refs/heads/draft` (a file) and `refs/heads/draft/<k>` (which needs
+  `draft` to be a directory) are a directory/file conflict and can't
+  coexist; switching to the hyphen sibling `draft-<k>` fixes the naming,
+  but (2) "owner" was defined positionally (`editors[0]` from
+  `ADMIN_EMAILS`), so reordering the env var — or the legacy
+  `ADMIN_EMAIL` being unioned last — silently reassigned who owns
+  `"draft"` and orphaned the prior owner's pending work. Keying every
+  editor on their **own** email removes the positional dependency
+  entirely: an editor's branch is stable regardless of `ADMIN_EMAILS`
+  order or membership churn.
+
+  The cost is the transition itself (see Known limitations): the
+  original sole editor's unpublished work stays on `"draft"` and isn't
+  auto-carried onto their new `draft-<key>`. It remains recoverable on
+  `"draft"`; the operational guidance is to publish pending work before
+  enabling a second editor.
 
 ## Rejected alternatives
 
@@ -273,6 +296,22 @@ on the dev path.
   draft" surface is deferred. *Trigger:* editors ask to review each
   other's work before publish.
 
+- **First multi-editor transition orphans the original `draft`.** When a
+  single-editor site adds its first collaborator, the original editor
+  moves from `"draft"` to their own `draft-<key>`; unpublished work still
+  on `"draft"` isn't auto-migrated (it stays recoverable on `"draft"`).
+  *Mitigation:* publish pending work before enabling a second editor.
+  *Trigger:* an artist hits this on a real upgrade — then auto-migrate
+  (`"draft"` → the original editor's `draft-<key>`) at transition.
+
+- **Cross-editor publish staleness.** When one editor publishes, `main`
+  advances and only *their* branch fast-forwards; other editors keep
+  reading their own branch (built on the older `main`) until their next
+  save auto-rebases (ADR-010 §7). A just-published change isn't visible
+  in another editor's admin view until that editor next saves. Self-
+  healing and inherent to the isolation model. *Trigger:* editors report
+  confusion during concurrent sessions.
+
 - **No real-time co-editing.** Two editors editing the *same item* in
   separate drafts resolve at the file level: the second to publish hits
   the rebase conflict (§3) and chooses Discard-or-support. True
@@ -287,12 +326,16 @@ on the dev path.
 
 ## Consequences
 
-- **The `DRAFT_BRANCH` constant becomes `resolveDraftBranch(session)`.**
-  The string moves to `lib/draft-branch.ts`; `publish.ts`,
-  `draft-changes.ts`, and the read-store stack call the resolver. The
-  first PR introduces this seam returning `"draft"` unconditionally — a
-  pure refactor, no behavior change — so the threading lands and is
-  reviewable before any per-editor logic exists.
+- **The `DRAFT_BRANCH` constant becomes `resolveDraftBranch(editorEmail)`.**
+  The constant + resolver live in `lib/draft-branch.ts`; the write path
+  (`publish.ts`) resolves from the commit's `authorEmail`, and the read
+  + pending-changes paths (`read-store.ts`, `draft-changes.ts`) resolve
+  from the session via `resolveDraftBranchForRequest()`. Shipped with
+  the real per-editor logic, but it returns the shared `"draft"` for
+  single-editor sites — a no-op until a site configures a second editor
+  (`ADMIN_EMAILS`), at which point each editor gets an isolated
+  `draft-<editorKey>` **sibling** branch (hyphen, not slash, to avoid a
+  git directory/file ref conflict with `draft`).
 
 - **Multi-editor auth is a prerequisite** (§7), amending ADR-006 /
   ADR-007 §4. The isolation layer is dormant until it ships.
