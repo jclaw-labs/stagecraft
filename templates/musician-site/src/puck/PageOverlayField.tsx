@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 
 /**
  * Custom Puck root field for the per-page `pageBackgroundOverlay`.
@@ -37,13 +37,20 @@ const STEP = 0.05;
 export function PageOverlayField({ value, onChange }: Props) {
   const isInheriting = value === null || value === undefined;
   const numericValue = typeof value === "number" ? clamp01(value) : CUSTOM_DEFAULT_OVERLAY;
+  // Unique per-instance group name + readout id. Radio groups are
+  // document-global by `name`, so a hardcoded string would couple two
+  // instances if this field were ever reused outside the singleton
+  // root inspector. `useId` keeps each instance independent.
+  const baseId = useId();
+  const groupName = `${baseId}-mode`;
+  const readoutId = `${baseId}-readout`;
 
   return (
     <div style={wrapperStyle}>
       <label style={radioRowStyle}>
         <input
           type="radio"
-          name="page-overlay-mode"
+          name={groupName}
           checked={isInheriting}
           onChange={() => onChange(null)}
         />
@@ -52,7 +59,7 @@ export function PageOverlayField({ value, onChange }: Props) {
       <label style={radioRowStyle}>
         <input
           type="radio"
-          name="page-overlay-mode"
+          name={groupName}
           checked={!isInheriting}
           // This radio only fires from the Inherit state (once the
           // value is a number, Custom is already checked), so the seed
@@ -74,10 +81,11 @@ export function PageOverlayField({ value, onChange }: Props) {
             value={numericValue}
             onChange={(e) => onChange(clamp01(Number(e.target.value)))}
             aria-label="Background tint opacity"
+            aria-describedby={readoutId}
             style={sliderStyle}
             data-testid="page-overlay-slider"
           />
-          <span style={readoutStyle} data-testid="page-overlay-readout">
+          <span id={readoutId} style={readoutStyle} data-testid="page-overlay-readout">
             {numericValue.toFixed(2)}
           </span>
         </div>

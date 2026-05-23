@@ -90,3 +90,26 @@ describe("<PageOverlayField> — defensive value handling", () => {
     expect((screen.getByLabelText(/inherit/i) as HTMLInputElement).checked).toBe(true);
   });
 });
+
+describe("<PageOverlayField> — accessibility + instance isolation", () => {
+  it("associates the numeric readout with the slider via aria-describedby", () => {
+    render(<PageOverlayField value={0.3} onChange={vi.fn()} />);
+    const slider = screen.getByTestId("page-overlay-slider");
+    const readout = screen.getByTestId("page-overlay-readout");
+    expect(slider.getAttribute("aria-describedby")).toBe(readout.id);
+    expect(readout.id).toBeTruthy();
+  });
+
+  it("gives each instance a unique radio group name (no cross-instance coupling)", () => {
+    // Radio groups are document-global by name; two instances sharing
+    // a hardcoded name would merge into one group. useId keeps them
+    // independent.
+    const { container: a } = render(<PageOverlayField value={null} onChange={vi.fn()} />);
+    const { container: b } = render(<PageOverlayField value={null} onChange={vi.fn()} />);
+    const nameA = a.querySelector('input[type="radio"]')?.getAttribute("name");
+    const nameB = b.querySelector('input[type="radio"]')?.getAttribute("name");
+    expect(nameA).toBeTruthy();
+    expect(nameB).toBeTruthy();
+    expect(nameA).not.toBe(nameB);
+  });
+});
