@@ -13,6 +13,7 @@ import {
   isVectorExt,
   type FocalPoint,
   type ImageMetadata,
+  type SanitisedInfoWire,
 } from "@/lib/image-types";
 import {
   type UploadImageError,
@@ -23,6 +24,15 @@ type Props = {
   value: ImageMetadata | null;
   onChange: (next: ImageMetadata | null) => void;
 };
+
+/**
+ * Cap on the descriptors shown inline in the picker before collapsing
+ * the tail into a "+ N more" indicator. Keeps the hint readable even
+ * for an SVG with a dozen stripped onclick attrs. The server already
+ * caps the array at 20 in `lib/svg-sanitise.ts`, so the worst-case
+ * tail is bounded.
+ */
+const INLINE_REMOVED_PREVIEW_CAP = 5;
 
 /**
  * Editor-side custom field for image picking.
@@ -47,6 +57,11 @@ export function ImagePickerField({ value, onChange }: Props) {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Last upload's sanitiser report. Held in component state (not
+  // derived from `value`) because `ImageMetadata` doesn't carry it
+  // — the signal only lives in the upload response. Cleared on a
+  // fresh upload or when the artist removes the image.
+  const [lastSanitised, setLastSanitised] = useState<SanitisedInfoWire | null>(null);
 
   // Vector / icon uploads have no `.webp` variants on disk (the sharp
   // pipeline is bypassed for them), so the preview points to the
@@ -70,8 +85,11 @@ export function ImagePickerField({ value, onChange }: Props) {
     setIsUploading(true);
     setError(null);
     try {
-      const metadata = await uploadImageFromClient({ file: pendingFile, alt });
-      onChange(metadata);
+      const result = await uploadImageFromClient({ file: pendingFile, alt });
+      onChange(result.image);
+      // Reset before setting the new report so a clean upload after a
+      // dirty one clears the stale "we stripped N items" banner.
+      setLastSanitised(result.sanitised ?? null);
       setPendingFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (cause) {
@@ -84,6 +102,7 @@ export function ImagePickerField({ value, onChange }: Props) {
 
   function handleClear() {
     onChange(null);
+    setLastSanitised(null);
     reset();
   }
 
@@ -263,6 +282,10 @@ export function ImagePickerField({ value, onChange }: Props) {
             </div>
           </div>
 
+          {lastSanitised ? (
+            <SanitisedHint sanitised={lastSanitised} />
+          ) : null}
+
           <button
             type="button"
             onClick={handleClear}
@@ -318,6 +341,54 @@ export function ImagePickerField({ value, onChange }: Props) {
           {error}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Inline banner shown after an SVG upload when the sanitiser stripped
+ * something. Surfaces the same info the server already logs to
+ * `console.warn` — the artist sees a deliberate signal instead of
+ * silently getting a different image than they uploaded.
+ *
+ * Kept terse: a one-line summary + a sample of what was stripped, no
+ * raw HTML / attribute syntax beyond what the sanitiser describes
+ * (`<script>` for elements, `onclick=` for attributes — see
+ * `describeRemoval` in `lib/svg-sanitise.ts`).
+ *
+ * Exported for unit-testing in isolation; the picker renders it in the
+ * post-upload branch when `lastSanitised` is non-null.
+ */
+export function SanitisedHint({ sanitised }: { sanitised: SanitisedInfoWire }) {
+  const { removed } = sanitised;
+  const preview = removed.slice(0, INLINE_REMOVED_PREVIEW_CAP);
+  const tail = removed.length - preview.length;
+  return (
+    <div
+      role="status"
+      data-testid="image-picker-sanitised-hint"
+      style={{
+        padding: "var(--space-2)",
+        border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--color-surface-muted)",
+        fontSize: "var(--font-size-xs)",
+        color: "var(--color-text-emphasis)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-1)",
+      }}
+    >
+      <strong style={{ fontWeight: "var(--font-weight-semibold)" }}>
+        We cleaned up your SVG before saving it.
+      </strong>
+      <span>
+        {removed.length === 1
+          ? "1 item was removed for your security: "
+          : `${removed.length} items were removed for your security: `}
+        <code style={{ fontFamily: "var(--font-mono)" }}>{preview.join(", ")}</code>
+        {tail > 0 ? ` and ${tail} more` : ""}.
+      </span>
     </div>
   );
 }

@@ -167,6 +167,71 @@ describe("POST /api/upload-image", () => {
     expect(res.status).toBe(400);
   });
 
+  // ---------------------------------------------------------------------------
+  // SVG sanitiser → response forwarding. When the upload is an SVG and
+  // DOMPurify strips something, the route returns a `sanitised` field
+  // alongside `image` so the picker UI can surface a "we stripped N
+  // items" hint. Locked here so a regression in the chain (sanitiser →
+  // image.ts → route → response schema) surfaces as a test failure.
+  // ---------------------------------------------------------------------------
+
+  describe("SVG sanitiser response forwarding (dev fallback)", () => {
+    it("includes `sanitised.removed` when the SVG had stripped content", async () => {
+      const dirtySvg = Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle r="1" onclick="x"/></svg>`,
+        "utf-8",
+      );
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(dirtySvg)], { type: "image/svg+xml" }), "evil.svg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const parsed = uploadResponseSchema.safeParse(body);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.sanitised).toBeDefined();
+        expect(parsed.data.sanitised?.removed).toContain("<script>");
+        expect(parsed.data.sanitised?.removed).toContain("onclick=");
+      }
+    });
+
+    it("omits `sanitised` for a clean SVG", async () => {
+      // A clean upload shouldn't trigger the picker hint — verify the
+      // route doesn't ship an empty `sanitised` object that the
+      // client would have to defensively treat as "no removals."
+      const cleanSvg = Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>`,
+        "utf-8",
+      );
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(cleanSvg)], { type: "image/svg+xml" }), "clean.svg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).not.toHaveProperty("sanitised");
+    });
+
+    it("omits `sanitised` for raster uploads (no SVG sanitiser pass)", async () => {
+      // The sanitiser only runs for SVG; the route shouldn't synthesise
+      // a `sanitised: { removed: [] }` for JPEG uploads.
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(await jpegBuffer())], { type: "image/jpeg" }), "photo.jpg");
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).not.toHaveProperty("sanitised");
+    });
+  });
+
   it("dedups: re-uploading the same bytes is idempotent", async () => {
     const buffer = await jpegBuffer();
 
@@ -245,6 +310,39 @@ describe("POST /api/upload-image", () => {
 
       const res = await POST(buildRequest(fd));
       expect(res.status).toBe(500);
+    });
+
+    it("forwards `sanitised` from commitUploadedImage into the response", async () => {
+      // The broker path generates the same sanitiser report as the dev
+      // path; the route just hands it through. Locked so a refactor of
+      // `commitUploadedImage`'s return shape doesn't silently drop the
+      // signal.
+      commitUploadedImageMock.mockResolvedValue({
+        metadata: {
+          id: "abc1234567890def",
+          alt: "x",
+          width: 1024,
+          height: 1024,
+          placeholderDataUri: "data:image/webp;base64,AAAA",
+          contentSlug: TEST_SLUG,
+          originalExt: "svg",
+        },
+        commitSha: "deadbeef",
+        sanitised: { removed: ["<script>", "onclick="] },
+      });
+      const fd = new FormData();
+      fd.append(
+        "file",
+        new Blob([new Uint8Array(Buffer.from("<svg/>", "utf-8"))], { type: "image/svg+xml" }),
+        "evil.svg",
+      );
+      fd.append("contentSlug", TEST_SLUG);
+      fd.append("alt", "x");
+
+      const res = await POST(buildRequest(fd));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.sanitised).toEqual({ removed: ["<script>", "onclick="] });
     });
 
     it("forwards caption / credit / focalPoint to commitUploadedImage", async () => {

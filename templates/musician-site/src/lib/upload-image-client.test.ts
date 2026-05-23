@@ -67,7 +67,7 @@ describe("uploadImageFromClient", () => {
       contentSlug: "homepage",
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
-    expect(result.id).toBe("abc1234567890def");
+    expect(result.image.id).toBe("abc1234567890def");
     expect(fetchMock).toHaveBeenCalledOnce();
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(call[1].method).toBe("POST");
@@ -169,5 +169,67 @@ describe("uploadImageFromClient", () => {
       credit: "",
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sanitised-info forwarding. The route returns the SVG sanitiser's removal
+  // descriptors alongside `image` when the upload was an SVG with stripped
+  // content. The picker UI keys on the presence of `sanitised` to decide
+  // whether to show the "we stripped N items from your SVG" banner — so
+  // the client must surface it through unchanged.
+  // ---------------------------------------------------------------------------
+
+  it("returns `sanitised` when the server includes it in the response", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          image: MIN_VALID_METADATA,
+          sanitised: { removed: ["<script>", "onclick="] },
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    expect(result.sanitised).toEqual({ removed: ["<script>", "onclick="] });
+  });
+
+  it("omits `sanitised` from the result when the server doesn't send one", async () => {
+    // The picker UI checks `result.sanitised` for truthiness; a stale
+    // banner from a previous upload shouldn't survive a clean re-upload.
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, image: MIN_VALID_METADATA }), { status: 200 }),
+    );
+    const result = await uploadImageFromClient({
+      file: makeFile(1024, "image/jpeg"),
+      alt: "x",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    expect(result.sanitised).toBeUndefined();
+  });
+
+  it("rejects a malformed `sanitised` (empty array) as server-error", async () => {
+    // The schema guards `removed: z.array(z.string()).min(1)` — an
+    // empty `removed` array is "we sanitised but stripped nothing,"
+    // which the server contract says should be `sanitised: undefined`
+    // instead. A misbehaving server that emits the empty form should
+    // be caught at parse time, not silently flow as a no-op signal.
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ ok: true, image: MIN_VALID_METADATA, sanitised: { removed: [] } }),
+        { status: 200 },
+      ),
+    );
+    await expect(
+      uploadImageFromClient({
+        file: makeFile(1024, "image/jpeg"),
+        alt: "x",
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject({ code: "server-error" });
   });
 });

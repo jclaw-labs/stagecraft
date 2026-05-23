@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { ImagePickerField } from "./ImagePickerField";
+import { ImagePickerField, SanitisedHint } from "./ImagePickerField";
 import { asImageId, type ImageMetadata } from "@/lib/image-types";
 
 const VALUE: ImageMetadata = {
@@ -261,5 +261,88 @@ describe("<ImagePickerField> — empty state", () => {
     render(<ImagePickerField value={null} onChange={vi.fn()} />);
     expect(screen.queryByTestId("image-picker-preview")).toBeNull();
     expect(screen.queryByPlaceholderText(/Soundcheck/)).toBeNull();
+  });
+});
+
+describe("<SanitisedHint>", () => {
+  // The hint surfaces what the SVG sanitiser stripped from an upload.
+  // Coverage focuses on the rendering contract — singular vs plural
+  // language, the inline preview cap, and the "+ N more" tail — since
+  // the picker's plumbing (setLastSanitised → render → clear on
+  // Remove) is exercised by the live editor flow.
+
+  it("shows the singular phrasing when exactly one item was removed", () => {
+    render(<SanitisedHint sanitised={{ removed: ["<script>"] }} />);
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/1 item was removed/);
+    expect(hint.textContent).toContain("<script>");
+  });
+
+  it("shows the plural phrasing when more than one item was removed", () => {
+    render(
+      <SanitisedHint
+        sanitised={{ removed: ["<script>", "onclick=", "<foreignObject>"] }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/3 items were removed/);
+  });
+
+  it("lists every removed item inline when under the preview cap", () => {
+    // 5 items is right at the inline cap — every one appears in the
+    // visible preview, no "+ N more" tail.
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: ["<script>", "<iframe>", "onclick=", "onload=", "<foreignObject>"],
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    for (const removed of [
+      "<script>",
+      "<iframe>",
+      "onclick=",
+      "onload=",
+      "<foreignObject>",
+    ]) {
+      expect(hint.textContent).toContain(removed);
+    }
+    expect(hint.textContent).not.toMatch(/more/);
+  });
+
+  it("collapses the tail into '+ N more' when the removed list exceeds the inline cap", () => {
+    // 8 items > 5-item cap → first 5 shown, remaining 3 as "and 3 more".
+    render(
+      <SanitisedHint
+        sanitised={{
+          removed: [
+            "<script>",
+            "<iframe>",
+            "onclick=",
+            "onload=",
+            "<foreignObject>",
+            "onmouseover=",
+            "onfocus=",
+            "<animate>",
+          ],
+        }}
+      />,
+    );
+    const hint = screen.getByTestId("image-picker-sanitised-hint");
+    expect(hint.textContent).toMatch(/and 3 more/);
+    // The first five appear inline; the last three appear in the count
+    // but not by name.
+    expect(hint.textContent).toContain("<foreignObject>");
+    expect(hint.textContent).not.toContain("onmouseover=");
+  });
+
+  it("uses role=status so the hint is announced to assistive tech", () => {
+    // The artist hits Upload and the banner appears below — without
+    // role=status, screen-reader users wouldn't notice the sanitiser
+    // changed anything.
+    render(<SanitisedHint sanitised={{ removed: ["<script>"] }} />);
+    // `getByRole` throws if missing — implicit assertion.
+    expect(screen.getByRole("status")).not.toBeNull();
   });
 });

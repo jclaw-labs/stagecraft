@@ -52,18 +52,6 @@ something worth fixing that doesn't fit the current PR's scope.
   kit / download list use cases. From #187.
 
 
-## SVG handling
-
-- **Surface sanitisation removals in the upload response.** The
-  sanitiser already logs to `console.warn` when DOMPurify strips
-  content (admin-visible in Vercel / Netlify function logs). The
-  next step is to return the removal summary alongside the buffer
-  so the upload route can include it in the API response — the
-  picker UI could then surface a hint inline ("we stripped 2 items
-  from your SVG: `<script>`, `onclick=`"). Needs an API change to
-  `sanitiseSvg` to return `{ buffer, removed }` and a small UI
-  affordance in `ImagePickerField`. From svg-hardening-bundle PR.
-
 ## Carousel
 
 - **Touch-swipe nav on the carousel.** The track scrolls natively
