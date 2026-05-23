@@ -37,22 +37,6 @@ something worth fixing that doesn't fit the current PR's scope.
   single-finger gesture when the touch count drops back to one.
   From lightbox-touch-swipe PR review.
 
-## Card
-
-- **Hover affordance on `minimal` cards.** A `minimal` link/hoverable
-  card shares the `.stagecraft-card-link:hover` rule, which applies
-  `box-shadow: var(--shadow-md)` + a lift on hover. The lift reads
-  as a fine clickability cue, but the drop-shadow on a chrome-less
-  card (no border, no surface) floats around the content bounding
-  box, which can look slightly detached from the "bare list-item"
-  resting intent. The `border-color` shift in the same rule is a
-  no-op (minimal has no `border-style`), so there's no visible
-  border bug — only the shadow is debatable. A `minimal`-specific
-  hover rule that drops the shadow (keeping the lift) would tidy
-  this; it's a cosmetic judgment call, deferred. From card-minimal-
-  size PR review.
-
-
 ## Carousel
 
 - **Touch-swipe nav on the carousel.** The track scrolls natively
