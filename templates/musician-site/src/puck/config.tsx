@@ -1333,11 +1333,16 @@ export const puckConfig: Config<
                   }
                 />
               </div>
-            ) : fileUrl ? (
+            ) : fileUrl && !href ? (
               // No image, but a downloadable file is attached: show a
               // file-type icon tile in the media slot (press-kit /
-              // download-list parity). The download button still
-              // renders in the body below.
+              // download-list parity). The download button renders in
+              // the body below. Both are gated on `!href`: when the
+              // whole card is a link, the download is suppressed (no
+              // nested anchors), so a tile captioned with the filename
+              // would advertise a download the card can't deliver —
+              // clicking navigates to href, not the file. Pairing the
+              // tile with the download keeps the affordance honest.
               <CardFilePreview fileUrl={fileUrl} orientation={orientation} />
             ) : null}
             <div style={cardBodyStyle}>

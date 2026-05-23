@@ -986,10 +986,12 @@ describe("puckConfig", () => {
       expect(html).not.toContain('data-testid="card-file-tile"');
     });
 
-    it("renders the (non-interactive) file tile inside a link card without nested anchors", () => {
-      // The tile is a static glyph + filename — valid inside the
-      // card-link <a>. The download button is suppressed (href wins),
-      // so there's no nested <a download> either.
+    it("suppresses the file tile when the card is a link (file would be unreachable)", () => {
+      // When href is set, the card navigates on click and the download
+      // button is suppressed (no nested anchors). A file tile captioned
+      // with the filename would advertise a download the card can't
+      // deliver — so the tile is gated on `!href`, same as the
+      // download button. The link card just has no media slot here.
       const html = render(
         "Card",
         cardProps({
@@ -999,11 +1001,21 @@ describe("puckConfig", () => {
           href: "/press",
         }),
       );
-      expect(html).toContain('data-testid="card-file-tile"');
-      // Exactly one anchor (the card link); the tile adds none and the
-      // download button is suppressed under href.
+      expect(html).not.toContain('data-testid="card-file-tile"');
+      // Exactly one anchor — the card link. No tile, no download anchor.
       expect((html.match(/<a /g) ?? [])).toHaveLength(1);
       expect(html).toContain('href="/press"');
+    });
+
+    it("renders the file tile + download together for a non-link card (coherent pair)", () => {
+      // The honest case: no href, so the tile previews the file AND
+      // the download button delivers it.
+      const html = render(
+        "Card",
+        cardProps({ title: "EPK", image: null, fileUrl: "/uploads/epk.pdf" }),
+      );
+      expect(html).toContain('data-testid="card-file-tile"');
+      expect(html).toContain("Download");
     });
   });
 
