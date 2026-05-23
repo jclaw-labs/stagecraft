@@ -426,12 +426,28 @@ The publish-token endpoint surface is unchanged.
   per-session branches or a fancy diff-extraction trick.
   *Trigger:* a real workflow where it matters.
 
-- **Diff view: what's pending on draft vs main.** The admin
-  could surface a per-item "modified since last publish" badge.
-  Useful at scale; v1 only surfaces the global "has pending
-  changes" indicator.
-  *Trigger:* when more than ~5 items are routinely pending
-  between publishes.
+- **Diff view: per-item badges beyond the Pages list.** The Pages
+  admin (`/admin/pages`) shows an "Unpublished" badge per row,
+  driven by a client-side `/api/draft-changes` fetch filtered to
+  the `pages` collection. The generic collection list views
+  (`/admin/collections/<slug>`) don't carry the badge yet — they'd
+  filter the same change list to their own slug. Server components,
+  so they'd fetch `getDraftChanges` at render or hydrate a client
+  island like PagesPanel does.
+  *Trigger:* artists working in the generic collection lists ask
+  why Pages shows pending state and the others don't.
+
+- **Dedupe `/api/draft-changes` fetches across the chrome.** On
+  `/admin/pages` two components now fetch the endpoint independently
+  on mount: `PendingChangesIndicator` (in `AdminShell`) and
+  `PagesPanel` (for its per-row badges). Each is a separate compare
+  API call. A shared client cache (a module-level promise with a
+  short TTL, or a small context provider) would collapse them to
+  one. Per-call cost is modest (the broker token is process-cached
+  per PR 5m; only the compare differs) so this is amortise-later,
+  not load-bearing.
+  *Trigger:* the duplicate compare calls show up in real traffic
+  profiles, or a third draft-changes consumer lands.
 
 ## Consequences
 
