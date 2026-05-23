@@ -48,17 +48,6 @@ something worth fixing that doesn't fit the current PR's scope.
   per-service parser + matching hint would extend the same author-
   time signal. Defer until artists ask. From newsletter-validation
   PR review.
-- **Inspector warning when an additional field name collides.** The
-  renderer silently drops an additional field whose `name` matches a
-  reserved form field (`_gotcha`, the per-service email / name
-  attribute, the Mailchimp `b_*` honeypot) to avoid emitting a
-  duplicate `name=` input that breaks submission. The drop is safe
-  but invisible — an artist who names a field `EMAIL` just sees it
-  not appear. A Puck inspector hint ("this name is reserved — the
-  field won't be added") would close the loop, mirroring the
-  `actionUrl` validation hint. From newsletter-additional-fields PR
-  review.
-
 ## Card
 
 - **Hover affordance on `minimal` cards.** A `minimal` link/hoverable

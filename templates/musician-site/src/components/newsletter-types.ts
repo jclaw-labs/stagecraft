@@ -186,3 +186,73 @@ export function parseMailchimpAudienceHoneypotName(
     return null;
   }
 }
+
+/**
+ * The form-field `name`s the NewsletterSignup form already owns for a
+ * given configuration. An additional field colliding with one of
+ * these emits a duplicate `name=` input — the provider then receives
+ * two values for the same key (subscription breaks silently behind
+ * the opaque no-cors success) or a visible field shadows a honeypot —
+ * so the renderer drops the colliding row.
+ *
+ * Single source of truth shared by the public form (which drops
+ * colliding rows) and the editor inspector (which warns about the
+ * drop). `NAME_FIELD_NAME` is reserved only when the name field is
+ * actually rendered; the Mailchimp `b_*` honeypot only when the
+ * actionUrl parses.
+ */
+export function newsletterReservedFieldNames(
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): Set<string> {
+  const reserved = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
+  if (hasNameField) reserved.add(NAME_FIELD_NAME[service]);
+  const honeypot =
+    service === "mailchimp" ? parseMailchimpAudienceHoneypotName(actionUrl) : null;
+  if (honeypot) reserved.add(honeypot);
+  return reserved;
+}
+
+/**
+ * The (de-duplicated) `name`s among `additionalFields` that collide
+ * with a reserved form field and will therefore be dropped at render.
+ * Blank names are ignored (they're dropped for being incomplete, not
+ * for colliding). Used by the inspector to warn the artist that a
+ * field they added won't appear.
+ */
+export function collidingAdditionalFieldNames(
+  additionalFields: readonly NewsletterAdditionalField[] | undefined,
+  service: NewsletterService,
+  hasNameField: boolean,
+  actionUrl: string,
+): string[] {
+  const reserved = newsletterReservedFieldNames(service, hasNameField, actionUrl);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const field of additionalFields ?? []) {
+    const name = (field?.name ?? "").trim();
+    if (name !== "" && reserved.has(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Base inspector label for the additional-fields array. */
+export const NEWSLETTER_ADDITIONAL_FIELDS_LABEL = "Additional fields (advanced)";
+
+/**
+ * The inspector label for the additional-fields array, with a
+ * reserved-name warning appended when any configured field collides
+ * with a form field the signup already owns (and is therefore
+ * silently skipped at render). Puck's array field has no description
+ * slot, so the label is the surface available for this hint.
+ */
+export function newsletterAdditionalFieldsLabel(colliding: readonly string[]): string {
+  if (colliding.length === 0) return NEWSLETTER_ADDITIONAL_FIELDS_LABEL;
+  const names = colliding.join(", ");
+  const noun = colliding.length === 1 ? "name is reserved" : "names are reserved";
+  return `${NEWSLETTER_ADDITIONAL_FIELDS_LABEL} — ${names} ${noun} and won't be added (rename to avoid a clash with the email / name / spam-trap fields)`;
+}
