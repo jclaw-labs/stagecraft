@@ -8,6 +8,7 @@ import {
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
   newsletterFieldAutoComplete,
+  newsletterReservedFieldNames,
   normaliseNewsletterFieldType,
   parseMailchimpAudienceHoneypotName,
   type NewsletterAdditionalField,
@@ -128,11 +129,9 @@ export function NewsletterSignup({
   // then receives two values for the same key (subscription breaks,
   // silently, behind the opaque no-cors success), or a visible field
   // shadows a honeypot. Colliding rows are dropped rather than shipped
-  // broken. `NAME_FIELD_NAME` is only reserved when the name field is
-  // actually rendered; the Mailchimp `b_*` honeypot only when present.
-  const reservedNames = new Set<string>(["_gotcha", EMAIL_FIELD_NAME[service]]);
-  if (hasNameField) reservedNames.add(NAME_FIELD_NAME[service]);
-  if (mailchimpHoneypotName) reservedNames.add(mailchimpHoneypotName);
+  // broken. Shared with the editor inspector's collision warning via
+  // `newsletterReservedFieldNames` (single source of truth).
+  const reservedNames = newsletterReservedFieldNames(service, hasNameField, actionUrl);
 
   // Clean the artist's additional fields for render:
   //   1. Drop incomplete rows (label or name blank — the inspector

@@ -1140,6 +1140,57 @@ describe("puckConfig", () => {
       expect(html).toMatch(/<form/);
       expect(html).toMatch(/name="email"/);
     });
+
+    // resolveFields surfaces a reserved-name collision in the array
+    // field's label (Puck arrays have no description slot). The
+    // renderer silently drops the colliding row, so without this the
+    // artist would just see their field vanish.
+    function resolveNewsletterFields(props: Record<string, unknown>) {
+      const config = puckConfig.components.NewsletterSignup as unknown as {
+        resolveFields: (
+          data: { props: Record<string, unknown> },
+          params: { fields: Record<string, { label?: string }> },
+        ) => Record<string, { label?: string }>;
+        fields: Record<string, { label?: string }>;
+      };
+      return config.resolveFields({ props }, { fields: config.fields });
+    }
+
+    it("keeps the plain additionalFields label when no field name collides", () => {
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" }],
+      });
+      expect(resolved.additionalFields?.label).toBe("Additional fields (advanced)");
+    });
+
+    it("appends a reserved-name warning to the label when a field collides", () => {
+      // "EMAIL" is Mailchimp's email field name — a collision.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "Email again", name: "EMAIL", type: "email" }],
+      });
+      expect(resolved.additionalFields?.label).toContain("Additional fields (advanced)");
+      expect(resolved.additionalFields?.label).toContain("EMAIL");
+      expect(resolved.additionalFields?.label).toMatch(/reserved/);
+    });
+
+    it("preserves the array sub-field config when resolveFields rebuilds the label", () => {
+      // Spreading the static field must keep arrayFields intact, not
+      // replace the array with a bare labelled field.
+      const resolved = resolveNewsletterFields({
+        service: "mailchimp",
+        actionUrl: "",
+        hasNameField: false,
+        additionalFields: [{ label: "x", name: "EMAIL", type: "text" }],
+      }) as Record<string, { type?: string; arrayFields?: Record<string, unknown> }>;
+      expect(resolved.additionalFields?.type).toBe("array");
+      expect(resolved.additionalFields?.arrayFields).toBeTruthy();
+    });
   });
 
   describe("newsletterUrlDescription (inspector helper text)", () => {
