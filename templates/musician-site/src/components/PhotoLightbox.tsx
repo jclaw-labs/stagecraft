@@ -8,7 +8,26 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
+  type TouchEvent,
 } from "react";
+
+/**
+ * Minimum horizontal pixel delta for a touch gesture to count as a
+ * swipe (not a tap or jitter). Matches the value most mobile photo
+ * viewers settle on — small enough to feel responsive, big enough
+ * that a deliberate tap doesn't accidentally cycle the gallery.
+ */
+const SWIPE_THRESHOLD_PX = 50;
+
+/**
+ * Window after a successful swipe within which a backdrop click
+ * gets suppressed. Mobile browsers synthesise a `click` from
+ * touchstart+touchend on a normally-passive listener; without this
+ * suppression, a backdrop swipe would cycle the photo AND fire the
+ * backdrop-close handler. 500ms covers the worst-case touch→click
+ * latency seen in the wild on slow Android devices.
+ */
+const SWIPE_CLICK_SUPPRESS_MS = 500;
 
 /**
  * Single photo's worth of data the lightbox displays. The boot
@@ -60,6 +79,17 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
   const [index, setIndex] = useState(() => clamp(initialIndex, images.length));
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Touch swipe start point. Null when no active single-touch gesture
+  // is in flight; reset on touchend / touchcancel / multi-touch start.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Wall-clock millisecond at which the most recent swipe fired.
+  // Mobile browsers synthesise a `click` from a `touchstart`+
+  // `touchend` sequence (since the listeners can't preventDefault —
+  // React 17+ attaches synthetic touch listeners as passive), so a
+  // backdrop swipe would otherwise hit `handleBackdropClick` and
+  // close the modal. The click follows within ~300ms; we suppress
+  // any backdrop close that lands in a wider window.
+  const lastSwipeAtRef = useRef<number>(0);
 
   const total = images.length;
   const current = images[index];
@@ -161,7 +191,67 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
   function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
     // Only close when the click landed on the backdrop itself, not
     // on a descendant (image, button, caption).
-    if (event.target === event.currentTarget) close();
+    if (event.target !== event.currentTarget) return;
+    // Suppress the synthesised click that follows a backdrop swipe:
+    // a horizontal swipe across the empty space beside the image
+    // would otherwise cycle AND close (browsers fire `click` after
+    // `touchend` when the move stays under their internal
+    // movement-cancels-click threshold, which is much larger than
+    // our 50px swipe threshold). Window is generous — touch→click
+    // synthesis can lag a few hundred ms on slow Android devices.
+    if (Date.now() - lastSwipeAtRef.current < SWIPE_CLICK_SUPPRESS_MS) return;
+    close();
+  }
+
+  // Touch-swipe gesture handlers. Standard mobile photo-viewer
+  // convention:
+  //   - swipe LEFT (finger moves toward the start of the row) =
+  //     advance to the next photo
+  //   - swipe RIGHT (finger moves toward the end of the row) =
+  //     go back to the previous photo
+  //
+  // Multi-touch starts (two-finger pinch) are ignored so the future
+  // pinch-zoom task can layer in without re-thinking the gesture
+  // arbitration. Mostly-vertical swipes are also ignored so a near-
+  // vertical scroll attempt doesn't accidentally cycle the gallery.
+  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+    if (event.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
+    const touch = event.touches[0]!;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    // `changedTouches` is the touches that just lifted, which is
+    // what we need for the swipe-end coordinates (the live
+    // `touches` list is empty at this point).
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
+    // Reject mostly-vertical gestures: |dx| must strictly exceed
+    // |dy|, otherwise a swipe that's "more down than across" gets
+    // mis-classified as a horizontal cycle. The next/prev call also
+    // self-guards on `total <= 1`, so single-image galleries
+    // silently ignore swipes here too.
+    if (Math.abs(dx) <= Math.abs(dy)) return;
+    // Stamp the time so the follow-up synthesised click on the
+    // backdrop (touch→click compat) doesn't close the modal.
+    lastSwipeAtRef.current = Date.now();
+    if (dx < 0) next();
+    else prev();
+  }
+
+  function handleTouchCancel() {
+    // Browser interrupt (screen-edge gesture, incoming call); discard
+    // the start coords so the next touchstart is a clean baseline.
+    touchStartRef.current = null;
   }
 
   if (!current) return null;
@@ -174,6 +264,9 @@ export function PhotoLightbox({ images, initialIndex, onClose }: PhotoLightboxPr
       aria-label={current.alt || "Photo viewer"}
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       style={overlayStyle}
       data-testid="photo-lightbox"
     >
