@@ -23,14 +23,22 @@ function editorKey(normalizedEmail: string): string {
  * Which draft branch a given editor reads / writes / publishes (ADR-011).
  *
  * - Single-editor sites (0 or 1 allowed editor — the default today)
- *   keep the shared `draft` branch: no behavior change.
- * - On a multi-editor site, the first/owner editor keeps `draft` (so a
- *   site that adds collaborators doesn't orphan the owner's pending
- *   work), and every other editor gets an isolated `draft/<editorKey>`
- *   branch so concurrent edits and publishes don't clobber each other.
+ *   use the shared `draft` branch: no behavior change.
+ * - On a multi-editor site every editor gets an isolated branch keyed
+ *   on their OWN email — `draft-<editorKey>`. Keying on the editor's
+ *   own hash (not their position in `ADMIN_EMAILS`) makes the mapping
+ *   stable across env-var edits/reordering. The separator is a hyphen,
+ *   not a slash: `refs/heads/draft` (a file) and `refs/heads/draft/x`
+ *   (which needs `draft` to be a directory) cannot coexist in git, but
+ *   `refs/heads/draft-x` is a sibling ref that can.
  *
  * An empty `editorEmail` (no identifiable editor) falls back to the
  * shared `draft`.
+ *
+ * Migration note: when a single-editor site first gains a second
+ * editor, the original editor moves from `draft` to their own
+ * `draft-<key>`; unpublished work still on `draft` is not auto-carried
+ * (it stays recoverable on `draft`). See ADR-011 known limitations.
  */
 export function resolveDraftBranch(editorEmail: string): string {
   const normalized = editorEmail.trim().toLowerCase();
@@ -38,8 +46,7 @@ export function resolveDraftBranch(editorEmail: string): string {
 
   const editors = getAllowedEditorEmails();
   if (editors.length <= 1) return DRAFT_BRANCH;
-  if (normalized === editors[0]) return DRAFT_BRANCH;
-  return `${DRAFT_BRANCH}/${editorKey(normalized)}`;
+  return `${DRAFT_BRANCH}-${editorKey(normalized)}`;
 }
 
 /**

@@ -39,33 +39,38 @@ describe("resolveDraftBranch", () => {
 
   describe("multi-editor site", () => {
     beforeEach(() => {
-      process.env.ADMIN_EMAILS = "owner@example.com, second@example.com";
+      process.env.ADMIN_EMAILS = "first@example.com, second@example.com";
     });
 
-    it("keeps the owner (first editor) on the shared draft", () => {
-      expect(resolveDraftBranch("owner@example.com")).toBe(DRAFT_BRANCH);
-      expect(resolveDraftBranch("  OWNER@Example.com ")).toBe(DRAFT_BRANCH);
+    it("gives every editor — including the first — an isolated draft-<key> sibling branch", () => {
+      for (const email of ["first@example.com", "second@example.com"]) {
+        const branch = resolveDraftBranch(email);
+        expect(branch).toMatch(/^draft-[0-9a-f]{12}$/);
+        expect(branch).not.toBe(DRAFT_BRANCH);
+        // Hyphen, not slash: must never D/F-conflict with refs/heads/draft.
+        expect(branch.startsWith("draft/")).toBe(false);
+      }
     });
 
-    it("gives a non-owner editor an isolated draft/<key> branch", () => {
-      const branch = resolveDraftBranch("second@example.com");
-      expect(branch).toMatch(/^draft\/[0-9a-f]{12}$/);
-      expect(branch).not.toBe(DRAFT_BRANCH);
-    });
-
-    it("derives a stable, case-insensitive key per editor", () => {
+    it("derives a stable, case/whitespace-insensitive key per editor", () => {
       expect(resolveDraftBranch("second@example.com")).toBe(
-        resolveDraftBranch("SECOND@Example.com "),
+        resolveDraftBranch("  SECOND@Example.com "),
       );
     });
 
+    it("is independent of ADMIN_EMAILS ordering (stable per editor)", () => {
+      const before = resolveDraftBranch("second@example.com");
+      process.env.ADMIN_EMAILS = "second@example.com, first@example.com";
+      expect(resolveDraftBranch("second@example.com")).toBe(before);
+    });
+
     it("gives different editors different branches", () => {
-      process.env.ADMIN_EMAILS = "owner@x.com, a@x.com, b@x.com";
+      process.env.ADMIN_EMAILS = "a@x.com, b@x.com, c@x.com";
       const a = resolveDraftBranch("a@x.com");
       const b = resolveDraftBranch("b@x.com");
       expect(a).not.toBe(b);
-      expect(a).toMatch(/^draft\/[0-9a-f]{12}$/);
-      expect(b).toMatch(/^draft\/[0-9a-f]{12}$/);
+      expect(a).toMatch(/^draft-[0-9a-f]{12}$/);
+      expect(b).toMatch(/^draft-[0-9a-f]{12}$/);
     });
   });
 });
