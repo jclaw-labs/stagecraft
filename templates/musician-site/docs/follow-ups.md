@@ -83,3 +83,15 @@ something worth fixing that doesn't fit the current PR's scope.
   the hot path until an artist actually needs it. Also recorded in
   ADR-011 "Known limitations and deferred work". From #233 deep review.
 
+## Test coverage
+
+- **Tour-date seeding branch of `/api/welcome/complete`.** The route
+  seeds two illustrative tour-dates when a `tour-dates` collection
+  def exists and is empty. The new route tests cover the singleton +
+  Home-page writes, the guards, and idempotency, but not the
+  tour-date seed branch — exercising it needs the real `tour-dates`
+  def registered in the test content dir AND seed values that pass
+  `buildItemFileSchema` for that def (the seeds come from
+  `buildFirstRunSeed`). Worth adding once a shared tour-dates fixture
+  is wired into the route-test setup. From api-route-tests PR.
+
