@@ -10,31 +10,32 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Photo lightbox
 
-- **Pinch-zoom for high-DPR viewing.** Lightbox currently caps the
-  image at `max-height: calc(100vh - var(--space-32))`; pinch-zoom
-  on touch screens would let users inspect detail. Browser native
-  pinch-zoom on the page is suppressed by the body-scroll-lock; we'd
-  need an explicit transform-based zoom inside the modal. From #183.
+- **Double-tap + desktop zoom controls.** Pinch-to-zoom ships for
+  touch (two-finger pinch + one-finger pan when zoomed), but there's
+  no zoom affordance for mouse/trackpad users — they have the full
+  lightbox-size variant already, but a double-tap-to-toggle gesture
+  and/or +/− buttons would round it out (double-tap also helps on
+  touch where a precise pinch is awkward). The gesture pipeline +
+  `ZoomState` are in place; this is additive. From lightbox-pinch-
+  zoom PR.
 - **iOS edge-swipe-back conflict.** A right-swipe starting near the
   left edge of the screen can trigger iOS Safari's system-level
   back-navigation instead of cycling to the previous photo. The
-  React-synthetic touch listeners are passive (React ≥17), so
-  `event.preventDefault()` inside the swipe handler is a no-op.
-  Fix would attach the touch listeners via a `useEffect` +
-  `addEventListener('touchstart', ..., { passive: false })` ref
-  pattern, then `preventDefault()` when the gesture starts within
-  ~20px of the viewport edge. Defer until artists report it. From
-  lightbox-touch-swipe PR review.
-- **Multi-touch palm-grazing kills a swipe in progress.** If a
-  second finger briefly touches the screen mid-swipe (palm graze,
-  thumb of the holding hand), the multi-touch guard clears
-  `touchStartRef`; finger 1 then completing the swipe + lifting
-  hits a null ref and no-ops. The user has to lift everything and
-  start over. Two-finger phone use is common enough to surface
-  this occasionally. Fix would distinguish "started single-touch
-  AND still single-touch at end" by tracking the primary touch's
-  `identifier` and reading it back out of `changedTouches`. From
-  lightbox-touch-swipe PR review.
+  pinch-zoom PR moved the touch listeners to native non-passive
+  `addEventListener` (so `preventDefault` now works) and set
+  `touch-action: none` on the overlay, which should suppress most
+  of this — but the system edge gesture can still win from the very
+  screen edge. Remaining fix: `preventDefault()` on a swipe-start
+  within ~20px of the viewport edge. Defer until artists report it.
+  From lightbox-touch-swipe PR review.
+- **Multi-touch palm-grazing interrupts a swipe.** If a second
+  finger lands mid-swipe, the gesture switches to pinch and the
+  original one-finger swipe is abandoned; when the extra finger
+  lifts, the remaining finger doesn't re-arm a swipe until a fresh
+  touchstart. Two-finger phone use surfaces this occasionally. Fix
+  would track the primary touch's `identifier` and resume the
+  single-finger gesture when the touch count drops back to one.
+  From lightbox-touch-swipe PR review.
 
 ## Newsletter signup
 
