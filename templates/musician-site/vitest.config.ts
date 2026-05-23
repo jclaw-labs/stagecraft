@@ -12,9 +12,16 @@ export default defineConfig({
   test: {
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
-    // Playwright owns everything under e2e/. Excluding it here keeps
-    // `npm run test` (vitest) from picking up the `.spec.ts` files
-    // and double-loading the browser-driver code into a node context.
-    exclude: ["node_modules/**", "e2e/**", "playwright-report/**", "test-results/**"],
+    // Playwright owns everything under e2e/ and capture/. Excluding
+    // them here keeps `npm run test` (vitest) from picking up those
+    // `.spec.ts` files and double-loading the browser-driver code into
+    // a node context.
+    exclude: [
+      "node_modules/**",
+      "e2e/**",
+      "capture/**",
+      "playwright-report/**",
+      "test-results/**",
+    ],
   },
 });

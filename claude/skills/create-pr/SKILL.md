@@ -57,8 +57,26 @@ working `gh` auth can use either, but the relay is shorter.
 
 ### Capture
 
-For the musician-site-legacy template, use the helper script — it covers
-site home, each nav page, and the Keystatic admin views:
+**`templates/musician-site` (Next.js + Puck artist site).** One command
+captures the standard set — the public home page plus the authenticated
+admin surfaces (Pages, Site Settings, Header & Nav, Appearance,
+Collections, and the Puck page editor):
+
+```bash
+cd templates/musician-site
+npx playwright install chromium   # first run only
+npm run capture:screenshots       # writes .pr-screenshots/artist-*.{jpg,png}
+```
+
+It's a Playwright capture config (`playwright.capture.config.ts`) that
+boots its own dev server against a seeded, completed site and signs in
+via the dev-login escape hatch — so no manual server/auth setup. Output
+lands directly in the repo-root `.pr-screenshots/` (the relay path).
+Override the dir with `PR_SCREENSHOTS_DIR=...`.
+
+**`templates/musician-site-legacy` (Astro + Keystatic).** Use its helper
+script — it covers site home, each nav page, and the Keystatic admin
+views:
 
 ```bash
 # Terminal 1: dev server
@@ -71,10 +89,14 @@ node scripts/capture-pr-screenshots.mjs http://localhost:4321 \
 ```
 
 `<output-dir>` is `.pr-screenshots/` at the repo root for the relay path,
-or `/tmp/pr-<N>-screenshots/` for the manual path. See the script
-header for flags (`--only`, `--jpeg-quality`, `--site-format`). For
-other projects (apps/web, musician-site), capture manually at 1440×900
-using the same naming convention.
+or `/tmp/pr-<N>-screenshots/` for the manual path. See the script header
+for flags (`--only`, `--jpeg-quality`, `--site-format`).
+
+**`apps/web` (platform dashboard).** No authed capture path yet — the
+dashboard is GitHub-OAuth-only with no dev-login bypass, so an
+authenticated Playwright session needs a seeded DB session (tracked
+separately). Capture public pages (`/`, `/login`) manually at 1440×900
+using the same naming convention (`dashboard-*`).
 
 ### Path A: Automated relay (cloud sessions, default)
 
