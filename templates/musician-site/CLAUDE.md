@@ -81,8 +81,7 @@ src/
     site-config-types.ts    Zod schemas for site / header / appearance
                             singletons and pages list contract
     collections/            ADR-009 Collection abstraction (foundation
-                            + template renderer + PR 3 wrappers — no
-                            generic editor UI yet):
+                            + template renderer + generic editor UI):
                               schema.ts   Zod schemas as SSOT; TS types
                                           inferred via z.infer
                               store.ts    Filesystem layer (uses
@@ -433,18 +432,17 @@ Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
 ## What's intentionally not here yet
 
 - **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
-- **Collection editor** (releases, tour dates, posts, store items) — the
-  legacy `src/content/collections/` shape is well-defined but a dedicated
-  UI surface for editing structured collection entries hasn't landed yet.
-  When it does, those collections plug back in through Puck blocks like
-  `<TourDatesList>` that read collection JSON at render time.
+- **Collection-consuming Puck blocks** (`<TourDatesList>`,
+  `<ReleasesGrid>`, etc.) — the generic collection *editor* UI has
+  landed (`/admin/collections/<slug>/items/<itemSlug>` + `ItemEditor`),
+  so structured collections (releases, tour dates, posts, store items)
+  are editable. What's missing is the public-render blocks that read a
+  collection's items and lay them out on a page; until they ship, those
+  collections are editable but not yet renderable on the public site
+  beyond the pages/singletons the legacy `content.ts` shim covers.
 - **Curated Google Fonts picker** — Appearance currently takes a free-text
   family name. The legacy template's category + curated-per-category
   picker can come back later (the Zod shape we persist is already
   forwards-compatible — just one string).
-- **Per-page background image override** — the legacy template let each
-  page override the site-wide `pageBackground`. Surfaced through Puck's
-  root fields when it lands; the on-disk shape lives in
-  `site-config-types.ts`'s `pageRootPropsSchema`.
 
 These ship in stacked PRs.
