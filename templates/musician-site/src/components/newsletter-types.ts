@@ -111,3 +111,103 @@ export function parseMailchimpAudienceHoneypotName(
     return null;
   }
 }
+
+/**
+ * Author-time validation of the actionUrl for a given provider.
+ * Surfaced in the Puck inspector as a hint beneath the URL input,
+ * so the artist gets feedback the moment they paste an obviously-
+ * wrong URL — rather than discovering it days later when no
+ * subscribers land in their list.
+ *
+ * Each branch enforces the minimum the runtime relies on:
+ *
+ *   - `mailchimp`  — needs `?u=USER_ID&id=LIST_ID` query params so
+ *     `parseMailchimpAudienceHoneypotName` can synthesise the real
+ *     honeypot field name. Without them, the bot defense is silently
+ *     bypassed (still works for legitimate submits, but accepts
+ *     spam).
+ *   - `convertkit` — embed-form action URL is hosted at
+ *     `app.kit.com/forms/<id>/subscriptions` (or legacy
+ *     `app.convertkit.com/...`). The `/forms/<id>/subscriptions`
+ *     suffix is the canonical pattern; anything else likely won't
+ *     accept the POST.
+ *   - `buttondown` — embed-subscribe URL is hosted at
+ *     `buttondown.com/api/emails/embed-subscribe/<username>` (or
+ *     legacy `buttondown.email/...`).
+ *   - `generic`    — only validates URL parseability; the artist
+ *     supplies the field-name contract themselves.
+ *
+ * Empty `actionUrl` returns `{ ok: true }`: the hint shouldn't fire
+ * on a brand-new block before the artist has typed anything. The
+ * required-ness of the field is the artist's choice to make once
+ * they publish.
+ *
+ * Pure / synchronous; safe to call during render.
+ */
+export type NewsletterActionUrlValidation =
+  | { ok: true }
+  | { ok: false; message: string };
+
+export function validateNewsletterActionUrl(
+  service: NewsletterService,
+  actionUrl: string,
+): NewsletterActionUrlValidation {
+  if (!actionUrl.trim()) return { ok: true };
+  let url: URL;
+  try {
+    url = new URL(actionUrl);
+  } catch {
+    return {
+      ok: false,
+      message:
+        "This doesn't look like a URL — paste the form-submission " +
+        "URL from your provider's embed snippet.",
+    };
+  }
+  if (service === "mailchimp") {
+    const u = url.searchParams.get("u");
+    const id = url.searchParams.get("id");
+    if (!u || !id) {
+      return {
+        ok: false,
+        message:
+          "This URL is missing Mailchimp's audience parameters — " +
+          "expected `?u=USER_ID&id=LIST_ID`. Without them the form " +
+          "still posts but the bot defense is bypassed.",
+      };
+    }
+  } else if (service === "convertkit") {
+    // Both the modern (`app.kit.com`) and legacy (`app.convertkit.com`)
+    // hosts ship the same `/forms/<id>/subscriptions` path. Accept
+    // either host; reject anything else with a hint pointing at the
+    // canonical shape.
+    const host = url.host.toLowerCase();
+    const isHost = host === "app.kit.com" || host === "app.convertkit.com";
+    const isPath = /^\/forms\/[^/]+\/subscriptions\/?$/.test(url.pathname);
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the ConvertKit / Kit embed pattern — " +
+          "expected `https://app.kit.com/forms/FORM_ID/subscriptions` " +
+          "(or the legacy `app.convertkit.com` host).",
+      };
+    }
+  } else if (service === "buttondown") {
+    const host = url.host.toLowerCase();
+    const isHost = host === "buttondown.com" || host === "buttondown.email";
+    const isPath = /^\/api\/emails\/embed-subscribe\/[^/]+\/?$/.test(
+      url.pathname,
+    );
+    if (!isHost || !isPath) {
+      return {
+        ok: false,
+        message:
+          "This URL doesn't match the Buttondown embed pattern — " +
+          "expected `https://buttondown.com/api/emails/embed-subscribe/USERNAME`.",
+      };
+    }
+  }
+  // `generic` falls through — only URL parseability is checked above.
+  return { ok: true };
+}

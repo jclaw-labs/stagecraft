@@ -19,6 +19,7 @@ import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/i
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
+import { NewsletterUrlField } from "./NewsletterUrlField";
 
 export const HEADING_LEVELS = ["h1", "h2", "h3"] as const;
 export type HeadingLevel = (typeof HEADING_LEVELS)[number];
@@ -1226,8 +1227,18 @@ export const puckConfig: Config<
           })),
         },
         actionUrl: {
-          type: "text",
+          type: "custom",
           label: "Form submission URL",
+          render: ({ id, name, field, value, onChange, readOnly }) => (
+            <NewsletterUrlField
+              id={id}
+              name={name}
+              label={field.label}
+              value={(value as string | undefined) ?? ""}
+              onChange={onChange}
+              readOnly={readOnly}
+            />
+          ),
         },
         title: {
           type: "text",
