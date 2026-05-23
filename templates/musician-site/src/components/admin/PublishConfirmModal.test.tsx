@@ -336,10 +336,61 @@ describe("PublishConfirmModal", () => {
     await waitFor(() => {
       expect(screen.getByText("17 / 200")).toBeTruthy();
     });
-    const input = screen.getByLabelText("Commit message") as HTMLInputElement;
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
     await userEvent.clear(input);
     await userEvent.type(input, "abc");
     expect(screen.getByText("3 / 200")).toBeTruthy();
+  });
+
+  it("preserves newlines through onConfirm (multi-line commit body)", async () => {
+    const onConfirm = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+    // Direct value-set + change event keeps the test stable across
+    // userEvent's interpretation of Enter inside contenteditable / textarea.
+    fireEvent.change(input, {
+      target: { value: "About-page rewrite\n\nReplaced placeholder copy" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      "About-page rewrite\n\nReplaced placeholder copy",
+    );
+  });
+
+  it("tracks first-line length in the counter rather than total message length", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+    render(
+      <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
+    );
+    await waitFor(() => {
+      const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+      expect(input.value).toBe("Publish 2 changes");
+    });
+    const input = screen.getByLabelText("Commit message") as HTMLTextAreaElement;
+    // "first" is 5 chars; the counter ignores everything after the
+    // first newline since the subject line is what git-tooling
+    // truncates.
+    fireEvent.change(input, {
+      target: { value: "first\nlots and lots of body content here" },
+    });
+    expect(screen.getByText("5 / 200")).toBeTruthy();
   });
 
   it("passes the edited subject through onConfirm", async () => {
