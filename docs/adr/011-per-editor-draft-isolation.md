@@ -206,6 +206,12 @@ the isolation layer itself** but blocks the feature being observable:
 
 Amends ADR-006 / ADR-007 §4 (auth: single → multiple allowed emails).
 
+**Status:** the allowlist landed ahead of the isolation layer —
+`ADMIN_EMAILS` (unioned with the legacy `ADMIN_EMAIL`), with magic-link
+request gating + a verify-time re-check (`getAllowedEditorEmails` /
+`isAllowedEditor` in `auth.ts`). The dormant `resolveDraftBranch` seam
+is the remaining prerequisite-side piece.
+
 ### 8. Dev fallback
 
 Unchanged. In dev (no `STAGECRAFT_SITE_ID` / `STAGECRAFT_BROKER_SECRET`)
@@ -251,6 +257,16 @@ on the dev path.
   staging lookup on every request.
 
 ## Known limitations and deferred work
+
+- **Editor removal doesn't revoke live sessions.** The multi-editor
+  allowlist (§7, shipped) gates new logins and re-checks at magic-link
+  verify, so a removed editor can't mint a *new* session — but an
+  already-issued session cookie stays valid until it expires (7 days).
+  `middleware.ts` checks session validity, not live allowlist
+  membership. Immediate lock-out would need a per-request allowlist
+  check in middleware (or a session epoch/version bumped on removal),
+  kept off the hot path until needed. *Trigger:* an editor must be
+  locked out immediately (e.g. a departure on bad terms).
 
 - **No cross-editor draft visibility.** By design, editor A can't see
   editor B's unpublished draft in the admin. A "preview a collaborator's
