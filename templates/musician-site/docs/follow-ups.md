@@ -70,3 +70,16 @@ something worth fixing that doesn't fit the current PR's scope.
   into `Images` + `Embeds` if the count crosses ~8. From #173 deep
   review.
 
+## Auth (editor allowlist)
+
+- **Removing an editor doesn't revoke their live session.** The
+  `ADMIN_EMAILS` allowlist gates *new* logins — the magic-link request
+  plus a verify-time re-check — but `middleware.ts` and `getSession()`
+  only validate the session JWT (signature / type / expiry), not live
+  allowlist membership. So an editor dropped from the allowlist keeps
+  `/admin` + API access until their `mc_session` cookie expires (≤7
+  days). Immediate lock-out would need a per-request allowlist check in
+  middleware (or a session epoch/version bumped on removal), kept off
+  the hot path until an artist actually needs it. Also recorded in
+  ADR-011 "Known limitations and deferred work". From #233 deep review.
+

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMagicLinkToken,
   createSessionToken,
+  getAllowedEditorEmails,
   verifyMagicLinkToken,
   verifySessionToken,
 } from "./auth";
@@ -101,5 +102,33 @@ describe("auth tokens: secret derived from STAGECRAFT_BROKER_SECRET", () => {
 
     const token = await createSessionToken("user@example.com");
     expect(await verifySessionToken(token)).toEqual({ email: "user@example.com" });
+  });
+});
+
+describe("editor allowlist", () => {
+  beforeEach(() => {
+    delete process.env.ADMIN_EMAILS;
+    delete process.env.ADMIN_EMAIL;
+  });
+
+  it("returns an empty list when neither var is set", () => {
+    expect(getAllowedEditorEmails()).toEqual([]);
+  });
+
+  it("honors the legacy single ADMIN_EMAIL (normalized)", () => {
+    process.env.ADMIN_EMAIL = "  Artist@Example.COM ";
+    expect(getAllowedEditorEmails()).toEqual(["artist@example.com"]);
+    expect(getAllowedEditorEmails().includes("nope@example.com")).toBe(false);
+  });
+
+  it("parses ADMIN_EMAILS as a comma/whitespace separated list", () => {
+    process.env.ADMIN_EMAILS = "a@x.com, b@y.com\nc@z.com";
+    expect(getAllowedEditorEmails()).toEqual(["a@x.com", "b@y.com", "c@z.com"]);
+  });
+
+  it("unions ADMIN_EMAILS with the legacy ADMIN_EMAIL and dedupes case-insensitively", () => {
+    process.env.ADMIN_EMAILS = "a@x.com, b@y.com";
+    process.env.ADMIN_EMAIL = "B@Y.com";
+    expect(getAllowedEditorEmails()).toEqual(["a@x.com", "b@y.com"]);
   });
 });
