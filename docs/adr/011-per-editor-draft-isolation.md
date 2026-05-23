@@ -111,12 +111,17 @@ A single resolver decides which branch a request targets:
 export const DRAFT_BRANCH = "draft"; // moved out of publish.ts
 
 // Returns the literal "draft" for single-editor sites (today's
-// behavior) and `draft/<editorKey>` once a site has multiple editors.
-export function resolveDraftBranch(session: Session | null): string;
+// behavior) and `draft/<editorKey>` for non-owner editors once a site
+// has multiple editors.
+export function resolveDraftBranch(editorEmail: string): string;
+// Same, resolved from the current request's session — for the read +
+// pending-changes paths, which carry no explicit author argument.
+export function resolveDraftBranchForRequest(): Promise<string>;
 ```
 
-Every place that currently hardcodes `DRAFT_BRANCH` instead calls
-`resolveDraftBranch(session)`:
+Every place that currently hardcodes `DRAFT_BRANCH` instead resolves
+the editor's branch — from the commit's `authorEmail` on the write
+path, or from the session on the read / pending-changes paths:
 
 - `publish.ts`: `ensureDraftAndRebase`, `commitToDraft` / `saveToDraft`,
   `publishDraftToMain` (squash *from* the editor's branch), `discardDraft`
@@ -287,12 +292,15 @@ on the dev path.
 
 ## Consequences
 
-- **The `DRAFT_BRANCH` constant becomes `resolveDraftBranch(session)`.**
-  The string moves to `lib/draft-branch.ts`; `publish.ts`,
-  `draft-changes.ts`, and the read-store stack call the resolver. The
-  first PR introduces this seam returning `"draft"` unconditionally — a
-  pure refactor, no behavior change — so the threading lands and is
-  reviewable before any per-editor logic exists.
+- **The `DRAFT_BRANCH` constant becomes `resolveDraftBranch(editorEmail)`.**
+  The constant + resolver live in `lib/draft-branch.ts`; the write path
+  (`publish.ts`) resolves from the commit's `authorEmail`, and the read
+  + pending-changes paths (`read-store.ts`, `draft-changes.ts`) resolve
+  from the session via `resolveDraftBranchForRequest()`. Shipped with
+  the real per-editor logic, but it returns the shared `"draft"` for
+  single-editor sites — a no-op until a site configures a second editor
+  (`ADMIN_EMAILS`), at which point non-owner editors get isolated
+  `draft/<editorKey>` branches.
 
 - **Multi-editor auth is a prerequisite** (§7), amending ADR-006 /
   ADR-007 §4. The isolation layer is dormant until it ships.

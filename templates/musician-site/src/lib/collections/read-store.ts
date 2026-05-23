@@ -62,12 +62,12 @@ import * as draftStore from "./draft-store";
 import * as fsStore from "./store";
 import type { CollectionDef, Item } from "./schema";
 import {
-  DRAFT_BRANCH,
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
   readEnv,
 } from "../publish";
+import { resolveDraftBranchForRequest } from "../draft-branch";
 
 export type ReadStoreMode = "fs" | "draft+fs-fallback";
 
@@ -164,7 +164,10 @@ export async function getReadStore(): Promise<ReadStore> {
   let ctx: DraftStoreContext;
   try {
     const { token, owner, repo } = await fetchPublishToken(env);
-    ctx = { token, owner, repo, branch: DRAFT_BRANCH };
+    // Read from the signed-in editor's draft branch (ADR-011); the
+    // shared `draft` for single-editor sites.
+    const branch = await resolveDraftBranchForRequest();
+    ctx = { token, owner, repo, branch };
   } catch (cause) {
     // Fall back only on `broker-unreachable` (transient network /
     // platform outage). `broker-rejected` typically means the

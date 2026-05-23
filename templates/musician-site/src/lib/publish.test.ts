@@ -231,6 +231,43 @@ describe("publishPage — broker + GitHub path", () => {
     );
   });
 
+  it("commits a non-owner to a per-editor draft branch on a multi-editor site (ADR-011)", async () => {
+    configurePlatform();
+    process.env.ADMIN_EMAILS = "owner@example.com, second@example.com";
+    commitFilesMock.mockResolvedValue("draft-commit-sha");
+
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "second@example.com",
+      store,
+    });
+
+    const branch = commitFilesMock.mock.calls[0][0].branch as string;
+    expect(branch).toMatch(/^draft\/[0-9a-f]{12}$/);
+    // The per-editor branch is ensured/rebased off main before the commit.
+    expect(ensureBranchExistsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch, fromBranch: "main" }),
+    );
+  });
+
+  it("keeps the owner (first editor) on the shared draft on a multi-editor site (ADR-011)", async () => {
+    configurePlatform();
+    process.env.ADMIN_EMAILS = "owner@example.com, second@example.com";
+    commitFilesMock.mockResolvedValue("sha");
+
+    await publishPage({
+      pageSlug: TEST_SLUG,
+      data: { content: [], root: { props: { title: "x" } } },
+      authorEmail: "owner@example.com",
+      store,
+    });
+
+    expect(commitFilesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft" }),
+    );
+  });
+
   it("appends [skip ci] to the draft commit message (deploy gate)", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
