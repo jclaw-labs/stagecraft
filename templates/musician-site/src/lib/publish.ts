@@ -20,6 +20,7 @@ import {
 } from "./fs-helpers";
 import {
   commitFiles,
+  commitSelectedPathsInto,
   ConcurrentEditError,
   ensureBranchExists,
   mergeBranchInto,
@@ -608,6 +609,113 @@ export async function publishDraftToMain(
     mode: "github",
     alreadyInSync: squash.alreadyInSync,
   };
+}
+
+// ---------------------------------------------------------------------------
+// publishSelectedToMain — publish a subset of pending changes (ADR-012)
+// ---------------------------------------------------------------------------
+
+export type PublishSelectedToMainArgs = {
+  authorEmail: string;
+  authorName?: string;
+  /**
+   * Pending paths to copy to `main` — the caller derives these from the
+   * live diff (the added/modified items it selected, expanding image
+   * variants and the new side of a rename).
+   */
+  copyPaths: string[];
+  /**
+   * Pending paths to delete from `main` (selected items removed on the
+   * draft, plus the old side of a rename). Explicit, never inferred, so a
+   * copy path that can't be resolved is never silently treated as a
+   * deletion.
+   */
+  deletePaths?: string[];
+  /** Optional override for the commit subject. */
+  commitSubject?: string;
+};
+
+/**
+ * Publish a SUBSET of the editor's pending changes (ADR-012). Builds one
+ * commit on `main` containing only `paths` (copied from the editor's
+ * draft branch) — which triggers the deploy — then merges `main` back
+ * into the draft branch so the published paths converge and the
+ * unselected changes stay pending. Contrast `publishDraftToMain`, which
+ * squashes the whole draft.
+ *
+ * Leaves the draft a descendant of `main` (ADR-010's invariant holds);
+ * the next pending-changes compare reports only the leftover items.
+ *
+ * Dev fallback: no-op — files are already on disk.
+ */
+export async function publishSelectedToMain(
+  args: PublishSelectedToMainArgs,
+): Promise<PublishDraftToMainResult> {
+  const env = readEnv();
+  if (!isPlatformConfigured(env)) {
+    return { commitSha: null, mode: "local", alreadyInSync: true };
+  }
+
+  const copyPaths = [...new Set(args.copyPaths)];
+  const deletePaths = [...new Set(args.deletePaths ?? [])];
+  if (copyPaths.length === 0 && deletePaths.length === 0) {
+    return { commitSha: null, mode: "github", alreadyInSync: true };
+  }
+
+  const { token, owner, repo } = await fetchPublishToken(env);
+  const author = { name: args.authorName ?? "Artist", email: args.authorEmail };
+  const draftBranch = resolveDraftBranch(args.authorEmail);
+
+  // Pre-flight: ensure the draft branch exists and is rebased on main, so
+  // the subset we copy from it sits on top of the latest main (ADR-010 §7).
+  await ensureDraftAndRebase({ token, owner, repo, mainBranch: env.branch, draftBranch, author });
+
+  const subject = args.commitSubject ?? "Publish selected changes";
+  const message = `${subject}\n\nStagecraft-Publish-Id: ${randomUUID()}`;
+
+  let result: Awaited<ReturnType<typeof commitSelectedPathsInto>>;
+  try {
+    result = await commitSelectedPathsInto({
+      token,
+      owner,
+      repo,
+      fromBranch: draftBranch,
+      toBranch: env.branch,
+      copyPaths,
+      deletePaths,
+      message,
+      author,
+    });
+  } catch (cause) {
+    if (cause instanceof ConcurrentEditError) {
+      throw new PublishError("concurrent-edit", cause.message);
+    }
+    throw new PublishError("github-failed", `publish selected → main: ${String(cause)}`);
+  }
+
+  // Reconcile the draft: merge the new main back in. The published paths
+  // are byte-identical on both branches (clean merge); the unselected
+  // changes exist only on draft and remain pending.
+  try {
+    const merge = await mergeBranchInto({
+      token,
+      owner,
+      repo,
+      from: env.branch,
+      into: draftBranch,
+    });
+    if (merge.kind === "conflict") {
+      throw new PublishError(
+        "github-failed",
+        `reconcile draft after partial publish: ${draftBranch} can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError("github-failed", `reconcile draft after partial publish: ${String(cause)}`);
+  }
+
+  return { commitSha: result.commitSha, mode: "github", alreadyInSync: result.alreadyInSync };
 }
 
 // ---------------------------------------------------------------------------

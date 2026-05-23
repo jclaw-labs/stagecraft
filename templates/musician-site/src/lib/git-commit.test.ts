@@ -3,6 +3,7 @@ import { RequestError } from "@octokit/request-error";
 
 const getRef = vi.fn();
 const getCommit = vi.fn();
+const getTree = vi.fn();
 const createBlob = vi.fn();
 const createTree = vi.fn();
 const createCommit = vi.fn();
@@ -12,13 +13,14 @@ const reposMerge = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
-    git = { getRef, getCommit, createBlob, createTree, createCommit, createRef, updateRef };
+    git = { getRef, getCommit, getTree, createBlob, createTree, createCommit, createRef, updateRef };
     repos = { merge: reposMerge };
   },
 }));
 
 import {
   commitFiles,
+  commitSelectedPathsInto,
   ConcurrentEditError,
   ensureBranchExists,
   mergeBranchInto,
@@ -29,6 +31,7 @@ import {
 beforeEach(() => {
   getRef.mockReset();
   getCommit.mockReset();
+  getTree.mockReset();
   createBlob.mockReset();
   createTree.mockReset();
   createCommit.mockReset();
@@ -880,5 +883,120 @@ describe("resetBranchTo", () => {
         toBranch: "main",
       }),
     ).rejects.toThrow("main does not exist");
+  });
+});
+
+describe("commitSelectedPathsInto", () => {
+  const baseArgs = {
+    token: "t",
+    owner: "o",
+    repo: "r",
+    fromBranch: "draft-abc123",
+    toBranch: "main",
+    message: "Publish selected changes",
+    author: { name: "A", email: "a@x.com" },
+  };
+
+  function setupSelected() {
+    getRef.mockResolvedValue({ data: { object: { sha: "main-sha" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "main-tree-sha" } } });
+    getTree.mockResolvedValue({
+      data: {
+        truncated: false,
+        tree: [
+          { path: "a.json", type: "blob", mode: "100644", sha: "sha-a" },
+          { path: "b.json", type: "blob", mode: "100644", sha: "sha-b" },
+          { path: "run.sh", type: "blob", mode: "100755", sha: "sha-run" },
+          { path: "src/dir", type: "tree", mode: "040000", sha: "sha-dir" },
+        ],
+      },
+    });
+    createTree.mockResolvedValue({ data: { sha: "new-tree-sha" } });
+    createCommit.mockResolvedValue({ data: { sha: "new-commit-sha" } });
+    updateRef.mockResolvedValue({ data: {} });
+  }
+
+  it("returns alreadyInSync without touching the source when nothing is selected", async () => {
+    getRef.mockResolvedValue({ data: { object: { sha: "main-sha" } } });
+    const res = await commitSelectedPathsInto({ ...baseArgs, copyPaths: [], deletePaths: [] });
+    expect(res).toEqual({ commitSha: "main-sha", alreadyInSync: true });
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(getTree).not.toHaveBeenCalled();
+  });
+
+  it("copies copyPaths by blob SHA (mode-faithful) and deletes deletePaths onto the target tree", async () => {
+    setupSelected();
+    const res = await commitSelectedPathsInto({
+      ...baseArgs,
+      copyPaths: ["a.json", "run.sh"],
+      deletePaths: ["gone.json"],
+    });
+    expect(res).toEqual({ commitSha: "new-commit-sha", alreadyInSync: false });
+
+    const treeArg = createTree.mock.calls[0][0] as {
+      base_tree: string;
+      tree: { path: string; mode: string; sha: string | null }[];
+    };
+    expect(treeArg.base_tree).toBe("main-tree-sha");
+    expect(treeArg.tree).toEqual([
+      { path: "a.json", mode: "100644", type: "blob", sha: "sha-a" },
+      { path: "run.sh", mode: "100755", type: "blob", sha: "sha-run" }, // source mode preserved
+      { path: "gone.json", mode: "100644", type: "blob", sha: null },
+    ]);
+    // No [skip ci] — a publish commit must trigger the deploy.
+    expect(createCommit.mock.calls[0][0].message).not.toContain("[skip ci]");
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ parents: ["main-sha"], tree: "new-tree-sha" }),
+    );
+    expect(updateRef).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: "heads/main", sha: "new-commit-sha" }),
+    );
+  });
+
+  it("throws (never silently deletes) when a copy path isn't a file on the source", async () => {
+    setupSelected();
+    await expect(
+      // "src/dir" is a tree, not a blob.
+      commitSelectedPathsInto({ ...baseArgs, copyPaths: ["src/dir"], deletePaths: [] }),
+    ).rejects.toThrow(/not found as files on draft-abc123/);
+    expect(createCommit).not.toHaveBeenCalled();
+  });
+
+  it("throws on a truncated source tree rather than risk dropping a path", async () => {
+    setupSelected();
+    getTree.mockResolvedValue({ data: { truncated: true, tree: [] } });
+    await expect(
+      commitSelectedPathsInto({ ...baseArgs, copyPaths: ["a.json"], deletePaths: [] }),
+    ).rejects.toThrow(/truncated/);
+    expect(createCommit).not.toHaveBeenCalled();
+  });
+
+  it("skips the commit (alreadyInSync) when the overlay leaves the target tree unchanged", async () => {
+    setupSelected();
+    // createTree yields the SAME tree SHA as the target's current tree.
+    createTree.mockResolvedValue({ data: { sha: "main-tree-sha" } });
+    const res = await commitSelectedPathsInto({
+      ...baseArgs,
+      copyPaths: ["a.json"],
+      deletePaths: [],
+    });
+    expect(res).toEqual({ commitSha: "main-sha", alreadyInSync: true });
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(updateRef).not.toHaveBeenCalled();
+  });
+
+  it("retries on a stale target ref and rebuilds on the new HEAD", async () => {
+    setupSelected();
+    const stale = new RequestError("Update is not a fast-forward", 422, {
+      request: { method: "PATCH", url: "x", headers: {} },
+      response: { status: 422, url: "x", headers: {}, data: {} },
+    });
+    updateRef.mockRejectedValueOnce(stale).mockResolvedValueOnce({ data: {} });
+
+    const res = await commitSelectedPathsInto({ ...baseArgs, copyPaths: ["a.json"], deletePaths: [] });
+    expect(res.commitSha).toBe("new-commit-sha");
+    expect(updateRef).toHaveBeenCalledTimes(2);
+    // The source tree is resolved once up front, not per retry attempt.
+    expect(getTree).toHaveBeenCalledTimes(1);
   });
 });

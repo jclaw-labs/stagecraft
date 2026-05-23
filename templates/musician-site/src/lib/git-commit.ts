@@ -523,3 +523,178 @@ export async function resetBranchTo(
 
   return { resetFromSha, toSha, alreadyInSync: false };
 }
+
+// ---------------------------------------------------------------------------
+// commitSelectedPathsInto — publish a subset of one branch's paths onto
+// another (ADR-012, per-item Publish)
+// ---------------------------------------------------------------------------
+
+export type CommitSelectedPathsIntoArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** Source branch to copy blob content from (the editor's draft). */
+  fromBranch: string;
+  /** Target branch to commit onto (the published branch, `main`). */
+  toBranch: string;
+  /**
+   * Paths to copy from `fromBranch` into `toBranch`, by reference to
+   * their existing blob SHAs (binary-safe, no re-upload + mode-faithful).
+   * Each MUST resolve to a blob on `fromBranch` — if one doesn't, the
+   * call throws rather than silently dropping it (a missing copy path
+   * must never be reinterpreted as a deletion).
+   */
+  copyPaths: string[];
+  /**
+   * Paths to delete from `toBranch` (they were removed on `fromBranch`).
+   * Explicit, never inferred — so a copy path that fails to resolve can't
+   * masquerade as a deletion. Renames pass the new path in `copyPaths`
+   * and the old path here.
+   */
+  deletePaths: string[];
+  message: string;
+  author: { name: string; email: string };
+};
+
+export type CommitSelectedPathsIntoResult = {
+  /** SHA of the new commit on `toBranch` (or its unchanged HEAD on a no-op). */
+  commitSha: string;
+  /**
+   * True when there was nothing to publish — no paths supplied, or the
+   * resulting tree was byte-identical to `toBranch` (so no commit was
+   * created and no deploy is triggered).
+   */
+  alreadyInSync: boolean;
+};
+
+/**
+ * Build one commit on `toBranch` whose tree is `toBranch`'s tree with
+ * only `paths` overlaid from `fromBranch` (added/modified by blob-SHA
+ * reference, removed via `sha: null`). The source blob SHAs are resolved
+ * once up front (the source branch isn't what we race on); the
+ * `updateRef toBranch` uses the same stale-ref retry as `commitFiles`,
+ * so a concurrent publish to `toBranch` rebuilds on the new HEAD.
+ *
+ * Pure over the Octokit interface — no `[skip ci]`, since this commit is
+ * a publish (it should trigger the deploy).
+ */
+export async function commitSelectedPathsInto(
+  args: CommitSelectedPathsIntoArgs,
+): Promise<CommitSelectedPathsIntoResult> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, fromBranch, toBranch, copyPaths, deletePaths, message, author } = args;
+
+  if (copyPaths.length === 0 && deletePaths.length === 0) {
+    const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
+    return { commitSha: toRef.data.object.sha, alreadyInSync: true };
+  }
+
+  type TreeEntry = { path: string; mode: string; type: "blob"; sha: string | null };
+  const deleteEntries: TreeEntry[] = deletePaths.map((path) => ({
+    path,
+    mode: "100644",
+    type: "blob",
+    sha: null,
+  }));
+
+  // Resolve the source branch's blob SHAs (+ modes) for the copy paths.
+  // Hoisted out of the retry loop — we only race on the target ref.
+  let copyEntries: TreeEntry[] = [];
+  if (copyPaths.length > 0) {
+    const fromRef = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
+    const fromCommit = await octokit.git.getCommit({
+      owner,
+      repo,
+      commit_sha: fromRef.data.object.sha,
+    });
+    const fromTree = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: fromCommit.data.tree.sha,
+      recursive: "true",
+    });
+    // Fail safe on a truncated tree: an incomplete listing would make a
+    // present path look missing, and "missing copy path" must never be
+    // silently turned into a deletion (data loss).
+    if (fromTree.data.truncated) {
+      throw new Error(
+        `commitSelectedPathsInto: ${fromBranch}'s tree is too large to list in one request (truncated); cannot resolve copy paths safely.`,
+      );
+    }
+    const blobByPath = new Map<string, { sha: string; mode: string }>();
+    for (const entry of fromTree.data.tree) {
+      if (entry.type === "blob" && entry.path && entry.sha) {
+        blobByPath.set(entry.path, { sha: entry.sha, mode: entry.mode ?? "100644" });
+      }
+    }
+    const missing = copyPaths.filter((p) => !blobByPath.has(p));
+    if (missing.length > 0) {
+      throw new Error(
+        `commitSelectedPathsInto: copy paths not found as files on ${fromBranch}: ${missing.join(", ")}`,
+      );
+    }
+    copyEntries = copyPaths.map((path) => {
+      const blob = blobByPath.get(path)!;
+      // Mode-faithful (preserve executable/symlink modes from the source).
+      return { path, mode: blob.mode, type: "blob", sha: blob.sha };
+    });
+  }
+
+  const tree: TreeEntry[] = [...copyEntries, ...deleteEntries];
+
+  let lastParentSha = "";
+  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
+    const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
+    const toSha = toRef.data.object.sha;
+    lastParentSha = toSha;
+
+    const toCommit = await octokit.git.getCommit({ owner, repo, commit_sha: toSha });
+
+    const createdTree = await octokit.git.createTree({
+      owner,
+      repo,
+      base_tree: toCommit.data.tree.sha,
+      tree,
+    } as unknown as Parameters<typeof octokit.git.createTree>[0]);
+
+    // No-op guard: if the overlay didn't change the target's tree (every
+    // selected path already matched), don't create an empty commit — it
+    // would trigger a pointless deploy. Mirrors squashBranchInto's
+    // fromSha===toSha short-circuit.
+    if (createdTree.data.sha === toCommit.data.tree.sha) {
+      return { commitSha: toSha, alreadyInSync: true };
+    }
+
+    const commit = await octokit.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: createdTree.data.sha,
+      parents: [toSha],
+      author,
+    });
+
+    try {
+      await octokit.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${toBranch}`,
+        sha: commit.data.sha,
+      });
+      return { commitSha: commit.data.sha, alreadyInSync: false };
+    } catch (cause) {
+      if (!isStaleRefError(cause)) throw cause;
+      if (attempt === MAX_COMMIT_ATTEMPTS) {
+        throw new ConcurrentEditError(
+          `heads/${toBranch}`,
+          MAX_COMMIT_ATTEMPTS,
+          lastParentSha,
+          cause,
+        );
+      }
+      // Else: re-fetch toBranch HEAD and rebuild on the new base.
+    }
+  }
+
+  throw new Error("commitSelectedPathsInto: retry loop exited without returning or throwing");
+}
