@@ -426,21 +426,20 @@ The publish-token endpoint surface is unchanged.
   per-session branches or a fancy diff-extraction trick.
   *Trigger:* a real workflow where it matters.
 
-- **Diff view: pending badges on singleton panels.** Both the Pages
-  admin (`/admin/pages`, client-side `/api/draft-changes` fetch) and
-  the generic collection list views (`/admin/collections/<slug>`,
-  server-side `getPendingItemSlugs` at render) now show an
-  "Unpublished" badge on each row with a pending draft-vs-main change
-  — both routed through the shared `pendingItemSlugs` filter +
-  `UnpublishedBadge` component. The custom singleton panels (Site
-  Settings, Header & Navigation, Appearance) are forms, not lists, so
-  there's no row to badge: a pending singleton change shows in the
-  publish modal + the count but not on the panel itself. Surfacing
-  "this form has unpublished edits" inline would need a per-panel
-  check against the singleton's `kind: "singleton"` / `kind: "def"`
-  change.
-  *Trigger:* artists ask why a settings change doesn't show pending
-  state where a page edit does.
+- **Pending badge on the generic per-item editor — declined.** The
+  "Unpublished" badge now covers every surface where it helps an artist
+  scan for pending work: the Pages list (PR 5q), the generic collection
+  lists (`/admin/collections/<slug>`, PR 5r), and the custom singleton
+  panels (Site Settings, Header & Navigation, Appearance — PR 5t,
+  badged on the panel title via `getHasPendingSingletonChange`). All
+  routed through the shared `pendingItemSlugs` / `hasPendingSingleton`
+  filters + the `UnpublishedBadge` component. The one surface left
+  without it is the generic per-item editor
+  (`/admin/collections/<slug>/items/<slug>`) — deliberately: you're
+  already editing that item, so a "this has unpublished changes" hint
+  there adds nothing.
+  *Trigger:* an artist asks for an at-a-glance pending marker while
+  inside the editor (unlikely).
 
 - **Collapse the server/client draft-changes split on collection
   pages.** The client-side reads are now coalesced:
