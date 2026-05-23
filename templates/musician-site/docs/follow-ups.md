@@ -55,15 +55,23 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Card
 
-- **`minimal` variant + `size` axis.** v2 ships with `filled` /
-  `outlined` and a single size. The legacy template adds a
-  `minimal` variant (no border, no padding — list-item-scale) and
-  a `size: sm / md / lg` axis. Skipped pending demand. From #187.
 - **Icon-mode media for non-image previews.** Audio / video / PDF
   files render as generic icons in the legacy template via the
   `mediaKind` inference. The new template's Card only supports
   image previews. Audio / video / PDF tiles are useful for press-
   kit / download list use cases. From #187.
+- **Hover affordance on `minimal` cards.** A `minimal` link/hoverable
+  card shares the `.stagecraft-card-link:hover` rule, which applies
+  `box-shadow: var(--shadow-md)` + a lift on hover. The lift reads
+  as a fine clickability cue, but the drop-shadow on a chrome-less
+  card (no border, no surface) floats around the content bounding
+  box, which can look slightly detached from the "bare list-item"
+  resting intent. The `border-color` shift in the same rule is a
+  no-op (minimal has no `border-style`), so there's no visible
+  border bug — only the shadow is debatable. A `minimal`-specific
+  hover rule that drops the shadow (keeping the lift) would tidy
+  this; it's a cosmetic judgment call, deferred. From card-minimal-
+  size PR review.
 
 
 ## Carousel

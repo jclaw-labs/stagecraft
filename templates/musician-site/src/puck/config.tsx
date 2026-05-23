@@ -100,14 +100,31 @@ export const CARD_ORIENTATION_LABELS: Record<CardOrientation, string> = {
 // Card visual variant — `filled` has the surface background +
 // border (the v1 default); `outlined` drops the background for a
 // lighter touch (useful on busy page backgrounds where the white
-// surface fights with the imagery). The legacy template adds a
-// `minimal` variant; skipped here pending demand.
-export const CARD_VARIANTS = ["filled", "outlined"] as const;
+// surface fights with the imagery); `minimal` drops all chrome —
+// no border, no background, no padding — so the card reads as a
+// flush list-item (media + text with only the size gap between
+// them).
+export const CARD_VARIANTS = ["filled", "outlined", "minimal"] as const;
 export type CardVariant = (typeof CARD_VARIANTS)[number];
 
 export const CARD_VARIANT_LABELS: Record<CardVariant, string> = {
   filled: "Filled (default surface)",
   outlined: "Outlined (transparent background)",
+  minimal: "Minimal (no border or padding)",
+};
+
+// Card size axis — scales the internal gap, the filled/outlined
+// padding, and the title type. `md` is the v1 default; `sm` packs
+// list rows tighter, `lg` gives a feature tile more presence. The
+// `minimal` variant ignores the padding component (it has none) but
+// still honours the gap + type scale.
+export const CARD_SIZES = ["sm", "md", "lg"] as const;
+export type CardSize = (typeof CARD_SIZES)[number];
+
+export const CARD_SIZE_LABELS: Record<CardSize, string> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
 };
 
 /**
@@ -361,6 +378,7 @@ export type BlockProps = {
     isExternal: boolean;
     orientation: CardOrientation;
     variant: CardVariant;
+    size: CardSize;
     /** Optional downloadable file URL. Renders a download button. */
     fileUrl: string;
     /** Free-text label beside the download button (e.g. "2.3 MB"). */
@@ -395,22 +413,67 @@ function textAlignStyle(align: TextAlignment): CSSProperties {
 // Card styles
 // ---------------------------------------------------------------------------
 
+// Size → internal gap (media ↔ body) token. The same scale the
+// legacy template's `.card-sm/md/lg` gap rules used.
+const CARD_SIZE_GAP: Record<CardSize, string> = {
+  sm: "var(--space-2)",
+  md: "var(--space-3)",
+  lg: "var(--space-4)",
+};
+
+// Size → padding token for the chromed (filled / outlined) variants.
+// `minimal` ignores this (no padding).
+const CARD_SIZE_PADDING: Record<CardSize, string> = {
+  sm: "var(--space-3)",
+  md: "var(--space-4)",
+  lg: "var(--space-5)",
+};
+
+// Size → title type scale. Bumps the visual weight of a feature
+// tile and tightens a packed list row.
+const CARD_SIZE_TITLE_FONT: Record<CardSize, string> = {
+  sm: "var(--font-size-base)",
+  md: "var(--font-size-lg)",
+  lg: "var(--font-size-xl)",
+};
+
+/**
+ * Coerce a possibly-missing / unknown `size` to the `md` default.
+ * Card JSON saved before the size axis landed has no `size` key,
+ * and Puck's public `<Render>` path passes raw on-disk props through
+ * without backfilling `defaultProps` (those only apply in the
+ * editor). Without this guard, an old card's `size` arrives
+ * `undefined` at runtime — despite the `CardSize` prop type — and
+ * every size-driven token (`CARD_SIZE_GAP[undefined]` etc.) collapses
+ * to `undefined`, stripping the card's padding, gap, AND title font
+ * in one go. Falling back to `md` keeps old cards rendering at their
+ * original v2 scale.
+ */
+function normaliseCardSize(size: CardSize | undefined): CardSize {
+  return (CARD_SIZES as readonly string[]).includes(size as string) ? (size as CardSize) : "md";
+}
+
 function cardContainerStyle(
   orientation: CardOrientation,
   variant: CardVariant,
+  size: CardSize,
 ): CSSProperties {
+  // `minimal` strips all chrome — no border, no background, no
+  // padding — so the card sits flush like a list item. The size
+  // gap between media + body still applies. `filled` / `outlined`
+  // keep the border + radius and pad by size; only `filled` carries
+  // the surface fill (outlined drops it so the page background shows
+  // through on busy / image-heavy surfaces).
+  const isMinimal = variant === "minimal";
   return {
     display: orientation === "horizontal" ? "grid" : "flex",
     gridTemplateColumns: orientation === "horizontal" ? "1fr 2fr" : undefined,
     flexDirection: orientation === "vertical" ? "column" : undefined,
-    gap: "var(--space-3)",
+    gap: CARD_SIZE_GAP[size],
     margin: "var(--space-4) 0",
-    padding: "var(--space-4)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-md)",
-    // `outlined` drops the filled background so the card reads as a
-    // light boundary on busy / image-heavy page surfaces (where the
-    // solid surface would fight the imagery). Same border + radius.
+    padding: isMinimal ? 0 : CARD_SIZE_PADDING[size],
+    border: isMinimal ? undefined : "1px solid var(--color-border)",
+    borderRadius: isMinimal ? undefined : "var(--radius-md)",
     background: variant === "filled" ? "var(--color-surface)" : "transparent",
   };
 }
@@ -477,12 +540,14 @@ const cardBodyStyle: CSSProperties = {
   gap: "var(--space-2)",
 };
 
-const cardTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-lg)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  color: "var(--color-text)",
-};
+function cardTitleStyle(size: CardSize): CSSProperties {
+  return {
+    margin: 0,
+    fontSize: CARD_SIZE_TITLE_FONT[size],
+    fontWeight: "var(--font-weight-semibold)" as unknown as number,
+    color: "var(--color-text)",
+  };
+}
 
 const cardDescriptionStyle: CSSProperties = {
   margin: 0,
@@ -1023,12 +1088,11 @@ export const puckConfig: Config<
       // becomes a link when `href` is set.
       //
       // Adds over v1: eyebrow (small label above title), variant
-      // (filled / outlined), file-download affordance (button at the
-      // bottom with optional size label). The legacy template adds
-      // a `minimal` variant + `size` axis + icon-mode media; skipped
-      // here pending demand — artists who want richer compositions
-      // drop multiple Cards into a Columns block or compose a
-      // Section + Heading + RichText + Image manually.
+      // (filled / outlined / minimal), size axis (sm / md / lg),
+      // file-download affordance (button at the bottom with optional
+      // size label). The legacy template also has icon-mode media for
+      // non-image previews (audio / video / PDF tiles); skipped here
+      // pending demand — see docs/follow-ups.md.
       //
       // Mutual exclusivity: `href` makes the WHOLE card a link;
       // `fileUrl` makes the download button a link instead. When
@@ -1077,6 +1141,14 @@ export const puckConfig: Config<
             value: v,
           })),
         },
+        size: {
+          type: "select",
+          label: "Size",
+          options: CARD_SIZES.map((v) => ({
+            label: CARD_SIZE_LABELS[v],
+            value: v,
+          })),
+        },
         fileUrl: { type: "text", label: "Downloadable file URL (optional)" },
         sizeLabel: { type: "text", label: "Size label (e.g. '2.3 MB')" },
         isHoverable: {
@@ -1097,6 +1169,7 @@ export const puckConfig: Config<
         isExternal: false,
         orientation: "vertical",
         variant: "filled",
+        size: "md",
         fileUrl: "",
         sizeLabel: "",
         isHoverable: false,
@@ -1110,10 +1183,14 @@ export const puckConfig: Config<
         isExternal,
         orientation,
         variant,
+        size: rawSize,
         fileUrl,
         sizeLabel,
         isHoverable,
       }) => {
+        // Coerce missing/unknown size (old on-disk cards) to md before
+        // it feeds the size-driven token maps — see normaliseCardSize.
+        const size = normaliseCardSize(rawSize);
         const inner = (
           <>
             {image ? (
@@ -1139,7 +1216,7 @@ export const puckConfig: Config<
                   navigating by heading would have to skip past.
                   Visual emphasis still reads as a title. Same
                   choice the legacy template made. */}
-              <div style={cardTitleStyle}>{title}</div>
+              <div style={cardTitleStyle(size)}>{title}</div>
               {description ? (
                 <p style={cardDescriptionStyle}>{description}</p>
               ) : null}
@@ -1154,7 +1231,7 @@ export const puckConfig: Config<
           </>
         );
 
-        const containerStyle = cardContainerStyle(orientation, variant);
+        const containerStyle = cardContainerStyle(orientation, variant, size);
 
         if (href) {
           // Whole card is a link. Drop the default underline (the
