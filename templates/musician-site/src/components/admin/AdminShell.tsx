@@ -209,8 +209,8 @@ export async function AdminShell({
         ) : null}
         <div style={{ marginTop: "auto", paddingTop: "var(--space-6)" }}>
           <PendingChangesIndicator />
-          <PublishPendingChangesButton />
-          <DiscardPendingChangesLink />
+          <PublishPendingChangesButton isDegraded={isDegraded} />
+          <DiscardPendingChangesLink isDegraded={isDegraded} />
           <Link
             href="/"
             style={{

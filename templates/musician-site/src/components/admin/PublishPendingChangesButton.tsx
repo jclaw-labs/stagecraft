@@ -49,7 +49,17 @@ type Status =
   | { kind: "concurrent_edit" }
   | { kind: "error"; message: string };
 
-export function PublishPendingChangesButton() {
+export function PublishPendingChangesButton({
+  isDegraded = false,
+}: {
+  /**
+   * GitHub is unreachable (the read store is serving the FS snapshot).
+   * Publishing requires GitHub, so the action is disabled — the
+   * AdminShell banner explains why. Passed from the server, which knows
+   * the request's degraded state (ADR-010 §5).
+   */
+  isDegraded?: boolean;
+} = {}) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const deployStatus = useDeployStatus(
     status.kind === "in_flight" ? status.publishedAt : null,
@@ -94,6 +104,9 @@ export function PublishPendingChangesButton() {
   }
 
   function onPrimaryClick() {
+    // Can't publish while GitHub is unreachable — the button is
+    // disabled, but guard the handler too.
+    if (isDegraded) return;
     // Re-clicking after a terminal state re-enters the confirm flow.
     if (
       status.kind === "idle" ||
@@ -150,8 +163,13 @@ export function PublishPendingChangesButton() {
         <button
           type="button"
           onClick={onPrimaryClick}
-          disabled={status.kind === "publishing" || status.kind === "in_flight"}
-          style={isBusy(status) ? { ...buttonStyle, ...buttonDisabledStyle } : buttonStyle}
+          disabled={status.kind === "publishing" || status.kind === "in_flight" || isDegraded}
+          title={isDegraded ? "Unavailable while GitHub is unreachable" : undefined}
+          style={
+            isBusy(status) || isDegraded
+              ? { ...buttonStyle, ...buttonDisabledStyle }
+              : buttonStyle
+          }
         >
           {buttonLabel(status, deployStatus)}
         </button>
