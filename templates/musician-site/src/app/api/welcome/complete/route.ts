@@ -9,10 +9,11 @@
  *     or — with no theme — primary color → accent
  *   - header singleton: the chosen theme's header style + wordmark
  *     (when provided), or — with no theme — wordmark only
- *   - pages collection: a starter "Home" item built from the wizard's
- *     first-page title (atmospheric-demo body)
- *   - tour-dates collection: two illustrative items (if the collection
- *     is empty — idempotent)
+ *   - pages collection: a "Home" item from the wizard's first-page
+ *     title — the atmospheric-demo body when seedContent is set, a
+ *     blank page (title heading only) for an empty start
+ *   - tour-dates collection: two illustrative items (only when
+ *     seedContent is set and the collection is empty — idempotent)
  *
  * Idempotent guard: if the site already has `hasCompletedFirstRun:true`
  * the route returns 409 — the only way back into the wizard is through
@@ -52,6 +53,7 @@ import {
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { imageMetadataSchema } from "@/lib/image-types";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
+import { emptyPageData } from "@/lib/content";
 import { PublishError, publish, type PublishTarget } from "@/lib/publish";
 import { resolveTheme, THEME_IDS } from "@/lib/theme-presets";
 import type { Appearance, HeaderConfig } from "@/lib/site-config-types";
@@ -67,8 +69,12 @@ const requestSchema = z.object({
   firstPageTitle: z.string().min(1, "First page title is required"),
   // Optional curated theme. When present it supplies the appearance
   // palette + header style; absent, the legacy "accent = primaryColor"
-  // path runs (PR 2 adds the picker that sends this).
+  // path runs.
   theme: z.enum(THEME_IDS).optional(),
+  // When false ("start empty"), only the home-page shell + singletons
+  // land — no demo blocks, no tour dates. Defaults true so a payload
+  // without the field keeps seeding the demo content.
+  seedContent: z.boolean().default(true),
 });
 
 function err(status: number, error: string) {
@@ -90,7 +96,8 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return err(400, parsed.error.message);
   }
-  const { artistName, primaryColor, wordmark, firstPageTitle, theme } = parsed.data;
+  const { artistName, primaryColor, wordmark, firstPageTitle, theme, seedContent } =
+    parsed.data;
 
   const store = await getRequestReadStore();
 
@@ -154,21 +161,28 @@ export async function POST(request: Request) {
   );
 
   // ---------------------------------------------------------------
-  // Pages collection — home seed page (uses pageDataToItem for parity
-  // with the existing create-page path).
+  // Pages collection — the Home page (uses pageDataToItem for parity
+  // with the existing create-page path). With seedContent the artist
+  // gets the atmospheric-demo body; an empty start gets a blank page
+  // (just the title heading) under the same slug, so the public site
+  // still renders.
   // ---------------------------------------------------------------
-  const homeItem = pageDataToItem(seed.homePage.slug, seed.homePage.data, {
+  const homeTitle = firstPageTitle.trim() || "Home";
+  const homeData = seedContent ? seed.homePage.data : emptyPageData(homeTitle);
+  const homeItem = pageDataToItem(seed.homePage.slug, homeData, {
     id: generateItemId(),
     showInNav: true,
   });
 
   // ---------------------------------------------------------------
-  // Tour-dates seeds — only when the collection is empty. Idempotent:
-  // if the artist had already added tour-dates (or re-ran the wizard
-  // after the reset flow), we don't duplicate.
+  // Tour-dates seeds — only with seedContent, and only when the
+  // collection is empty. Idempotent: if the artist had already added
+  // tour-dates (or re-ran the wizard after the reset flow), we don't
+  // duplicate.
   // ---------------------------------------------------------------
   const tourDatesDef = await store.readCollectionDef(TOUR_DATES_SLUG);
   const shouldSeedTourDates =
+    seedContent &&
     tourDatesDef !== null &&
     (await store.listItemSlugs(TOUR_DATES_SLUG)).length === 0;
 
