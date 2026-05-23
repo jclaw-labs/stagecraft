@@ -60,6 +60,60 @@ export function PagesPanel({ initialPages }: Props) {
   const [draggingSlug, setDraggingSlug] = useState<string | null>(null);
   const [dragOverSlug, setDragOverSlug] = useState<string | null>(null);
   const [renamingPage, setRenamingPage] = useState<PageSummary | null>(null);
+  // Slugs of pages with unpublished (draft-vs-main) changes. Fetched
+  // once on mount from `/api/draft-changes` — the same endpoint the
+  // sidebar indicator polls — so each row can show an "Unpublished"
+  // badge. Best-effort: a failed fetch leaves the set empty (no
+  // badges) rather than blocking the list, and the set isn't
+  // live-refreshed after local mutations (create / rename / delete)
+  // — it reflects draft state as of page load, refreshed on the next
+  // navigation. In dev / unconfigured the endpoint returns an empty
+  // change list, so no badges show.
+  const [pendingSlugs, setPendingSlugs] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    const ac = new AbortController();
+    async function loadPending() {
+      try {
+        const res = await fetch("/api/draft-changes", {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const body = (await res.json().catch(() => null)) as
+          | {
+              ok: true;
+              status: {
+                changes: Array<{
+                  kind: string;
+                  collectionSlug?: string;
+                  itemSlug?: string;
+                }>;
+              };
+            }
+          | { ok: false }
+          | null;
+        if (ac.signal.aborted || !res.ok || !body || !body.ok) return;
+        const slugs = new Set<string>();
+        for (const change of body.status.changes) {
+          if (
+            change.kind === "item" &&
+            change.collectionSlug === "pages" &&
+            change.itemSlug
+          ) {
+            slugs.add(change.itemSlug);
+          }
+        }
+        setPendingSlugs(slugs);
+      } catch (cause) {
+        // Aborts on unmount are expected; everything else degrades to
+        // "no badges" silently — the list itself isn't load-bearing
+        // on this data.
+        if (cause instanceof Error && cause.name === "AbortError") return;
+      }
+    }
+    void loadPending();
+    return () => ac.abort();
+  }, []);
 
   const effectiveSlug = hasSlugBeenEdited ? newSlug : slugifyTitle(newTitle);
   const isSlugValid = effectiveSlug.length > 0 && PAGE_SLUG_PATTERN.test(effectiveSlug);
@@ -390,6 +444,23 @@ export function PagesPanel({ initialPages }: Props) {
                       {page.isSplashPage ? "/" : `/${page.slug}`}
                     </span>
                   </Link>
+                  {pendingSlugs.has(page.slug) ? (
+                    <span
+                      title="Has unpublished changes"
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                        color: "var(--color-text-emphasis)",
+                        padding: "var(--space-1) var(--space-2)",
+                        background: "var(--color-surface-raised)",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-sm)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Unpublished
+                    </span>
+                  ) : null}
                   {page.isSplashPage ? (
                     <span
                       title="Splash page — takes over /"

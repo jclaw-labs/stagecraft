@@ -426,12 +426,16 @@ The publish-token endpoint surface is unchanged.
   per-session branches or a fancy diff-extraction trick.
   *Trigger:* a real workflow where it matters.
 
-- **Diff view: what's pending on draft vs main.** The admin
-  could surface a per-item "modified since last publish" badge.
-  Useful at scale; v1 only surfaces the global "has pending
-  changes" indicator.
-  *Trigger:* when more than ~5 items are routinely pending
-  between publishes.
+- **Diff view: per-item badges beyond the Pages list.** The Pages
+  admin (`/admin/pages`) shows an "Unpublished" badge per row,
+  driven by a client-side `/api/draft-changes` fetch filtered to
+  the `pages` collection. The generic collection list views
+  (`/admin/collections/<slug>`) don't carry the badge yet — they'd
+  filter the same change list to their own slug. Server components,
+  so they'd fetch `getDraftChanges` at render or hydrate a client
+  island like PagesPanel does.
+  *Trigger:* artists working in the generic collection lists ask
+  why Pages shows pending state and the others don't.
 
 ## Consequences
 
