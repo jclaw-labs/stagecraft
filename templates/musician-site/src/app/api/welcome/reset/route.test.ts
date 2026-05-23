@@ -140,7 +140,11 @@ describe("POST /api/welcome/reset — happy path", () => {
     const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.itemsDeleted).toBeGreaterThanOrEqual(1);
+    // Deterministic: beforeEach seeds only the site singleton (no
+    // items), this test adds exactly one page item — so a count other
+    // than 1 means the handler over-counted (e.g. stopped skipping
+    // singletons or double-counted a target).
+    expect(body.itemsDeleted).toBe(1);
 
     // The page file is gone + a delete target was published.
     const after = await (await getRequestReadStore()).listItemSlugs("pages");
