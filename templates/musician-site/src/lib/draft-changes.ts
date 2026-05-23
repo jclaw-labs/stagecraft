@@ -33,7 +33,13 @@ import {
   readEnv,
   type Env,
 } from "./publish";
-import { ORDER_FILE_NAME, SINGLETON_ITEM_SLUG } from "./collections";
+import {
+  itemDisplayLabel,
+  ORDER_FILE_NAME,
+  SINGLETON_ITEM_SLUG,
+  type CollectionDef,
+  type ReadStore,
+} from "./collections";
 import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
 
 /**
@@ -68,6 +74,11 @@ export type DraftChange =
       // files — our own renameItem flow is single-collection). When
       // unset, the previous item sits in the same `collectionSlug`.
       previousCollectionSlug?: string;
+      // Human-facing label (the `slugSourceFieldId` value, e.g.
+      // "About Us") resolved by `enrichItemLabels` for the publish
+      // modal. Unset on the base diff and on removed items (gone from
+      // draft, so unreadable) — consumers fall back to `itemSlug`.
+      displayName?: string;
     }
   | {
       kind: "singleton";
@@ -375,4 +386,51 @@ export async function getHasPendingSingletonChange(
     }
     throw cause;
   }
+}
+
+/**
+ * Enrich `item` changes with a human-facing `displayName` (the
+ * `slugSourceFieldId` value, e.g. "About Us") for the publish modal,
+ * reading each present item from the draft store.
+ *
+ * NOT folded into `getDraftChanges`: the indicator + per-row badges
+ * don't need labels and shouldn't pay N item reads. Only the modal
+ * opts in (via `/api/draft-changes?labels=1`).
+ *
+ * - `removed` items are skipped (gone from draft, so unreadable) —
+ *   consumers fall back to the slug.
+ * - Reads run in parallel; the collection def is read once per
+ *   collection (a publish often touches several items in one).
+ * - A per-item failure leaves that change un-enriched rather than
+ *   failing the batch: labels are a nicety, the publish doesn't depend
+ *   on them.
+ */
+export async function enrichItemLabels(
+  changes: DraftChange[],
+  store: ReadStore,
+): Promise<DraftChange[]> {
+  const defByCollection = new Map<string, Promise<CollectionDef | null>>();
+  const readDef = (slug: string): Promise<CollectionDef | null> => {
+    let pending = defByCollection.get(slug);
+    if (!pending) {
+      pending = store.readCollectionDef(slug);
+      defByCollection.set(slug, pending);
+    }
+    return pending;
+  };
+
+  return Promise.all(
+    changes.map(async (change) => {
+      if (change.kind !== "item" || change.status === "removed") return change;
+      try {
+        const def = await readDef(change.collectionSlug);
+        if (!def) return change;
+        const item = await store.readItem(change.collectionSlug, change.itemSlug, def);
+        if (!item) return change;
+        return { ...change, displayName: itemDisplayLabel(def, item) };
+      } catch {
+        return change;
+      }
+    }),
+  );
 }

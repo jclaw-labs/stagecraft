@@ -19,11 +19,14 @@ vi.mock("./publish", async () => {
 });
 
 import {
+  enrichItemLabels,
   getDraftChanges,
   getHasPendingSingletonChange,
   getPendingItemSlugs,
   parseChanges,
+  type DraftChange,
 } from "./draft-changes";
+import { type CollectionDef, type Item, type ReadStore } from "./collections";
 import { PublishError } from "./publish";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -484,5 +487,101 @@ describe("getHasPendingSingletonChange", () => {
     });
     compareCommitsWithBasehead.mockRejectedValue(serverErr);
     expect(await getHasPendingSingletonChange("site")).toBe(false);
+  });
+});
+
+describe("enrichItemLabels", () => {
+  const def = {
+    slug: "pages",
+    slugSourceFieldId: "fld_title",
+  } as unknown as CollectionDef;
+
+  function item(slug: string, title: string): Item {
+    return {
+      id: `id_${slug}`,
+      slug,
+      values: { fld_title: { type: "text", value: title } },
+    } as unknown as Item;
+  }
+
+  function itemChange(itemSlug: string, status: DraftChange["status"] = "modified"): DraftChange {
+    return {
+      kind: "item",
+      status,
+      collectionSlug: "pages",
+      itemSlug,
+      path: `src/content/collections/pages/items/${itemSlug}.json`,
+    };
+  }
+
+  function makeStore(
+    items: Record<string, Item | null>,
+    overrides: Partial<ReadStore> = {},
+  ): ReadStore {
+    return {
+      readCollectionDef: vi.fn(async () => def),
+      readItem: vi.fn(async (_slug: string, itemSlug: string) => items[itemSlug] ?? null),
+      ...overrides,
+    } as unknown as ReadStore;
+  }
+
+  it("resolves displayName from the slugSource field", async () => {
+    const store = makeStore({ home: item("home", "Home Page") });
+    const [out] = await enrichItemLabels([itemChange("home")], store);
+    expect(out).toMatchObject({ kind: "item", itemSlug: "home", displayName: "Home Page" });
+  });
+
+  it("skips removed items (gone from draft) and leaves them un-enriched", async () => {
+    const store = makeStore({});
+    const [out] = await enrichItemLabels([itemChange("gone", "removed")], store);
+    expect(out).not.toHaveProperty("displayName");
+    expect(store.readItem).not.toHaveBeenCalled();
+  });
+
+  it("leaves non-item changes untouched", async () => {
+    const store = makeStore({});
+    const singleton: DraftChange = {
+      kind: "singleton",
+      status: "modified",
+      collectionSlug: "site",
+      path: "src/content/collections/site/items/_singleton.json",
+    };
+    const [out] = await enrichItemLabels([singleton], store);
+    expect(out).toEqual(singleton);
+    expect(store.readItem).not.toHaveBeenCalled();
+  });
+
+  it("falls back (no displayName) when the item can't be read", async () => {
+    const store = makeStore({ home: null });
+    const [out] = await enrichItemLabels([itemChange("home")], store);
+    expect(out).not.toHaveProperty("displayName");
+  });
+
+  it("reads each collection's def once across multiple items", async () => {
+    const store = makeStore({
+      home: item("home", "Home"),
+      about: item("about", "About Us"),
+    });
+    const out = await enrichItemLabels([itemChange("home"), itemChange("about")], store);
+    expect(out.map((c) => (c.kind === "item" ? c.displayName : null))).toEqual([
+      "Home",
+      "About Us",
+    ]);
+    expect(store.readCollectionDef).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a change un-enriched when its item read throws (one bad item doesn't blank the batch)", async () => {
+    const store = makeStore(
+      { ok: item("ok", "Fine") },
+      {
+        readItem: vi.fn(async (_slug: string, itemSlug: string) => {
+          if (itemSlug === "boom") throw new Error("read failed");
+          return item("ok", "Fine");
+        }),
+      },
+    );
+    const out = await enrichItemLabels([itemChange("boom"), itemChange("ok")], store);
+    expect(out[0]).not.toHaveProperty("displayName");
+    expect(out[1]).toMatchObject({ displayName: "Fine" });
   });
 });

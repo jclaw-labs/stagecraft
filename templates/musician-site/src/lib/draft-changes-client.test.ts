@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetDraftChangesClientForTests,
   fetchDraftChangesShared,
+  fetchDraftChangesWithLabels,
 } from "./draft-changes-client";
 
 const fetchMock = vi.fn();
@@ -108,6 +109,46 @@ describe("fetchDraftChangesShared", () => {
     expect(await fetchDraftChangesShared()).toEqual({ ok: false });
     const second = await fetchDraftChangesShared();
     expect(second.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("fetchDraftChangesWithLabels", () => {
+  it("requests the labeled endpoint and passes display names through", async () => {
+    const labeled = {
+      ok: true,
+      status: {
+        count: 1,
+        changes: [
+          {
+            kind: "item",
+            status: "modified",
+            collectionSlug: "pages",
+            itemSlug: "about",
+            path: "p",
+            displayName: "About Us",
+          },
+        ],
+        mode: "github",
+        truncated: false,
+      },
+    };
+    fetchMock.mockResolvedValue(jsonResponse(labeled));
+    const result = await fetchDraftChangesWithLabels();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/draft-changes?labels=1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      status: { changes: [{ itemSlug: "about", displayName: "About Us" }] },
+    });
+  });
+
+  it("is not coalesced with the shared (label-less) read", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(OK_BODY));
+    await Promise.all([fetchDraftChangesShared(), fetchDraftChangesWithLabels()]);
+    // Distinct endpoints (one labeled, one not) → two fetches.
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

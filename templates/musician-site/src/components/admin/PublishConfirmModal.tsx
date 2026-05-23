@@ -40,7 +40,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
-import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
+import { fetchDraftChangesWithLabels } from "@/lib/draft-changes-client";
 import {
   MAX_COMMIT_MESSAGE_LENGTH,
   MAX_COMMIT_SUBJECT_LENGTH,
@@ -77,14 +77,13 @@ export function PublishConfirmModal({
   const triggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    // Uses the shared fetcher for consistency with the rest of the
-    // chrome; in practice the modal opens well after the page's initial
-    // read has settled, so this is usually a fresh fetch — which is what
-    // we want before publishing. Never rejects: failures surface as
-    // `{ ok: false }` → the error state. `cancelled` guards a late
-    // resolve after the artist closes the modal.
+    // Labeled read (`?labels=1`) so the change list shows item display
+    // names ("About Us") rather than slugs — it costs a per-item store
+    // read server-side, which the lightweight chrome reads skip. Never
+    // rejects: failures surface as `{ ok: false }` → the error state.
+    // `cancelled` guards a late resolve after the artist closes the modal.
     let cancelled = false;
-    void fetchDraftChangesShared().then((result) => {
+    void fetchDraftChangesWithLabels().then((result) => {
       if (cancelled) return;
       if (!result.ok) {
         setState({ kind: "error" });
@@ -367,7 +366,10 @@ function describeLabel(c: DraftChange): string {
       if (c.previousItemSlug && !sameSlug) {
         return `${c.collectionSlug} · ${c.previousItemSlug} → ${c.itemSlug}`;
       }
-      return `${c.collectionSlug} · ${c.itemSlug}`;
+      // Plain edit / add: prefer the artist's display name ("About Us")
+      // over the slug ("about") when the labeled read resolved one.
+      // Renames keep slugs above — the slug move is the point there.
+      return `${c.collectionSlug} · ${c.displayName ?? c.itemSlug}`;
     }
     case "singleton":
       return `${c.collectionSlug}`;
