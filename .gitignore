@@ -9,3 +9,6 @@ dist/
 .vercel
 .netlify
 .claude/
+
+# Playwright capture auth state (seeded session cookie — local only)
+apps/web/capture/.auth/

@@ -92,11 +92,29 @@ node scripts/capture-pr-screenshots.mjs http://localhost:4321 \
 or `/tmp/pr-<N>-screenshots/` for the manual path. See the script header
 for flags (`--only`, `--jpeg-quality`, `--site-format`).
 
-**`apps/web` (platform dashboard).** No authed capture path yet — the
-dashboard is GitHub-OAuth-only with no dev-login bypass, so an
-authenticated Playwright session needs a seeded DB session (tracked
-separately). Capture public pages (`/`, `/login`) manually at 1440×900
-using the same naming convention (`dashboard-*`).
+**`apps/web` (platform dashboard).** One command captures the
+authenticated platform surfaces (Dashboard, Settings, and a site-detail
+page). Sign-in is GitHub-OAuth-only with no dev-login bypass, so the
+capture seeds a NextAuth session directly in Postgres and hands
+Playwright the matching cookie — which means it needs a running,
+migrated database:
+
+```bash
+docker compose up -d              # Postgres (see docker-compose.yml)
+npm run db:migrate                # apply migrations (first run only)
+cd apps/web
+npx playwright install chromium   # first run only
+npm run capture:screenshots       # writes .pr-screenshots/platform-*.png
+```
+
+It's a Playwright capture config (`playwright.capture.config.ts`) whose
+global setup seeds a user + a Resend integration + an active site + a
+session row, then boots its own dev server with a minimal env (real
+`DATABASE_URL` + dummy auth secrets — no 1Password needed). The seeded
+session works because the platform uses Auth.js's database session
+strategy: the cookie value is the raw `Session.sessionToken`, looked up
+verbatim. Output lands in the repo-root `.pr-screenshots/`; override
+with `PR_SCREENSHOTS_DIR=...`.
 
 ### Path A: Automated relay (cloud sessions, default)
 
