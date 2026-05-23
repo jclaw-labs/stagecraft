@@ -805,6 +805,33 @@ describe("puckConfig", () => {
       expect(html).not.toMatch(/border:\s*1px solid/);
     });
 
+    it("tags minimal cards with `stagecraft-card-minimal` (so CSS drops the hover shadow)", () => {
+      // The minimal class lets globals.css suppress the floating
+      // drop-shadow on a chrome-less card while keeping the lift.
+      const link = render(
+        "Card",
+        cardProps({ title: "x", variant: "minimal", href: "/x" }),
+      );
+      expect(link).toMatch(/class="[^"]*stagecraft-card-link[^"]*stagecraft-card-minimal/);
+
+      const hoverable = render(
+        "Card",
+        cardProps({ title: "x", variant: "minimal", isHoverable: true }),
+      );
+      expect(hoverable).toMatch(
+        /class="[^"]*stagecraft-card-hoverable[^"]*stagecraft-card-minimal/,
+      );
+    });
+
+    it("does not add the minimal class to filled / outlined cards", () => {
+      const filledLink = render(
+        "Card",
+        cardProps({ title: "x", variant: "filled", href: "/x" }),
+      );
+      expect(filledLink).not.toContain("stagecraft-card-minimal");
+      expect(filledLink).toContain("stagecraft-card-link");
+    });
+
     it("renders a download anchor when fileUrl is set", () => {
       const html = render(
         "Card",

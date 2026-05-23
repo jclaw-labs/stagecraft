@@ -489,6 +489,25 @@ function cardContainerStyle(
 }
 
 /**
+ * Compose the card wrapper's className: the hover-affordance base
+ * (`stagecraft-card-link` / `stagecraft-card-hoverable`, or none) plus
+ * `stagecraft-card-minimal` for the minimal variant. The minimal class
+ * lets globals.css drop the hover drop-shadow for chrome-less cards
+ * (the shadow floats oddly with no border / surface) while keeping the
+ * lift. Returns undefined when there are no classes (a static
+ * non-minimal card needs none).
+ */
+function cardWrapperClassName(
+  base: string | undefined,
+  variant: CardVariant,
+): string | undefined {
+  const classes = [base, variant === "minimal" ? "stagecraft-card-minimal" : undefined].filter(
+    (c): c is string => Boolean(c),
+  );
+  return classes.length > 0 ? classes.join(" ") : undefined;
+}
+
+/**
  * Bottom-of-card download affordance. A button-styled anchor with the
  * `download` attribute that triggers the browser's save-as. The size
  * label sits next to the button as muted text (the artist provides
@@ -1452,7 +1471,7 @@ export const puckConfig: Config<
               href={href}
               target={isExternal ? "_blank" : undefined}
               rel={isExternal ? "noopener noreferrer" : undefined}
-              className="stagecraft-card-link"
+              className={cardWrapperClassName("stagecraft-card-link", variant)}
               style={{ ...containerStyle, textDecoration: "none", color: "inherit" }}
             >
               {inner}
@@ -1469,7 +1488,10 @@ export const puckConfig: Config<
         // on every card in a long list is busy).
         return (
           <article
-            className={isHoverable ? "stagecraft-card-hoverable" : undefined}
+            className={cardWrapperClassName(
+              isHoverable ? "stagecraft-card-hoverable" : undefined,
+              variant,
+            )}
             style={containerStyle}
           >
             {inner}
