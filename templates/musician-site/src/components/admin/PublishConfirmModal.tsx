@@ -40,7 +40,10 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { DraftChange } from "@/lib/draft-changes";
-import { MAX_COMMIT_SUBJECT_LENGTH } from "@/lib/publish-types";
+import {
+  MAX_COMMIT_MESSAGE_LENGTH,
+  MAX_COMMIT_SUBJECT_LENGTH,
+} from "@/lib/publish-types";
 
 // Match `PagesPanel.tsx`'s modal pattern: capture the
 // previously-focused element on mount, focus the primary action
@@ -189,22 +192,26 @@ export function PublishConfirmModal({
             {/* Counter is `aria-hidden` because user agents already
                 announce remaining `maxLength` via the input's
                 attribute; surfacing "N / 200" verbally on every
-                keypress would be noisy. The visible count is for
-                sighted users tracking proximity to the cap. */}
+                keypress would be noisy. The visible count tracks
+                the *first line* (git's subject), since the artist
+                ramp + body convention only cares about the subject
+                length — long bodies are fine, long subject lines
+                aren't. Total message length is capped separately by
+                `MAX_COMMIT_MESSAGE_LENGTH` on the textarea + route. */}
             <span
               aria-hidden="true"
-              style={counterStyleFor(subject.length, MAX_COMMIT_SUBJECT_LENGTH)}
+              style={counterStyleFor(subjectLineLength(subject), MAX_COMMIT_SUBJECT_LENGTH)}
             >
-              {`${subject.length} / ${MAX_COMMIT_SUBJECT_LENGTH}`}
+              {`${subjectLineLength(subject)} / ${MAX_COMMIT_SUBJECT_LENGTH}`}
             </span>
           </div>
-          <input
+          <textarea
             id="publish-commit-subject"
-            type="text"
             value={subject}
-            maxLength={MAX_COMMIT_SUBJECT_LENGTH}
+            maxLength={MAX_COMMIT_MESSAGE_LENGTH}
             placeholder="Publish pending changes"
             disabled={isPublishing}
+            rows={3}
             onChange={(e) => {
               setSubject(e.target.value);
               setSubjectTouched(true);
@@ -541,6 +548,18 @@ const labelTextStyle: CSSProperties = {
  * "at". Below 180 stays default-muted so the counter is unobtrusive
  * during normal use.
  */
+/**
+ * Length of the first line of the commit message — what git
+ * stores as the "subject" and what tooling shows in `git log
+ * --oneline`. The counter ramp tracks this rather than the whole
+ * message because a long body is fine; a long subject is the
+ * thing that gets truncated by code-review surfaces.
+ */
+function subjectLineLength(message: string): number {
+  const newline = message.indexOf("\n");
+  return newline === -1 ? message.length : newline;
+}
+
 function counterStyleFor(length: number, max: number): CSSProperties {
   if (length >= max) return atLimitCounterStyle;
   if (length >= Math.floor(max * 0.9)) return nearLimitCounterStyle;
@@ -568,12 +587,22 @@ const atLimitCounterStyle: CSSProperties = {
 const inputStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   fontSize: "var(--font-size-sm)",
+  // `inherit` so the textarea picks up the modal's body font
+  // rather than the user-agent monospace default. Multi-line
+  // commit messages read better in the same family as the rest of
+  // the modal copy.
+  fontFamily: "inherit",
+  lineHeight: "var(--line-height-base)",
   border: "1px solid var(--color-border-strong)",
   background: "var(--color-surface)",
   color: "var(--color-text)",
   borderRadius: "var(--radius-sm)",
   width: "100%",
   boxSizing: "border-box",
+  // Vertical-only resize keeps the modal's column layout intact —
+  // a horizontally-stretched textarea would push past the modal
+  // chrome.
+  resize: "vertical",
 };
 
 const buttonRowStyle: CSSProperties = {

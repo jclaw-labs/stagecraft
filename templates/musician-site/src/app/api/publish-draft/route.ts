@@ -3,8 +3,12 @@
  * trigger the production deploy (ADR-010 §3).
  *
  * Body: optional `{ commitSubject?: string }`. The artist can override
- * the auto-generated "Publish pending changes" subject; otherwise the
- * default is used.
+ * the auto-generated "Publish pending changes" message; multi-line
+ * content is accepted (first line becomes the git subject, anything
+ * after a blank line becomes the body). The field name kept its
+ * original `commitSubject` for API stability even though the modal's
+ * input now accepts a body — internal callers (the modal) reach it
+ * the same way; rename when there's a real reason to bump the API.
  *
  * Returns:
  *   - `{ ok: true, mode, commitSha, alreadyInSync }` on success.
@@ -25,11 +29,11 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import { publishDraftToMain, PublishError } from "@/lib/publish";
-import { MAX_COMMIT_SUBJECT_LENGTH, publishErrorHttpStatus } from "@/lib/publish-types";
+import { MAX_COMMIT_MESSAGE_LENGTH, publishErrorHttpStatus } from "@/lib/publish-types";
 
 const requestSchema = z
   .object({
-    commitSubject: z.string().min(1).max(MAX_COMMIT_SUBJECT_LENGTH).optional(),
+    commitSubject: z.string().min(1).max(MAX_COMMIT_MESSAGE_LENGTH).optional(),
   })
   .strict()
   .partial();

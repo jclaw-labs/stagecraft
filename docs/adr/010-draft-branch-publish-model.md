@@ -413,15 +413,6 @@ The publish-token endpoint surface is unchanged.
 
 ### Publish UX
 
-- **Commit message: multi-line body.** The override input is
-  subject-only (single-line). Git commits also accept a body
-  separated by a blank line; the auto-generated message that the
-  ADR §3 example sketches uses one (with bulleted items). A
-  textarea variant could expose this when an artist wants
-  richer notes.
-  *Trigger:* an artist asks for line breaks in the commit
-  message.
-
 - **Diff preview: richer item labels.** The publish modal shows
   collection slugs + item slugs ("pages · about"). The artist's
   display name for the item (e.g., the `slugSourceFieldId`'s
