@@ -37,22 +37,6 @@ something worth fixing that doesn't fit the current PR's scope.
   single-finger gesture when the touch count drops back to one.
   From lightbox-touch-swipe PR review.
 
-## Card
-
-- **Hover affordance on `minimal` cards.** A `minimal` link/hoverable
-  card shares the `.stagecraft-card-link:hover` rule, which applies
-  `box-shadow: var(--shadow-md)` + a lift on hover. The lift reads
-  as a fine clickability cue, but the drop-shadow on a chrome-less
-  card (no border, no surface) floats around the content bounding
-  box, which can look slightly detached from the "bare list-item"
-  resting intent. The `border-color` shift in the same rule is a
-  no-op (minimal has no `border-style`), so there's no visible
-  border bug — only the shadow is debatable. A `minimal`-specific
-  hover rule that drops the shadow (keeping the lift) would tidy
-  this; it's a cosmetic judgment call, deferred. From card-minimal-
-  size PR review.
-
-
 ## Carousel
 
 - **Touch-swipe nav on the carousel.** The track scrolls natively
@@ -82,6 +66,18 @@ something worth fixing that doesn't fit the current PR's scope.
   middleware (or a session epoch/version bumped on removal), kept off
   the hot path until an artist actually needs it. Also recorded in
   ADR-011 "Known limitations and deferred work". From #233 deep review.
+
+## Test coverage
+
+- **Tour-date seeding branch of `/api/welcome/complete`.** The route
+  seeds two illustrative tour-dates when a `tour-dates` collection
+  def exists and is empty. The new route tests cover the singleton +
+  Home-page writes, the guards, and idempotency, but not the
+  tour-date seed branch — exercising it needs the real `tour-dates`
+  def registered in the test content dir AND seed values that pass
+  `buildItemFileSchema` for that def (the seeds come from
+  `buildFirstRunSeed`). Worth adding once a shared tour-dates fixture
+  is wired into the route-test setup. From api-route-tests PR.
 
 ## Publish (per-item, ADR-012)
 

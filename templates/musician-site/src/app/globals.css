@@ -242,6 +242,15 @@
   transform: translateY(-2px);
 }
 
+/* Minimal cards have no chrome at rest (no border, no surface). The
+   shared hover drop-shadow would float around the borderless content
+   and read as detached, so suppress it for minimal — keep just the
+   lift as the clickability cue. The `border-color` shift is already a
+   no-op (minimal has no border-style). */
+.stagecraft-card-minimal:hover {
+  box-shadow: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stagecraft-card-link,
   .stagecraft-card-hoverable {

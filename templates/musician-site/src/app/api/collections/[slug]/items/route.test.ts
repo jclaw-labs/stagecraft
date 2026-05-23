@@ -27,6 +27,7 @@ import { GET, POST } from "./route";
 import {
   DELETE as DELETE_ITEM,
   GET as GET_ITEM,
+  PATCH as PATCH_ITEM,
   PUT as PUT_ITEM,
 } from "./[itemSlug]/route";
 import {
@@ -289,5 +290,104 @@ describe("DELETE /api/collections/[slug]/items/[itemSlug]", () => {
         targets: [{ kind: "delete-collection-item", collectionSlug: "pages", itemSlug: TEST_SLUG }],
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH = rename. Physically moves items/<old>.json → items/<new>.json,
+// keeps the stable `id`, and publishes a write(new) + delete(old) pair.
+// ---------------------------------------------------------------------------
+
+describe("PATCH /api/collections/[slug]/items/[itemSlug] (rename)", () => {
+  function patchReq(newSlug: unknown) {
+    return new Request("https://x/api/collections/pages/items/x", {
+      method: "PATCH",
+      body: JSON.stringify({ newSlug }),
+    });
+  }
+
+  it("returns 401 without session", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const res = await PATCH_ITEM(patchReq("new-slug"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 for an invalid collection slug", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await PATCH_ITEM(patchReq("new-slug"), ctx("BAD-Slug", TEST_SLUG));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when the body isn't JSON", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const bad = new Request("https://x", { method: "PATCH", body: "not json {" });
+    const res = await PATCH_ITEM(bad, ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when newSlug is missing or not a string", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    expect((await PATCH_ITEM(patchReq(undefined), ctx("pages", TEST_SLUG))).status).toBe(400);
+    expect((await PATCH_ITEM(patchReq(42), ctx("pages", TEST_SLUG))).status).toBe(400);
+  });
+
+  it("returns 400 when newSlug is malformed", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await PATCH_ITEM(patchReq("Not A Slug"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when newSlug equals the current slug", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    const res = await PATCH_ITEM(patchReq(TEST_SLUG), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when the collection doesn't exist", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await PATCH_ITEM(patchReq("new-slug"), ctx("does-not-exist", TEST_SLUG));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 when the item to rename doesn't exist", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await PATCH_ITEM(patchReq("new-slug"), ctx("pages", "never-created"));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 when newSlug already exists", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: "tour-a", values: VALID_VALUES }), ctx("pages"));
+    await POST(jsonReq("POST", { slug: "tour-b", values: VALID_VALUES }), ctx("pages"));
+    const res = await PATCH_ITEM(patchReq("tour-b"), ctx("pages", "tour-a"));
+    expect(res.status).toBe(409);
+  });
+
+  it("renames the item, preserves its id, and publishes write(new) + delete(old)", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    publishMock.mockResolvedValue({ commitSha: "ren1", mode: "github" });
+    const create = await POST(jsonReq("POST", { slug: "tour-2026", values: VALID_VALUES }), ctx("pages"));
+    const created = await create.json();
+
+    const res = await PATCH_ITEM(patchReq("tour-2027"), ctx("pages", "tour-2026"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.newSlug).toBe("tour-2027");
+    // The stable id survives the rename (cross-collection refs hold).
+    expect(body.item.id).toBe(created.item.id);
+
+    // Publish carried both a write(new) and a delete(old) target.
+    const targets = publishMock.mock.calls.at(-1)![0].targets;
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "collection-item", collectionSlug: "pages", itemSlug: "tour-2027" }),
+        expect.objectContaining({ kind: "delete-collection-item", collectionSlug: "pages", itemSlug: "tour-2026" }),
+      ]),
+    );
+
+    // New slug resolves; old slug 404s.
+    expect((await GET_ITEM(new Request("https://x"), ctx("pages", "tour-2027"))).status).toBe(200);
+    expect((await GET_ITEM(new Request("https://x"), ctx("pages", "tour-2026"))).status).toBe(404);
   });
 });

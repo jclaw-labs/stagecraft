@@ -81,8 +81,7 @@ src/
     site-config-types.ts    Zod schemas for site / header / appearance
                             singletons and pages list contract
     collections/            ADR-009 Collection abstraction (foundation
-                            + template renderer + PR 3 wrappers — no
-                            generic editor UI yet):
+                            + template renderer + generic editor UI):
                               schema.ts   Zod schemas as SSOT; TS types
                                           inferred via z.infer
                               store.ts    Filesystem layer (uses
@@ -433,18 +432,21 @@ Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
 ## What's intentionally not here yet
 
 - **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
-- **Collection editor** (releases, tour dates, posts, store items) — the
-  legacy `src/content/collections/` shape is well-defined but a dedicated
-  UI surface for editing structured collection entries hasn't landed yet.
-  When it does, those collections plug back in through Puck blocks like
-  `<TourDatesList>` that read collection JSON at render time.
+- **Collection blocks in the general page editor.** Structured
+  collections (releases, tour dates, posts, store items) are both
+  editable (the generic `/admin/collections/<slug>/items/<itemSlug>`
+  editor + `ItemEditor`) and renderable — each collection gets a
+  `<Name>View` block (`TourDatesView`, `ReleasesView`, …) that reads
+  its items at render time, wired into the public catch-all for a
+  collection's own detail/item *templates* (`buildTemplatePuckConfig`).
+  What's not here: those `*View` blocks aren't registered in the main
+  page editor's `puckConfig`, so an artist can't yet drop e.g. a
+  tour-dates list onto an arbitrary hand-authored page (Home, etc.) —
+  collection content renders on its own templates, not embedded into
+  general pages.
 - **Curated Google Fonts picker** — Appearance currently takes a free-text
   family name. The legacy template's category + curated-per-category
   picker can come back later (the Zod shape we persist is already
   forwards-compatible — just one string).
-- **Per-page background image override** — the legacy template let each
-  page override the site-wide `pageBackground`. Surfaced through Puck's
-  root fields when it lands; the on-disk shape lives in
-  `site-config-types.ts`'s `pageRootPropsSchema`.
 
 These ship in stacked PRs.
