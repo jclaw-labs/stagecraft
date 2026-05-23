@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   EMAIL_FIELD_NAME,
   NAME_FIELD_NAME,
+  NEWSLETTER_FIELD_TYPES,
+  NEWSLETTER_FIELD_TYPE_LABELS,
   NEWSLETTER_SERVICES,
+  newsletterFieldAutoComplete,
   parseMailchimpAudienceHoneypotName,
 } from "./newsletter-types";
 
@@ -18,6 +21,32 @@ describe("EMAIL_FIELD_NAME + NAME_FIELD_NAME", () => {
       expect(EMAIL_FIELD_NAME[service]).toBeTruthy();
       expect(NAME_FIELD_NAME[service]).toBeTruthy();
     }
+  });
+});
+
+describe("NEWSLETTER_FIELD_TYPES + labels", () => {
+  it("has a human-readable label for every field type", () => {
+    for (const type of NEWSLETTER_FIELD_TYPES) {
+      expect(NEWSLETTER_FIELD_TYPE_LABELS[type]).toBeTruthy();
+    }
+  });
+
+  it("offers the four common input types", () => {
+    expect([...NEWSLETTER_FIELD_TYPES]).toEqual(["text", "email", "tel", "url"]);
+  });
+});
+
+describe("newsletterFieldAutoComplete", () => {
+  it("maps email / tel / url to their autocomplete tokens", () => {
+    expect(newsletterFieldAutoComplete("email")).toBe("email");
+    expect(newsletterFieldAutoComplete("tel")).toBe("tel");
+    expect(newsletterFieldAutoComplete("url")).toBe("url");
+  });
+
+  it("returns undefined for generic text (a wrong hint is worse than none)", () => {
+    // A text field could be country, company, referral — there's no
+    // single correct autocomplete token, so emit none.
+    expect(newsletterFieldAutoComplete("text")).toBeUndefined();
   });
 });
 

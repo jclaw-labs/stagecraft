@@ -206,6 +206,90 @@ describe("NewsletterSignup — optional name field", () => {
   });
 });
 
+describe("NewsletterSignup — additional fields", () => {
+  it("renders no additional fields by default (email-only baseline)", () => {
+    const html = renderForm();
+    // Only the email input + honeypots; no extra named inputs.
+    expect(html).not.toMatch(/name="phone"/);
+  });
+
+  it("renders each additional field as a labelled input with its raw name + type", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Country", name: "mmerge3", type: "text" },
+      ],
+    });
+    // Raw provider name attributes are emitted verbatim.
+    expect(html).toMatch(/<input[^>]+name="PHONE"[^>]*type="tel"|<input[^>]+type="tel"[^>]*name="PHONE"/);
+    expect(html).toMatch(/name="mmerge3"/);
+    // Labels are present (screen-reader association).
+    expect(html).toContain("Phone");
+    expect(html).toContain("Country");
+  });
+
+  it("derives a sensible autocomplete token from the input type", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Website", name: "URL", type: "url" },
+      ],
+    });
+    expect(html).toMatch(/autocomplete="tel"/i);
+    expect(html).toMatch(/autocomplete="url"/i);
+  });
+
+  it("omits autocomplete for generic text fields (a wrong hint is worse than none)", () => {
+    const html = renderForm({
+      additionalFields: [{ label: "Referral source", name: "REF", type: "text" }],
+    });
+    // The text field's input carries no autocomplete attribute.
+    expect(html).toMatch(/<input[^>]+name="REF"[^>]*>/);
+    const refInput = html.match(/<input[^>]+name="REF"[^>]*>/)?.[0] ?? "";
+    expect(refInput).not.toMatch(/autocomplete=/i);
+  });
+
+  it("skips rows missing a label or a name (incomplete inspector rows)", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "", name: "ORPHAN_NAME", type: "text" },
+        { label: "No name", name: "", type: "text" },
+        { label: "  ", name: "  ", type: "text" },
+        { label: "Valid", name: "VALID", type: "text" },
+      ],
+    });
+    // Only the complete row renders.
+    expect(html).toMatch(/name="VALID"/);
+    expect(html).not.toMatch(/name="ORPHAN_NAME"/);
+    expect(html).not.toContain("No name");
+  });
+
+  it("gives each additional field a unique id distinct from the email field", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Country", name: "COUNTRY", type: "text" },
+      ],
+    });
+    // Each label's `for` points at a distinct id; collect them.
+    const ids = [...html.matchAll(/<label[^>]+for="([^"]+)"/g)].map((m) => m[1]);
+    const unique = new Set(ids);
+    expect(unique.size).toBe(ids.length);
+  });
+
+  it("renders additional fields alongside the name field (both compose)", () => {
+    const html = renderForm({
+      service: "mailchimp",
+      hasNameField: true,
+      additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" }],
+    });
+    expect(html).toMatch(/name="FNAME"/);
+    expect(html).toMatch(/name="PHONE"/);
+    // The required email input is still present.
+    expect(html).toMatch(/name="EMAIL"/);
+  });
+});
+
 describe("NewsletterSignup — placeholder when actionUrl is empty", () => {
   it("shows an admin-visible hint instead of a non-functional form", () => {
     // Editor-time experience: dragging the block onto a page

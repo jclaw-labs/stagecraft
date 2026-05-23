@@ -7,7 +7,9 @@ import {
   NAME_FIELD_NAME,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
+  newsletterFieldAutoComplete,
   parseMailchimpAudienceHoneypotName,
+  type NewsletterAdditionalField,
   type NewsletterService,
 } from "./newsletter-types";
 
@@ -81,6 +83,15 @@ export type NewsletterSignupProps = {
   hasNameField?: boolean;
   /** Label for the name field when `hasNameField` is true. */
   nameLabel?: string;
+  /**
+   * Extra fields beyond email + name. Each renders as a labelled
+   * input between the name field and the email row. The `name`
+   * attribute is verbatim from the artist's provider embed (we can't
+   * infer it the way we do for the curated name field). Rows missing
+   * a label or name are skipped at render — an artist mid-edit who
+   * added a row but hasn't filled it shouldn't ship a nameless input.
+   */
+  additionalFields?: NewsletterAdditionalField[];
 };
 
 export function NewsletterSignup({
@@ -92,8 +103,15 @@ export function NewsletterSignup({
   successMessage = "Thanks for subscribing! Check your inbox to confirm.",
   hasNameField = false,
   nameLabel = "First name",
+  additionalFields = [],
 }: NewsletterSignupProps) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  // Drop incomplete rows (artist added a row in the inspector but
+  // hasn't filled label + name yet). A nameless input can't post to
+  // the provider; an unlabelled one fails the a11y contract.
+  const usableAdditional = additionalFields.filter(
+    (f) => f.label.trim() !== "" && f.name.trim() !== "",
+  );
   // Stable per-instance input ids so multiple signup forms on one
   // page don't collide on the `<label htmlFor>` association.
   const baseId = useId();
@@ -212,6 +230,28 @@ export function NewsletterSignup({
           />
         </div>
       ) : null}
+
+      {usableAdditional.map((field, i) => {
+        // Index-keyed id: stable within a render, unique per field.
+        // Each field is its own row so labels stack cleanly above the
+        // primary email + submit row.
+        const fieldId = `${baseId}-additional-${i}`;
+        return (
+          <div key={fieldId} style={fieldRowStyle}>
+            <label htmlFor={fieldId} style={emailLabelStyle}>
+              {field.label}
+            </label>
+            <input
+              id={fieldId}
+              name={field.name}
+              type={field.type}
+              autoComplete={newsletterFieldAutoComplete(field.type)}
+              style={emailInputStyle}
+              placeholder={field.label}
+            />
+          </div>
+        );
+      })}
 
       <div style={fieldRowStyle}>
         <label htmlFor={emailId} style={emailLabelStyle}>

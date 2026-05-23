@@ -11,9 +11,12 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  NEWSLETTER_FIELD_TYPES,
+  NEWSLETTER_FIELD_TYPE_LABELS,
   NEWSLETTER_SERVICES,
   NEWSLETTER_SERVICE_LABELS,
   parseMailchimpAudienceHoneypotName,
+  type NewsletterAdditionalField,
   type NewsletterService,
 } from "@/components/newsletter-types";
 import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
@@ -354,6 +357,7 @@ export type BlockProps = {
     successMessage: string;
     hasNameField: boolean;
     nameLabel: string;
+    additionalFields: NewsletterAdditionalField[];
   };
   ImageCarousel: {
     slides: Array<{ image: ImageMetadata | null; caption: string }>;
@@ -1485,6 +1489,32 @@ export const puckConfig: Config<
           type: "text",
           label: "Name field label",
         },
+        // Generic escape hatch for fields beyond email + name (phone,
+        // country, custom). Unlike the name field, the `name`
+        // attribute is verbatim from the artist's provider embed —
+        // we can't infer it per-service, so the inspector label spells
+        // that out.
+        additionalFields: {
+          type: "array",
+          label: "Additional fields (advanced)",
+          arrayFields: {
+            label: { type: "text", label: "Field label" },
+            name: { type: "text", label: "Field name (from your provider's embed code)" },
+            type: {
+              type: "select",
+              label: "Input type",
+              options: NEWSLETTER_FIELD_TYPES.map((t) => ({
+                label: NEWSLETTER_FIELD_TYPE_LABELS[t],
+                value: t,
+              })),
+            },
+          },
+          defaultItemProps: { label: "", name: "", type: "text" },
+          getItemSummary: (item, i) => {
+            const v = item as NewsletterAdditionalField;
+            return v.label || v.name || `Field ${(i ?? 0) + 1}`;
+          },
+        },
       },
       defaultProps: {
         service: "mailchimp" satisfies NewsletterService,
@@ -1495,6 +1525,7 @@ export const puckConfig: Config<
         successMessage: "Thanks for subscribing! Check your inbox to confirm.",
         hasNameField: false,
         nameLabel: "First name",
+        additionalFields: [],
       },
       render: ({
         service,
@@ -1505,6 +1536,7 @@ export const puckConfig: Config<
         successMessage,
         hasNameField,
         nameLabel,
+        additionalFields,
       }) => (
         <NewsletterSignup
           service={service}
@@ -1515,6 +1547,7 @@ export const puckConfig: Config<
           successMessage={successMessage}
           hasNameField={hasNameField}
           nameLabel={nameLabel}
+          additionalFields={additionalFields}
         />
       ),
     },

@@ -47,12 +47,6 @@ something worth fixing that doesn't fit the current PR's scope.
   per-service parser + matching hint would extend the same author-
   time signal. Defer until artists ask. From newsletter-validation
   PR review.
-- **Generic "additional fields" array.** Today `hasNameField`
-  toggles a single first-name input. Artists may want phone, country,
-  or a custom field. An `additionalFields: { label, name, type }[]`
-  array would generalise; for v1 the name field covered the most-
-  common ask. From #181.
-
 ## Card
 
 - **Icon-mode media for non-image previews.** Audio / video / PDF

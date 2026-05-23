@@ -76,6 +76,63 @@ export const NAME_FIELD_NAME: Record<NewsletterService, string> = {
 };
 
 /**
+ * Input types offered for a custom additional field. Maps directly to
+ * the `<input type>` attribute. The set is deliberately small — the
+ * common asks beyond first-name are phone (`tel`), country / custom
+ * text (`text`), a secondary email (`email`), and a website (`url`).
+ * Richer types (date, select) would need provider-specific encoding
+ * we don't want to guess at; the artist drops to `text` for those.
+ */
+export const NEWSLETTER_FIELD_TYPES = ["text", "email", "tel", "url"] as const;
+export type NewsletterFieldType = (typeof NEWSLETTER_FIELD_TYPES)[number];
+
+export const NEWSLETTER_FIELD_TYPE_LABELS: Record<NewsletterFieldType, string> = {
+  text: "Text",
+  email: "Email",
+  tel: "Phone",
+  url: "Website / URL",
+};
+
+/**
+ * One artist-defined extra field beyond the curated email + name.
+ * Unlike the name field (which maps to a per-service attribute via
+ * `NAME_FIELD_NAME`), the `name` here is the raw form-field attribute
+ * the artist copies from their provider's embed code — we can't infer
+ * it, so it's verbatim. `autoComplete` is derived from `type` at
+ * render so browsers still offer sensible autofill.
+ */
+export type NewsletterAdditionalField = {
+  /** Visible (screen-reader) label. */
+  label: string;
+  /** Raw form-field `name` attribute, provider-specific. */
+  name: string;
+  /** Maps to the `<input type>`. */
+  type: NewsletterFieldType;
+};
+
+/**
+ * Map an additional-field input type to a reasonable `autocomplete`
+ * token so browsers offer autofill. `text` is intentionally
+ * unmapped (returns undefined) — a generic text field could be
+ * anything (country, company, referral), and a wrong autocomplete
+ * hint is worse than none. Pure / synchronous.
+ */
+export function newsletterFieldAutoComplete(
+  type: NewsletterFieldType,
+): string | undefined {
+  switch (type) {
+    case "email":
+      return "email";
+    case "tel":
+      return "tel";
+    case "url":
+      return "url";
+    case "text":
+      return undefined;
+  }
+}
+
+/**
  * Parse Mailchimp's actionUrl to extract the audience IDs that
  * suffix the real honeypot field name `b_<u>_<id>`. Mailchimp's
  * default embed URL is
