@@ -55,10 +55,6 @@ something worth fixing that doesn't fit the current PR's scope.
 
 ## Card
 
-- **`minimal` variant + `size` axis.** v2 ships with `filled` /
-  `outlined` and a single size. The legacy template adds a
-  `minimal` variant (no border, no padding — list-item-scale) and
-  a `size: sm / md / lg` axis. Skipped pending demand. From #187.
 - **Icon-mode media for non-image previews.** Audio / video / PDF
   files render as generic icons in the legacy template via the
   `mediaKind` inference. The new template's Card only supports

@@ -586,6 +586,7 @@ describe("puckConfig", () => {
         isExternal: false,
         orientation: "vertical" as const,
         variant: "filled" as const,
+        size: "md" as const,
         fileUrl: "",
         sizeLabel: "",
         isHoverable: false,
@@ -723,8 +724,73 @@ describe("puckConfig", () => {
       const field = puckConfig.components.Card.fields?.variant;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
-        expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined"]);
+        expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined", "minimal"]);
       }
+    });
+
+    // ---------------------------------------------------------------------
+    // v3 additions: minimal variant + size axis
+    // ---------------------------------------------------------------------
+
+    it("variant=minimal drops the border + background + padding (flush list-item)", () => {
+      const html = render("Card", cardProps({ title: "x", variant: "minimal" }));
+      // No border declaration and no surface fill — the card reads as
+      // bare content. (filled/outlined both carry a 1px border.)
+      expect(html).not.toMatch(/border:\s*1px solid/);
+      expect(html).toMatch(/background:\s*transparent/);
+      // Padding collapses to 0 so adjacent prose sits flush.
+      expect(html).toMatch(/padding:\s*0(?:px|;|")/);
+    });
+
+    it("variant=minimal still applies the size gap (media ↔ body breathing room)", () => {
+      // Minimal drops chrome but is not gap-less — md gap is --space-3.
+      const html = render("Card", cardProps({ title: "x", variant: "minimal", size: "md" }));
+      expect(html).toMatch(/gap:\s*var\(--space-3\)/);
+    });
+
+    it("size axis scales the chromed padding (sm < md < lg)", () => {
+      const sm = render("Card", cardProps({ title: "x", size: "sm" }));
+      const md = render("Card", cardProps({ title: "x", size: "md" }));
+      const lg = render("Card", cardProps({ title: "x", size: "lg" }));
+      expect(sm).toMatch(/padding:\s*var\(--space-3\)/);
+      expect(md).toMatch(/padding:\s*var\(--space-4\)/);
+      expect(lg).toMatch(/padding:\s*var\(--space-5\)/);
+    });
+
+    it("size axis scales the title type (sm=base, md=lg, lg=xl)", () => {
+      const sm = render("Card", cardProps({ title: "Title", size: "sm" }));
+      const md = render("Card", cardProps({ title: "Title", size: "md" }));
+      const lg = render("Card", cardProps({ title: "Title", size: "lg" }));
+      expect(sm).toMatch(/font-size:\s*var\(--font-size-base\)/);
+      expect(md).toMatch(/font-size:\s*var\(--font-size-lg\)/);
+      expect(lg).toMatch(/font-size:\s*var\(--font-size-xl\)/);
+    });
+
+    it("size=md is the default (parity with v2 single-size cards)", () => {
+      // A Card authored before the size axis landed deserialises with
+      // the md default — same padding/type as the v2 fixed size.
+      const withDefault = render("Card", cardProps({ title: "x" }));
+      const explicitMd = render("Card", cardProps({ title: "x", size: "md" }));
+      expect(withDefault).toMatch(/padding:\s*var\(--space-4\)/);
+      // Both render the same padding token.
+      expect(explicitMd).toMatch(/padding:\s*var\(--space-4\)/);
+    });
+
+    it("size select options match CARD_SIZES", () => {
+      const field = puckConfig.components.Card.fields?.size;
+      expect(field?.type).toBe("select");
+      if (field?.type === "select") {
+        expect(field.options.map((o) => o.value)).toEqual(["sm", "md", "lg"]);
+      }
+    });
+
+    it("minimal variant works as a link card too (chrome-free clickable tile)", () => {
+      const html = render(
+        "Card",
+        cardProps({ title: "x", variant: "minimal", href: "/somewhere" }),
+      );
+      expect(html).toContain('href="/somewhere"');
+      expect(html).not.toMatch(/border:\s*1px solid/);
     });
 
     it("renders a download anchor when fileUrl is set", () => {
