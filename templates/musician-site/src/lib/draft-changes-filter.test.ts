@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type DraftChange } from "./draft-changes";
-import { pendingItemSlugs } from "./draft-changes-filter";
+import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
 
 describe("pendingItemSlugs", () => {
   it("collects item slugs for the requested collection only", () => {
@@ -52,5 +52,34 @@ describe("pendingItemSlugs", () => {
       { kind: "item", status: "modified", collectionSlug: "pages", itemSlug: "home", path: "a" },
     ];
     expect(pendingItemSlugs(changes, "pages")).toEqual(new Set(["home"]));
+  });
+});
+
+describe("hasPendingSingleton", () => {
+  it("is true when the collection's singleton has a pending change", () => {
+    const changes: DraftChange[] = [
+      { kind: "singleton", status: "modified", collectionSlug: "site", path: "s" },
+    ];
+    expect(hasPendingSingleton(changes, "site")).toBe(true);
+  });
+
+  it("is false for a singleton change in a different collection", () => {
+    const changes: DraftChange[] = [
+      { kind: "singleton", status: "modified", collectionSlug: "header", path: "s" },
+    ];
+    expect(hasPendingSingleton(changes, "site")).toBe(false);
+  });
+
+  it("ignores non-singleton kinds for the same collection (item / def / order)", () => {
+    const changes: DraftChange[] = [
+      { kind: "item", status: "modified", collectionSlug: "site", itemSlug: "x", path: "i" },
+      { kind: "def", status: "modified", collectionSlug: "site", path: "d" },
+      { kind: "order", status: "modified", collectionSlug: "site", path: "o" },
+    ];
+    expect(hasPendingSingleton(changes, "site")).toBe(false);
+  });
+
+  it("is false for an empty change list", () => {
+    expect(hasPendingSingleton([], "site")).toBe(false);
   });
 });

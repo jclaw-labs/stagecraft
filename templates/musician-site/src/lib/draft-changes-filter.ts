@@ -46,3 +46,22 @@ export function pendingItemSlugs(
   }
   return slugs;
 }
+
+/**
+ * Whether `collectionSlug`'s singleton has a pending draft-vs-main
+ * change — for the custom singleton panels (Site Settings, Header &
+ * Navigation, Appearance), which are forms with no row to badge.
+ *
+ * Matches `kind: "singleton"` only: the artist's form edit writes the
+ * one singleton item. A schema (`def`) change is a separate, dev-driven
+ * action and shouldn't light up the artist's settings panel as
+ * "unpublished".
+ */
+export function hasPendingSingleton(
+  changes: ReadonlyArray<ChangeLike>,
+  collectionSlug: string,
+): boolean {
+  return changes.some(
+    (change) => change.kind === "singleton" && change.collectionSlug === collectionSlug,
+  );
+}

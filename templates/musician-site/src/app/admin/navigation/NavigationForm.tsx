@@ -28,6 +28,8 @@ import {
 
 type Props = {
   initial: HeaderConfig;
+  /** Badge the panel title when the `header` singleton has unpublished edits. */
+  hasPendingChanges?: boolean;
 };
 
 /**
@@ -42,7 +44,7 @@ type Props = {
  * Edits go through the generic `PUT /api/collections/header/items/_singleton`
  * endpoint — the same path the generic editor uses.
  */
-export function NavigationForm({ initial }: Props) {
+export function NavigationForm({ initial, hasPendingChanges }: Props) {
   const form = useSettingsForm<HeaderConfig>({
     initial,
     collectionSlug: "header",
@@ -57,6 +59,7 @@ export function NavigationForm({ initial }: Props) {
     <AdminPanel
       title="Header & Navigation"
       description="Wordmark and header chrome (mode + layout + subtitle). The nav order itself is set on the Pages list — drag rows to reorder, toggle the eye to hide a page from the nav."
+      hasPendingChanges={hasPendingChanges}
       saveBar={<SaveBar {...form.saveBarProps} />}
     >
       <FieldGroup
