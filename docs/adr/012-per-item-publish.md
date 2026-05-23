@@ -40,17 +40,28 @@ Let `draft` be the editor's branch (`resolveDraftBranch`, ADR-011) and
 2. **Diff + classify.** Compare `main...draft`; the selected paths must
    be a subset of that diff. Partition them into *added/modified* (the
    path exists on `draft`) and *removed* (the path is gone on `draft`).
-3. **Commit the subset onto `main`.** Build a tree from `base_tree =
-   main`'s tree, overlaying the added/modified paths using **draft's
-   existing blob SHAs** (referenced, not re-uploaded — binary-safe and
-   cheap) and `sha: null` entries for the removed paths. `createCommit`
-   with parent = `main` HEAD; `updateRef main` with the same
-   stale-ref retry as `commitFiles`. No `[skip ci]` — this commit *is* a
-   publish and triggers the deploy.
+3. **Commit the subset onto `main`.** The caller passes an **explicit**
+   split — `copyPaths` (added/modified) and `deletePaths` (removed) —
+   derived from the diff; the mechanism never *infers* delete-vs-copy
+   from "is the path on the source," because a missing copy path must
+   never silently become a deletion. Build a tree from `base_tree =
+   main`'s tree, overlaying `copyPaths` using **draft's existing blob
+   SHAs** (referenced, not re-uploaded — binary-safe, cheap, and
+   mode-faithful) and `sha: null` entries for `deletePaths`. A copy path
+   that doesn't resolve to a blob on the source — or a **truncated**
+   source tree listing — **throws** rather than risk a wrong deletion.
+   If the resulting tree equals `main`'s current tree (nothing actually
+   changed), skip the commit (no spurious deploy). Otherwise
+   `createCommit` with parent = `main` HEAD and `updateRef main` with the
+   same stale-ref retry as `commitFiles`. No `[skip ci]` — this commit
+   *is* a publish and triggers the deploy.
 4. **Reconcile the draft.** `mergeBranchInto({ from: main, into: draft })`
-   (existing). The selected paths are now byte-identical on both
-   branches, so they merge cleanly; the unselected paths exist only on
-   `draft` and remain. `draft` becomes a descendant of the new `main`.
+   (existing). In the common case the selected paths are byte-identical
+   on both branches so they merge cleanly, the unselected paths exist
+   only on `draft` and remain, and `draft` becomes a descendant of the
+   new `main`. This merge is *not* unconditionally clean, though — a
+   concurrent edit to a published path during the publish window can
+   conflict (see Known limitations).
 
 ### Invariant
 
@@ -79,13 +90,21 @@ image or desync from the real diff.
 
 ### Concurrency & partial failure
 
-The `updateRef main` in step 3 uses the `commitFiles` stale-ref retry,
-so two near-simultaneous publishes serialize (the loser rebuilds on the
-new `main`). If step 3 succeeds but step 4 fails, `main` has the
-selected changes while `draft` is briefly behind on those paths but
-still ahead on the unselected ones; the next save's
-`ensureDraftAndRebase` merges `main` in and self-heals — the same
-recovery shape ADR-010 already relies on.
+The `updateRef main` in `commitSelectedPathsInto` uses the `commitFiles`
+stale-ref retry, so two near-simultaneous *selected* publishes serialize
+(the loser rebuilds on the new `main`). Caveat: the full-publish path
+(`squashBranchInto`) updates `main` with a plain `updateRef` and **no**
+retry, so a selected publish racing a *full* publish on `main` is not
+guaranteed to serialize — a pre-existing gap, tracked as a follow-up
+(give `squashBranchInto` the same retry).
+
+If step 3 succeeds but step 4 (reconcile) fails, `main` already has the
+selected changes (the deploy fired) while `draft` is behind on those
+paths but still ahead on the unselected ones. Today this surfaces to the
+caller as a `github-failed` error even though the publish *shipped*; the
+next save's `ensureDraftAndRebase` merges `main` in and self-heals the
+draft. Smoothing that "false failure on a successful publish" is a
+deferred follow-up.
 
 ## Rejected alternatives
 
@@ -118,6 +137,18 @@ recovery shape ADR-010 already relies on.
   semantics; wires the selection to the route.
 
 ## Known limitations and deferred work
+
+- **Reconcile (and pre-flight rebase) can conflict on concurrent edits.**
+  The merges in steps 1 and 4 are 3-way merges against the *old* `main`;
+  a path edited on both `main` (a dev push) and `draft` during the
+  publish window can conflict. Notably a conflicting **unselected** file
+  blocks the pre-flight rebase, so per-item Publish — like full Publish —
+  requires `draft` to rebase cleanly on `main`; it does not let you ship
+  a clean selected item past an unrelated conflicting one. Editors are
+  otherwise branch-isolated (ADR-011), so the realistic trigger is
+  same-editor multi-tab or a direct push mid-publish; recovery is Discard
+  or resolve, then retry. *Trigger:* artists hit this in concurrent
+  sessions — then add per-path reconciliation.
 
 - **Merge commits accrue on the draft branch.** Each partial publish
   adds a merge commit to the editor's branch. Harmless (the branch is

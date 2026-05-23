@@ -902,10 +902,12 @@ describe("commitSelectedPathsInto", () => {
     getCommit.mockResolvedValue({ data: { tree: { sha: "main-tree-sha" } } });
     getTree.mockResolvedValue({
       data: {
+        truncated: false,
         tree: [
-          { path: "a.json", type: "blob", sha: "sha-a" },
-          { path: "b.json", type: "blob", sha: "sha-b" },
-          { path: "src/dir", type: "tree", sha: "sha-dir" },
+          { path: "a.json", type: "blob", mode: "100644", sha: "sha-a" },
+          { path: "b.json", type: "blob", mode: "100644", sha: "sha-b" },
+          { path: "run.sh", type: "blob", mode: "100755", sha: "sha-run" },
+          { path: "src/dir", type: "tree", mode: "040000", sha: "sha-dir" },
         ],
       },
     });
@@ -914,41 +916,73 @@ describe("commitSelectedPathsInto", () => {
     updateRef.mockResolvedValue({ data: {} });
   }
 
-  it("returns alreadyInSync without committing when no paths are selected", async () => {
+  it("returns alreadyInSync without touching the source when nothing is selected", async () => {
     getRef.mockResolvedValue({ data: { object: { sha: "main-sha" } } });
-    const res = await commitSelectedPathsInto({ ...baseArgs, paths: [] });
+    const res = await commitSelectedPathsInto({ ...baseArgs, copyPaths: [], deletePaths: [] });
     expect(res).toEqual({ commitSha: "main-sha", alreadyInSync: true });
     expect(createCommit).not.toHaveBeenCalled();
-    expect(updateRef).not.toHaveBeenCalled();
+    expect(getTree).not.toHaveBeenCalled();
   });
 
-  it("copies present paths by blob SHA and deletes absent ones onto the target's tree", async () => {
+  it("copies copyPaths by blob SHA (mode-faithful) and deletes deletePaths onto the target tree", async () => {
     setupSelected();
     const res = await commitSelectedPathsInto({
       ...baseArgs,
-      paths: ["a.json", "gone.json"], // a.json present on draft; gone.json removed → delete
+      copyPaths: ["a.json", "run.sh"],
+      deletePaths: ["gone.json"],
     });
     expect(res).toEqual({ commitSha: "new-commit-sha", alreadyInSync: false });
 
     const treeArg = createTree.mock.calls[0][0] as {
       base_tree: string;
-      tree: { path: string; sha: string | null }[];
+      tree: { path: string; mode: string; sha: string | null }[];
     };
     expect(treeArg.base_tree).toBe("main-tree-sha");
     expect(treeArg.tree).toEqual([
       { path: "a.json", mode: "100644", type: "blob", sha: "sha-a" },
+      { path: "run.sh", mode: "100755", type: "blob", sha: "sha-run" }, // source mode preserved
       { path: "gone.json", mode: "100644", type: "blob", sha: null },
     ]);
-
-    // Parent is the target HEAD; the commit must NOT carry [skip ci]
-    // (a publish commit should trigger the deploy).
+    // No [skip ci] — a publish commit must trigger the deploy.
+    expect(createCommit.mock.calls[0][0].message).not.toContain("[skip ci]");
     expect(createCommit).toHaveBeenCalledWith(
       expect.objectContaining({ parents: ["main-sha"], tree: "new-tree-sha" }),
     );
-    expect(createCommit.mock.calls[0][0].message).not.toContain("[skip ci]");
     expect(updateRef).toHaveBeenCalledWith(
       expect.objectContaining({ ref: "heads/main", sha: "new-commit-sha" }),
     );
+  });
+
+  it("throws (never silently deletes) when a copy path isn't a file on the source", async () => {
+    setupSelected();
+    await expect(
+      // "src/dir" is a tree, not a blob.
+      commitSelectedPathsInto({ ...baseArgs, copyPaths: ["src/dir"], deletePaths: [] }),
+    ).rejects.toThrow(/not found as files on draft-abc123/);
+    expect(createCommit).not.toHaveBeenCalled();
+  });
+
+  it("throws on a truncated source tree rather than risk dropping a path", async () => {
+    setupSelected();
+    getTree.mockResolvedValue({ data: { truncated: true, tree: [] } });
+    await expect(
+      commitSelectedPathsInto({ ...baseArgs, copyPaths: ["a.json"], deletePaths: [] }),
+    ).rejects.toThrow(/truncated/);
+    expect(createCommit).not.toHaveBeenCalled();
+  });
+
+  it("skips the commit (alreadyInSync) when the overlay leaves the target tree unchanged", async () => {
+    setupSelected();
+    // createTree yields the SAME tree SHA as the target's current tree.
+    createTree.mockResolvedValue({ data: { sha: "main-tree-sha" } });
+    const res = await commitSelectedPathsInto({
+      ...baseArgs,
+      copyPaths: ["a.json"],
+      deletePaths: [],
+    });
+    expect(res).toEqual({ commitSha: "main-sha", alreadyInSync: true });
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(updateRef).not.toHaveBeenCalled();
   });
 
   it("retries on a stale target ref and rebuilds on the new HEAD", async () => {
@@ -959,7 +993,7 @@ describe("commitSelectedPathsInto", () => {
     });
     updateRef.mockRejectedValueOnce(stale).mockResolvedValueOnce({ data: {} });
 
-    const res = await commitSelectedPathsInto({ ...baseArgs, paths: ["a.json"] });
+    const res = await commitSelectedPathsInto({ ...baseArgs, copyPaths: ["a.json"], deletePaths: [] });
     expect(res.commitSha).toBe("new-commit-sha");
     expect(updateRef).toHaveBeenCalledTimes(2);
     // The source tree is resolved once up front, not per retry attempt.

@@ -619,12 +619,18 @@ export type PublishSelectedToMainArgs = {
   authorEmail: string;
   authorName?: string;
   /**
-   * Repo paths to publish — a subset of the editor's pending changes
-   * (the caller derives these from the live diff, expanding image
-   * variants / renames). Paths present on the draft branch are
-   * published; paths absent there are published as deletions.
+   * Pending paths to copy to `main` — the caller derives these from the
+   * live diff (the added/modified items it selected, expanding image
+   * variants and the new side of a rename).
    */
-  paths: string[];
+  copyPaths: string[];
+  /**
+   * Pending paths to delete from `main` (selected items removed on the
+   * draft, plus the old side of a rename). Explicit, never inferred, so a
+   * copy path that can't be resolved is never silently treated as a
+   * deletion.
+   */
+  deletePaths?: string[];
   /** Optional override for the commit subject. */
   commitSubject?: string;
 };
@@ -650,8 +656,9 @@ export async function publishSelectedToMain(
     return { commitSha: null, mode: "local", alreadyInSync: true };
   }
 
-  const paths = [...new Set(args.paths)];
-  if (paths.length === 0) {
+  const copyPaths = [...new Set(args.copyPaths)];
+  const deletePaths = [...new Set(args.deletePaths ?? [])];
+  if (copyPaths.length === 0 && deletePaths.length === 0) {
     return { commitSha: null, mode: "github", alreadyInSync: true };
   }
 
@@ -674,7 +681,8 @@ export async function publishSelectedToMain(
       repo,
       fromBranch: draftBranch,
       toBranch: env.branch,
-      paths,
+      copyPaths,
+      deletePaths,
       message,
       author,
     });

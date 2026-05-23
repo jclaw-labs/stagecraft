@@ -538,21 +538,32 @@ export type CommitSelectedPathsIntoArgs = {
   /** Target branch to commit onto (the published branch, `main`). */
   toBranch: string;
   /**
-   * Repo paths to publish. A path that exists on `fromBranch` is copied
-   * by reference to its existing blob SHA (binary-safe, no re-upload); a
-   * path absent on `fromBranch` is deleted from `toBranch` (it was
-   * removed on `fromBranch`). Renames pass both paths — the new one is
-   * copied, the old one deleted.
+   * Paths to copy from `fromBranch` into `toBranch`, by reference to
+   * their existing blob SHAs (binary-safe, no re-upload + mode-faithful).
+   * Each MUST resolve to a blob on `fromBranch` — if one doesn't, the
+   * call throws rather than silently dropping it (a missing copy path
+   * must never be reinterpreted as a deletion).
    */
-  paths: string[];
+  copyPaths: string[];
+  /**
+   * Paths to delete from `toBranch` (they were removed on `fromBranch`).
+   * Explicit, never inferred — so a copy path that fails to resolve can't
+   * masquerade as a deletion. Renames pass the new path in `copyPaths`
+   * and the old path here.
+   */
+  deletePaths: string[];
   message: string;
   author: { name: string; email: string };
 };
 
 export type CommitSelectedPathsIntoResult = {
-  /** SHA of the new commit on `toBranch`. */
+  /** SHA of the new commit on `toBranch` (or its unchanged HEAD on a no-op). */
   commitSha: string;
-  /** True when `paths` was empty — no commit was created. */
+  /**
+   * True when there was nothing to publish — no paths supplied, or the
+   * resulting tree was byte-identical to `toBranch` (so no commit was
+   * created and no deploy is triggered).
+   */
   alreadyInSync: boolean;
 };
 
@@ -571,42 +582,65 @@ export async function commitSelectedPathsInto(
   args: CommitSelectedPathsIntoArgs,
 ): Promise<CommitSelectedPathsIntoResult> {
   const octokit = new Octokit({ auth: args.token });
-  const { owner, repo, fromBranch, toBranch, paths, message, author } = args;
+  const { owner, repo, fromBranch, toBranch, copyPaths, deletePaths, message, author } = args;
 
-  if (paths.length === 0) {
+  if (copyPaths.length === 0 && deletePaths.length === 0) {
     const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
     return { commitSha: toRef.data.object.sha, alreadyInSync: true };
   }
 
-  // Resolve the source branch's blob SHAs for the selected paths. Hoisted
-  // out of the retry loop — we only retry the target ref.
-  const fromRef = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
-  const fromCommit = await octokit.git.getCommit({
-    owner,
-    repo,
-    commit_sha: fromRef.data.object.sha,
-  });
-  const fromTree = await octokit.git.getTree({
-    owner,
-    repo,
-    tree_sha: fromCommit.data.tree.sha,
-    recursive: "true",
-  });
-  const shaByPath = new Map<string, string>();
-  for (const entry of fromTree.data.tree) {
-    if (entry.type === "blob" && entry.path && entry.sha) {
-      shaByPath.set(entry.path, entry.sha);
+  type TreeEntry = { path: string; mode: string; type: "blob"; sha: string | null };
+  const deleteEntries: TreeEntry[] = deletePaths.map((path) => ({
+    path,
+    mode: "100644",
+    type: "blob",
+    sha: null,
+  }));
+
+  // Resolve the source branch's blob SHAs (+ modes) for the copy paths.
+  // Hoisted out of the retry loop — we only race on the target ref.
+  let copyEntries: TreeEntry[] = [];
+  if (copyPaths.length > 0) {
+    const fromRef = await octokit.git.getRef({ owner, repo, ref: `heads/${fromBranch}` });
+    const fromCommit = await octokit.git.getCommit({
+      owner,
+      repo,
+      commit_sha: fromRef.data.object.sha,
+    });
+    const fromTree = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: fromCommit.data.tree.sha,
+      recursive: "true",
+    });
+    // Fail safe on a truncated tree: an incomplete listing would make a
+    // present path look missing, and "missing copy path" must never be
+    // silently turned into a deletion (data loss).
+    if (fromTree.data.truncated) {
+      throw new Error(
+        `commitSelectedPathsInto: ${fromBranch}'s tree is too large to list in one request (truncated); cannot resolve copy paths safely.`,
+      );
     }
+    const blobByPath = new Map<string, { sha: string; mode: string }>();
+    for (const entry of fromTree.data.tree) {
+      if (entry.type === "blob" && entry.path && entry.sha) {
+        blobByPath.set(entry.path, { sha: entry.sha, mode: entry.mode ?? "100644" });
+      }
+    }
+    const missing = copyPaths.filter((p) => !blobByPath.has(p));
+    if (missing.length > 0) {
+      throw new Error(
+        `commitSelectedPathsInto: copy paths not found as files on ${fromBranch}: ${missing.join(", ")}`,
+      );
+    }
+    copyEntries = copyPaths.map((path) => {
+      const blob = blobByPath.get(path)!;
+      // Mode-faithful (preserve executable/symlink modes from the source).
+      return { path, mode: blob.mode, type: "blob", sha: blob.sha };
+    });
   }
 
-  type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
-  const tree: TreeEntry[] = paths.map((path) => ({
-    path,
-    mode: "100644" as const,
-    type: "blob" as const,
-    // Present on the source → copy its blob; absent → delete from target.
-    sha: shaByPath.get(path) ?? null,
-  }));
+  const tree: TreeEntry[] = [...copyEntries, ...deleteEntries];
 
   let lastParentSha = "";
   for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
@@ -622,6 +656,14 @@ export async function commitSelectedPathsInto(
       base_tree: toCommit.data.tree.sha,
       tree,
     } as unknown as Parameters<typeof octokit.git.createTree>[0]);
+
+    // No-op guard: if the overlay didn't change the target's tree (every
+    // selected path already matched), don't create an empty commit — it
+    // would trigger a pointless deploy. Mirrors squashBranchInto's
+    // fromSha===toSha short-circuit.
+    if (createdTree.data.sha === toCommit.data.tree.sha) {
+      return { commitSha: toSha, alreadyInSync: true };
+    }
 
     const commit = await octokit.git.createCommit({
       owner,

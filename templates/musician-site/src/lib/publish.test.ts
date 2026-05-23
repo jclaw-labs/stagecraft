@@ -1018,29 +1018,31 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
   it("is a no-op in dev fallback (no platform configured)", async () => {
     const res = await publishSelectedToMain({
       authorEmail: "a@e.com",
-      paths: ["src/content/x.json"],
+      copyPaths: ["src/content/x.json"],
     });
     expect(res).toEqual({ commitSha: null, mode: "local", alreadyInSync: true });
     expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
   });
 
-  it("returns alreadyInSync without committing when no paths are selected", async () => {
+  it("returns alreadyInSync without committing when nothing is selected", async () => {
     configurePlatform();
-    const res = await publishSelectedToMain({ authorEmail: "a@e.com", paths: [] });
+    const res = await publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: [], deletePaths: [] });
     expect(res).toEqual({ commitSha: null, mode: "github", alreadyInSync: true });
     expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
   });
 
-  it("commits the selected paths onto main (no [skip ci]), then merges main back into the draft", async () => {
+  it("commits the selected copy/delete paths onto main (no [skip ci]), then merges main into the draft", async () => {
     configurePlatform();
-    const paths = [
+    const copyPaths = [
       "src/content/collections/tour-dates/items/paris.json",
       "src/content/collections/pages/items/about.json",
     ];
+    const deletePaths = ["src/content/collections/pages/items/old.json"];
     const res = await publishSelectedToMain({
       authorEmail: "artist@example.com",
       authorName: "Real Artist",
-      paths,
+      copyPaths,
+      deletePaths,
       commitSubject: "Ship the Paris date",
     });
 
@@ -1049,7 +1051,8 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
       expect.objectContaining({
         fromBranch: "draft",
         toBranch: "main",
-        paths,
+        copyPaths,
+        deletePaths,
         author: { name: "Real Artist", email: "artist@example.com" },
       }),
     );
@@ -1068,7 +1071,7 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
     process.env.ADMIN_EMAILS = "first@example.com, second@example.com";
     await publishSelectedToMain({
       authorEmail: "second@example.com",
-      paths: ["src/content/collections/pages/items/about.json"],
+      copyPaths: ["src/content/collections/pages/items/about.json"],
     });
     const call = commitSelectedPathsIntoMock.mock.calls[0][0];
     expect(call.fromBranch).toMatch(/^draft-[0-9a-f]{12}$/);
@@ -1083,7 +1086,7 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
       new ConcurrentEditError("heads/main", 3, "main-sha", new Error("stale")),
     );
     await expect(
-      publishSelectedToMain({ authorEmail: "a@e.com", paths: ["src/content/x.json"] }),
+      publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: ["src/content/x.json"] }),
     ).rejects.toMatchObject({ code: "concurrent-edit" });
   });
 
@@ -1095,7 +1098,7 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
       .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
       .mockResolvedValueOnce({ kind: "conflict" });
     await expect(
-      publishSelectedToMain({ authorEmail: "a@e.com", paths: ["src/content/x.json"] }),
+      publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: ["src/content/x.json"] }),
     ).rejects.toMatchObject({ code: "github-failed" });
   });
 });

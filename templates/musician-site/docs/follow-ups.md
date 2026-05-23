@@ -83,3 +83,24 @@ something worth fixing that doesn't fit the current PR's scope.
   the hot path until an artist actually needs it. Also recorded in
   ADR-011 "Known limitations and deferred work". From #233 deep review.
 
+## Publish (per-item, ADR-012)
+
+- **`squashBranchInto` has no stale-ref retry.** The full-publish path
+  updates `main` with a plain `updateRef` (no retry, no expected-SHA
+  guard), so two concurrent publishes to `main` — e.g. a full Publish
+  racing a per-item Publish, or two editors publishing at once — aren't
+  guaranteed to serialize; the loser can fail or clobber. Pre-existing
+  (predates ADR-012); per-item Publish's `commitSelectedPathsInto` does
+  retry. Give `squashBranchInto` the same `commitFiles`-style retry so
+  both `main` writers serialize safely. *Trigger:* concurrent publishes
+  observed in practice (more likely now multi-editor sites exist).
+
+- **Per-item Publish reports a false failure when reconcile fails after
+  the commit shipped.** If the subset commit to `main` succeeds (deploy
+  fires) but the follow-up reconcile merge fails (transient error or a
+  concurrent-edit conflict), `publishSelectedToMain` throws
+  `github-failed` even though the publish landed. The draft self-heals on
+  the next save's `ensureDraftAndRebase`, but the user sees an error for a
+  publish that succeeded. Smooth this (e.g. report success-with-warning
+  when the `main` commit landed). From ADR-012 PR-1 deep review.
+
