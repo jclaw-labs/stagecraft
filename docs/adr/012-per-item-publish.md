@@ -1,7 +1,9 @@
 # ADR-012: Per-item Publish
 
 ## Status
-Proposed
+Accepted — implemented and shipped: backend (#238), API (#239), and the
+publish-modal UI (#240). Remaining items are deferred with documented
+triggers (see "Known limitations and deferred work").
 
 ## Context
 
