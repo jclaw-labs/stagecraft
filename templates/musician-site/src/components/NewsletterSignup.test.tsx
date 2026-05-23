@@ -206,6 +206,177 @@ describe("NewsletterSignup — optional name field", () => {
   });
 });
 
+describe("NewsletterSignup — additional fields", () => {
+  it("renders no additional fields by default (email-only baseline)", () => {
+    const html = renderForm();
+    // Only the email input + honeypots; no extra named inputs.
+    expect(html).not.toMatch(/name="phone"/);
+  });
+
+  it("renders each additional field as a labelled input with its raw name + type", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Country", name: "mmerge3", type: "text" },
+      ],
+    });
+    // Raw provider name attributes are emitted verbatim.
+    expect(html).toMatch(/<input[^>]+name="PHONE"[^>]*type="tel"|<input[^>]+type="tel"[^>]*name="PHONE"/);
+    expect(html).toMatch(/name="mmerge3"/);
+    // Labels are present (screen-reader association).
+    expect(html).toContain("Phone");
+    expect(html).toContain("Country");
+  });
+
+  it("derives a sensible autocomplete token from the input type", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Website", name: "URL", type: "url" },
+      ],
+    });
+    expect(html).toMatch(/autocomplete="tel"/i);
+    expect(html).toMatch(/autocomplete="url"/i);
+  });
+
+  it("omits autocomplete for generic text fields (a wrong hint is worse than none)", () => {
+    const html = renderForm({
+      additionalFields: [{ label: "Referral source", name: "REF", type: "text" }],
+    });
+    // The text field's input carries no autocomplete attribute.
+    expect(html).toMatch(/<input[^>]+name="REF"[^>]*>/);
+    const refInput = html.match(/<input[^>]+name="REF"[^>]*>/)?.[0] ?? "";
+    expect(refInput).not.toMatch(/autocomplete=/i);
+  });
+
+  it("skips rows missing a label or a name (incomplete inspector rows)", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "", name: "ORPHAN_NAME", type: "text" },
+        { label: "No name", name: "", type: "text" },
+        { label: "  ", name: "  ", type: "text" },
+        { label: "Valid", name: "VALID", type: "text" },
+      ],
+    });
+    // Only the complete row renders.
+    expect(html).toMatch(/name="VALID"/);
+    expect(html).not.toMatch(/name="ORPHAN_NAME"/);
+    expect(html).not.toContain("No name");
+  });
+
+  it("gives each additional field a unique id distinct from the email field", () => {
+    const html = renderForm({
+      additionalFields: [
+        { label: "Phone", name: "PHONE", type: "tel" },
+        { label: "Country", name: "COUNTRY", type: "text" },
+      ],
+    });
+    // Each label's `for` points at a distinct id; collect them.
+    const ids = [...html.matchAll(/<label[^>]+for="([^"]+)"/g)].map((m) => m[1]);
+    const unique = new Set(ids);
+    expect(unique.size).toBe(ids.length);
+  });
+
+  it("renders additional fields alongside the name field (both compose)", () => {
+    const html = renderForm({
+      service: "mailchimp",
+      hasNameField: true,
+      additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" }],
+    });
+    expect(html).toMatch(/name="FNAME"/);
+    expect(html).toMatch(/name="PHONE"/);
+    // The required email input is still present.
+    expect(html).toMatch(/name="EMAIL"/);
+  });
+
+  it("drops a field that collides with the service email field name", () => {
+    // An artist who names an extra field "EMAIL" (the Mailchimp email
+    // attribute) would otherwise emit TWO name="EMAIL" inputs — the
+    // provider gets two values and the subscription silently breaks
+    // behind the opaque no-cors success. Skip the colliding row so the
+    // required email input is the only EMAIL field.
+    const html = renderForm({
+      service: "mailchimp",
+      additionalFields: [{ label: "Your email again", name: "EMAIL", type: "email" }],
+    });
+    const emailMatches = html.match(/name="EMAIL"/g) ?? [];
+    expect(emailMatches).toHaveLength(1);
+    // The colliding row's label is gone too (whole row dropped).
+    expect(html).not.toContain("Your email again");
+  });
+
+  it("drops a field named `_gotcha` (would shadow the honeypot)", () => {
+    const html = renderForm({
+      additionalFields: [{ label: "Comments", name: "_gotcha", type: "text" }],
+    });
+    // Only the hidden honeypot carries name="_gotcha"; the visible
+    // field is dropped, so the label never appears.
+    expect(html).not.toContain("Comments");
+  });
+
+  it("drops a field colliding with the name field name only when the name field is on", () => {
+    // FNAME is reserved only when hasNameField renders the name input.
+    const withName = renderForm({
+      service: "mailchimp",
+      hasNameField: true,
+      additionalFields: [{ label: "Extra", name: "FNAME", type: "text" }],
+    });
+    // Just the curated name field — the colliding extra row is dropped.
+    expect((withName.match(/name="FNAME"/g) ?? [])).toHaveLength(1);
+    expect(withName).not.toContain("Extra");
+
+    // With the name field off, FNAME isn't rendered by the form, so an
+    // additional field may legitimately use it.
+    const withoutName = renderForm({
+      service: "mailchimp",
+      hasNameField: false,
+      additionalFields: [{ label: "Extra", name: "FNAME", type: "text" }],
+    });
+    expect(withoutName).toMatch(/name="FNAME"/);
+    expect(withoutName).toContain("Extra");
+  });
+
+  it("drops a field colliding with the Mailchimp b_* honeypot", () => {
+    const html = renderForm({
+      service: "mailchimp",
+      actionUrl: "https://x.us1.list-manage.com/subscribe/post?u=abc&id=xyz",
+      additionalFields: [{ label: "Sneaky", name: "b_abc_xyz", type: "text" }],
+    });
+    // Only the hidden honeypot carries that name; the visible row drops.
+    expect((html.match(/name="b_abc_xyz"/g) ?? [])).toHaveLength(1);
+    expect(html).not.toContain("Sneaky");
+  });
+
+  it("coerces an out-of-union input type (hand-edited JSON) to text", () => {
+    // On-disk data is untyped at runtime; a bad `type` shouldn't
+    // render <input type="hidden"> (invisible but posting) or a
+    // number field that rejects "+1 555…".
+    const html = renderForm({
+      additionalFields: [
+        // @ts-expect-error — exercising the runtime coercion path
+        { label: "Phone", name: "PHONE", type: "number" },
+      ],
+    });
+    expect(html).toMatch(/<input[^>]+name="PHONE"[^>]*type="text"|<input[^>]+type="text"[^>]*name="PHONE"/);
+    expect(html).not.toMatch(/name="PHONE"[^>]*type="number"/);
+  });
+
+  it("does not crash on rows with null/missing label or name (hand-edited JSON)", () => {
+    const html = renderForm({
+      additionalFields: [
+        // @ts-expect-error — simulating malformed on-disk rows
+        { label: null, name: "X", type: "text" },
+        // @ts-expect-error — missing name key entirely
+        { label: "Y", type: "text" },
+        { label: "Good", name: "GOOD", type: "text" },
+      ],
+    });
+    // Renders without throwing; only the well-formed row survives.
+    expect(html).toMatch(/<form/);
+    expect(html).toMatch(/name="GOOD"/);
+  });
+});
+
 describe("NewsletterSignup — placeholder when actionUrl is empty", () => {
   it("shows an admin-visible hint instead of a non-functional form", () => {
     // Editor-time experience: dragging the block onto a page

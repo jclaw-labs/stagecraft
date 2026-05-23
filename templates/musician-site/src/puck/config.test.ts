@@ -969,6 +969,89 @@ describe("puckConfig", () => {
     });
   });
 
+  describe("NewsletterSignup — additional fields array", () => {
+    it("exposes additionalFields as an array field with label / name / type sub-fields", () => {
+      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+        string,
+        { type?: string; arrayFields?: Record<string, { type?: string }> }
+      >;
+      const af = fields.additionalFields;
+      expect(af?.type).toBe("array");
+      expect(af?.arrayFields?.label?.type).toBe("text");
+      expect(af?.arrayFields?.name?.type).toBe("text");
+      expect(af?.arrayFields?.type?.type).toBe("select");
+    });
+
+    it("the type sub-field options match NEWSLETTER_FIELD_TYPES", () => {
+      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+        string,
+        {
+          arrayFields?: Record<
+            string,
+            { type?: string; options?: Array<{ value: string }> }
+          >;
+        }
+      >;
+      const typeField = fields.additionalFields?.arrayFields?.type;
+      expect(typeField?.options?.map((o) => o.value)).toEqual([
+        "text",
+        "email",
+        "tel",
+        "url",
+      ]);
+    });
+
+    it("defaults additionalFields to an empty array (no extra fields out of the box)", () => {
+      const defaults = puckConfig.components.NewsletterSignup.defaultProps as Record<
+        string,
+        unknown
+      >;
+      expect(defaults.additionalFields).toEqual([]);
+    });
+
+    it("renders configured additional fields into the public form markup", () => {
+      // End-to-end through the Puck render fn → component: a phone
+      // field should appear with its raw provider name + tel type.
+      const html = render(
+        "NewsletterSignup",
+        {
+          service: "mailchimp" as const,
+          actionUrl: "https://example.us1.list-manage.com/subscribe/post?u=a&id=b",
+          title: "",
+          emailLabel: "Email",
+          submitLabel: "Subscribe",
+          successMessage: "ok",
+          hasNameField: false,
+          nameLabel: "First name",
+          additionalFields: [{ label: "Phone", name: "PHONE", type: "tel" as const }],
+        },
+      );
+      expect(html).toMatch(/name="PHONE"/);
+      expect(html).toMatch(/type="tel"/);
+    });
+
+    it("tolerates missing additionalFields on old content (renders without crashing)", () => {
+      // Card lesson: Puck's public <Render> doesn't backfill
+      // defaultProps. A NewsletterSignup saved before this field
+      // landed has no `additionalFields` key; the component's default
+      // param coerces undefined → [] so the form still renders.
+      const props = {
+        service: "generic" as const,
+        actionUrl: "https://artist.example/subscribe",
+        title: "",
+        emailLabel: "Email",
+        submitLabel: "Subscribe",
+        successMessage: "ok",
+        hasNameField: false,
+        nameLabel: "First name",
+        // additionalFields intentionally omitted
+      } as Record<string, unknown>;
+      const html = render("NewsletterSignup", props);
+      expect(html).toMatch(/<form/);
+      expect(html).toMatch(/name="email"/);
+    });
+  });
+
   describe("newsletterUrlDescription (inspector helper text)", () => {
     it("Mailchimp + empty URL → paste-hint pointing at the embed code", () => {
       const hint = newsletterUrlDescription("mailchimp", "");
