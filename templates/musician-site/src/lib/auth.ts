@@ -126,3 +126,37 @@ export const SESSION_COOKIE_OPTIONS = {
   path: "/",
   maxAge: SESSION_MAX_AGE_SECONDS,
 };
+
+// ---------------------------------------------------------------------------
+// Editor allowlist (ADR-011)
+// ---------------------------------------------------------------------------
+
+/**
+ * The set of email addresses permitted to sign into this site's admin,
+ * unioned from two env vars and normalized (trim + lowercase, deduped):
+ *
+ * - `ADMIN_EMAILS` — comma / whitespace separated list (multi-editor).
+ * - `ADMIN_EMAIL`  — the legacy single-editor var, still honored so
+ *   sites provisioned before the allowlist keep working unchanged.
+ *
+ * An empty result means "no lockdown configured": the auth routes fall
+ * back to dev-accepts-any, and production silently no-ops (a
+ * misconfigured site issues no magic links).
+ */
+export function getAllowedEditorEmails(): string[] {
+  const fromList = (process.env.ADMIN_EMAILS ?? "").split(/[,\s]+/);
+  const legacy = process.env.ADMIN_EMAIL ?? "";
+  const normalized = [...fromList, legacy]
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+  return [...new Set(normalized)];
+}
+
+/**
+ * Whether `email` is on this site's editor allowlist. Returns false for
+ * an empty allowlist — callers that need the dev "no lockdown" fallback
+ * must special-case `getAllowedEditorEmails().length === 0` first.
+ */
+export function isAllowedEditor(email: string): boolean {
+  return getAllowedEditorEmails().includes(email.trim().toLowerCase());
+}
