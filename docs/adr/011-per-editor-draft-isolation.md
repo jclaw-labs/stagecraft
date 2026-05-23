@@ -1,7 +1,9 @@
 # ADR-011: Per-editor draft isolation
 
 ## Status
-Proposed
+Accepted — implemented and shipped: multi-editor auth (#233) +
+per-editor draft isolation (#234). Remaining items are deferred with
+documented triggers (see "Known limitations and deferred work").
 
 ## Context
 
