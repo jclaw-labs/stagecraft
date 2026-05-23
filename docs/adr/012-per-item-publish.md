@@ -170,6 +170,22 @@ deferred follow-up.
   throws when the compare is truncated at 300 files (so an image's
   variants can't be split). Above the cap, full Publish is the path.
 
+- **Cross-collection "renames" publish as a copy, not a move.** GitHub's
+  similarity heuristic can flag an added item in one collection as a
+  rename of an unrelated item in another. The modal shows it as a single
+  "A → B" row, but selecting it copies the new file and (deliberately, to
+  avoid deleting an unrelated file) leaves the old one live on `main` — a
+  half-move. *Trigger:* artists do real cross-collection moves and expect
+  the old item gone; then surface the two sides as separate rows.
+
+- **A subset publish silently skips items that vanished since the modal
+  opened.** The modal lists the diff at open time; the server re-derives
+  it at publish time. If a concurrent save removed a selected item in
+  between, that key matches nothing and is dropped — the publish succeeds
+  for the rest with no "N of M shipped" notice. *Trigger:* concurrent
+  same-editor sessions; then return matched/skipped counts and surface
+  them in the button status.
+
 - **Merge commits accrue on the draft branch.** Each partial publish
   adds a merge commit to the editor's branch. Harmless (the branch is
   ephemeral and gets superseded by the next full Publish's squash), and

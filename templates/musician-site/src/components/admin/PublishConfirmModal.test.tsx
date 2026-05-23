@@ -247,9 +247,12 @@ describe("PublishConfirmModal", () => {
       const input = screen.getByLabelText("Commit message") as HTMLInputElement;
       expect(input.value).toBe("Publish 2 changes");
     });
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await userEvent.click(screen.getByRole("button", { name: "Publish all 2" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onConfirm).toHaveBeenCalledWith("Publish 2 changes");
+    expect(onConfirm).toHaveBeenCalledWith("Publish 2 changes", {
+      selectedKeys: ["item:pages/about", "image:header/abc123"],
+      allSelected: true,
+    });
   });
 
   it("seeds the singular default subject when count === 1", async () => {
@@ -412,9 +415,10 @@ describe("PublishConfirmModal", () => {
     fireEvent.change(input, {
       target: { value: "About-page rewrite\n\nReplaced placeholder copy" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await userEvent.click(screen.getByRole("button", { name: "Publish all 2" }));
     expect(onConfirm).toHaveBeenCalledWith(
       "About-page rewrite\n\nReplaced placeholder copy",
+      expect.objectContaining({ allSelected: true }),
     );
   });
 
@@ -462,8 +466,11 @@ describe("PublishConfirmModal", () => {
     const input = screen.getByLabelText("Commit message") as HTMLInputElement;
     await userEvent.clear(input);
     await userEvent.type(input, "Ship the about-page rewrite");
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
-    expect(onConfirm).toHaveBeenCalledWith("Ship the about-page rewrite");
+    await userEvent.click(screen.getByRole("button", { name: "Publish all 2" }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      "Ship the about-page rewrite",
+      expect.objectContaining({ allSelected: true }),
+    );
   });
 
   it("passes null through onConfirm when the artist clears the field", async () => {
@@ -484,8 +491,8 @@ describe("PublishConfirmModal", () => {
       expect(input.value).toBe("Publish 2 changes");
     });
     await userEvent.clear(screen.getByLabelText("Commit message"));
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
-    expect(onConfirm).toHaveBeenCalledWith(null);
+    await userEvent.click(screen.getByRole("button", { name: "Publish all 2" }));
+    expect(onConfirm).toHaveBeenCalledWith(null, expect.objectContaining({ allSelected: true }));
   });
 
   it("doesn't overwrite an edited subject when the changes list later loads", async () => {
@@ -572,7 +579,8 @@ describe("PublishConfirmModal", () => {
     const { unmount } = render(
       <PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />,
     );
-    // Modal focuses the Publish button on mount.
+    // Modal focuses the Publish button on mount. (Empty change list →
+    // the button reads plain "Publish", the publish-everything fallback.)
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Publish" }));
 
     unmount();
@@ -612,7 +620,7 @@ describe("PublishConfirmModal", () => {
     );
     await waitFor(() => {
       expect(
-        screen.getByText(/Showing the first 2 changes\. Publishing commits everything pending\./),
+        screen.getByText(/Showing the first 2 changes — too many to publish item-by-item/),
       ).toBeTruthy();
     });
   });
@@ -734,5 +742,74 @@ describe("groupChanges", () => {
       "a",
       "m",
     ]);
+  });
+});
+
+describe("PublishConfirmModal — per-item selection (ADR-012)", () => {
+  function loadedWithSamples() {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github" },
+      }),
+    );
+  }
+
+  it("ticks every change by default", async () => {
+    loadedWithSamples();
+    render(<PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Publish all 2" })).toBeTruthy();
+    });
+    expect(
+      (screen.getByRole("checkbox", { name: "Select all" }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: "pages · about" }) as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("publishes only the ticked subset when a change is unticked", async () => {
+    const onConfirm = vi.fn();
+    loadedWithSamples();
+    render(<PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />);
+    await waitFor(() => screen.getByRole("checkbox", { name: "pages · about" }));
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "pages · about" }));
+    // The default subject re-seeds to the selected count (B-1): publishing
+    // 1 of 2 commits "Publish 1 change", not the misleading "Publish 2".
+    await userEvent.click(screen.getByRole("button", { name: "Publish 1 of 2" }));
+    expect(onConfirm).toHaveBeenCalledWith("Publish 1 change", {
+      selectedKeys: ["image:header/abc123"],
+      allSelected: false,
+    });
+  });
+
+  it("'Select all' clears the selection and disables Publish", async () => {
+    loadedWithSamples();
+    render(<PublishConfirmModal onCancel={() => {}} onConfirm={() => {}} isPublishing={false} />);
+    await waitFor(() => screen.getByRole("checkbox", { name: "Select all" }));
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
+    const publish = screen.getByRole("button", { name: "Publish 0 of 2" }) as HTMLButtonElement;
+    expect(publish.disabled).toBe(true);
+  });
+
+  it("a truncated diff hides the checkboxes and publishes everything", async () => {
+    const onConfirm = vi.fn();
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: { count: 2, changes: sampleChanges, mode: "github", truncated: true },
+      }),
+    );
+    render(<PublishConfirmModal onCancel={() => {}} onConfirm={onConfirm} isPublishing={false} />);
+    await waitFor(() => screen.getByText(/too many to publish item-by-item/));
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onConfirm).toHaveBeenCalledWith("Publish 2 changes", {
+      selectedKeys: [],
+      allSelected: true,
+    });
   });
 });
