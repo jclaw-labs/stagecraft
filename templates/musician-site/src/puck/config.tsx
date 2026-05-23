@@ -23,6 +23,7 @@ import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/i
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { ImagePickerField } from "./ImagePickerField";
+import { PageOverlayField } from "./PageOverlayField";
 
 export const HEADING_LEVELS = ["h1", "h2", "h3"] as const;
 export type HeadingLevel = (typeof HEADING_LEVELS)[number];
@@ -668,11 +669,19 @@ export const puckConfig: Config<
         ),
       },
       pageBackgroundOverlay: {
-        type: "number",
-        label: "Background tint opacity (leave blank to inherit site)",
-        min: 0,
-        max: 1,
-        step: 0.05,
+        type: "custom",
+        label: "Background tint opacity",
+        // Custom (not `type: "number"`) so the artist can explicitly
+        // choose Inherit (→ null) vs a Custom tint (→ 0..1). Puck's
+        // number field can't cleanly express "cleared = inherit" —
+        // a cleared value can serialise as 0, which reads as an
+        // explicit no-tint override instead. See PageOverlayField.
+        render: ({ value, onChange }) => (
+          <PageOverlayField
+            value={(value as number | null) ?? null}
+            onChange={(next) => onChange(next as number | null)}
+          />
+        ),
       },
     },
     defaultProps: {
