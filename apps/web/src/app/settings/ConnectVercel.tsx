@@ -73,7 +73,7 @@ export function ConnectVercel({ connectedUsername }: ConnectVercelProps) {
         <p>
           Connected as <strong>{connectedUsername}</strong>
         </p>
-        <div style={{ marginTop: "var(--space-3)", padding: "var(--space-3)", background: "var(--color-info-bg)", borderRadius: "var(--radius)", border: "1px solid var(--color-info-border)" }}>
+        <div style={{ marginTop: "var(--space-3)", padding: "var(--space-3)", background: "var(--color-info-bg)", borderRadius: "var(--radius)", border: "var(--border-width) solid var(--color-info-border)" }}>
           <p style={{ margin: 0, fontSize: "var(--font-size-sm)", fontWeight: "var(--font-weight-semibold)" }}>
             Step 2: Install Vercel&rsquo;s GitHub App
           </p>
@@ -128,7 +128,7 @@ export function ConnectVercel({ connectedUsername }: ConnectVercelProps) {
           required
           autoComplete="off"
           spellCheck={false}
-          style={{ padding: "var(--space-2)", fontFamily: "var(--font-mono)", background: "var(--color-surface)", color: "var(--color-text)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}
+          style={{ padding: "var(--space-2)", fontFamily: "var(--font-mono)", background: "var(--color-surface)", color: "var(--color-text)", border: "var(--border-width) solid var(--color-border)", borderRadius: "var(--radius-sm)" }}
         />
       </label>
       <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
@@ -142,7 +142,7 @@ export function ConnectVercel({ connectedUsername }: ConnectVercelProps) {
           placeholder="team_…"
           autoComplete="off"
           spellCheck={false}
-          style={{ padding: "var(--space-2)", fontFamily: "var(--font-mono)", background: "var(--color-surface)", color: "var(--color-text)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}
+          style={{ padding: "var(--space-2)", fontFamily: "var(--font-mono)", background: "var(--color-surface)", color: "var(--color-text)", border: "var(--border-width) solid var(--color-border)", borderRadius: "var(--radius-sm)" }}
         />
       </label>
       <button type="submit" disabled={pending || !token.trim()} style={{ marginTop: "var(--space-2)" }}>

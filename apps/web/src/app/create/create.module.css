@@ -1,6 +1,6 @@
 .container {
   width: 100%;
-  max-width: 40rem;
+  max-width: var(--max-width-narrow);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6) var(--space-12);
 }
@@ -41,7 +41,7 @@
 
 .panel {
   background: var(--color-surface);
-  border: 1px solid var(--color-border-subtle);
+  border: var(--border-width) solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: var(--space-6);

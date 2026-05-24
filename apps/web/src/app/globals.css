@@ -94,8 +94,12 @@
   /* Layout */
   --max-width-narrow: 40rem;
   --max-width-wide: 60rem;
+  --max-width-page: 72rem;
 
   /* Borders */
+  --border-width: 1px;
+  --border-width-thick: 2px;
+  --border-width-accent: 3px;
   --radius-sm: 0.25rem;
   --radius: 0.375rem;
   --radius-lg: 0.5rem;

@@ -52,7 +52,7 @@
 
 .panel {
   background: var(--color-surface);
-  border: 1px solid var(--color-border-subtle);
+  border: var(--border-width) solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -63,7 +63,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: var(--border-width) solid var(--color-border-subtle);
 }
 .panelHead h2 { margin: 0; font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); color: var(--color-text); }
 .panelBody { padding: var(--space-5); }
@@ -77,21 +77,21 @@
   gap: var(--space-3);
   padding: var(--space-5);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-subtle);
+  border: var(--border-width) solid var(--color-border-subtle);
   background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
-.toneOk { border-left: 3px solid var(--color-success); }
-.toneBuilding { border-left: 3px solid var(--color-info); }
-.toneError { border-left: 3px solid var(--color-error); }
-.toneNeutral { border-left: 3px solid var(--color-muted); }
+.toneOk { border-left: var(--border-width-accent) solid var(--color-success); }
+.toneBuilding { border-left: var(--border-width-accent) solid var(--color-info); }
+.toneError { border-left: var(--border-width-accent) solid var(--color-error); }
+.toneNeutral { border-left: var(--border-width-accent) solid var(--color-muted); }
 .statusMsg { font-size: var(--font-size-sm); color: var(--color-text); }
 
 /* Notices (connect GitHub, suspended, link Netlify) */
 .notice {
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-subtle);
+  border: var(--border-width) solid var(--color-border-subtle);
 }
 .noticeInfo { background: var(--color-info-bg); border-color: var(--color-info-border); }
 .noticeWarn { background: var(--color-warning-bg); border-color: var(--color-warning); }
@@ -107,7 +107,7 @@
   gap: var(--space-3);
   padding: var(--space-3) 0;
 }
-.kvRow + .kvRow { border-top: 1px solid var(--color-border-subtle); }
+.kvRow + .kvRow { border-top: var(--border-width) solid var(--color-border-subtle); }
 .kvKey { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .kvVal { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); text-align: right; }
 .kvVal a { color: var(--color-brand); text-decoration: none; }
@@ -124,7 +124,7 @@
 .reportItems { list-style: none; padding: 0; margin: 0; }
 .reportItem {
   padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
+  border: var(--border-width) solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   margin-bottom: var(--space-2);
 }

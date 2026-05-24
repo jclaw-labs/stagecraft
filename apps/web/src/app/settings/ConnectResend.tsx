@@ -125,7 +125,7 @@ export function ConnectResend({
     fontFamily: "var(--font-mono)",
     background: "var(--color-surface)",
     color: "var(--color-text)",
-    border: "1px solid var(--color-border)",
+    border: "var(--border-width) solid var(--color-border)",
     borderRadius: "var(--radius-sm)",
   } as const;
 
