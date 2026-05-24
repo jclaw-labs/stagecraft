@@ -612,6 +612,7 @@ describe("handleCreateSite — site scaffold (dependency hygiene)", () => {
     const pushedFiles = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
     const paths = pushedFiles.map((f) => f.path);
     expect(paths).toContain(".github/dependabot.yml");
+    expect(paths).toContain(".github/workflows/dependabot-auto-merge.yml");
     expect(paths).toContain(".stagecraft-template.json");
 
     const stamp = pushedFiles.find((f) => f.path === ".stagecraft-template.json");
