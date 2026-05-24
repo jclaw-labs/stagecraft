@@ -331,7 +331,8 @@ const BUTTON_STYLE: Record<ButtonVariant, CSSProperties> = {
 const BUTTON_BASE: CSSProperties = {
   display: "inline-block",
   padding: "var(--space-2) var(--space-4)",
-  borderRadius: "var(--radius)",
+  // Theme button shape (square / rounded / pill); falls back to the corner radius.
+  borderRadius: "var(--btn-radius, var(--radius))",
   textDecoration: "none",
   fontWeight: "var(--font-weight-semibold)" as unknown as number,
   cursor: "pointer",
