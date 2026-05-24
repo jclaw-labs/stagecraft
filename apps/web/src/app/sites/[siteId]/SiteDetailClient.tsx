@@ -687,7 +687,7 @@ function Spinner() {
         display: "inline-block",
         width: "0.75em",
         height: "0.75em",
-        border: "2px solid var(--color-text-muted)",
+        border: "var(--border-width-thick) solid var(--color-text-muted)",
         borderTopColor: "transparent",
         borderRadius: "50%",
         animation: "stagecraftSpin 0.8s linear infinite",

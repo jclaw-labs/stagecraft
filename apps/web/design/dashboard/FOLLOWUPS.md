@@ -5,41 +5,39 @@ the redesign PRs, parked here so they aren't lost.
 
 ## Design tokens (root CLAUDE.md §7)
 
-- **`Button.module.css` padding literals** — the pre-existing `.sm` / `.md` /
-  `.card` paddings (`0.375rem 0.75rem`, `0.625rem 1.5rem`, `1rem`) are raw
-  values, not tokens. Out of scope for the redesign (pre-existing, and the
-  redesign only added the `.secondary` variant). Tokenize in a dedicated Button
-  cleanup.
-- **Layout max-widths** — `dashboard.module.css` uses literal `72rem` (page
-  container) and `32rem` / `28rem` (empty state). The `--max-width-*` tokens top
-  out at `60rem`, so none fit. Consider adding `--max-width-page: 72rem`. Low
-  priority — §7's enumerated categories center on colour / type / spacing /
-  radii / shadow, not arbitrary layout widths.
-- **Border-width literals** — `1px` (plus a `2px` spinner border and `3px`
-  status accents in site-detail) are written literally across the platform
-  CSS (Button, SiteCard, AppShell, dashboard, site-detail); there's no
-  `--border-width` token anywhere. §7 doesn't enumerate border widths and the
-  whole codebase uses literals, so this is a repo-wide convention call:
-  introduce `--border-width` / `--border-width-accent` everywhere, or leave
-  as-is. Deferred either way (not a site-detail-only issue).
+- **`Button.module.css` padding literals** — *investigated, left as-is.* The
+  `.sm` / `.md` vertical paddings (`0.375rem` = 6px, `0.625rem` = 10px) are off
+  the 4px `--space-*` grid, so tokenizing would either change the rendered size
+  or need off-scale tokens; the horizontal values map (`0.75rem` → `--space-3`,
+  `1.5rem` → `--space-6`) but a mixed `0.375rem var(--space-3)` reads worse than
+  the literal pair. Revisit only if the space scale gains half-steps.
+- **Layout max-widths** — *addressed (mostly).* Added `--max-width-page: 72rem`
+  (dashboard) and switched onboarding / create from literal `40rem` to the
+  existing `--max-width-narrow`. The remaining one-off widths (site-detail
+  `56rem`, settings `52rem`, empty-state `32rem` / `28rem`, danger-confirm
+  `20rem`) are content-specific one-offs left as literals — §7 doesn't
+  enumerate arbitrary layout widths and a token-per-width would be bloat.
+- **Border-width literals** — *addressed.* Added `--border-width` (1px),
+  `--border-width-thick` (2px), `--border-width-accent` (3px) and applied them
+  across the apps/web CSS modules + inline styles. (Focus-ring `outline`
+  widths and `transform` offsets stay literal — they aren't border widths.)
 - **Two card radii** — inset panels use `--radius-lg`; the dashboard `SiteCard`
   uses `--radius-xl`. Intentional (a site card reads as a tappable object, a
   panel as an inset section) — noted so it isn't "unified" by mistake.
 
 ## DRY (root CLAUDE.md §2)
 
-- **Shared `StatusBadge`** — the colour-coded status badge (dot + tone +
-  label) is duplicated in `SiteCard.module.css` and
-  `sites/[siteId]/site-detail.module.css`. Extract a shared `StatusBadge`
-  component handling both the SiteStatus-based card variant and site-detail's
-  richer deploy-state variant (incl. the card's pulse animation). Tones are
-  now colour-aligned across the two surfaces; only the CSS is duplicated.
+- **Shared `StatusBadge`** — *done (#263).* Extracted a `StatusBadge` component
+  + module (tone palette + pulsing building dot); `SiteCard` and the site-detail
+  header both render it, and the duplicated badge CSS is gone.
 
 ## Accessibility
 
-- **Mobile menu focus management** — the hamburger has `aria-expanded` +
-  `aria-controls`, but the open menu isn't focus-trapped and `Escape` doesn't
-  close it. Acceptable for v1 (two links + sign out); revisit if the menu grows.
+- **Mobile menu focus management** — *done (#264).* On open, focus moves into
+  the menu; `Escape` closes it and returns focus to the toggle; selecting a link
+  closes it. Implemented as a disclosure (not a focus trap — a trap is the wrong
+  pattern for a non-modal inline dropdown: it strands the toggle and the page
+  isn't `inert`).
 
 ## UX (carried over from the comp README)
 
@@ -53,9 +51,9 @@ the redesign PRs, parked here so they aren't lost.
 
 ## Process note (CI / auto-merge on cloud-session PRs)
 
-A cloud-session `git push` does not trigger GitHub Actions, and the
-`pr-screenshots` relay leaves a `[skip ci]` commit at the branch head — so the
-head can end up with no checks, and auto-merge then can't fire. The **final**
-commit on such a branch must be made via the GitHub API
-(`mcp__github__push_files`), which fires `pull_request: synchronize` and runs
-CI. See `claude/skills/create-pr/SKILL.md`.
+Update: a cloud-session `git push` now **does** trigger GitHub Actions in this
+environment — observed on #263 / #264, where checks ran on the pushed head and
+auto-merge fired without any API commit. The older caveat (push doesn't trigger
+CI) only bites when the `pr-screenshots` relay leaves a `[skip ci]` commit at
+the head; for code-only PRs a plain `git push` is sufficient. See
+`claude/skills/create-pr/SKILL.md`.

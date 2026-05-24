@@ -80,7 +80,7 @@ export function NukeAllSitesButton({ siteCount }: { siteCount: number }) {
       style={{
         marginTop: "var(--space-6)",
         padding: "var(--space-4)",
-        border: "1px solid var(--color-border)",
+        border: "var(--border-width) solid var(--color-border)",
         borderRadius: "var(--radius-lg)",
         background: "var(--color-surface)",
       }}
@@ -101,7 +101,7 @@ export function NukeAllSitesButton({ siteCount }: { siteCount: number }) {
             padding: "var(--space-2) var(--space-3)",
             background: "var(--color-error-bg)",
             color: "var(--color-error)",
-            border: "1px solid var(--color-error)",
+            border: "var(--border-width) solid var(--color-error)",
             borderRadius: "var(--radius-sm)",
             fontSize: "var(--font-size-sm)",
             cursor: "pointer",
@@ -124,7 +124,7 @@ export function NukeAllSitesButton({ siteCount }: { siteCount: number }) {
                 padding: "var(--space-2)",
                 background: "var(--color-surface)",
                 color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
+                border: "var(--border-width) solid var(--color-border)",
                 borderRadius: "var(--radius-sm)",
                 fontFamily: "var(--font-mono)",
               }}
@@ -157,7 +157,7 @@ export function NukeAllSitesButton({ siteCount }: { siteCount: number }) {
                 padding: "var(--space-2) var(--space-3)",
                 background: "var(--color-surface)",
                 color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
+                border: "var(--border-width) solid var(--color-border)",
                 borderRadius: "var(--radius-sm)",
                 fontSize: "var(--font-size-sm)",
                 cursor: "pointer",
