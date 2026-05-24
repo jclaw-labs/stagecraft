@@ -58,7 +58,7 @@
   --color-neutral-bg: #e2e3e5;
 
   /* Typography — Fonts */
-  --font-body: system-ui, -apple-system, sans-serif;
+  --font-body: "Inter Variable", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
 
   /* Typography — Font Sizes */
@@ -104,6 +104,17 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 12px 28px -6px rgb(0 0 0 / 0.16), 0 4px 10px -4px rgb(0 0 0 / 0.1);
+
+  /* Dashboard shell additions (additive — no existing token changed) */
+  --color-border-subtle: #e5e7eb;
+  /* Constant white for text on brand / gradient fills — stays white in
+     dark mode (intentionally NOT --color-surface, which flips dark). */
+  --color-on-brand: #ffffff;
+  --radius-xl: 1rem;
+  --radius-pill: 999px;
+  /* Text legibility on image / gradient banners (card thumbnails). */
+  --shadow-text: 0 1px 12px rgb(0 0 0 / 0.3);
 
   /* Z-index */
   --z-base: 0;
@@ -169,6 +180,8 @@
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 12px 28px -6px rgb(0 0 0 / 0.6), 0 4px 10px -4px rgb(0 0 0 / 0.45);
+    --color-border-subtle: #262b34;
   }
 }
 

@@ -1,0 +1,42 @@
+# Dashboard redesign — deferred follow-ups
+
+Items surfaced during deep review that were consciously **not** addressed in
+the redesign PRs, parked here so they aren't lost.
+
+## Design tokens (root CLAUDE.md §7)
+
+- **`Button.module.css` padding literals** — the pre-existing `.sm` / `.md` /
+  `.card` paddings (`0.375rem 0.75rem`, `0.625rem 1.5rem`, `1rem`) are raw
+  values, not tokens. Out of scope for the redesign (pre-existing, and the
+  redesign only added the `.secondary` variant). Tokenize in a dedicated Button
+  cleanup.
+- **Layout max-widths** — `dashboard.module.css` uses literal `72rem` (page
+  container) and `32rem` / `28rem` (empty state). The `--max-width-*` tokens top
+  out at `60rem`, so none fit. Consider adding `--max-width-page: 72rem`. Low
+  priority — §7's enumerated categories center on colour / type / spacing /
+  radii / shadow, not arbitrary layout widths.
+
+## Accessibility
+
+- **Mobile menu focus management** — the hamburger has `aria-expanded` +
+  `aria-controls`, but the open menu isn't focus-trapped and `Escape` doesn't
+  close it. Acceptable for v1 (two links + sign out); revisit if the menu grows.
+
+## UX (carried over from the comp README)
+
+- **Account dropdown** — desktop shows name + an inline "Sign out"; a proper
+  avatar dropdown (account · settings · sign out) would be cleaner.
+- **Real mobile nav drawer** — the current mobile menu is a simple stacked list.
+- **Real site thumbnails** — cards use a deterministic gradient banner; swap for
+  actual site screenshots once a per-site capture pipeline exists.
+- **"Needs attention" as a filter** — clicking that stat could filter the grid
+  to the sites that need action.
+
+## Process note (CI / auto-merge on cloud-session PRs)
+
+A cloud-session `git push` does not trigger GitHub Actions, and the
+`pr-screenshots` relay leaves a `[skip ci]` commit at the branch head — so the
+head can end up with no checks, and auto-merge then can't fire. The **final**
+commit on such a branch must be made via the GitHub API
+(`mcp__github__push_files`), which fires `pull_request: synchronize` and runs
+CI. See `claude/skills/create-pr/SKILL.md`.

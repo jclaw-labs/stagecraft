@@ -1,6 +1,6 @@
 import styles from "./Button.module.css";
 
-type ButtonVariant = "primary" | "ghost" | "danger" | "muted" | "card";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "muted" | "card";
 type ButtonSize = "sm" | "md";
 
 interface BaseProps {
