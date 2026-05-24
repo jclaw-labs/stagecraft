@@ -7,12 +7,15 @@
  *   - `.github/dependabot.yml` — ongoing npm updates (7-day cooldown)
  *   - `.stagecraft-template.json` — source template + version at creation,
  *     so the platform can later detect drift.
+ *   - (pushed separately) `.github/workflows/dependabot-auto-merge.yml` —
+ *     builds the site and auto-merges Dependabot's passing patch/minor PRs.
  *
- * NOTE: auto-merging those Dependabot PRs would need an in-repo Actions
- * workflow, but the platform pushes site files with the user's OAuth token
- * (scope `repo`, no `workflow` — see auth.ts), and GitHub rejects pushing
- * `.github/workflows/*` without the `workflow` scope. So the cooldown PRs
- * land but auto-merge is out of scope here pending an auth decision.
+ * The dependabot config + stamp ship in the main scaffold push
+ * (`buildSiteScaffoldFiles`). The auto-merge workflow
+ * (`buildDependabotAutoMergeWorkflow`) is pushed on its own because writing
+ * under `.github/workflows/*` needs the `workflow` OAuth scope (auth.ts);
+ * the caller pushes it best-effort, so a token issued before we requested
+ * that scope still creates the site — just without the workflow.
  */
 import type { TemplateFile } from "@/lib/template-reader";
 
@@ -28,6 +31,7 @@ export type ArtistTemplate = "musician-site" | "musician-site-legacy";
 export const SITE_DEPENDENCY_COOLDOWN_DAYS = 7;
 
 export const SITE_DEPENDABOT_PATH = ".github/dependabot.yml";
+export const SITE_AUTOMERGE_WORKFLOW_PATH = ".github/workflows/dependabot-auto-merge.yml";
 export const TEMPLATE_STAMP_PATH = ".stagecraft-template.json";
 
 interface TemplateStampInput {
@@ -95,4 +99,57 @@ export function buildSiteScaffoldFiles(input: TemplateStampInput): TemplateFile[
     { path: SITE_DEPENDABOT_PATH, content: buildDependabotYml() },
     { path: TEMPLATE_STAMP_PATH, content: buildTemplateStamp(input) },
   ];
+}
+
+/**
+ * A self-gating auto-merge workflow for the site's Dependabot PRs, pushed
+ * separately from the main scaffold (it lives under `.github/workflows/`,
+ * which needs the `workflow` OAuth scope). The build step is the gate: if
+ * `npm run build` fails the job fails and the merge step never runs, so a
+ * broken update can't land — no branch protection needed on the artist's
+ * repo. Only patch/minor auto-merge; majors stay open. Generated repos ship
+ * no lockfile, so the gate installs rather than `npm ci`. (The Actions
+ * `${{ ... }}` expressions are backslash-escaped so the `$` survives the
+ * template literal.)
+ */
+export function buildDependabotAutoMergeWorkflow(): string {
+  return `# Managed by Stagecraft — auto-merges Dependabot's patch & minor updates
+# once the site still builds. The build step below is the gate, so no
+# branch protection is needed; major updates are left open for review.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Build gate. Generated sites ship no lockfile, so install (not ci).
+      - run: npm install
+      - run: npm run build
+
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge patch & minor
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        env:
+          PR_URL: \${{ github.event.pull_request.html_url }}
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --squash --delete-branch "\$PR_URL"
+`;
 }

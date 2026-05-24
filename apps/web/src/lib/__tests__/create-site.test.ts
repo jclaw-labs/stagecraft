@@ -605,27 +605,51 @@ describe("handleCreateSite — Vercel preferred when both connected", () => {
 });
 
 describe("handleCreateSite — site scaffold (dependency hygiene)", () => {
-  it("injects the Dependabot config + template stamp into the pushed files", async () => {
+  it("ships the Dependabot config + stamp in the main push and the workflow separately", async () => {
     // Stub the template read so we can assert the stamped version flows
     // through from the template's package.json.
     mockReadTemplateFiles.mockResolvedValueOnce([
       { path: "package.json", content: JSON.stringify({ name: "musician-site", version: "9.9.9" }) },
     ]);
 
-    await handleCreateSite(makeContext());
+    const result = await handleCreateSite(makeContext());
+    expect(result.success).toBe(true);
 
-    expect(mockPushFiles).toHaveBeenCalledTimes(1);
-    const pushedFiles = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
-    const paths = pushedFiles.map((f) => f.path);
-    expect(paths).toContain(".github/dependabot.yml");
-    expect(paths).toContain(".stagecraft-template.json");
-    // The template's own files are preserved alongside the scaffold.
-    expect(paths).toContain("package.json");
+    // Two pushes: the main scaffold, then the auto-merge workflow on its own
+    // (it lives under .github/workflows/ and needs the `workflow` OAuth scope,
+    // so it can't ride the atomic main commit).
+    expect(mockPushFiles).toHaveBeenCalledTimes(2);
 
-    const stamp = pushedFiles.find((f) => f.path === ".stagecraft-template.json");
+    const mainPaths = (mockPushFiles.mock.calls[0][4] as Array<{ path: string }>).map((f) => f.path);
+    expect(mainPaths).toContain(".github/dependabot.yml");
+    expect(mainPaths).toContain(".stagecraft-template.json");
+    expect(mainPaths).toContain("package.json");
+    expect(mainPaths).not.toContain(".github/workflows/dependabot-auto-merge.yml");
+
+    const mainFiles = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
+    const stamp = mainFiles.find((f) => f.path === ".stagecraft-template.json");
     expect(JSON.parse(stamp!.content)).toMatchObject({
       template: "musician-site",
       templateVersion: "9.9.9",
+    });
+
+    const workflowPaths = (mockPushFiles.mock.calls[1][4] as Array<{ path: string }>).map((f) => f.path);
+    expect(workflowPaths).toEqual([".github/workflows/dependabot-auto-merge.yml"]);
+  });
+
+  it("still creates the site when the workflow push fails (e.g. missing `workflow` scope)", async () => {
+    mockPushFiles
+      .mockResolvedValueOnce({ commitSha: "main" }) // main scaffold push succeeds
+      .mockRejectedValueOnce(new Error("refusing to allow an OAuth App ... without `workflow` scope"));
+
+    const result = await handleCreateSite(makeContext());
+
+    expect(result.success).toBe(true);
+    expect(mockPushFiles).toHaveBeenCalledTimes(2);
+    // Site is still marked active despite the best-effort workflow push failing.
+    expect(mockSiteUpdate).toHaveBeenCalledWith({
+      where: { id: "site-1" },
+      data: expect.objectContaining({ status: "active" }),
     });
   });
 });

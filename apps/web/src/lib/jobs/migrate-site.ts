@@ -7,7 +7,12 @@ import { crawlSite } from "@/lib/migration/crawler";
 import { mapExtractedContent } from "@/lib/migration/mapper";
 import { buildMigrationReport } from "@/lib/migration/report";
 import { readTemplateFiles } from "@/lib/template-reader";
-import { buildSiteScaffoldFiles, templateVersionFromFiles } from "@/lib/site-scaffold";
+import {
+  buildSiteScaffoldFiles,
+  buildDependabotAutoMergeWorkflow,
+  SITE_AUTOMERGE_WORKFLOW_PATH,
+  templateVersionFromFiles,
+} from "@/lib/site-scaffold";
 import path from "path";
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site-legacy");
@@ -98,6 +103,30 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
       allFiles,
       `Migrate site from ${url}`
     );
+
+    // Auto-merge workflow in its own commit — see create-site.ts. Best-effort:
+    // .github/workflows/ needs the `workflow` OAuth scope, and the migrated
+    // site is already pushed, so a missing scope shouldn't fail the migration.
+    try {
+      await pushFiles(
+        userId,
+        repo.owner,
+        repo.name,
+        repo.defaultBranch,
+        [{ path: SITE_AUTOMERGE_WORKFLOW_PATH, content: buildDependabotAutoMergeWorkflow() }],
+        "Add Dependabot auto-merge workflow",
+      );
+    } catch (cause) {
+      console.warn(
+        "[migrate-site] auto-merge workflow push failed (missing `workflow` scope?); site migrated without it",
+        {
+          siteId,
+          owner: repo.owner,
+          name: repo.name,
+          error: cause instanceof Error ? cause.message : String(cause),
+        },
+      );
+    }
 
     // ── Step 6: Create Netlify site ──────────────────────────────────────────
     const netlifySite = await createNetlifySite({

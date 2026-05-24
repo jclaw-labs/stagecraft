@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   buildSiteScaffoldFiles,
+  buildDependabotAutoMergeWorkflow,
   templateVersionFromFiles,
   SITE_DEPENDENCY_COOLDOWN_DAYS,
   SITE_DEPENDABOT_PATH,
@@ -41,6 +42,21 @@ describe("buildSiteScaffoldFiles", () => {
       templateVersion: "1.2.3",
       createdAt: "2026-05-24T12:00:00.000Z",
     });
+  });
+});
+
+describe("buildDependabotAutoMergeWorkflow", () => {
+  it("gates on a build and limits auto-merge to patch/minor Dependabot PRs", () => {
+    const content = buildDependabotAutoMergeWorkflow();
+    expect(content).toContain("github.event.pull_request.user.login == 'dependabot[bot]'");
+    expect(content).toContain("npm run build");
+    expect(content).toContain("version-update:semver-patch");
+    expect(content).toContain("version-update:semver-minor");
+    expect(content).toContain("gh pr merge --squash");
+    // Majors are intentionally not matched.
+    expect(content).not.toContain("semver-major");
+    // The Actions-expression escaping survived the template literal.
+    expect(content).toContain("${{ secrets.GITHUB_TOKEN }}");
   });
 });
 

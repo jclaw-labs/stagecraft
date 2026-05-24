@@ -87,20 +87,25 @@ describe("handleMigrateSite — site scaffold (dependency hygiene)", () => {
     const result = await handleMigrateSite(makeContext());
 
     expect(result.success).toBe(true);
-    expect(mockPushFiles).toHaveBeenCalledTimes(1);
+    // Main push (template base + mapped content + scaffold), then the
+    // auto-merge workflow on its own.
+    expect(mockPushFiles).toHaveBeenCalledTimes(2);
 
     const pushedFiles = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
     const paths = pushedFiles.map((f) => f.path);
-    // Template base + mapped content + injected scaffold all pushed together.
     expect(paths).toContain("src/content/pages/home.md");
     expect(paths).toContain(".github/dependabot.yml");
     expect(paths).toContain(".stagecraft-template.json");
+    expect(paths).not.toContain(".github/workflows/dependabot-auto-merge.yml");
 
     const stamp = pushedFiles.find((f) => f.path === ".stagecraft-template.json");
     expect(JSON.parse(stamp!.content)).toMatchObject({
       template: "musician-site-legacy",
       templateVersion: "1.2.3",
     });
+
+    const workflowPaths = (mockPushFiles.mock.calls[1][4] as Array<{ path: string }>).map((f) => f.path);
+    expect(workflowPaths).toEqual([".github/workflows/dependabot-auto-merge.yml"]);
   });
 
   it("returns failure when the source site yields no pages", async () => {

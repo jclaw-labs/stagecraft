@@ -16,7 +16,12 @@ import {
   VercelGitHubAppNotInstalledError,
 } from "@/lib/integrations/vercel";
 import { readTemplateFiles } from "@/lib/template-reader";
-import { buildSiteScaffoldFiles, templateVersionFromFiles } from "@/lib/site-scaffold";
+import {
+  buildSiteScaffoldFiles,
+  buildDependabotAutoMergeWorkflow,
+  SITE_AUTOMERGE_WORKFLOW_PATH,
+  templateVersionFromFiles,
+} from "@/lib/site-scaffold";
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site");
 
@@ -249,6 +254,33 @@ export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
       }),
     ];
     await pushFiles(userId, repo.owner, repo.name, repo.defaultBranch, files, `Initial site: ${name}`);
+
+    // The Dependabot auto-merge workflow ships in its own commit: files under
+    // .github/workflows/ require the `workflow` OAuth scope, which a token
+    // issued before we requested it won't have. Best-effort — the site is
+    // already created, so on failure we log and continue (the artist
+    // re-authenticates to enable auto-merge; the cooldown Dependabot PRs work
+    // regardless).
+    try {
+      await pushFiles(
+        userId,
+        repo.owner,
+        repo.name,
+        repo.defaultBranch,
+        [{ path: SITE_AUTOMERGE_WORKFLOW_PATH, content: buildDependabotAutoMergeWorkflow() }],
+        "Add Dependabot auto-merge workflow",
+      );
+    } catch (cause) {
+      console.warn(
+        "[create-site] auto-merge workflow push failed (missing `workflow` scope?); site created without it",
+        {
+          siteId,
+          owner: repo.owner,
+          name: repo.name,
+          error: cause instanceof Error ? cause.message : String(cause),
+        },
+      );
+    }
 
     // 3. Try to provision the broker secret upfront. When the platform's
     //    GitHub App ("stagecraft-bot") installation can be discovered for
