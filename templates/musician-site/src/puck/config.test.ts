@@ -1462,4 +1462,32 @@ describe("puckConfig", () => {
       expect(html).toContain('name="message"');
     });
   });
+
+  describe("design-token wiring", () => {
+    const noop = () => null as unknown as React.ReactElement;
+    it("Divider consumes --rule-width / --rule-color (ruleStyle)", () => {
+      const html = render("Divider", { inset: false });
+      expect(html).toContain("var(--rule-width");
+      expect(html).toContain("var(--rule-color");
+    });
+    it("primary Button consumes --btn-* (buttonFill)", () => {
+      const html = render("Button", { text: "x", href: "#", variant: "primary", isExternal: false });
+      expect(html).toContain("var(--btn-bg");
+      expect(html).toContain("var(--btn-decoration");
+    });
+    it("Image applies the framed treatment vars (imageTreatment)", () => {
+      const html = render("Image", { image: null, caption: "", aspectRatio: "1/1", tone: "accent" });
+      expect(html).toContain("var(--img-frame");
+      expect(html).toContain("var(--img-radius");
+    });
+    it("Section 'accent' variant uses the accent gradient (accentMode)", () => {
+      const html = render("Section", {
+        width: "md",
+        textAlign: "start",
+        variant: "accent",
+        children: noop,
+      });
+      expect(html).toContain("var(--gradient-accent");
+    });
+  });
 });

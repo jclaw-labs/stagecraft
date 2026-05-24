@@ -40,9 +40,11 @@ export type HeadingLevel = (typeof HEADING_LEVELS)[number];
 export const SECTION_WIDTHS = ["sm", "md", "lg", "full"] as const;
 export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 
-// A plain section vs a raised "card" (surface + radius + shadow) — lets a
-// section read as a tile (e.g. a latest-release block) without a new block.
-export const SECTION_VARIANTS = ["plain", "card"] as const;
+// A plain section, a raised "card" (surface + radius + shadow), or an
+// "accent" band (the theme's accent gradient as background). The accent
+// variant consumes accentMode — gradient presets get a real gradient,
+// solid presets a flat accent fill.
+export const SECTION_VARIANTS = ["plain", "card", "accent"] as const;
 export type SectionVariant = (typeof SECTION_VARIANTS)[number];
 
 export const BUTTON_VARIANTS = ["primary", "secondary", "outline"] as const;
@@ -401,9 +403,12 @@ const SPACER_HEIGHT: Record<SpacerSize, string> = {
 
 const BUTTON_STYLE: Record<ButtonVariant, CSSProperties> = {
   primary: {
-    background: "var(--color-action)",
-    color: "var(--color-action-fg)",
-    border: "1px solid var(--color-action)",
+    // Theme button fill (solid / outline / underline) via --btn-* vars,
+    // falling back to a solid accent button.
+    background: "var(--btn-bg, var(--color-action))",
+    color: "var(--btn-fg, var(--color-action-fg))",
+    border: "1px solid var(--btn-border, var(--color-action))",
+    textDecoration: "var(--btn-decoration, none)",
   },
   secondary: {
     background: "var(--color-surface-raised)",
@@ -1146,7 +1151,13 @@ export const puckConfig: Config<
                   borderRadius: "var(--radius)",
                   boxShadow: "var(--shadow-md)",
                 }
-              : null),
+              : variant === "accent"
+                ? {
+                    background: "var(--gradient-accent)",
+                    color: "var(--color-on-accent)",
+                    borderRadius: "var(--radius)",
+                  }
+                : null),
             ...textAlignStyle(textAlign),
           }}
         >
@@ -1587,20 +1598,29 @@ export const puckConfig: Config<
       },
       defaultProps: { image: null, caption: "", aspectRatio: "auto", tone: "accent" },
       render: ({ image, caption, aspectRatio = "auto", tone = "accent" }) => {
+        // Theme image treatment (plain / rounded / framed) via --img-* vars.
+        const frame: CSSProperties = {
+          borderRadius: "var(--img-radius, var(--radius))",
+          padding: "var(--img-pad, 0)",
+          border: "var(--img-frame, none)",
+          background: "var(--img-frame-bg, transparent)",
+          overflow: "hidden",
+        };
         if (!image) {
           // Themed gradient stand-in: reads the appearance vars so it
           // matches the active preset, and is replaced in place when the
           // artist uploads a real image.
           return (
-            <div
-              aria-hidden
-              style={{
-                aspectRatio: aspectRatio === "auto" ? "16 / 9" : aspectRatio.replace("/", " / "),
-                width: "100%",
-                borderRadius: "var(--img-radius, var(--radius))",
-                background: placeholderGradient(tone),
-              }}
-            />
+            <div aria-hidden style={frame}>
+              <div
+                style={{
+                  aspectRatio: aspectRatio === "auto" ? "16 / 9" : aspectRatio.replace("/", " / "),
+                  width: "100%",
+                  borderRadius: "var(--img-radius, var(--radius))",
+                  background: placeholderGradient(tone),
+                }}
+              />
+            </div>
           );
         }
         // Puck's Config<T> generic collapses ImageMetadata's branded `id`
@@ -1610,7 +1630,9 @@ export const puckConfig: Config<
         // shape is identical. Cast at the render boundary.
         return (
           <figure style={{ margin: 0 }}>
-            <PublicImage image={image as ImageMetadata} />
+            <div style={frame}>
+              <PublicImage image={image as ImageMetadata} />
+            </div>
             {caption ? (
               <figcaption
                 style={{
@@ -1953,7 +1975,9 @@ export const puckConfig: Config<
         <hr
           style={{
             border: "none",
-            borderTop: "1px solid var(--color-border)",
+            // Theme rule weight + colour (hairline / bold / accent; "none"
+            // resolves --rule-width to 0px → invisible line, spacing only).
+            borderTop: "var(--rule-width, 1px) solid var(--rule-color, var(--color-border))",
             margin: inset ? "var(--space-4) var(--space-16)" : "var(--space-4) 0",
           }}
         />

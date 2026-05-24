@@ -51,15 +51,17 @@ up, so they aren't lost. Each notes why and where it should land.
 - ~~Remaining 10 presets~~ — **done in PR4b** (ink, ember, redwood, mahogany,
   oak, pulse, concrete, candy, obsidian, cobalt). All 15 directions now ship as
   `THEME_PRESETS` entries.
-- **Unwired design tokens (consumer completion).** `buttonShape` (`--btn-radius`)
-  and `grain` are now wired (PR5). Still emitted + persisted + preset-set but not
-  yet consumed by blocks: `buttonFill` (solid/outline/underline), `ruleStyle`
-  (Divider), `imageTreatment` (framed/rounded on Image), `galleryLayout`
-  (masonry/portrait), `headingScale` (heading font-size), and `accentMode:
-  gradient` backgrounds. These remaining ones need `design` threaded into the
-  pure Puck blocks (a larger consumer pass) for full comp fidelity. Colors,
-  fonts, density, content width, radius, shadow, heading case/tracking, footer
-  style, header mode/layout/uppercase, button shape, and grain already render.
+- **Unwired design tokens (consumer completion).** Mostly DONE. `buttonShape` +
+  `grain` (PR5); `headingScale` (Phase 3); and now `buttonFill` (primary button
+  → `--btn-bg/-fg/-border/-decoration`), `imageTreatment` (Image → `--img-radius`
+  + a framed mat via `--img-pad/-frame/-frame-bg`), `ruleStyle` (Divider →
+  `--rule-width/-color`), and `accentMode: gradient` (a Section `accent` variant
+  → `--gradient-accent`). **Only `galleryLayout` (grid/portrait/masonry) is still
+  unwired** — it needs a dedicated Gallery block to apply to (the seed's gallery
+  is a `Columns` of Images); tracked below.
+- **Gallery block + `galleryLayout`.** A real gallery (grid/portrait/masonry)
+  needs its own block that reads `galleryLayout`; the current 3-up gallery is a
+  `Columns` of Image placeholders. Build a Gallery block, then wire the token.
 - **`classic`/`midnight`/`marquee` removed** from `THEME_IDS`; `DEFAULT_THEME_ID`
   is now `meadow`. (`lantern` from the foundation PR also dropped.)
 
