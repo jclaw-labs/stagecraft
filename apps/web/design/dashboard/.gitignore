@@ -1,0 +1,2 @@
+# Rendered comps are regenerable via render.mjs; the HTML is source of truth.
+*.png
