@@ -47,6 +47,8 @@
   --font-weight-semibold: 600;
 
   --line-height-base: 1.5;
+  /* Tighter leading for headings — display type wants less line spacing. */
+  --line-height-heading: 1.12;
 
   /* Wide tracking for eyebrows / small uppercase labels. */
   --tracking-wide: 0.12em;

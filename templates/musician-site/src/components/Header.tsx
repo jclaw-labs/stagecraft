@@ -72,7 +72,12 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
     borderBottom,
     backdropFilter: glass ? "blur(14px)" : undefined,
     WebkitBackdropFilter: glass ? "blur(14px)" : undefined,
-    position: isStickyHeader(header.headerMode) ? "sticky" : "absolute",
+    // Header stays in normal flow (sticky or relative) so it reserves its
+    // own height — never overlaps or hides the top of the page content.
+    // (It used to be `absolute` when non-sticky, which collided with the
+    // hero on a contained layout; a true full-bleed image overlay would be
+    // a separate splash mode.)
+    position: isStickyHeader(header.headerMode) ? "sticky" : "relative",
     top: 0,
     left: 0,
     right: 0,
@@ -146,6 +151,8 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
                 color: "inherit",
                 textDecoration: "none",
                 padding: "var(--space-1) var(--space-2)",
+                letterSpacing: "var(--tracking-wide)",
+                textTransform: header.isHeaderTextUppercase ? "uppercase" : undefined,
               }}
             >
               {pageTitleBySlug.get(slug) ?? slug}
