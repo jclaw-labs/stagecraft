@@ -151,6 +151,38 @@
   display: block;
 }
 
+/* Gallery block — a tiled photo grid. The active layout is theme-driven:
+   AppearanceStyles emits `.stagecraft-site [data-gallery]` overrides for
+   the `portrait` / `masonry` galleryLayout tokens. This base is the `grid`
+   default — and also what the editor canvas (which renders outside
+   `.stagecraft-site`) shows. */
+[data-gallery] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--gutter, 1rem);
+  margin-block: var(--space-4);
+}
+[data-gallery-item] {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--img-radius, var(--radius));
+}
+/* Fill the fixed-aspect tile (grid / portrait). The public <Image>
+   renders <picture><img>; both fill + cover so any source ratio crops to
+   the tile. */
+[data-gallery-item] > *,
+[data-gallery-item] picture,
+[data-gallery-item] img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+[data-gallery-item] img {
+  object-fit: cover;
+}
+
 /* ImageCarousel — scroll-snap track + slide layout. Inline styles
    in ImageCarousel.tsx handle per-instance values (aspectRatio)
    and stateful look (arrow disabled, dot active); class hooks here

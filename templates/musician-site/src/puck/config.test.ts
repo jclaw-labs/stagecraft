@@ -41,6 +41,7 @@ describe("puckConfig", () => {
         "EmbedResponsive",
         "Eyebrow",
         "FullscreenSection",
+        "Gallery",
         "Heading",
         "Image",
         "ImageCarousel",
@@ -1490,6 +1491,28 @@ describe("puckConfig", () => {
         children: noop,
       });
       expect(html).toContain("var(--gradient-accent");
+    });
+  });
+
+  describe("Gallery", () => {
+    it("renders a [data-gallery] grid with one tile per image", () => {
+      const html = render("Gallery", {
+        images: [{ image: null }, { image: null }, { image: null }],
+      });
+      expect(html).toContain("data-gallery");
+      expect((html.match(/data-gallery-item/g) ?? []).length).toBe(3);
+    });
+
+    it("renders a themed gradient placeholder for an empty tile", () => {
+      const html = render("Gallery", { images: [{ image: null }] });
+      expect(html).toContain("data-gallery-empty");
+      expect(html).toContain("linear-gradient");
+    });
+
+    it("shows an add-photos prompt when there are no tiles", () => {
+      const html = render("Gallery", { images: [] });
+      expect(html).toMatch(/Add photos/i);
+      expect(html).not.toContain("data-gallery-item");
     });
   });
 

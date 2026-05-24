@@ -111,4 +111,30 @@ describe("<AppearanceStyles>", () => {
     expect(html).toContain("--footer-bg: #1a1a2e"); // text color
     expect(html).toContain("--footer-text: #fafafa"); // background color
   });
+
+  describe("galleryLayout", () => {
+    it("emits no gallery override for the grid default (globals.css owns grid)", () => {
+      const html = render({
+        design: { ...DEFAULT_APPEARANCE.design!, galleryLayout: "grid" },
+      });
+      expect(html).not.toContain("[data-gallery");
+    });
+
+    it("emits a portrait tile aspect-ratio override scoped to the site", () => {
+      const html = render({
+        design: { ...DEFAULT_APPEARANCE.design!, galleryLayout: "portrait" },
+      });
+      expect(html).toMatch(
+        /\.stagecraft-site \[data-gallery-item\] \{ aspect-ratio: 3 \/ 4; \}/,
+      );
+    });
+
+    it("emits a multi-column masonry override scoped to the site", () => {
+      const html = render({
+        design: { ...DEFAULT_APPEARANCE.design!, galleryLayout: "masonry" },
+      });
+      expect(html).toMatch(/\.stagecraft-site \[data-gallery\] \{[^}]*columns: 200px/);
+      expect(html).toMatch(/break-inside: avoid/);
+    });
+  });
 });

@@ -302,7 +302,9 @@ function buildHomePageSeed(
         },
       },
 
-      // Gallery — three themed gradient tiles to swap for photos.
+      // Gallery — a tiled photo grid. The Gallery block's arrangement is
+      // theme-driven (galleryLayout token); empty tiles render themed
+      // gradient stand-ins until the artist uploads real photos.
       {
         type: "Section",
         props: {
@@ -319,45 +321,16 @@ function buildHomePageSeed(
               props: { id: "fr-gallery-title", text: "On stage & off", level: "h2", textAlign: "start" },
             },
             {
-              type: "Columns",
+              type: "Gallery",
               props: {
-                id: "fr-gallery-cols",
-                layout: "1-1-1",
-                col1: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-1",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "accent",
-                    },
-                  },
-                ],
-                col2: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-2",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "primary",
-                    },
-                  },
-                ],
-                col3: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-3",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "secondary",
-                    },
-                  },
+                id: "fr-gallery-grid",
+                images: [
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
                 ],
               },
             },

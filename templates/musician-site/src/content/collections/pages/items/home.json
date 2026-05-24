@@ -214,44 +214,27 @@
                   }
                 },
                 {
-                  "type": "Columns",
+                  "type": "Gallery",
                   "props": {
-                    "id": "fr-gallery-cols",
-                    "layout": "1-1-1",
-                    "col1": [
+                    "id": "fr-gallery-grid",
+                    "images": [
                       {
-                        "type": "Image",
-                        "props": {
-                          "id": "fr-gallery-1",
-                          "image": null,
-                          "caption": "",
-                          "aspectRatio": "1/1",
-                          "tone": "accent"
-                        }
-                      }
-                    ],
-                    "col2": [
+                        "image": null
+                      },
                       {
-                        "type": "Image",
-                        "props": {
-                          "id": "fr-gallery-2",
-                          "image": null,
-                          "caption": "",
-                          "aspectRatio": "1/1",
-                          "tone": "primary"
-                        }
-                      }
-                    ],
-                    "col3": [
+                        "image": null
+                      },
                       {
-                        "type": "Image",
-                        "props": {
-                          "id": "fr-gallery-3",
-                          "image": null,
-                          "caption": "",
-                          "aspectRatio": "1/1",
-                          "tone": "secondary"
-                        }
+                        "image": null
+                      },
+                      {
+                        "image": null
+                      },
+                      {
+                        "image": null
+                      },
+                      {
+                        "image": null
                       }
                     ]
                   }
