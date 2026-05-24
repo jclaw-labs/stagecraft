@@ -31,3 +31,12 @@ the redesign PRs, parked here so they aren't lost.
   actual site screenshots once a per-site capture pipeline exists.
 - **"Needs attention" as a filter** — clicking that stat could filter the grid
   to the sites that need action.
+
+## Process note (CI / auto-merge on cloud-session PRs)
+
+A cloud-session `git push` does not trigger GitHub Actions, and the
+`pr-screenshots` relay leaves a `[skip ci]` commit at the branch head — so the
+head can end up with no checks, and auto-merge then can't fire. The **final**
+commit on such a branch must be made via the GitHub API
+(`mcp__github__push_files`), which fires `pull_request: synchronize` and runs
+CI. See `claude/skills/create-pr/SKILL.md`.
