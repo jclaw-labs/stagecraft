@@ -48,11 +48,9 @@ up, so they aren't lost. Each notes why and where it should land.
 
 ## Open (from PR4)
 
-- **Remaining 10 presets.** PR4 shipped 5 (meadow/riot/paper/aurora/vinyl) as
-  full design bundles. The rest (ink, ember, redwood, mahogany, oak, pulse,
-  concrete, candy, obsidian, cobalt) ship in a follow-up (PR4b) — same shape,
-  just more `THEME_PRESETS` entries (the comps in `design/theme-comps/` are the
-  reference).
+- ~~Remaining 10 presets~~ — **done in PR4b** (ink, ember, redwood, mahogany,
+  oak, pulse, concrete, candy, obsidian, cobalt). All 15 directions now ship as
+  `THEME_PRESETS` entries.
 - **Unwired design tokens (consumer completion).** Emitted + persisted +
   preset-set but not yet consumed by blocks: `buttonFill` (solid/outline/
   underline), independent `buttonShape` (--btn-radius), `ruleStyle` (Divider),
