@@ -30,6 +30,7 @@ describe("puckConfig", () => {
     expect(Object.keys(puckConfig.components).sort()).toEqual(
       [
         "Button",
+        "ButtonRow",
         "Card",
         "CenteredBlock",
         "Columns",
