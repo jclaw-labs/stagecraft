@@ -51,16 +51,22 @@ up, so they aren't lost. Each notes why and where it should land.
 - ~~Remaining 10 presets~~ — **done in PR4b** (ink, ember, redwood, mahogany,
   oak, pulse, concrete, candy, obsidian, cobalt). All 15 directions now ship as
   `THEME_PRESETS` entries.
-- **Unwired design tokens (consumer completion).** Emitted + persisted +
-  preset-set but not yet consumed by blocks: `buttonFill` (solid/outline/
-  underline), independent `buttonShape` (--btn-radius), `ruleStyle` (Divider),
-  `imageTreatment` (framed/rounded on Image), `galleryLayout` (masonry/portrait),
-  `headingScale` (heading font-size), `accentMode: gradient` backgrounds, and
-  `grain`. These need per-block wiring (a PR2-style consumer pass) for full comp
-  fidelity. Colors, fonts, density, content width, radius, shadow, heading
-  case/tracking, footer style, and header mode/layout/uppercase already render.
+- **Unwired design tokens (consumer completion).** `buttonShape` (`--btn-radius`)
+  and `grain` are now wired (PR5). Still emitted + persisted + preset-set but not
+  yet consumed by blocks: `buttonFill` (solid/outline/underline), `ruleStyle`
+  (Divider), `imageTreatment` (framed/rounded on Image), `galleryLayout`
+  (masonry/portrait), `headingScale` (heading font-size), and `accentMode:
+  gradient` backgrounds. These remaining ones need `design` threaded into the
+  pure Puck blocks (a larger consumer pass) for full comp fidelity. Colors,
+  fonts, density, content width, radius, shadow, heading case/tracking, footer
+  style, header mode/layout/uppercase, button shape, and grain already render.
 - **`classic`/`midnight`/`marquee` removed** from `THEME_IDS`; `DEFAULT_THEME_ID`
   is now `meadow`. (`lantern` from the foundation PR also dropped.)
 
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
+
+- **Welcome wizard tests hardcoded to dropped presets** — #243's welcome unit +
+  e2e specs asserted `classic`/`midnight`/`marquee` literally and were red on
+  `main` after the squash; reworked to derive from `THEME_IDS`/`THEME_PRESETS`
+  (PR4, #248).

@@ -51,6 +51,22 @@ export default async function PublicLayout({ children }: { children: ReactNode }
         />
       ) : null}
       <AppearanceStyles appearance={appearance} />
+      {appearance.design?.grain ? (
+        <div
+          aria-hidden
+          style={{
+            position: "fixed",
+            inset: 0,
+            pointerEvents: "none",
+            zIndex: 1,
+            opacity: 0.06,
+            mixBlendMode: "overlay",
+            backgroundSize: "160px",
+            backgroundImage:
+              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
+          }}
+        />
+      ) : null}
       {children}
       {/* Single page-level bootstrap that enhances any photo
           gallery on this page with a modal lightbox. Doesn't
