@@ -124,7 +124,7 @@ describe("POST /api/welcome/complete — happy path", () => {
 
 describe("POST /api/welcome/complete — theme", () => {
   it("applies the chosen theme's palette + header style", async () => {
-    const res = await POST(jsonReq({ ...VALID_BODY, theme: "midnight" }));
+    const res = await POST(jsonReq({ ...VALID_BODY, theme: "riot" }));
     expect(res.status).toBe(200);
 
     const store = await getRequestReadStore();
@@ -135,12 +135,13 @@ describe("POST /api/welcome/complete — theme", () => {
       await store.readSingleton("header", headerCollectionDef),
     );
 
-    // The Midnight palette landed — not the back-compat accent swap.
-    expect(appearance.colors.background).toBe("#0b0b12");
+    // The Riot palette + design landed — not the back-compat accent swap.
+    expect(appearance.colors.background).toBe("#0a0a0a");
     expect(appearance.colors.accent).not.toBe(VALID_BODY.primaryColor);
-    expect(appearance.typography.bodyFont).toBe("Space Grotesk");
+    expect(appearance.typography.bodyFont).toBe("Space Mono");
+    expect(appearance.design?.radius).toBe("sharp");
     // ...and its header style.
-    expect(header.headerLayout).toBe("logo-center-nav-below");
+    expect(header.isHeaderTextUppercase).toBe(true);
   });
 
   it("falls back to the accent-swap path when no theme is given", async () => {

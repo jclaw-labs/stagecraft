@@ -46,5 +46,23 @@ up, so they aren't lost. Each notes why and where it should land.
   (Layout / Shape / Detail) but doesn't collapse them behind an Advanced toggle.
   Collapsible disclosure is PR5 polish.
 
+## Open (from PR4)
+
+- **Remaining 10 presets.** PR4 shipped 5 (meadow/riot/paper/aurora/vinyl) as
+  full design bundles. The rest (ink, ember, redwood, mahogany, oak, pulse,
+  concrete, candy, obsidian, cobalt) ship in a follow-up (PR4b) — same shape,
+  just more `THEME_PRESETS` entries (the comps in `design/theme-comps/` are the
+  reference).
+- **Unwired design tokens (consumer completion).** Emitted + persisted +
+  preset-set but not yet consumed by blocks: `buttonFill` (solid/outline/
+  underline), independent `buttonShape` (--btn-radius), `ruleStyle` (Divider),
+  `imageTreatment` (framed/rounded on Image), `galleryLayout` (masonry/portrait),
+  `headingScale` (heading font-size), `accentMode: gradient` backgrounds, and
+  `grain`. These need per-block wiring (a PR2-style consumer pass) for full comp
+  fidelity. Colors, fonts, density, content width, radius, shadow, heading
+  case/tracking, footer style, and header mode/layout/uppercase already render.
+- **`classic`/`midnight`/`marquee` removed** from `THEME_IDS`; `DEFAULT_THEME_ID`
+  is now `meadow`. (`lantern` from the foundation PR also dropped.)
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->

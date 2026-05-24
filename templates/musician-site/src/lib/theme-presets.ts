@@ -1,47 +1,35 @@
 /**
- * Curated theme presets for the first-run wizard (ADR-013).
+ * Curated theme presets for the first-run wizard (ADR-013, tokenized themes).
  *
- * A theme bundles a complete Appearance palette + typography with a
- * header *style* (mode / layout / wordmark sizing / foreground /
- * uppercase) into one named, one-click choice. Presets reuse the
- * `Appearance` and `HeaderConfig` shapes from `site-config-types` — no
- * new token vocabulary.
+ * A theme bundles a complete Appearance — palette + typography + the design
+ * token group (layout / shape / detail) — with a header *style* into one
+ * named, one-click choice. Presets reuse the `Appearance` and `HeaderConfig`
+ * shapes from `site-config-types`; no new token vocabulary.
  *
  * A theme deliberately does NOT define the `wordmark` image or the
- * `headerSubtitle`: those are artist-owned and must survive a theme
- * change (see `resolveTheme`).
+ * `headerSubtitle`: those are artist-owned and must survive a theme change
+ * (see `resolveTheme`).
  *
- * `THEME_IDS` is the single source of truth for which themes exist; the
- * `Record<ThemeId, …>` shape of `THEME_PRESETS` makes TypeScript enforce
- * exactly one preset per id. `DEFAULT_THEME_ID` is applied for the
- * "start empty" path and as the safe fallback.
+ * `THEME_IDS` is the single source of truth; the `Record<ThemeId, …>` shape of
+ * `THEME_PRESETS` makes TypeScript enforce exactly one preset per id.
+ * `DEFAULT_THEME_ID` is applied for the "start empty" path and as the fallback.
+ *
+ * The directions come from the design comps in `design/theme-comps/`. This is
+ * the first batch (the 5 originals as full design bundles); the remaining
+ * directions (ink, ember, redwood, mahogany, oak, pulse, concrete, candy,
+ * obsidian, cobalt) land in a follow-up.
  */
-import {
-  DEFAULT_APPEARANCE,
-  DEFAULT_HEADER_CONFIG,
-  type Appearance,
-  type HeaderConfig,
-} from "./site-config-types";
+import { type Appearance, type HeaderConfig } from "./site-config-types";
 
-export const THEME_IDS = [
-  "classic",
-  "midnight",
-  "marquee",
-  "lantern",
-  "meadow",
-  "riot",
-  "paper",
-  "aurora",
-  "vinyl",
-] as const;
+export const THEME_IDS = ["meadow", "riot", "paper", "aurora", "vinyl"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
-export const DEFAULT_THEME_ID: ThemeId = "classic";
+export const DEFAULT_THEME_ID: ThemeId = "meadow";
 
 /**
- * The header fields a theme controls — the *style* of the header, not
- * its content. `wordmark` (the artist's logo) and `headerSubtitle`
- * (their tagline) are excluded so applying a theme never wipes them.
+ * The header fields a theme controls — the *style* of the header, not its
+ * content. `wordmark` + `headerSubtitle` are excluded so applying a theme
+ * never wipes them.
  */
 export type HeaderStyle = Pick<
   HeaderConfig,
@@ -61,126 +49,17 @@ export interface ThemePreset {
   header: HeaderStyle;
 }
 
-// Classic == the platform defaults surfaced as a pickable theme, so the
-// "start empty" / default path looks exactly like a fresh site. Derived
-// from the DEFAULT_* singletons (not re-typed) so it tracks any change
-// to them.
-const CLASSIC_HEADER: HeaderStyle = {
-  headerMode: DEFAULT_HEADER_CONFIG.headerMode,
-  headerLayout: DEFAULT_HEADER_CONFIG.headerLayout,
-  wordmarkSizeAdjust: DEFAULT_HEADER_CONFIG.wordmarkSizeAdjust,
-  headerForegroundColor: DEFAULT_HEADER_CONFIG.headerForegroundColor,
-  isHeaderTextUppercase: DEFAULT_HEADER_CONFIG.isHeaderTextUppercase,
-};
+const NO_GRADIENT = { from: "", via: "", to: "" };
 
 export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
-  classic: {
-    name: "Classic",
-    description: "Navy and crimson on warm white — the timeless default.",
-    appearance: DEFAULT_APPEARANCE,
-    header: CLASSIC_HEADER,
-  },
-  midnight: {
-    name: "Midnight",
-    description: "Luminous type on a deep night palette.",
-    appearance: {
-      colors: {
-        primary: "#f5f5f7",
-        secondary: "#e0567a",
-        accent: "#7c9cff",
-        linkColor: "",
-        background: "#0b0b12",
-        surface: "#16161f",
-        text: "#f5f5f7",
-        textMuted: "#a1a1aa",
-        border: "#2a2a35",
-      },
-      typography: {
-        bodyFont: "Space Grotesk",
-        headingMode: "single",
-        headingFont: "",
-        bodyWeights: { body: 400, bodyBold: 700 },
-        headingWeights: { h1: 700, h2: 700, h3: 600 },
-      },
-    },
-    header: {
-      headerMode: "solid-sticky",
-      headerLayout: "logo-center-nav-below",
-      wordmarkSizeAdjust: 0,
-      headerForegroundColor: "",
-      isHeaderTextUppercase: false,
-    },
-  },
-  marquee: {
-    name: "Marquee",
-    description: "High-contrast poster energy with condensed headlines.",
-    appearance: {
-      colors: {
-        primary: "#0a0a0a",
-        secondary: "#e11d2a",
-        accent: "#e11d2a",
-        linkColor: "",
-        background: "#ffffff",
-        surface: "#f4f4f5",
-        text: "#0a0a0a",
-        textMuted: "#52525b",
-        border: "#0a0a0a",
-      },
-      typography: {
-        bodyFont: "Inter",
-        headingMode: "split",
-        headingFont: "Oswald",
-        bodyWeights: { body: 400, bodyBold: 700 },
-        headingWeights: { h1: 700, h2: 700, h3: 700 },
-      },
-    },
-    header: {
-      headerMode: "solid-static",
-      headerLayout: "logo-center-nav-split",
-      wordmarkSizeAdjust: 1,
-      headerForegroundColor: "",
-      isHeaderTextUppercase: true,
-    },
-  },
-  lantern: {
-    name: "Lantern",
-    description: "Warm gold glow on near-black — cinematic and image-forward.",
-    appearance: {
-      colors: {
-        primary: "#f4f3f0",
-        secondary: "#e7c27d",
-        accent: "#e7c27d",
-        linkColor: "",
-        background: "#0b0c0e",
-        surface: "#141619",
-        text: "#f4f3f0",
-        textMuted: "#a7a9ae",
-        border: "#282b30",
-      },
-      typography: {
-        bodyFont: "Inter",
-        headingMode: "split",
-        headingFont: "Space Grotesk",
-        bodyWeights: { body: 400, bodyBold: 700 },
-        headingWeights: { h1: 700, h2: 700, h3: 600 },
-      },
-    },
-    header: {
-      headerMode: "glass-sticky",
-      headerLayout: "logo-left-nav-right",
-      wordmarkSizeAdjust: 0,
-      headerForegroundColor: "",
-      isHeaderTextUppercase: true,
-    },
-  },
   meadow: {
     name: "Meadow",
-    description: "Sun-warmed folk — sage and terracotta on soft cream.",
+    description: "Wholesome warm folk — sage, terracotta, and amber on soft cream.",
     appearance: {
       colors: {
         primary: "#3f5135",
-        secondary: "#bf6b3a",
-        accent: "#cf9248",
+        secondary: "#cf9248",
+        accent: "#bf6b3a",
         linkColor: "",
         background: "#fbf7f0",
         surface: "#ffffff",
@@ -192,8 +71,30 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
         bodyFont: "Nunito Sans",
         headingMode: "split",
         headingFont: "Fraunces",
+        displayFont: "",
         bodyWeights: { body: 400, bodyBold: 700 },
         headingWeights: { h1: 600, h2: 600, h3: 600 },
+      },
+      design: {
+        density: "spacious",
+        contentWidth: "medium",
+        sectionAlign: "left",
+        gutter: "airy",
+        radius: "round",
+        buttonShape: "pill",
+        buttonFill: "solid",
+        shadowStyle: "soft",
+        ruleStyle: "hairline",
+        imageTreatment: "rounded",
+        galleryLayout: "grid",
+        headingCase: "none",
+        headingTracking: "normal",
+        headingScale: "balanced",
+        accentMode: "solid",
+        accentGradient: NO_GRADIENT,
+        onAccent: "#ffffff",
+        footerStyle: "inverse",
+        grain: false,
       },
     },
     header: {
@@ -206,7 +107,7 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
   },
   riot: {
     name: "Riot",
-    description: "Acid-lime on black — DIY poster energy.",
+    description: "Edgy DIY punk — acid lime on black, oversized condensed caps.",
     appearance: {
       colors: {
         primary: "#f2f2f2",
@@ -223,8 +124,30 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
         bodyFont: "Space Mono",
         headingMode: "split",
         headingFont: "Anton",
+        displayFont: "Anton",
         bodyWeights: { body: 400, bodyBold: 700 },
         headingWeights: { h1: 400, h2: 400, h3: 400 },
+      },
+      design: {
+        density: "compact",
+        contentWidth: "wide",
+        sectionAlign: "left",
+        gutter: "tight",
+        radius: "sharp",
+        buttonShape: "square",
+        buttonFill: "solid",
+        shadowStyle: "hard-offset",
+        ruleStyle: "bold",
+        imageTreatment: "plain",
+        galleryLayout: "grid",
+        headingCase: "upper",
+        headingTracking: "tight",
+        headingScale: "dramatic",
+        accentMode: "solid",
+        accentGradient: NO_GRADIENT,
+        onAccent: "#0a0a0a",
+        footerStyle: "surface",
+        grain: false,
       },
     },
     header: {
@@ -237,12 +160,12 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
   },
   paper: {
     name: "Paper",
-    description: "Editorial black-on-white with a Playfair display serif.",
+    description: "Minimal editorial — black on white, dramatic Playfair display.",
     appearance: {
       colors: {
         primary: "#111111",
         secondary: "#111111",
-        accent: "#111111",
+        accent: "#555555",
         linkColor: "",
         background: "#ffffff",
         surface: "#ffffff",
@@ -254,8 +177,30 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
         bodyFont: "Inter",
         headingMode: "split",
         headingFont: "Playfair Display",
+        displayFont: "",
         bodyWeights: { body: 400, bodyBold: 600 },
         headingWeights: { h1: 700, h2: 700, h3: 600 },
+      },
+      design: {
+        density: "spacious",
+        contentWidth: "narrow",
+        sectionAlign: "center",
+        gutter: "airy",
+        radius: "sharp",
+        buttonShape: "square",
+        buttonFill: "underline",
+        shadowStyle: "none",
+        ruleStyle: "hairline",
+        imageTreatment: "plain",
+        galleryLayout: "masonry",
+        headingCase: "none",
+        headingTracking: "normal",
+        headingScale: "dramatic",
+        accentMode: "solid",
+        accentGradient: NO_GRADIENT,
+        onAccent: "#ffffff",
+        footerStyle: "surface",
+        grain: false,
       },
     },
     header: {
@@ -268,62 +213,106 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
   },
   aurora: {
     name: "Aurora",
-    description: "Dreamy pastels — violet and pink on pale lavender.",
+    description: "Dreamy pastel — Cormorant serif on a hazy, muted lavender.",
     appearance: {
       colors: {
         primary: "#3a2f5c",
         secondary: "#e0709e",
         accent: "#7b6cd9",
         linkColor: "",
-        background: "#f6f3ff",
-        surface: "#ffffff",
-        text: "#2c2740",
-        textMuted: "#7d7795",
-        border: "#e7e1f5",
+        background: "#e9e6ef",
+        surface: "#f4f1f8",
+        text: "#2a2740",
+        textMuted: "#736f88",
+        border: "#dad4e4",
       },
       typography: {
-        bodyFont: "Poppins",
-        headingMode: "single",
-        headingFont: "",
-        bodyWeights: { body: 400, bodyBold: 600 },
-        headingWeights: { h1: 600, h2: 600, h3: 500 },
+        bodyFont: "Inter",
+        headingMode: "split",
+        headingFont: "Cormorant Garamond",
+        displayFont: "",
+        bodyWeights: { body: 400, bodyBold: 500 },
+        headingWeights: { h1: 500, h2: 500, h3: 500 },
+      },
+      design: {
+        density: "spacious",
+        contentWidth: "medium",
+        sectionAlign: "center",
+        gutter: "normal",
+        radius: "round",
+        buttonShape: "pill",
+        buttonFill: "underline",
+        shadowStyle: "glow",
+        ruleStyle: "hairline",
+        imageTreatment: "rounded",
+        galleryLayout: "grid",
+        headingCase: "none",
+        headingTracking: "normal",
+        headingScale: "dramatic",
+        accentMode: "solid",
+        accentGradient: NO_GRADIENT,
+        onAccent: "#ffffff",
+        footerStyle: "surface",
+        grain: true,
       },
     },
     header: {
-      headerMode: "glass-sticky",
+      headerMode: "transparent-static",
       headerLayout: "logo-center-nav-below",
       wordmarkSizeAdjust: 0,
-      headerForegroundColor: "",
+      headerForegroundColor: "#ffffff",
       isHeaderTextUppercase: false,
     },
   },
   vinyl: {
     name: "Vinyl",
-    description: "Seventies warmth — burnt orange, mustard, avocado.",
+    description: "Refined warm analog — rust, ochre, and espresso on oat.",
     appearance: {
       colors: {
-        primary: "#a8431e",
-        secondary: "#c9962f",
-        accent: "#4e7a55",
+        primary: "#a9542c",
+        secondary: "#bd8a3a",
+        accent: "#a9542c",
         linkColor: "",
-        background: "#f3e9d8",
-        surface: "#fbf4e6",
-        text: "#2e2218",
-        textMuted: "#7c6a54",
-        border: "#d8c7a8",
+        background: "#efe7d4",
+        surface: "#f7f0df",
+        text: "#2c2118",
+        textMuted: "#8a7a63",
+        border: "#ddd0b4",
       },
       typography: {
         bodyFont: "DM Sans",
         headingMode: "split",
         headingFont: "Bricolage Grotesque",
-        bodyWeights: { body: 400, bodyBold: 700 },
-        headingWeights: { h1: 700, h2: 700, h3: 600 },
+        displayFont: "",
+        bodyWeights: { body: 400, bodyBold: 500 },
+        headingWeights: { h1: 600, h2: 600, h3: 600 },
+      },
+      design: {
+        density: "comfortable",
+        contentWidth: "medium",
+        sectionAlign: "left",
+        gutter: "normal",
+        radius: "soft",
+        buttonShape: "rounded",
+        buttonFill: "solid",
+        shadowStyle: "soft",
+        ruleStyle: "hairline",
+        imageTreatment: "framed",
+        galleryLayout: "grid",
+        headingCase: "none",
+        headingTracking: "tight",
+        headingScale: "balanced",
+        accentMode: "solid",
+        accentGradient: NO_GRADIENT,
+        onAccent: "#f7f0df",
+        footerStyle: "inverse",
+        grain: false,
       },
     },
     header: {
       headerMode: "solid-sticky",
       headerLayout: "logo-left-nav-right",
-      wordmarkSizeAdjust: 1,
+      wordmarkSizeAdjust: 0,
       headerForegroundColor: "",
       isHeaderTextUppercase: true,
     },
@@ -331,11 +320,10 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
 };
 
 /**
- * Apply a theme onto an existing header config. The palette + typography
- * are replaced wholesale by the preset (returned as a fresh copy so the
- * shared preset constant is never mutated downstream); the header *style*
- * fields are overlaid while the artist-owned `wordmark` and
- * `headerSubtitle` survive untouched.
+ * Apply a theme onto an existing header config. The palette + typography +
+ * design are replaced wholesale by the preset (a fresh copy so the shared
+ * constant is never mutated); the header *style* fields are overlaid while the
+ * artist-owned `wordmark` and `headerSubtitle` survive untouched.
  */
 export function resolveTheme(
   id: ThemeId,
