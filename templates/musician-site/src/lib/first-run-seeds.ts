@@ -8,10 +8,13 @@
  * a real site so the editor doesn't feel like a blank Word document.
  * The artist edits in place.
  *
- * Releases are deliberately NOT seeded — the releases collection's
- * coverImage field is required, and shipping a real image binary in
- * the template would be its own pipeline. The home page hints at
- * latest-release with a Section the artist can swap a real one into.
+ * The home page mirrors the theme comps: a hero (name + tagline + CTA +
+ * banner), a latest-release row (album art + blurb + buttons), a tour
+ * placeholder, and a gallery. Imagery uses empty `Image` blocks, which
+ * render a theme-driven gradient placeholder until the artist uploads —
+ * so no image binary ships with the template. Releases as a structured
+ * collection record still aren't seeded (the coverImage field is
+ * required); the home page's release row stands in for one.
  *
  * Everything here is pure — these functions only build value-shapes.
  * The welcome route owns the write-through-publish side, so this file
@@ -93,95 +96,203 @@ function buildHomePageSeed(
 ): FirstRunPageSeed {
   const data = {
     content: [
-      {
-        type: "Heading",
-        props: {
-          id: "first-run-heading-hero",
-          text: artistName,
-          level: "h1",
-          textAlign: "center",
-        },
-      },
+      // Hero — centered name + tagline + CTA, then a wide themed gradient
+      // banner (an empty Image the artist swaps for a real photo).
       {
         type: "Section",
         props: {
-          id: "first-run-section-tagline",
+          id: "fr-hero",
           width: "lg",
           textAlign: "center",
           children: [
             {
               type: "Heading",
+              props: { id: "fr-hero-title", text: artistName, level: "h1", textAlign: "center" },
+            },
+            {
+              type: "RichText",
               props: {
-                id: "first-run-section-tagline-heading",
+                id: "fr-hero-sub",
                 text: "New record. New tour. Same restless heart.",
-                level: "h2",
-                textAlign: "center",
               },
             },
             {
-              type: "RichText",
+              type: "Button",
               props: {
-                id: "first-run-section-tagline-body",
-                text:
-                  "Welcome to the new site — a home for the work, the road, " +
-                  "and everything that happens between. Drift in for a while.",
-              },
-            },
-          ],
-        },
-      },
-      {
-        type: "Section",
-        props: {
-          id: "first-run-section-shows",
-          width: "md",
-          textAlign: "start",
-          children: [
-            {
-              type: "Heading",
-              props: {
-                id: "first-run-section-shows-heading",
-                text: "On the road",
-                level: "h2",
-                textAlign: "start",
+                id: "fr-hero-cta",
+                text: "Listen now",
+                href: "#",
+                variant: "primary",
+                isExternal: false,
               },
             },
             {
-              type: "RichText",
+              type: "Image",
               props: {
-                id: "first-run-section-shows-body",
-                text:
-                  "A few dates already on the books — there's a tour-dates " +
-                  "block ready to drop here from the Insert menu. Edit the " +
-                  "venues from the Tour Dates panel on the left.",
+                id: "fr-hero-image",
+                image: null,
+                caption: "",
+                aspectRatio: "16/9",
+                tone: "accent",
               },
             },
           ],
         },
       },
+
+      // Latest release — album art beside title / blurb / two CTAs.
       {
         type: "Section",
         props: {
-          id: "first-run-section-listen",
+          id: "fr-release",
+          width: "lg",
+          textAlign: "start",
+          children: [
+            {
+              type: "Columns",
+              props: {
+                id: "fr-release-cols",
+                layout: "1-2",
+                col1: [
+                  {
+                    type: "Image",
+                    props: {
+                      id: "fr-release-art",
+                      image: null,
+                      caption: "",
+                      aspectRatio: "1/1",
+                      tone: "primary",
+                    },
+                  },
+                ],
+                col2: [
+                  {
+                    type: "Heading",
+                    props: {
+                      id: "fr-release-title",
+                      text: "The Long Way Home",
+                      level: "h2",
+                      textAlign: "start",
+                    },
+                  },
+                  {
+                    type: "RichText",
+                    props: {
+                      id: "fr-release-body",
+                      text:
+                        "The new record — ten songs cut live to tape. Out now " +
+                        "everywhere. Swap in your own cover art and links from " +
+                        "the editor.",
+                    },
+                  },
+                  {
+                    type: "Button",
+                    props: {
+                      id: "fr-release-stream",
+                      text: "Stream",
+                      href: "#",
+                      variant: "primary",
+                      isExternal: false,
+                    },
+                  },
+                  {
+                    type: "Button",
+                    props: {
+                      id: "fr-release-vinyl",
+                      text: "Order vinyl",
+                      href: "#",
+                      variant: "outline",
+                      isExternal: false,
+                    },
+                  },
+                ],
+                col3: [],
+              },
+            },
+          ],
+        },
+      },
+
+      // On the road — a placeholder until a tour-dates block can be dropped
+      // onto a general page (tracked in design/comp-fidelity-plan.md, PR B).
+      {
+        type: "Section",
+        props: {
+          id: "fr-tour",
           width: "md",
           textAlign: "start",
           children: [
             {
               type: "Heading",
-              props: {
-                id: "first-run-section-listen-heading",
-                text: "Latest release",
-                level: "h2",
-                textAlign: "start",
-              },
+              props: { id: "fr-tour-title", text: "On the road", level: "h2", textAlign: "start" },
             },
             {
               type: "RichText",
               props: {
-                id: "first-run-section-listen-body",
+                id: "fr-tour-body",
                 text:
-                  "Add an Image block above (or a release record under " +
-                  "Releases) and the home page starts to feel like home.",
+                  "Dates are already on the books — edit them from the Tour " +
+                  "Dates panel on the left, then drop a tour-dates block here " +
+                  "from the Insert menu.",
+              },
+            },
+          ],
+        },
+      },
+
+      // Gallery — three themed gradient tiles to swap for photos.
+      {
+        type: "Section",
+        props: {
+          id: "fr-gallery",
+          width: "lg",
+          textAlign: "start",
+          children: [
+            {
+              type: "Heading",
+              props: { id: "fr-gallery-title", text: "Gallery", level: "h2", textAlign: "start" },
+            },
+            {
+              type: "Columns",
+              props: {
+                id: "fr-gallery-cols",
+                layout: "1-1-1",
+                col1: [
+                  {
+                    type: "Image",
+                    props: {
+                      id: "fr-gallery-1",
+                      image: null,
+                      caption: "",
+                      aspectRatio: "1/1",
+                      tone: "accent",
+                    },
+                  },
+                ],
+                col2: [
+                  {
+                    type: "Image",
+                    props: {
+                      id: "fr-gallery-2",
+                      image: null,
+                      caption: "",
+                      aspectRatio: "1/1",
+                      tone: "primary",
+                    },
+                  },
+                ],
+                col3: [
+                  {
+                    type: "Image",
+                    props: {
+                      id: "fr-gallery-3",
+                      image: null,
+                      caption: "",
+                      aspectRatio: "1/1",
+                      tone: "secondary",
+                    },
+                  },
+                ],
               },
             },
           ],

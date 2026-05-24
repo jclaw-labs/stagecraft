@@ -24,26 +24,131 @@
       "value": {
         "content": [
           {
-            "type": "Heading",
+            "type": "Section",
             "props": {
-              "id": "heading-1",
-              "text": "Welcome",
-              "level": "h1",
-              "textAlign": "center"
+              "id": "fr-hero",
+              "width": "lg",
+              "textAlign": "center",
+              "children": [
+                {
+                  "type": "Heading",
+                  "props": {
+                    "id": "fr-hero-title",
+                    "text": "Aurelia Wren",
+                    "level": "h1",
+                    "textAlign": "center"
+                  }
+                },
+                {
+                  "type": "RichText",
+                  "props": {
+                    "id": "fr-hero-sub",
+                    "text": "New record. New tour. Same restless heart."
+                  }
+                },
+                {
+                  "type": "Button",
+                  "props": {
+                    "id": "fr-hero-cta",
+                    "text": "Listen now",
+                    "href": "#",
+                    "variant": "primary",
+                    "isExternal": false
+                  }
+                },
+                {
+                  "type": "Image",
+                  "props": {
+                    "id": "fr-hero-image",
+                    "image": null,
+                    "caption": "",
+                    "aspectRatio": "16/9",
+                    "tone": "accent"
+                  }
+                }
+              ]
             }
           },
           {
             "type": "Section",
             "props": {
-              "id": "section-1",
+              "id": "fr-release",
+              "width": "lg",
+              "textAlign": "start",
+              "children": [
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-release-cols",
+                    "layout": "1-2",
+                    "col1": [
+                      {
+                        "type": "Image",
+                        "props": {
+                          "id": "fr-release-art",
+                          "image": null,
+                          "caption": "",
+                          "aspectRatio": "1/1",
+                          "tone": "primary"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "Heading",
+                        "props": {
+                          "id": "fr-release-title",
+                          "text": "The Long Way Home",
+                          "level": "h2",
+                          "textAlign": "start"
+                        }
+                      },
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-release-body",
+                          "text": "The new record — ten songs cut live to tape. Out now everywhere. Swap in your own cover art and links from the editor."
+                        }
+                      },
+                      {
+                        "type": "Button",
+                        "props": {
+                          "id": "fr-release-stream",
+                          "text": "Stream",
+                          "href": "#",
+                          "variant": "primary",
+                          "isExternal": false
+                        }
+                      },
+                      {
+                        "type": "Button",
+                        "props": {
+                          "id": "fr-release-vinyl",
+                          "text": "Order vinyl",
+                          "href": "#",
+                          "variant": "outline",
+                          "isExternal": false
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "Section",
+            "props": {
+              "id": "fr-tour",
               "width": "md",
               "textAlign": "start",
               "children": [
                 {
                   "type": "Heading",
                   "props": {
-                    "id": "section-1-heading",
-                    "text": "Latest release",
+                    "id": "fr-tour-title",
+                    "text": "On the road",
                     "level": "h2",
                     "textAlign": "start"
                   }
@@ -51,8 +156,70 @@
                 {
                   "type": "RichText",
                   "props": {
-                    "id": "section-1-body",
-                    "text": "Drop a tour-dates block, swap the headline, adjust the width — all from the editor."
+                    "id": "fr-tour-body",
+                    "text": "Dates are already on the books — edit them from the Tour Dates panel on the left, then drop a tour-dates block here from the Insert menu."
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "Section",
+            "props": {
+              "id": "fr-gallery",
+              "width": "lg",
+              "textAlign": "start",
+              "children": [
+                {
+                  "type": "Heading",
+                  "props": {
+                    "id": "fr-gallery-title",
+                    "text": "Gallery",
+                    "level": "h2",
+                    "textAlign": "start"
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-gallery-cols",
+                    "layout": "1-1-1",
+                    "col1": [
+                      {
+                        "type": "Image",
+                        "props": {
+                          "id": "fr-gallery-1",
+                          "image": null,
+                          "caption": "",
+                          "aspectRatio": "1/1",
+                          "tone": "accent"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "Image",
+                        "props": {
+                          "id": "fr-gallery-2",
+                          "image": null,
+                          "caption": "",
+                          "aspectRatio": "1/1",
+                          "tone": "primary"
+                        }
+                      }
+                    ],
+                    "col3": [
+                      {
+                        "type": "Image",
+                        "props": {
+                          "id": "fr-gallery-3",
+                          "image": null,
+                          "caption": "",
+                          "aspectRatio": "1/1",
+                          "tone": "secondary"
+                        }
+                      }
+                    ]
                   }
                 }
               ]
