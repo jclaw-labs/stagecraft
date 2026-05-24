@@ -40,6 +40,11 @@
           "id": "o3",
           "value": "transparent-static",
           "label": "Transparent, scrolls with page"
+        },
+        {
+          "id": "o4",
+          "value": "glass-sticky",
+          "label": "Glass — translucent + blurred, sticky"
         }
       ]
     },

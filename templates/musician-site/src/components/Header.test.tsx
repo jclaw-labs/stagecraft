@@ -68,6 +68,15 @@ describe("<Header>", () => {
     expect(html).toContain("color:#ffeeaa");
   });
 
+  it("glass mode is sticky with a backdrop blur and translucent surface", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerMode: "glass-sticky" },
+    });
+    expect(html).toMatch(/position:\s*sticky/);
+    expect(html).toMatch(/backdrop-filter:\s*blur/);
+    expect(html).toMatch(/color-mix/);
+  });
+
   it("uppercase header text adds text-transform: uppercase", () => {
     const html = renderHeader({
       header: { ...DEFAULT_HEADER_CONFIG, isHeaderTextUppercase: true },

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Concrete — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0c0c0d; --surface:#161617; --text:#f4f4f2; --muted:#8a8a86; --line:#272727;
+    --gold:#e3b341; --gold-deep:#a87a1c;
+    --sans:"Archivo",system-ui,sans-serif; --maxw:1280px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.55}
+  h1,h2,h3{font-weight:900;line-height:.9;letter-spacing:-0.025em;text-transform:uppercase}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 30px}
+  .label{font-weight:800;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold)}
+  .btn{display:inline-block;font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:13px;padding:.95rem 1.8rem}
+  .btn-gold{background:var(--gold);color:#15120a}
+  .btn-out{border:1px solid var(--gold);color:var(--gold)}
+
+  header.site{position:sticky;top:0;z-index:20;background:rgba(12,12,13,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:66px}
+  .brand{font-weight:900;text-transform:uppercase;letter-spacing:-0.01em;font-size:20px}
+  .brand span{color:var(--gold)}
+  nav.main{display:flex;gap:26px;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  nav.main a:hover{color:var(--gold)}
+
+  /* photo-forward split hero */
+  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:0;align-items:stretch;min-height:78vh;border-bottom:1px solid var(--line)}
+  .hero-text{display:flex;flex-direction:column;justify-content:center;padding:56px 48px 56px 0}
+  .hero .label{margin-bottom:18px}
+  .hero h1{font-size:clamp(64px,11vw,150px)}
+  .hero h1 em{font-style:normal;color:var(--gold)}
+  .hero .meta{margin:24px 0 30px;color:var(--muted);max-width:34ch;font-weight:500}
+  .hero-foot{display:flex;gap:16px;flex-wrap:wrap}
+  .hero-img{position:relative;overflow:hidden;background:
+      radial-gradient(70% 60% at 70% 25%, rgba(227,179,65,.5), transparent 60%),
+      linear-gradient(160deg,#3a2f14,#0c0c0d 72%)}
+  .hero-img::after{content:"OUT NOW";position:absolute;left:30px;bottom:26px;font-weight:900;font-size:13px;letter-spacing:.3em;color:var(--gold)}
+
+  section{padding:60px 0;border-bottom:1px solid var(--line)}
+  .sec-title{display:flex;align-items:baseline;gap:16px;margin-bottom:28px}
+  .sec-title .n{font-weight:900;color:var(--gold);font-size:22px}
+  .sec-title h2{font-size:clamp(34px,5vw,60px)}
+
+  .release{display:grid;grid-template-columns:360px 1fr;gap:36px;align-items:start}
+  .cover{aspect-ratio:1;position:relative;overflow:hidden;background:
+      radial-gradient(60% 60% at 65% 30%, rgba(227,179,65,.45), transparent 60%),
+      linear-gradient(150deg,#2a2310,#0c0c0d)}
+  .cover b{position:absolute;left:22px;bottom:18px;color:var(--gold);font-size:54px;line-height:.85;text-transform:uppercase}
+  .tracklist{list-style:none}
+  .tracklist li{display:grid;grid-template-columns:44px 1fr auto;gap:14px;align-items:baseline;padding:14px 0;border-bottom:1px solid var(--line)}
+  .tracklist li .num{font-weight:900;color:var(--gold);font-size:19px}
+  .tracklist li .t{font-weight:800;text-transform:uppercase;font-size:17px}
+  .tracklist li .feat{color:var(--muted);font-weight:500;font-size:13px}
+
+  .tour-row{display:grid;grid-template-columns:120px 1fr auto;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)}
+  .tour-date{font-weight:900;font-size:28px;color:var(--gold)}
+  .tour-venue{font-weight:800;text-transform:uppercase}
+  .tour-city{color:var(--muted);font-size:13px;font-weight:500}
+
+  .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .tile{aspect-ratio:1}
+  .g1{background:linear-gradient(150deg,#2a2310,#0c0c0d)}
+  .g2{background:radial-gradient(70% 70% at 50% 40%,rgba(227,179,65,.5),transparent),linear-gradient(150deg,#1a1a1b,#0c0c0d)}
+  .g3{background:linear-gradient(150deg,#222,#0c0c0d)}
+  .g4{background:linear-gradient(150deg,#3a2f14,#0c0c0d)}
+
+  footer.site{padding:46px 0;border-top:2px solid var(--gold)}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .socials{display:flex;gap:22px;font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .socials a:hover{color:var(--gold)}
+  .copy{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia<span>.</span></a>
+    <nav class="main"><a>Music</a><a>Shows</a><a>Shop</a><a>About</a></nav>
+  </div></header>
+
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-text">
+        <div class="label">The album · out now</div>
+        <h1>The Long<br>Way <em>Home</em></h1>
+        <div class="meta">Twelve tracks. Executive produced by Aurelia Wren. Features VESPER, VOID &amp; more.</div>
+        <div class="hero-foot"><a class="btn btn-gold">Stream now</a><a class="btn btn-out">Shop the drop</a></div>
+      </div>
+      <div class="hero-img"></div>
+    </section>
+
+    <section>
+      <div class="sec-title"><span class="n">01</span><h2>The Album</h2></div>
+      <div class="release">
+        <div class="cover"><b>LWH</b></div>
+        <ul class="tracklist">
+          <li><span class="num">01</span><span class="t">Static Bloom</span><span class="feat">3:42</span></li>
+          <li><span class="num">02</span><span class="t">Grain Mill <span class="feat">feat. VESPER</span></span><span class="feat">4:08</span></li>
+          <li><span class="num">03</span><span class="t">Dust &amp; Gold</span><span class="feat">3:19</span></li>
+          <li><span class="num">04</span><span class="t">The Long Way Home <span class="feat">feat. VOID</span></span><span class="feat">5:01</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><span class="n">02</span><h2>Shows</h2></div>
+      <div class="tour-row"><div class="tour-date">06.14</div><div><div class="tour-venue">The Fillmore</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">06.18</div><div><div class="tour-venue">Wonder Ballroom</div><div class="tour-city">Portland, OR</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">06.22</div><div><div class="tour-venue">Neumos</div><div class="tour-city">Seattle, WA</div></div><a class="btn btn-out">Tickets</a></div>
+    </section>
+
+    <section>
+      <div class="sec-title"><span class="n">03</span><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile g1"></div><div class="tile g2"></div><div class="tile g3"></div><div class="tile g4"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand">Aurelia<span>.</span></a>
+    <div class="socials"><a>Instagram</a><a>Spotify</a><a>Apple Music</a><a>YouTube</a></div>
+    <span class="copy">© 2026 — All rights reserved</span>
+  </div></footer>
+</body>
+</html>

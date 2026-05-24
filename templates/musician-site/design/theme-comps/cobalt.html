@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cobalt — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#f2ede1; --surface:#ffffff; --ink:#1a1c22; --muted:#6f6a5e; --line:#ddd6c6;
+    --cobalt:#1f3a8a; --ochre:#d98a2b;
+    --disp:"Familjen Grotesk",system-ui,sans-serif; --sans:"Inter",system-ui,sans-serif; --maxw:1200px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.65}
+  h1,h2,h3{font-family:var(--disp);font-weight:700;line-height:1.0;letter-spacing:-0.02em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 34px}
+  .label{font-family:var(--disp);font-weight:600;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ochre)}
+  .btn{display:inline-block;font-family:var(--disp);font-weight:600;font-size:14px;padding:.8rem 1.6rem;border-radius:3px}
+  .btn-cobalt{background:var(--cobalt);color:#fff}
+  .btn-out{border:2px solid var(--cobalt);color:var(--cobalt)}
+
+  header.site{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:2px solid var(--cobalt)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:74px}
+  .brand{font-family:var(--disp);font-weight:700;font-size:23px;color:var(--cobalt)}
+  nav.main{display:flex;gap:28px;font-family:var(--disp);font-weight:600;font-size:13px;letter-spacing:.1em;text-transform:uppercase}
+  nav.main a:hover{color:var(--ochre)}
+
+  /* Blue-Note-style two-tone hero */
+  .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:0;align-items:stretch;padding:0;margin:0 0 0;border-bottom:2px solid var(--cobalt)}
+  .hero-text{padding:88px 48px 88px 0}
+  .hero .label{margin-bottom:18px}
+  .hero h1{font-size:clamp(56px,8vw,108px);max-width:11ch;color:var(--cobalt)}
+  .hero h1 span{color:var(--ochre)}
+  .hero p{color:var(--muted);font-size:18px;max-width:36ch;margin:22px 0 30px}
+  .btn-row{display:flex;gap:14px;flex-wrap:wrap}
+  .hero-art{background:linear-gradient(150deg,var(--cobalt),#0e1d4a 70%);position:relative;overflow:hidden;min-height:460px}
+  .hero-art::after{content:"";position:absolute;width:60%;aspect-ratio:1;border-radius:50%;background:var(--ochre);right:-10%;top:18%;opacity:.92}
+  .hero-art b{position:absolute;left:32px;bottom:26px;color:#fff;font-family:var(--disp);font-weight:700;font-size:40px;line-height:.95;z-index:2}
+
+  section{padding:80px 0}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:28px;padding-bottom:14px;border-bottom:2px solid var(--line)}
+  .sec-head h2{font-size:40px;color:var(--cobalt)}
+
+  .release{display:grid;grid-template-columns:330px 1fr;gap:44px;align-items:start}
+  .cover{aspect-ratio:1;background:linear-gradient(150deg,var(--cobalt),#0e1d4a);position:relative;overflow:hidden}
+  .cover::after{content:"";position:absolute;width:55%;aspect-ratio:1;border-radius:50%;background:var(--ochre);left:-10%;bottom:-12%}
+  .tracks{columns:2;column-gap:40px;margin-top:8px}
+  .tracks div{padding:9px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:15px}
+  .tracks b{color:var(--ink);font-weight:600;margin-right:8px}
+  .release h3{font-size:32px;margin-bottom:6px;color:var(--cobalt)}
+  .release .btn-row{margin-top:24px}
+
+  .tour-row{display:grid;grid-template-columns:96px 1fr auto;gap:20px;align-items:center;padding:20px 4px;border-bottom:1px solid var(--line)}
+  .tour-date{font-family:var(--disp);font-weight:700;color:var(--ochre);font-size:20px}
+  .tour-venue{font-weight:600;font-family:var(--disp)}
+  .tour-city{color:var(--muted);font-size:14px}
+
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .tile{aspect-ratio:1;border-radius:3px}
+  .t1{background:linear-gradient(150deg,var(--cobalt),#0e1d4a)}
+  .t2{background:linear-gradient(150deg,var(--ochre),#9a5a16)}
+  .t3{background:linear-gradient(150deg,#2b4ba0,var(--ochre))}
+
+  footer.site{margin-top:8px;background:var(--cobalt);color:#fff;padding:54px 0}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
+  .brand-f{font-family:var(--disp);font-weight:700;font-size:20px;color:#fff}
+  .socials{display:flex;gap:24px;font-family:var(--disp);font-weight:600;font-size:13px;color:#cbd5f0}
+  .socials a:hover{color:var(--ochre)}
+  .copy{color:#aab4d8;font-size:12px}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-text">
+        <div class="label">New album · 2026</div>
+        <h1>The Long <span>Way</span> Home</h1>
+        <p>Contemporary jazz in five movements — brass, upright bass, and a lot of room to breathe.</p>
+        <div class="btn-row"><a class="btn btn-cobalt">Listen now</a><a class="btn btn-out">Order vinyl</a></div>
+      </div>
+      <div class="hero-art"><b>LWH<br>'26</b></div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>Latest release</h2><span class="label">LP · 2026</span></div>
+      <div class="release">
+        <div class="cover"></div>
+        <div>
+          <h3>The Long Way Home</h3>
+          <div class="label" style="color:var(--muted)">Quintet · 41 min</div>
+          <div class="tracks">
+            <div><b>01</b> Blue Arrival</div><div><b>02</b> Grain Mill Stomp</div>
+            <div><b>03</b> Dust &amp; Gold</div><div><b>04</b> The Long Way Home</div>
+            <div><b>05</b> Mustard Sky</div><div><b>06</b> Restless (Reprise)</div>
+          </div>
+          <div class="btn-row"><a class="btn btn-cobalt">Stream</a><a class="btn btn-out">Buy LP</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>On tour</h2><span class="label">Summer '26</span></div>
+      <div class="tour-row"><div class="tour-date">Jun 14</div><div><div class="tour-venue">Blue Note</div><div class="tour-city">New York, NY</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 18</div><div><div class="tour-venue">SFJAZZ</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 22</div><div><div class="tour-venue">The Jazz Showcase</div><div class="tour-city">Chicago, IL</div></div><a class="btn btn-out">Tickets</a></div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile t1"></div><div class="tile t2"></div><div class="tile t3"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <span class="brand-f">Aurelia Wren</span>
+    <div class="socials"><a>Instagram</a><a>Spotify</a><a>Bandcamp</a><a>YouTube</a></div>
+    <span class="copy">© 2026 — All rights reserved</span>
+  </div></footer>
+</body>
+</html>

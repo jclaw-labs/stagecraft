@@ -11,6 +11,7 @@ import {
   HEADER_LAYOUTS,
   HEADER_MODES,
   headerConfigSchema,
+  isGlassHeader,
   isStickyHeader,
   isTransparentHeader,
   PAGE_SLUG_PATTERN,
@@ -165,17 +166,25 @@ describe("headerConfigSchema", () => {
   });
 });
 
-describe("isTransparentHeader / isStickyHeader", () => {
+describe("isTransparentHeader / isStickyHeader / isGlassHeader", () => {
   it("identifies the transparent-static variant", () => {
     expect(isTransparentHeader("transparent-static")).toBe(true);
     expect(isTransparentHeader("solid-sticky")).toBe(false);
     expect(isTransparentHeader("solid-static")).toBe(false);
+    expect(isTransparentHeader("glass-sticky")).toBe(false);
   });
 
-  it("identifies the sticky variant", () => {
+  it("identifies the sticky variants (solid + glass)", () => {
     expect(isStickyHeader("solid-sticky")).toBe(true);
+    expect(isStickyHeader("glass-sticky")).toBe(true);
     expect(isStickyHeader("solid-static")).toBe(false);
     expect(isStickyHeader("transparent-static")).toBe(false);
+  });
+
+  it("identifies the glass variant", () => {
+    expect(isGlassHeader("glass-sticky")).toBe(true);
+    expect(isGlassHeader("solid-sticky")).toBe(false);
+    expect(isGlassHeader("transparent-static")).toBe(false);
   });
 });
 
@@ -359,7 +368,12 @@ describe("COLOR_FIELDS", () => {
 
 describe("HEADER_MODES / HEADER_LAYOUTS", () => {
   it("HEADER_MODES is exactly the three known modes", () => {
-    expect([...HEADER_MODES]).toEqual(["solid-sticky", "solid-static", "transparent-static"]);
+    expect([...HEADER_MODES]).toEqual([
+      "solid-sticky",
+      "solid-static",
+      "transparent-static",
+      "glass-sticky",
+    ]);
   });
 
   it("HEADER_LAYOUTS is exactly the three known layouts", () => {

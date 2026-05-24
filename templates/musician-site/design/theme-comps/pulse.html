@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0a0b0d; --surface:#14161a; --text:#eef0f2; --muted:#7a808a; --line:#23262c;
+    --elec:#3358ff; --cyan:#19e2d2;
+    --disp:"Space Grotesk",system-ui,sans-serif; --mono:"JetBrains Mono",monospace;
+    --maxw:1280px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:14px;line-height:1.6}
+  h1,h2,h3{font-family:var(--disp);font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:-0.01em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+  .label{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--cyan)}
+  .btn{display:inline-block;font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.16em;font-size:12px;padding:.85rem 1.5rem;background:var(--elec);color:#fff}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+
+  header.site{position:sticky;top:0;z-index:20;background:rgba(10,11,13,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{font-family:var(--disp);font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:18px}
+  nav.main{display:flex;gap:26px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  nav.main a:hover{color:var(--cyan)}
+  .status{display:flex;align-items:center;gap:8px;color:var(--cyan);font-size:11px;letter-spacing:.2em;text-transform:uppercase}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+
+  .hero{position:relative;padding:90px 0 70px;overflow:hidden;border-bottom:1px solid var(--line);
+    background:
+      linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/64px 64px,
+      linear-gradient(0deg,var(--line) 1px,transparent 1px) 0 0/64px 64px,
+      radial-gradient(60% 90% at 80% 10%, rgba(51,88,255,.35), transparent 60%)}
+  .hero h1{font-size:clamp(64px,12vw,168px);max-width:13ch}
+  .hero h1 span{color:var(--elec)}
+  .data{display:flex;gap:36px;margin-top:30px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+  .data b{color:var(--text);font-weight:500}
+  .hero .btn{margin-top:30px}
+
+  section{padding:60px 0;border-bottom:1px solid var(--line)}
+  .sec-title{display:flex;align-items:baseline;gap:18px;margin-bottom:28px}
+  .sec-title h2{font-size:clamp(30px,4vw,52px)}
+
+  /* next event flyer */
+  .event{display:grid;grid-template-columns:130px 1fr auto;gap:26px;align-items:center;background:var(--surface);border:1px solid var(--line);padding:26px 30px}
+  .event .d{font-family:var(--disp);font-size:46px;color:var(--cyan);line-height:.9}
+  .event .v{font-family:var(--disp);font-size:26px;text-transform:uppercase}
+  .event .c{color:var(--muted);font-size:12px;letter-spacing:.16em;text-transform:uppercase;margin-top:4px}
+
+  .release{display:grid;grid-template-columns:340px 1fr;gap:36px;align-items:start;margin-top:8px}
+  .cover{aspect-ratio:1;background:linear-gradient(135deg,#3358ff,#0a0b0d 70%);position:relative;overflow:hidden}
+  .cover::after{content:"";position:absolute;inset:0;background:radial-gradient(50% 50% at 30% 20%,rgba(25,226,210,.5),transparent 60%)}
+  .tracklist{list-style:none}
+  .tracklist li{display:grid;grid-template-columns:30px 1fr auto;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);color:var(--muted)}
+  .tracklist li b{color:var(--text);font-weight:500}
+
+  .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .tile{aspect-ratio:1}
+  .g1{background:linear-gradient(135deg,#1a2540,#0a0b0d)}
+  .g2{background:linear-gradient(135deg,#13343f,#0a0b0d)}
+  .g3{background:linear-gradient(135deg,#3358ff44,#0a0b0d)}
+  .g4{background:linear-gradient(135deg,#19e2d233,#0a0b0d)}
+
+  footer.site{padding:46px 0}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .socials{display:flex;gap:22px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  .socials a:hover{color:var(--cyan)}
+  .copy{color:var(--muted);font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Live</a><a>About</a><a>Contact</a></nav>
+    <span class="status"><span class="dot"></span>New EP live</span>
+  </div></header>
+
+  <section class="hero"><div class="wrap">
+    <div class="label">EP · 2026</div>
+    <h1 style="margin-top:14px">Static <span>Bloom</span></h1>
+    <div class="data"><span>BPM <b>128</b></span><span>KEY <b>A min</b></span><span>FMT <b>12" + Digital</b></span><span>LABEL <b>Self-released</b></span></div>
+    <a class="btn">Play / Stream</a>
+  </div></section>
+
+  <div class="wrap">
+    <section>
+      <div class="sec-title"><div class="label">/ Next</div><h2>Upcoming</h2></div>
+      <div class="event"><div class="d">06<br>14</div><div><div class="v">Berghain</div><div class="c">Berlin · 02:00–close</div></div><a class="btn">RSVP</a></div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="label">/ Release</div><h2>Static Bloom</h2></div>
+      <div class="release">
+        <div class="cover"></div>
+        <ul class="tracklist">
+          <li><b>A1</b><span>Static Bloom</span><span>06:24</span></li>
+          <li><b>A2</b><span>Null Signal</span><span>05:18</span></li>
+          <li><b>B1</b><span>Lattice (feat. VOID)</span><span>07:02</span></li>
+          <li><b>B2</b><span>Afterimage</span><span>06:47</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="label">/ Tour</div><h2>Live dates</h2></div>
+      <div class="event" style="margin-bottom:8px"><div class="d" style="font-size:30px">06.18</div><div><div class="v" style="font-size:20px">Fabric</div><div class="c">London, UK</div></div><a class="btn btn-ghost">Tickets</a></div>
+      <div class="event"><div class="d" style="font-size:30px">06.22</div><div><div class="v" style="font-size:20px">De School</div><div class="c">Amsterdam, NL</div></div><a class="btn btn-ghost">Tickets</a></div>
+    </section>
+
+    <section style="border-bottom:none">
+      <div class="sec-title"><div class="label">/ Visuals</div><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile g1"></div><div class="tile g2"></div><div class="tile g3"></div><div class="tile g4"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <div class="socials"><a>SoundCloud</a><a>Bandcamp</a><a>Resident Advisor</a><a>Instagram</a></div>
+    <span class="copy">© 2026</span>
+  </div></footer>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Redwood — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=Libre+Franklin:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#eef0ea; --surface:#f7f8f3; --text:#33291f; --muted:#6f6a5e; --line:#d8dad0;
+    --redwood:#7d3a2d; --sage:#7e9376;
+    --serif:"Spectral",Georgia,serif; --sans:"Libre Franklin",system-ui,sans-serif;
+    --maxw:1180px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{font-family:var(--serif);font-weight:500;line-height:1.08;letter-spacing:.002em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 36px}
+  .label{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--sage);font-weight:600}
+  .btn{display:inline-block;font-weight:600;font-size:14px;letter-spacing:.04em;padding:.8rem 1.6rem;border-radius:6px}
+  .btn-solid{background:var(--redwood);color:#f7f3ec}
+  .btn-out{border:1.5px solid var(--redwood);color:var(--redwood)}
+
+  header.site{position:absolute;top:0;left:0;right:0;z-index:5;padding:26px 0}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-family:var(--serif);font-size:25px;font-weight:600;color:#f5f1e8}
+  nav.main{display:flex;gap:30px;font-size:13px;font-weight:500;letter-spacing:.04em;color:#eef0ea}
+  nav.main a{opacity:.9}nav.main a:hover{opacity:1}
+
+  /* tall misty hero, left-aligned */
+  .hero{position:relative;min-height:84vh;display:flex;align-items:flex-end;overflow:hidden;
+    background:linear-gradient(180deg,#9aa79a 0%,#6e6256 38%,#5a2c22 78%,#3c1c15 100%)}
+  .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(28,16,12,.5),transparent 60%)}
+  .hero .wrap{position:relative;z-index:2;padding-bottom:64px;color:#f5f1e8;width:100%}
+  .hero .label{color:#cdd6c8;margin-bottom:16px}
+  .hero h1{font-size:clamp(52px,8vw,104px);font-weight:500;max-width:15ch;color:#fff}
+  .hero p{font-family:var(--serif);font-style:italic;font-size:22px;max-width:34ch;margin:18px 0 26px;color:#e7e3d8}
+
+  section{padding:96px 0}
+  .release{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+  .cover{aspect-ratio:1;border-radius:8px;background:linear-gradient(160deg,#9aa79a,#7d3a2d 70%,#3c1c15)}
+  .release .label{margin-bottom:16px}
+  .release h2{font-size:48px;margin-bottom:16px}
+  .release p{color:var(--muted);max-width:40ch;margin-bottom:28px}
+  .btn-row{display:flex;gap:14px;flex-wrap:wrap}
+
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid var(--sage)}
+  .sec-head h2{font-size:38px}
+  .tour-row{display:grid;grid-template-columns:120px 1fr auto;gap:22px;align-items:center;padding:22px 4px;border-bottom:1px solid var(--line)}
+  .tour-date{font-family:var(--serif);font-style:italic;color:var(--redwood);font-size:21px}
+  .tour-venue{font-weight:600}
+  .tour-city{color:var(--muted);font-size:14px}
+
+  /* portrait tiles, like trunks */
+  .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .tile{aspect-ratio:2/3;border-radius:8px}
+  .t1{background:linear-gradient(180deg,#9aa79a,#5a2c22)}
+  .t2{background:linear-gradient(180deg,#b7a98f,#7d3a2d)}
+  .t3{background:linear-gradient(180deg,#8a9b86,#3c1c15)}
+  .t4{background:linear-gradient(180deg,#c0b49a,#6e3a2c)}
+
+  footer.site{margin-top:30px;background:#3c1c15;color:#e7e3d8;padding:60px 0}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
+  .brand-f{font-family:var(--serif);font-weight:600;font-size:22px;color:#fff}
+  .socials{display:flex;gap:24px;font-weight:500;font-size:13px}
+  .socials a{opacity:.85}
+  .copy{color:#b6a99a;font-size:13px}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <section class="hero"><div class="wrap">
+    <div class="label">New album — out now</div>
+    <h1>The Long Way Home</h1>
+    <p>cinematic folk, grown tall and quiet</p>
+    <a class="btn btn-solid">Listen now</a>
+  </div></section>
+
+  <div class="wrap">
+    <section>
+      <div class="release">
+        <div class="cover"></div>
+        <div>
+          <div class="label">Latest release</div>
+          <h2>The Long Way Home</h2>
+          <p>Ten songs recorded among the coast redwoods — recorded live, mixed at dusk.</p>
+          <div class="btn-row"><a class="btn btn-solid">Stream</a><a class="btn btn-out">Order vinyl</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>On tour</h2><span class="label">Summer '26</span></div>
+      <div class="tour-row"><div class="tour-date">Jun 14</div><div><div class="tour-venue">The Fillmore</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 18</div><div><div class="tour-venue">Wonder Ballroom</div><div class="tour-city">Portland, OR</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 22</div><div><div class="tour-venue">Neumos</div><div class="tour-city">Seattle, WA</div></div><a class="btn btn-out">Tickets</a></div>
+    </section>
+
+    <section style="padding-top:0">
+      <div class="sec-head"><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile t1"></div><div class="tile t2"></div><div class="tile t3"></div><div class="tile t4"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <span class="brand-f">Aurelia Wren</span>
+    <div class="socials"><a>Instagram</a><a>Spotify</a><a>Bandcamp</a><a>YouTube</a></div>
+    <span class="copy">© 2026 — All rights reserved</span>
+  </div></footer>
+</body>
+</html>

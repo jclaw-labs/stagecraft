@@ -71,6 +71,13 @@ describe("resolveTheme", () => {
     expect(resolved.header.wordmarkSizeAdjust).toBe(1);
   });
 
+  it("lantern is a dark palette with the glass header", () => {
+    const resolved = resolveTheme("lantern", DEFAULT_HEADER_CONFIG);
+    expect(resolved.appearance.colors.background).toBe("#0b0c0e");
+    expect(resolved.appearance.colors.accent).toBe("#e7c27d");
+    expect(resolved.header.headerMode).toBe("glass-sticky");
+  });
+
   it("preserves artist-owned header fields (wordmark + subtitle)", () => {
     const wordmark = { id: "x", alt: "logo" } as unknown as HeaderConfig["wordmark"];
     const existing: HeaderConfig = {

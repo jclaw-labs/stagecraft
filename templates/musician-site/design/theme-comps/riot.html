@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Riot — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0a0a0a; --panel:#141414; --text:#f2f2f2; --muted:#8a8a8a;
+    --lime:#c8ff2f; --border:#2a2a2a;
+    --disp:"Anton",Impact,sans-serif; --mono:"Space Mono",monospace;
+    --maxw:1280px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:15px;line-height:1.6}
+  h1,h2,h3{font-family:var(--disp);font-weight:400;text-transform:uppercase;line-height:.92;letter-spacing:.01em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+  .label{font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--lime)}
+  .btn{display:inline-block;font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:13px;
+    padding:.8rem 1.4rem;border:2px solid var(--lime);color:var(--bg);background:var(--lime)}
+  .btn:hover{box-shadow:6px 6px 0 var(--text)}
+  .btn-ghost{background:transparent;color:var(--lime)}
+  .btn-ghost:hover{box-shadow:6px 6px 0 var(--lime)}
+
+  /* marquee ticker */
+  .ticker{background:var(--lime);color:#000;font-family:var(--mono);font-weight:700;text-transform:uppercase;
+    letter-spacing:.2em;font-size:12px;padding:8px 0;white-space:nowrap;overflow:hidden}
+  .ticker span{display:inline-block;padding-right:40px}
+
+  /* header */
+  header.site{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:3px solid var(--lime)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:72px}
+  .brand{font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.25em;font-size:18px}
+  nav.main{display:flex;gap:30px;font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.18em;text-transform:uppercase}
+  nav.main a:hover{color:var(--lime)}
+
+  /* hero */
+  .hero{padding:70px 0 60px;border-bottom:2px solid var(--border)}
+  .hero .label{margin-bottom:18px}
+  .hero h1{font-size:clamp(72px,15vw,200px);max-width:14ch}
+  .hero h1 em{font-style:normal;color:var(--lime);-webkit-text-stroke:2px var(--lime);color:transparent}
+  .hero-foot{display:flex;gap:18px;align-items:center;margin-top:34px}
+  .hero-sub{color:var(--muted);max-width:40ch}
+
+  section{padding:64px 0;border-bottom:2px solid var(--border)}
+  .sec-title{display:flex;align-items:baseline;gap:20px;margin-bottom:34px}
+  .sec-title h2{font-size:clamp(40px,6vw,72px)}
+
+  /* release */
+  .release{display:grid;grid-template-columns:380px 1fr;gap:0;border:2px solid var(--text)}
+  .cover{aspect-ratio:1;background:linear-gradient(135deg,#1a1a1a,#000);
+    border-right:2px solid var(--text);position:relative;overflow:hidden}
+  .cover::after{content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(45deg,transparent 0 18px,rgba(200,255,47,.14) 18px 20px);}
+  .cover b{position:absolute;left:24px;bottom:20px;font-family:var(--disp);font-size:54px;color:var(--lime);text-transform:uppercase;line-height:.9}
+  .release .body{padding:34px}
+  .release h2{font-size:60px;margin-bottom:16px}
+  .tracklist{list-style:none;border-top:1px solid var(--border)}
+  .tracklist li{display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);color:var(--muted)}
+  .tracklist li b{color:var(--text)}
+  .release .btn{margin-top:24px}
+
+  /* tour */
+  .tour-row{display:grid;grid-template-columns:120px 1fr auto;gap:20px;align-items:center;
+    padding:18px 0;border-top:2px solid var(--text)}
+  .tour-row:last-child{border-bottom:2px solid var(--text)}
+  .tour-date{font-family:var(--disp);font-size:30px;color:var(--lime)}
+  .tour-venue{font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .tour-city{color:var(--muted);font-size:13px}
+
+  /* gallery */
+  .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .tile{aspect-ratio:1;filter:grayscale(.2) contrast(1.2)}
+  .g1{background:linear-gradient(135deg,#222,#000)}
+  .g2{background:linear-gradient(135deg,#c8ff2f33,#000)}
+  .g3{background:linear-gradient(135deg,#333,#111)}
+  .g4{background:linear-gradient(135deg,#c8ff2f22,#111)}
+
+  footer.site{padding:50px 0;text-align:left}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px}
+  .socials{display:flex;gap:24px;font-weight:700;font-size:12px;letter-spacing:.2em;text-transform:uppercase}
+  .socials a:hover{color:var(--lime)}
+  .copy{color:var(--muted);font-size:12px;letter-spacing:.1em;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <div class="ticker"><span>★ NEW ALBUM OUT NOW ★ TICKETS ON SALE ★ NEW ALBUM OUT NOW ★ TICKETS ON SALE ★ NEW ALBUM OUT NOW ★ TICKETS ON SALE ★ NEW ALBUM OUT NOW ★ TICKETS ON SALE ★</span></div>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <div class="wrap">
+    <section class="hero">
+      <div class="label">Cinematic folk · high desert</div>
+      <h1>New record.<br>New tour.<br><em>Same noise.</em></h1>
+      <div class="hero-foot"><a class="btn">Get tickets</a><div class="hero-sub">Ten songs cut live to tape. No overdubs, no apologies.</div></div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="label">/ 01</div><h2>The Long Way Home</h2></div>
+      <div class="release">
+        <div class="cover"><b>LWH</b></div>
+        <div class="body">
+          <ul class="tracklist">
+            <li><b>01</b> Static Bloom</li><li><b>02</b> Grain Mill</li>
+            <li><b>03</b> The Long Way Home</li><li><b>04</b> Acid Lime</li>
+            <li><b>05</b> Restless Heart</li>
+          </ul>
+          <a class="btn">Stream now</a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title"><div class="label">/ 02</div><h2>Tour</h2></div>
+      <div class="tour-row"><div class="tour-date">06.14</div><div><div class="tour-venue">The Fillmore</div><div class="tour-city">San Francisco, CA</div></div><a class="btn">Tix</a></div>
+      <div class="tour-row"><div class="tour-date">06.18</div><div><div class="tour-venue">Wonder Ballroom</div><div class="tour-city">Portland, OR</div></div><a class="btn">Tix</a></div>
+      <div class="tour-row"><div class="tour-date">06.22</div><div><div class="tour-venue">Neumos</div><div class="tour-city">Seattle, WA</div></div><a class="btn">Tix</a></div>
+    </section>
+
+    <section style="border-bottom:none">
+      <div class="sec-title"><div class="label">/ 03</div><h2>Live</h2></div>
+      <div class="gallery"><div class="tile g1"></div><div class="tile g2"></div><div class="tile g3"></div><div class="tile g4"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <div class="socials"><a>Instagram</a><a>Spotify</a><a>Bandcamp</a><a>YouTube</a></div>
+    <div class="copy">© 2026 — All rights reserved</div>
+  </div></footer>
+</body>
+</html>

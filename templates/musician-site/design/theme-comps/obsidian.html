@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Obsidian — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturCook:wght@700&family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07070a; --surface:#121216; --text:#c6c9cf; --bone:#e9e5dd; --muted:#65676d; --line:#242428;
+    --crimson:#c01530; --crimson-deep:#7c0c1c; --steel:#8a8d95;
+    --black:"UnifrakturCook",serif; --cond:"Oswald",system-ui,sans-serif; --sans:"Inter",system-ui,sans-serif;
+    --maxw:1180px;
+    --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+  h2,h3{font-family:var(--cond);font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:.02em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 34px}
+  .grain{position:fixed;inset:0;background:var(--grain);background-size:170px;opacity:.05;pointer-events:none;mix-blend-mode:overlay;z-index:1}
+  .label{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.36em;text-transform:uppercase;color:var(--crimson)}
+  .btn{display:inline-block;font-family:var(--cond);font-weight:600;font-size:13px;letter-spacing:.2em;text-transform:uppercase;padding:.85rem 1.8rem;background:var(--crimson);color:var(--bone)}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  .btn-ghost:hover{border-color:var(--crimson);color:var(--bone)}
+
+  header.site{position:sticky;top:0;z-index:20;background:rgba(7,7,10,.92);border-bottom:2px solid var(--crimson-deep)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
+  .brand{font-family:var(--black);font-size:30px;color:var(--bone);line-height:1}
+  nav.main{display:flex;gap:28px;font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+  nav.main a:hover{color:var(--crimson)}
+
+  .hero{position:relative;text-align:center;padding:120px 0 96px;overflow:hidden;border-bottom:2px solid var(--line);
+    background:radial-gradient(70% 90% at 50% 0%, #1c0a10 0%, #07070a 60%)}
+  .hero .label{margin-bottom:30px}
+  .hero h1{font-family:var(--black);font-weight:700;font-size:clamp(72px,13vw,196px);line-height:.92;color:var(--bone);
+    text-shadow:0 0 60px rgba(192,21,48,.25)}
+  .hero .blade{width:160px;height:2px;background:var(--crimson);margin:34px auto 26px}
+  .hero .sub{font-family:var(--cond);font-weight:500;font-size:clamp(18px,2.4vw,26px);text-transform:uppercase;letter-spacing:.18em;color:var(--steel)}
+  .hero .btn{margin-top:36px}
+
+  section{padding:80px 0;border-bottom:2px solid var(--line)}
+  .sec-head{display:flex;align-items:baseline;gap:18px;margin-bottom:28px}
+  .sec-head h2{font-size:clamp(34px,5vw,60px)}
+
+  .release{display:grid;grid-template-columns:330px 1fr;gap:40px;align-items:start}
+  .cover{aspect-ratio:1;border:2px solid var(--steel);background:radial-gradient(circle at 50% 42%,#3a0e16,#07070a 72%);position:relative}
+  .cover::after{content:"";position:absolute;left:50%;top:50%;width:48%;height:2px;background:var(--crimson);transform:translate(-50%,-50%)}
+  .tracklist{list-style:none}
+  .tracklist li{display:grid;grid-template-columns:42px 1fr auto;gap:14px;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--line)}
+  .tracklist li .n{font-family:var(--cond);font-weight:700;color:var(--crimson);font-size:18px}
+  .tracklist li .t{font-family:var(--cond);font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:17px;color:var(--bone)}
+  .tracklist li .len{color:var(--muted);font-size:13px}
+  .release .btn{margin-top:24px}
+
+  .tour-row{display:grid;grid-template-columns:120px 1fr auto;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)}
+  .tour-date{font-family:var(--cond);font-weight:700;color:var(--crimson);font-size:24px}
+  .tour-venue{font-family:var(--cond);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:16px;color:var(--bone)}
+  .tour-city{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em}
+
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .tile{aspect-ratio:3/4;border:1px solid var(--line)}
+  .t1{background:linear-gradient(180deg,#1a0c10,#07070a)}
+  .t2{background:linear-gradient(180deg,#3a0e16,#07070a)}
+  .t3{background:linear-gradient(180deg,#14161a,#07070a)}
+
+  footer.site{padding:48px 0;border-top:2px solid var(--crimson-deep)}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .socials{display:flex;gap:24px;font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  .socials a:hover{color:var(--crimson)}
+  .copy{color:var(--muted);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <div class="grain"></div>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <section class="hero">
+    <div class="label">New record — MMXXVI</div>
+    <h1>Aurelia<br>Wren</h1>
+    <div class="blade"></div>
+    <div class="sub">The Long Way Home · Out Now</div>
+    <div><a class="btn">Stream the record</a></div>
+  </section>
+
+  <div class="wrap">
+    <section>
+      <div class="sec-head"><span class="label">/ Album</span><h2>The Long Way Home</h2></div>
+      <div class="release">
+        <div class="cover"></div>
+        <ul class="tracklist">
+          <li><span class="n">I</span><span class="t">Stone Chapel</span><span class="len">6:24</span></li>
+          <li><span class="n">II</span><span class="t">Ash &amp; Iron</span><span class="len">5:51</span></li>
+          <li><span class="n">III</span><span class="t">The Long Way Home</span><span class="len">8:12</span></li>
+          <li><span class="n">IV</span><span class="t">Crimson Tide</span><span class="len">7:03</span></li>
+          <li><span class="n">V</span><span class="t">Funeral Bloom</span><span class="len">9:40</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><span class="label">/ Tour</span><h2>On the road</h2></div>
+      <div class="tour-row"><div class="tour-date">JUN 14</div><div><div class="tour-venue">The Regency</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-ghost">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">JUN 18</div><div><div class="tour-venue">Roseland Theater</div><div class="tour-city">Portland, OR</div></div><a class="btn btn-ghost">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">JUN 22</div><div><div class="tour-venue">The Showbox</div><div class="tour-city">Seattle, WA</div></div><a class="btn btn-ghost">Tickets</a></div>
+    </section>
+
+    <section style="border-bottom:none">
+      <div class="sec-head"><span class="label">/ Visuals</span><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile t1"></div><div class="tile t2"></div><div class="tile t3"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand" style="font-size:24px">Aurelia Wren</a>
+    <div class="socials"><a>Bandcamp</a><a>Spotify</a><a>Instagram</a><a>YouTube</a></div>
+    <span class="copy">© MMXXVI</span>
+  </div></footer>
+</body>
+</html>
