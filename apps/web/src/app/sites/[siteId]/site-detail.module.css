@@ -60,7 +60,8 @@
 }
 .badge .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
 .live { color: var(--color-success); background: var(--color-success-bg); }
-.building { color: var(--color-warning); background: var(--color-warning-bg); }
+/* "Building" reads as in-progress (blue) — matches the dashboard SiteCard. */
+.building { color: var(--color-info); background: var(--color-info-bg); }
 .error { color: var(--color-error); background: var(--color-error-bg); }
 .archived { color: var(--color-muted); background: var(--color-neutral-bg); }
 
@@ -99,7 +100,7 @@
   box-shadow: var(--shadow-sm);
 }
 .toneOk { border-left: 3px solid var(--color-success); }
-.toneBuilding { border-left: 3px solid var(--color-warning); }
+.toneBuilding { border-left: 3px solid var(--color-info); }
 .toneError { border-left: 3px solid var(--color-error); }
 .toneNeutral { border-left: 3px solid var(--color-muted); }
 .statusMsg { font-size: var(--font-size-sm); color: var(--color-text); }
@@ -186,5 +187,4 @@
   .head { flex-direction: column; }
   .headActions { width: 100%; }
   .headActions a, .headActions button { flex: 1; }
-  .kvVal { text-align: right; }
 }

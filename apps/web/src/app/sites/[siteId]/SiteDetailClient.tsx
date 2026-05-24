@@ -299,8 +299,8 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
     ? styles.toneNeutral
     : styles.toneOk;
 
-  const badge = isCreating || isBuilding || isCheckingStatus
-    ? { cls: styles.building, label: "Building" }
+  const badge = isCreating || isBuilding || isCheckingStatus || needsRepoLink
+    ? { cls: styles.building, label: needsRepoLink ? "Setup" : "Building" }
     : isError || isDeployError
     ? { cls: styles.error, label: isError ? "Error" : "Deploy failed" }
     : isArchived
@@ -310,7 +310,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   return (
     <div className={styles.container}>
       <a className={styles.breadcrumb} href="/dashboard">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
         Sites
       </a>
 
@@ -326,7 +326,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
           {site.productionUrl && (isReady || isCheckingStatus) && (
             <a className={styles.url} href={site.productionUrl} target="_blank" rel="noopener noreferrer">
               {site.productionUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 5h5v5" /><path d="M19 5l-8 8" /><path d="M19 13v6H5V5h6" /></svg>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 5h5v5" /><path d="M19 5l-8 8" /><path d="M19 13v6H5V5h6" /></svg>
             </a>
           )}
         </div>
