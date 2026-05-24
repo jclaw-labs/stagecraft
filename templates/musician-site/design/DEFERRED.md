@@ -32,5 +32,19 @@ up, so they aren't lost. Each notes why and where it should land.
   own auth-gated site, so this isn't a privilege boundary; left as-is to match
   the existing trust model. Revisit only if appearance becomes cross-tenant.
 
+## Open (from PR3)
+
+- **Header chrome admin.** `headerHeight` / `headerBorder` are consumed by
+  Header (PR2) and editable values exist, but the `/admin/navigation` form +
+  header-item persistence for them aren't wired yet. Fold into PR4 (presets set
+  these via an extended `HeaderStyle`, so PR4 adds header persistence) or PR5.
+- **`design` JSON field in the generic editor.** Stored as one systemLocked
+  JSON text field; the custom Appearance panel is the real editor. The generic
+  collection editor would show raw JSON — acceptable since appearance has a
+  custom surface. A dedicated object/group field type could come later.
+- **Admin "Advanced" disclosure.** PR3 groups the controls into FieldGroups
+  (Layout / Shape / Detail) but doesn't collapse them behind an Advanced toggle.
+  Collapsible disclosure is PR5 polish.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->

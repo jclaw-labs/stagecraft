@@ -21,9 +21,12 @@ import type { Data as PuckData } from "@measured/puck";
 import type { ImageMetadata } from "../image-types";
 import {
   DEFAULT_APPEARANCE,
+  DEFAULT_DESIGN,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
+  designSchema,
   type Appearance,
+  type Design,
   type HeaderConfig,
   type PageRootProps,
   type SiteConfig,
@@ -260,6 +263,14 @@ export function appearanceToItemValues(appearance: Appearance): Item["values"] {
     type: "text",
     value: appearance.typography.headingFont,
   };
+  values[APPEARANCE_FIELD_IDS.displayFont] = {
+    type: "text",
+    value: appearance.typography.displayFont ?? "",
+  };
+  values[APPEARANCE_FIELD_IDS.design] = {
+    type: "text",
+    value: JSON.stringify(appearance.design ?? DEFAULT_DESIGN),
+  };
   values[APPEARANCE_FIELD_IDS.bodyWeight_body] = {
     type: "select",
     value: String(appearance.typography.bodyWeights.body),
@@ -283,6 +294,15 @@ export function appearanceToItemValues(appearance: Appearance): Item["values"] {
   return values;
 }
 
+function designFromValue(raw: string | null): Design {
+  if (!raw) return DEFAULT_DESIGN;
+  try {
+    return designSchema.parse(JSON.parse(raw));
+  } catch {
+    return DEFAULT_DESIGN;
+  }
+}
+
 export function appearanceFromItem(item: Item | null): Appearance {
   if (!item) return DEFAULT_APPEARANCE;
   const colors = Object.fromEntries(
@@ -299,6 +319,7 @@ export function appearanceFromItem(item: Item | null): Appearance {
   };
   return {
     colors,
+    design: designFromValue(getString(item, APPEARANCE_FIELD_IDS.design)),
     typography: {
       bodyFont:
         getString(item, APPEARANCE_FIELD_IDS.bodyFont) ?? DEFAULT_APPEARANCE.typography.bodyFont,
@@ -306,6 +327,7 @@ export function appearanceFromItem(item: Item | null): Appearance {
         (getString(item, APPEARANCE_FIELD_IDS.headingMode) as Appearance["typography"]["headingMode"]) ??
         DEFAULT_APPEARANCE.typography.headingMode,
       headingFont: getString(item, APPEARANCE_FIELD_IDS.headingFont) ?? "",
+      displayFont: getString(item, APPEARANCE_FIELD_IDS.displayFont) ?? "",
       bodyWeights: {
         body: weight(APPEARANCE_FIELD_IDS.bodyWeight_body, 400) as Appearance["typography"]["bodyWeights"]["body"],
         bodyBold: weight(

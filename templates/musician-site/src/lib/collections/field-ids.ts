@@ -68,11 +68,16 @@ export const APPEARANCE_FIELD_IDS = {
   bodyFont: "fld_appearance_bodyFont",
   headingMode: "fld_appearance_headingMode",
   headingFont: "fld_appearance_headingFont",
+  displayFont: "fld_appearance_displayFont",
   bodyWeight_body: "fld_appearance_bodyWeight_body",
   bodyWeight_bodyBold: "fld_appearance_bodyWeight_bodyBold",
   headingWeight_h1: "fld_appearance_headingWeight_h1",
   headingWeight_h2: "fld_appearance_headingWeight_h2",
   headingWeight_h3: "fld_appearance_headingWeight_h3",
+  // Whole design-token group serialized as one JSON text field (18 named
+  // 3-step controls; a dedicated panel edits them, so one blob beats 18
+  // collection fields).
+  design: "fld_appearance_design",
 } as const;
 
 export const PHOTOS_FIELD_IDS = {

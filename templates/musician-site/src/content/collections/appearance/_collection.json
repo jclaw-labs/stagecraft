@@ -100,6 +100,19 @@
       "required": false
     },
     {
+      "id": "fld_appearance_displayFont",
+      "key": "displayFont",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "fld_appearance_design",
+      "key": "design",
+      "type": "text",
+      "required": false,
+      "systemLocked": true
+    },
+    {
       "id": "fld_appearance_bodyWeight_body",
       "key": "bodyWeight_body",
       "type": "select",
