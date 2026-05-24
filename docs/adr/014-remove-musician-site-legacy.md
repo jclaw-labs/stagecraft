@@ -1,7 +1,7 @@
 # ADR-014: Retire the Legacy Musician-Site Template
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 ADR-007 rebuilt the musician-site template on Next.js + Puck and renamed the
