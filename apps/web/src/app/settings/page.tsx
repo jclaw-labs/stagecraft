@@ -74,7 +74,7 @@ export default async function SettingsPage({
 
         <div className={styles.grid}>
           <div className={styles.integration}>
-            <h3 className={styles.integrationTitle}>GitHub</h3>
+            <h2 className={styles.integrationTitle}>GitHub</h2>
             {github ? (
               <p>
                 Connected as <strong>{(github.metadata as { login?: string })?.login ?? github.providerAccountId}</strong>
@@ -85,23 +85,23 @@ export default async function SettingsPage({
           </div>
 
           <div className={styles.integration}>
-            <h3 className={styles.integrationTitle}>Vercel <span className={styles.tagBrand}>(recommended)</span></h3>
+            <h2 className={styles.integrationTitle}>Vercel <span className={styles.tagBrand}>(recommended)</span></h2>
             <ConnectVercel connectedUsername={vercelUsername} />
           </div>
 
           <div className={styles.integration}>
-            <h3 className={styles.integrationTitle}>Netlify</h3>
+            <h2 className={styles.integrationTitle}>Netlify</h2>
             <ConnectNetlify connectedEmail={netlifyEmail} />
           </div>
 
           <div className={styles.integration}>
-            <h3 className={styles.integrationTitle}>Resend <span className={styles.tag}>(required for magic-link sign-in)</span></h3>
+            <h2 className={styles.integrationTitle}>Resend <span className={styles.tag}>(required for magic-link sign-in)</span></h2>
             <ConnectResend connectedAdminEmail={resendAdminEmail} />
           </div>
 
           {githubAppInstallUrl && (
             <div className={styles.integration}>
-              <h3 className={styles.integrationTitle}>Stagecraft GitHub App</h3>
+              <h2 className={styles.integrationTitle}>Stagecraft GitHub App</h2>
               <p className={styles.cardText}>
                 Installing the Stagecraft App on your GitHub account lets the platform
                 manage repos without a per-site connection step. Select &ldquo;All repositories&rdquo;

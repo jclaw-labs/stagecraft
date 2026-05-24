@@ -56,7 +56,6 @@
 }
 .tag { font-size: var(--font-size-xs); font-weight: var(--font-weight-normal); color: var(--color-text-muted); }
 .tagBrand { font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); color: var(--color-brand); }
-.connected { color: var(--color-success); }
 .muted { color: var(--color-text-muted); }
 .cardText {
   margin: var(--space-1) 0 var(--space-3);
