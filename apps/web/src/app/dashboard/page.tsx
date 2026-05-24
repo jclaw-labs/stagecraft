@@ -1,10 +1,14 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+
+import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
 import Button from "@/components/Button";
+import AppShell from "@/components/AppShell";
+import SiteCard from "@/components/SiteCard";
 
 import { isStagecraftAdmin } from "@/lib/admin-allowlist";
 import { NukeAllSitesButton } from "./NukeAllSitesButton";
+import styles from "./dashboard.module.css";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -31,54 +35,85 @@ export default async function DashboardPage() {
     orderBy: { createdAt: "desc" },
   });
 
+  const liveCount = sites.filter((s) => s.status === "active").length;
+  const attentionCount = sites.filter(
+    (s) => s.status === "error" || s.status === "deploy_failed",
+  ).length;
+
+  const isAdmin = isStagecraftAdmin(session.user.email);
+
   return (
-    <main style={{ maxWidth: "var(--max-width-wide)", margin: "var(--space-10) auto", fontFamily: "var(--font-body)" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>Dashboard</h1>
-        <div>
-          <a href="/settings" style={{ marginRight: "var(--space-4)" }}>Settings</a>
-          <span style={{ marginRight: "var(--space-4)" }}>{session.user.name ?? session.user.email}</span>
-          {/* next-auth signout endpoint — must use plain anchor, not next/link */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/auth/signout" style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>Sign out</a>
-        </div>
-      </header>
-
-      <section style={{ marginTop: "var(--space-8)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2>Your Sites</h2>
-          <Button href="/create" size="sm">+ Create site</Button>
-        </div>
+    <AppShell user={{ name: session.user.name, email: session.user.email }} current="sites">
+      <div className={styles.container}>
         {sites.length === 0 ? (
-          <p>No sites yet. <a href="/create">Create your first musician website</a> to get started.</p>
+          <section className={styles.empty}>
+            <div className={styles.emptyInner}>
+              <div className={styles.emptyArt} aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 9h18" />
+                  <path d="M12 13v4M10 15h4" />
+                </svg>
+              </div>
+              <h1 className={styles.emptyTitle}>Let&rsquo;s build your first site</h1>
+              <p className={styles.emptyText}>
+                Stagecraft turns a few details into a polished, ready-to-publish
+                musician website — pick a theme, add your music and shows, and go live.
+              </p>
+              <Button href="/create">New site</Button>
+            </div>
+          </section>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            {sites.map((site: { id: string; name: string; status: string; productionUrl: string | null }) => (
-              <li key={site.id} style={{
-                padding: "var(--space-4)",
-                border: `1px solid var(--color-border)`,
-                borderRadius: "var(--radius-lg)",
-                marginBottom: "var(--space-3)",
-                opacity: site.status === "archived" ? 0.6 : 1,
-              }}>
-                <a href={`/sites/${site.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-                  <strong>{site.name}</strong>
-                  <span style={{ marginLeft: "var(--space-2)", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{site.status}</span>
-                </a>
-                {site.productionUrl && site.status !== "archived" && (
-                  <div style={{ marginTop: "var(--space-1)" }}>
-                    <a href={site.productionUrl} style={{ fontSize: "var(--font-size-sm)", color: "var(--color-brand)" }}>{site.productionUrl}</a>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          <>
+            <div className={styles.pageHead}>
+              <div>
+                <h1 className={styles.title}>Your sites</h1>
+                <p className={styles.sub}>
+                  {sites.length} {sites.length === 1 ? "site" : "sites"} · {liveCount} live
+                </p>
+              </div>
+              <Button href="/create">New site</Button>
+            </div>
 
-      {isStagecraftAdmin(session.user.email) && (
-        <NukeAllSitesButton siteCount={sites.length} />
-      )}
-    </main>
+            <div className={styles.stats}>
+              <div className={styles.stat}>
+                <div className={styles.statLabel}>Total sites</div>
+                <div className={styles.statValue}>{sites.length}</div>
+              </div>
+              <div className={styles.stat}>
+                <div className={styles.statLabel}>Live</div>
+                <div className={styles.statValue}>{liveCount}</div>
+              </div>
+              <div className={`${styles.stat}${attentionCount > 0 ? ` ${styles.statAlert}` : ""}`}>
+                <div className={styles.statLabel}>Needs attention</div>
+                <div className={styles.statValue}>{attentionCount}</div>
+              </div>
+            </div>
+
+            <section className={styles.grid} aria-label="Sites">
+              {sites.map((site) => (
+                <SiteCard
+                  key={site.id}
+                  site={{
+                    id: site.id,
+                    name: site.name,
+                    status: site.status,
+                    productionUrl: site.productionUrl,
+                    deployTarget: site.deployTarget,
+                    githubRepoName: site.githubRepoName,
+                  }}
+                />
+              ))}
+            </section>
+          </>
+        )}
+
+        {isAdmin && (
+          <div className={styles.adminZone}>
+            <NukeAllSitesButton siteCount={sites.length} />
+          </div>
+        )}
+      </div>
+    </AppShell>
   );
 }
