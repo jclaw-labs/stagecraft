@@ -30,6 +30,24 @@ describe("<Header>", () => {
     expect(html).toContain(">About<");
   });
 
+  it("logo-center-nav-split renders a 3-column grid with two nav halves", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerLayout: "logo-center-nav-split" },
+      navItems: ["home", "music", "about", "contact"],
+      pageTitleBySlug: new Map([
+        ["home", "Home"],
+        ["music", "Music"],
+        ["about", "About"],
+        ["contact", "Contact"],
+      ]),
+    });
+    // Real split (not the old nav-below no-op): a 3-col grid + two <nav>s.
+    expect(html).toMatch(/grid-template-columns:\s*1fr auto 1fr/);
+    expect((html.match(/<nav/g) ?? []).length).toBe(2);
+    // Brand sits between the two halves.
+    expect(html).toContain("Sarah Chen");
+  });
+
   it("falls back to the slug when the page title isn't known", () => {
     const html = renderHeader({
       navItems: ["mystery"],
