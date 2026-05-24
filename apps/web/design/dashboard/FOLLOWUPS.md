@@ -22,6 +22,9 @@ the redesign PRs, parked here so they aren't lost.
   whole codebase uses literals, so this is a repo-wide convention call:
   introduce `--border-width` / `--border-width-accent` everywhere, or leave
   as-is. Deferred either way (not a site-detail-only issue).
+- **Two card radii** — inset panels use `--radius-lg`; the dashboard `SiteCard`
+  uses `--radius-xl`. Intentional (a site card reads as a tappable object, a
+  panel as an inset section) — noted so it isn't "unified" by mistake.
 
 ## DRY (root CLAUDE.md §2)
 
