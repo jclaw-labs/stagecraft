@@ -19,5 +19,18 @@ up, so they aren't lost. Each notes why and where it should land.
 - **Comp PNGs** are git-ignored (regenerable via `render.mjs`); only HTML +
   index + plan are tracked. Intentional, to keep the repo lean.
 
+## Open (from PR1 review)
+
+- **Design var naming.** PR1 emits `--radius-theme` / `--shadow-theme` /
+  `--section-space` etc. with distinct names so they don't clobber the static
+  `globals.css` tokens (keeps PR1 zero-visual-change). PR2 reconciles: either
+  blocks read the `-theme` vars, or `globals.css` defaults get overridden under
+  `.stagecraft-site`. Pick one consistent scheme in PR2.
+- **Artist color/gradient strings → inline `<style>`.** `onAccent` +
+  `accentGradient.{from,via,to}` are interpolated into the emitted CSS, same as
+  the existing `--color-*` interpolation already on main. The artist owns their
+  own auth-gated site, so this isn't a privilege boundary; left as-is to match
+  the existing trust model. Revisit only if appearance becomes cross-tenant.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->

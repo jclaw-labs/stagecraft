@@ -1,7 +1,7 @@
 import {
   appearanceFontFamilies,
   resolveLinkColor,
-  DEFAULT_DESIGN,
+  designSchema,
   type Appearance,
   type Design,
 } from "@/lib/site-config-types";
@@ -89,7 +89,9 @@ const SCALE_DISPLAY: Record<Design["headingScale"], string> = {
 export function AppearanceStyles({ appearance }: Props) {
   const linkColor = resolveLinkColor(appearance.colors);
   const families = appearanceFontFamilies(appearance);
-  const design: Design = { ...DEFAULT_DESIGN, ...(appearance.design ?? {}) };
+  // Parse (not shallow-merge) so nested defaults (e.g. accentGradient) always
+  // fill — robust against partial/legacy design objects.
+  const design: Design = designSchema.parse(appearance.design ?? {});
   const displayFont = appearance.typography.displayFont ?? "";
 
   // Build a Google Fonts URL that loads each family with the union of its
