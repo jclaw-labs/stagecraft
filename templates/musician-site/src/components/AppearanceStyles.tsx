@@ -18,10 +18,12 @@ const SPACE_SCALE: Record<Design["density"], string> = {
   comfortable: "1",
   spacious: "1.25",
 };
+// Gap between adjacent plain sections (Section padding is half of this per
+// side). Tuned tighter than the comps' first cut, which read as too airy.
 const SECTION_SPACE: Record<Design["density"], string> = {
-  compact: "3.5rem",
-  comfortable: "5rem",
-  spacious: "7rem",
+  compact: "2rem",
+  comfortable: "3rem",
+  spacious: "4.5rem",
 };
 const CONTENT_MEASURE: Record<Design["contentWidth"], string> = {
   narrow: "40rem",

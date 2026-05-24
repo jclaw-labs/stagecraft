@@ -1139,13 +1139,19 @@ export const puckConfig: Config<
           style={{
             maxWidth: SECTION_WIDTH_MAX[width],
             margin: "0 auto",
-            padding: "var(--space-8) var(--space-4)",
+            // Plain sections' vertical padding follows the density token
+            // (--section-space; half per side → the inter-section gap equals
+            // --section-space). Card / accent variants override with a fixed,
+            // generous inner padding so they don't go cramped at compact
+            // density.
+            padding: "calc(var(--section-space, 3rem) / 2) var(--space-4)",
             // Theme-aware surface (NOT a fixed `--color-surface-raised`, which
             // isn't re-themed and turns into a light card with light text on
             // dark presets). The border keeps the card legible even when
             // surface ≈ background.
             ...(variant === "card"
               ? {
+                  padding: "var(--space-6)",
                   background: "var(--color-surface)",
                   border: "1px solid var(--color-border)",
                   borderRadius: "var(--radius)",
@@ -1153,6 +1159,7 @@ export const puckConfig: Config<
                 }
               : variant === "accent"
                 ? {
+                    padding: "var(--space-8) var(--space-4)",
                     background: "var(--gradient-accent)",
                     color: "var(--color-on-accent)",
                     borderRadius: "var(--radius)",
