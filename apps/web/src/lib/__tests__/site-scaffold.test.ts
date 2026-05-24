@@ -5,41 +5,16 @@ import {
   templateVersionFromFiles,
   SITE_DEPENDENCY_COOLDOWN_DAYS,
   SITE_DEPENDABOT_PATH,
-  SITE_AUTOMERGE_WORKFLOW_PATH,
   TEMPLATE_STAMP_PATH,
 } from "../site-scaffold";
 
 describe("buildSiteScaffoldFiles", () => {
-  it("emits the Dependabot config, auto-merge workflow, and template stamp, in order", () => {
+  it("emits the Dependabot config and template stamp, in order", () => {
     const files = buildSiteScaffoldFiles({
       template: "musician-site",
       templateVersion: "0.0.1",
     });
-    expect(files.map((f) => f.path)).toEqual([
-      SITE_DEPENDABOT_PATH,
-      SITE_AUTOMERGE_WORKFLOW_PATH,
-      TEMPLATE_STAMP_PATH,
-    ]);
-  });
-
-  it("gates the auto-merge workflow on a build and limits it to patch/minor Dependabot PRs", () => {
-    const workflow = buildSiteScaffoldFiles({
-      template: "musician-site",
-      templateVersion: "0.0.1",
-    }).find((f) => f.path === SITE_AUTOMERGE_WORKFLOW_PATH);
-
-    expect(workflow).toBeDefined();
-    const content = workflow!.content;
-    // Only runs for Dependabot, builds as the gate, merges patch/minor only.
-    expect(content).toContain("github.event.pull_request.user.login == 'dependabot[bot]'");
-    expect(content).toContain("npm run build");
-    expect(content).toContain("version-update:semver-patch");
-    expect(content).toContain("version-update:semver-minor");
-    expect(content).toContain("gh pr merge --squash");
-    // Majors are intentionally not matched.
-    expect(content).not.toContain("semver-major");
-    // The Actions expression escaping survived the template literal.
-    expect(content).toContain("${{ secrets.GITHUB_TOKEN }}");
+    expect(files.map((f) => f.path)).toEqual([SITE_DEPENDABOT_PATH, TEMPLATE_STAMP_PATH]);
   });
 
   it("pins the npm ecosystem and the cooldown in the Dependabot config", () => {

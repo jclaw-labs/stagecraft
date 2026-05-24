@@ -240,13 +240,14 @@ export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
     //    site is up), plus the platform scaffold (Dependabot config +
     //    template stamp) so the site keeps its deps current after it
     //    stops tracking the template. See site-scaffold.ts.
-    const files = await readTemplateFiles(TEMPLATE_DIR);
-    files.push(
+    const templateFiles = await readTemplateFiles(TEMPLATE_DIR);
+    const files = [
+      ...templateFiles,
       ...buildSiteScaffoldFiles({
         template: "musician-site",
-        templateVersion: templateVersionFromFiles(files),
+        templateVersion: templateVersionFromFiles(templateFiles),
       }),
-    );
+    ];
     await pushFiles(userId, repo.owner, repo.name, repo.defaultBranch, files, `Initial site: ${name}`);
 
     // 3. Try to provision the broker secret upfront. When the platform's

@@ -5,13 +5,14 @@
  * these its dependencies would drift forever and never receive security
  * patches. We inject:
  *   - `.github/dependabot.yml` — ongoing npm updates (7-day cooldown)
- *   - `.github/workflows/dependabot-auto-merge.yml` — builds the site and
- *     auto-merges Dependabot's passing patch/minor PRs. The build step is
- *     the gate, so no branch protection is required on the artist's repo
- *     (generated repos don't have it, and content publishes straight to
- *     the default branch).
  *   - `.stagecraft-template.json` — source template + version at creation,
  *     so the platform can later detect drift.
+ *
+ * NOTE: auto-merging those Dependabot PRs would need an in-repo Actions
+ * workflow, but the platform pushes site files with the user's OAuth token
+ * (scope `repo`, no `workflow` — see auth.ts), and GitHub rejects pushing
+ * `.github/workflows/*` without the `workflow` scope. So the cooldown PRs
+ * land but auto-merge is out of scope here pending an auth decision.
  */
 import type { TemplateFile } from "@/lib/template-reader";
 
@@ -27,7 +28,6 @@ export type ArtistTemplate = "musician-site" | "musician-site-legacy";
 export const SITE_DEPENDENCY_COOLDOWN_DAYS = 7;
 
 export const SITE_DEPENDABOT_PATH = ".github/dependabot.yml";
-export const SITE_AUTOMERGE_WORKFLOW_PATH = ".github/workflows/dependabot-auto-merge.yml";
 export const TEMPLATE_STAMP_PATH = ".stagecraft-template.json";
 
 interface TemplateStampInput {
@@ -51,58 +51,6 @@ updates:
     cooldown:
       default-days: ${SITE_DEPENDENCY_COOLDOWN_DAYS}
     open-pull-requests-limit: 5
-`;
-}
-
-/**
- * A self-gating auto-merge workflow for the site's Dependabot PRs. The
- * build step is the gate: if `npm run build` fails the job fails and the
- * merge step never runs, so a broken update can't land — no branch
- * protection or required-checks setup needed on the artist's repo. Only
- * patch/minor merge automatically; majors stay open for manual review.
- * Generated repos ship no lockfile, so the gate installs rather than
- * `npm ci`. (The Actions `${{ ... }}` expressions are backslash-escaped
- * below so the `$` survives the template literal.)
- */
-function buildDependabotAutoMergeWorkflow(): string {
-  return `# Managed by Stagecraft — auto-merges Dependabot's patch & minor updates
-# once the site still builds. The build step below is the gate, so no
-# branch protection is needed; major updates are left open for review.
-name: Dependabot auto-merge
-
-on: pull_request
-
-permissions:
-  contents: write
-  pull-requests: write
-
-jobs:
-  auto-merge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Build gate. Generated sites ship no lockfile, so install (not ci).
-      - run: npm install
-      - run: npm run build
-
-      - name: Dependabot metadata
-        id: meta
-        uses: dependabot/fetch-metadata@v2
-        with:
-          github-token: \${{ secrets.GITHUB_TOKEN }}
-
-      - name: Merge patch & minor
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
-        env:
-          PR_URL: \${{ github.event.pull_request.html_url }}
-          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge --squash --delete-branch "\$PR_URL"
 `;
 }
 
@@ -139,14 +87,12 @@ export function templateVersionFromFiles(files: TemplateFile[]): string {
 /**
  * The non-template files injected into a generated site repo:
  *  - `.github/dependabot.yml` — ongoing npm updates with the cooldown
- *  - `.github/workflows/dependabot-auto-merge.yml` — build-gated auto-merge
  *  - `.stagecraft-template.json` — source template + version at creation,
  *    so the platform can later detect drift from the current template.
  */
 export function buildSiteScaffoldFiles(input: TemplateStampInput): TemplateFile[] {
   return [
     { path: SITE_DEPENDABOT_PATH, content: buildDependabotYml() },
-    { path: SITE_AUTOMERGE_WORKFLOW_PATH, content: buildDependabotAutoMergeWorkflow() },
     { path: TEMPLATE_STAMP_PATH, content: buildTemplateStamp(input) },
   ];
 }
