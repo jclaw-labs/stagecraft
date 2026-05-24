@@ -66,6 +66,7 @@ export type SiteStatus =
   | "creating"
   | "active"
   | "error"
+  | "deploy_failed"
   | "archived";
 
 /** Asset upload status */

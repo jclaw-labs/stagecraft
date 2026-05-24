@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import type { SiteStatus } from "@stagecraft/shared";
 
-type SiteStatus = "creating" | "active" | "error" | "deploy_failed" | "archived";
 type JobType = "create_site" | "edit_site" | "migrate_site" | "repair_site" | "deploy_config";
 type JobStatus = "queued" | "running" | "completed" | "failed" | "awaiting_review" | "canceled";
 

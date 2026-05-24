@@ -56,6 +56,7 @@ export default function AppShell({ user, current, children }: AppShellProps) {
           className={styles.hamburger}
           aria-label="Menu"
           aria-expanded={menuOpen}
+          aria-controls="app-mobile-menu"
           onClick={() => setMenuOpen((open) => !open)}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -65,7 +66,7 @@ export default function AppShell({ user, current, children }: AppShellProps) {
       </header>
 
       {menuOpen ? (
-        <div className={styles.mobileMenu}>
+        <div className={styles.mobileMenu} id="app-mobile-menu">
           <Link href="/dashboard" aria-current={current === "sites" ? "page" : undefined}>Sites</Link>
           <Link href="/settings" aria-current={current === "settings" ? "page" : undefined}>Settings</Link>
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}

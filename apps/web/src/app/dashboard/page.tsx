@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
+import type { SiteStatus } from "@stagecraft/shared";
 import Button from "@/components/Button";
 import AppShell from "@/components/AppShell";
 import SiteCard from "@/components/SiteCard";
@@ -97,7 +98,7 @@ export default async function DashboardPage() {
                   site={{
                     id: site.id,
                     name: site.name,
-                    status: site.status,
+                    status: site.status as SiteStatus,
                     productionUrl: site.productionUrl,
                     deployTarget: site.deployTarget,
                     githubRepoName: site.githubRepoName,

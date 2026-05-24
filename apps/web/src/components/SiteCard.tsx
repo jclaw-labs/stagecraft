@@ -1,10 +1,12 @@
+import type { SiteStatus } from "@stagecraft/shared";
+
 import Button from "./Button";
 import styles from "./SiteCard.module.css";
 
 export interface SiteCardData {
   id: string;
   name: string;
-  status: string;
+  status: SiteStatus;
   productionUrl?: string | null;
   /** "netlify" | "vercel" */
   deployTarget?: string | null;
@@ -61,7 +63,7 @@ export default function SiteCard({ site }: { site: SiteCardData }) {
         </div>
 
         {showUrl ? (
-          <a className={styles.url} href={site.productionUrl ?? "#"} target="_blank" rel="noreferrer">
+          <a className={styles.url} href={site.productionUrl ?? "#"} target="_blank" rel="noopener noreferrer">
             {prettyUrl(site.productionUrl ?? "")}
             <ExternalIcon />
           </a>
@@ -88,7 +90,7 @@ export default function SiteCard({ site }: { site: SiteCardData }) {
             <Button
               href={site.productionUrl ?? "#"}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               variant="secondary"
               size="sm"
               className={styles.action}

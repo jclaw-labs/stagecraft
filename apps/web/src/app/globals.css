@@ -58,7 +58,7 @@
   --color-neutral-bg: #e2e3e5;
 
   /* Typography — Fonts */
-  --font-body: system-ui, -apple-system, sans-serif;
+  --font-body: "Inter Variable", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
 
   /* Typography — Font Sizes */
@@ -108,8 +108,13 @@
 
   /* Dashboard shell additions (additive — no existing token changed) */
   --color-border-subtle: #e5e7eb;
+  /* Constant white for text on brand / gradient fills — stays white in
+     dark mode (intentionally NOT --color-surface, which flips dark). */
+  --color-on-brand: #ffffff;
   --radius-xl: 1rem;
   --radius-pill: 999px;
+  /* Text legibility on image / gradient banners (card thumbnails). */
+  --shadow-text: 0 1px 12px rgb(0 0 0 / 0.3);
 
   /* Z-index */
   --z-base: 0;
