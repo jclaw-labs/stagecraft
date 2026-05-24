@@ -18,7 +18,11 @@
   font-size: var(--font-size-sm);
   line-height: var(--line-height-base);
 }
-.signupHint { margin: 0 0 var(--space-6); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.signupHint {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
 .signupHint a { color: var(--color-brand); text-decoration: none; }
 .signupHint a:hover { text-decoration: underline; }
 
