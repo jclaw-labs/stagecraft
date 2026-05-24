@@ -119,7 +119,7 @@ export default function HomePage() {
             className={styles.sourceLink}
             href={GITHUB_URL}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             View the source on GitHub
           </a>
@@ -282,7 +282,12 @@ export default function HomePage() {
             </p>
             <div className={styles.headCtas}>
               <Button href={SIGN_IN_HREF}>Start building</Button>
-              <Button href={GITHUB_URL} variant="secondary">
+              <Button
+                href={GITHUB_URL}
+                variant="secondary"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Star us on GitHub
               </Button>
             </div>

@@ -20,7 +20,7 @@ export default function MarketingNav() {
             href={GITHUB_URL}
             className={styles.link}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             GitHub
           </a>

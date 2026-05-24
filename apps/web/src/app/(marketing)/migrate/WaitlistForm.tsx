@@ -14,7 +14,8 @@ export default function WaitlistForm() {
   if (submitted) {
     return (
       <p className={styles.success} role="status">
-        You’re on the list. We’ll email you the moment AI migration launches.
+        Thanks for your interest! AI migration is still in the works — we’ll share
+        updates here as it gets closer.
       </p>
     );
   }

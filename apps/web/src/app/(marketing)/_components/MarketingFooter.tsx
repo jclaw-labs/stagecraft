@@ -7,7 +7,7 @@ export default function MarketingFooter() {
   return (
     <footer className={styles.footer}>
       <div className={styles.inner}>
-        <div className={styles.brandCol}>
+        <div>
           <span className={styles.brand}>Stagecraft</span>
           <p className={styles.tagline}>
             The open-source website builder for musicians. Own your code, deploy
@@ -31,7 +31,7 @@ export default function MarketingFooter() {
             href={GITHUB_URL}
             className={styles.link}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             GitHub
           </a>
