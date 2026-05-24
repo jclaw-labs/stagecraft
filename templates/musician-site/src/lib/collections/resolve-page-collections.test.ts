@@ -38,12 +38,13 @@ const NOW = new Date("2026-06-01T12:00:00.000Z");
 function tourItem(
   slug: string,
   date: string,
-  extra: Partial<Record<"venue" | "city" | "country" | "ticketUrl", string>> = {},
+  extra: Partial<Record<"venue" | "city" | "country" | "ticketUrl" | "status", string>> = {},
 ): Item {
   const values: Record<string, { type: string; value: string }> = {
     [TOUR_DATES_FIELD_IDS.date]: { type: "date", value: date },
     [TOUR_DATES_FIELD_IDS.venue]: { type: "text", value: extra.venue ?? "Venue" },
     [TOUR_DATES_FIELD_IDS.city]: { type: "text", value: extra.city ?? "City" },
+    [TOUR_DATES_FIELD_IDS.status]: { type: "select", value: extra.status ?? "on_sale" },
   };
   if (extra.country) values[TOUR_DATES_FIELD_IDS.country] = { type: "text", value: extra.country };
   if (extra.ticketUrl) {
@@ -97,6 +98,27 @@ describe("mapToResolvedTourDates", () => {
       { id: "i_bad", slug: "bad", createdAt: "", updatedAt: "", values: {} } as unknown as Item,
     ];
     expect(mapToResolvedTourDates(items, NOW).map((r) => r.venue)).toEqual(["Good"]);
+  });
+
+  it("excludes cancelled shows (a cancelled gig isn't upcoming)", () => {
+    const items = [
+      tourItem("live", "2026-08-01T20:00:00.000Z", { venue: "Live", status: "on_sale" }),
+      tourItem("off", "2026-08-15T20:00:00.000Z", { venue: "Off", status: "cancelled" }),
+      tourItem("soldout", "2026-09-01T20:00:00.000Z", { venue: "SoldOut", status: "sold_out" }),
+    ];
+    // sold_out + on_sale stay (still happening); cancelled is dropped.
+    expect(mapToResolvedTourDates(items, NOW).map((r) => r.venue)).toEqual(["Live", "SoldOut"]);
+  });
+
+  it("orders by chronological instant even when timezone offsets differ", () => {
+    // Same calendar day, different offsets: 18:00-04:00 (22:00Z) is later than
+    // 20:00Z, but a lexical string sort would rank "...T18:00:00.000-04:00"
+    // before "...T20:00:00.000Z". Instant-based sort gets it right.
+    const items = [
+      tourItem("a", "2026-08-01T18:00:00.000-04:00", { venue: "Later" }),
+      tourItem("b", "2026-08-01T20:00:00.000Z", { venue: "Earlier" }),
+    ];
+    expect(mapToResolvedTourDates(items, NOW).map((r) => r.venue)).toEqual(["Earlier", "Later"]);
   });
 });
 

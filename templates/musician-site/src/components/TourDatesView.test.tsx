@@ -32,10 +32,11 @@ describe("<TourDatesList>", () => {
     expect(html).toContain("Tickets");
   });
 
-  it("renders a non-link (disabled) Tickets label when no ticketUrl is set", () => {
+  it("renders a non-link (disabled) Tickets label, marked aria-disabled, when no ticketUrl is set", () => {
     const html = renderToStaticMarkup(<TourDatesList items={[row({ ticketUrl: "" })]} />);
     expect(html).toContain("Tickets");
     expect(html).not.toContain("<a");
+    expect(html).toContain('aria-disabled="true"');
   });
 
   it("shows an empty state when there are no shows", () => {

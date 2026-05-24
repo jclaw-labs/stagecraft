@@ -1509,10 +1509,9 @@ describe("puckConfig", () => {
       expect(html).toContain("linear-gradient");
     });
 
-    it("shows an add-photos prompt when there are no tiles", () => {
+    it("renders nothing when there are no tiles (no editor copy leaks to the page)", () => {
       const html = render("Gallery", { images: [] });
-      expect(html).toMatch(/Add photos/i);
-      expect(html).not.toContain("data-gallery-item");
+      expect(html).toBe("");
     });
   });
 

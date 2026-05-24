@@ -2316,22 +2316,12 @@ export const puckConfig: Config<
       },
       render: ({ images }) => {
         const tiles = images ?? [];
-        if (tiles.length === 0) {
-          return (
-            <div
-              style={{
-                padding: "var(--space-6)",
-                border: "1px dashed var(--color-border)",
-                borderRadius: "var(--radius)",
-                color: "var(--color-text-muted)",
-                textAlign: "center",
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              Add photos to build your gallery.
-            </div>
-          );
-        }
+        // Nothing to show → render nothing on the public page (empty
+        // fragment; Puck's render type doesn't allow `null`). A freshly
+        // dropped block ships 3 placeholder tiles (defaultProps), so this
+        // only hits if the artist clears every row — in which case an empty
+        // section is the right output, not an authoring prompt.
+        if (tiles.length === 0) return <></>;
         return (
           <div data-gallery>
             {tiles.map((tile, i) => (

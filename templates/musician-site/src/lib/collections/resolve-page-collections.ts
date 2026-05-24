@@ -32,6 +32,10 @@ const TOUR_DATES_SLUG = "tour-dates";
 const TOUR_DATES_BLOCK = "TourDatesView";
 /** Fallback when a block's `limit` prop is missing or non-positive. */
 const DEFAULT_TOUR_LIMIT = 5;
+// A cancelled show isn't "upcoming" — drop it from the public list. Mirrors
+// the `cancelled` value of the tour-dates `status` field (TOUR_DATE_STATUSES
+// in lib/collections/seeds.ts).
+const CANCELLED_STATUS = "cancelled";
 
 type LooseBlock = { type?: unknown; props?: Record<string, unknown> };
 
@@ -67,6 +71,7 @@ export function mapToResolvedTourDates(
 ): ResolvedTourDate[] {
   const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   return items
+    .filter((item) => stringValue(item, TOUR_DATES_FIELD_IDS.status) !== CANCELLED_STATUS)
     .map((item) => ({
       date: stringValue(item, TOUR_DATES_FIELD_IDS.date),
       venue: stringValue(item, TOUR_DATES_FIELD_IDS.venue),
@@ -78,7 +83,10 @@ export function mapToResolvedTourDates(
       const ms = Date.parse(d.date);
       return !Number.isNaN(ms) && ms >= todayStartMs;
     })
-    .sort((a, b) => a.date.localeCompare(b.date));
+    // Sort by parsed instant, not the raw string: the date field admits
+    // timezone offsets (schema allows `Z` or `±HH:MM`), so a lexical compare
+    // could disagree with chronology for same-day shows in mixed formats.
+    .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 }
 
 /**

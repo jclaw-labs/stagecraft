@@ -57,6 +57,11 @@ import { puckConfig } from "./config";
  *     is honest but uninformative.
  *   - **Divider** — render is a 1px `<hr>` whose line vanishes at
  *     thumbnail scale.
+ *   - **Gallery** — defaultProps are empty image tiles, so the live
+ *     render is just decorative gradient blocks with no context.
+ *   - **TourDatesView** — `items` only resolves on the published page;
+ *     in the editor it renders an empty-state placeholder, so a name
+ *     pill is clearer than a scaled-down placeholder box.
  *
  * Slot containers (Section, Columns) are detected automatically by
  * scanning `fields` for `{ type: "slot" }` — their `defaultProps`
@@ -70,6 +75,8 @@ const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>([
   "FullscreenSection",
   "Spacer",
   "Divider",
+  "Gallery",
+  "TourDatesView",
 ]);
 
 type ConfigComponent = {

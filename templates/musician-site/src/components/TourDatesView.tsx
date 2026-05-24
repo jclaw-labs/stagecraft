@@ -71,7 +71,9 @@ export function TourDatesList({ items }: { items: ResolvedTourDate[] }) {
               Tickets
             </a>
           ) : (
-            <span style={{ ...ticketStyle, opacity: 0.5 }}>Tickets</span>
+            <span style={{ ...ticketStyle, opacity: 0.5 }} aria-disabled="true">
+              Tickets
+            </span>
           )}
         </div>
       ))}
