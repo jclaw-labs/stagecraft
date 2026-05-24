@@ -89,6 +89,61 @@ export function buildFirstRunSeed(
   };
 }
 
+// One composed tour row: date + venue on the left, a Tickets CTA on the
+// right. Returned as a loose block literal — the whole page data is cast
+// to PuckData below.
+function tourRow(
+  id: string,
+  date: string,
+  venue: string,
+): { type: string; props: Record<string, unknown> } {
+  return {
+    type: "Columns",
+    props: {
+      id,
+      layout: "2-1",
+      col1: [
+        {
+          type: "RichText",
+          props: { id: `${id}-text`, text: `${date} — ${venue}` },
+        },
+      ],
+      col2: [
+        {
+          type: "Button",
+          props: {
+            id: `${id}-btn`,
+            text: "Tickets",
+            href: "#",
+            variant: "outline",
+            isExternal: false,
+          },
+        },
+      ],
+      col3: [],
+    },
+  };
+}
+
+// One tracklist row: track number + title on the left, duration on the right.
+function trackRow(
+  id: string,
+  num: number,
+  title: string,
+  duration: string,
+): { type: string; props: Record<string, unknown> } {
+  return {
+    type: "Columns",
+    props: {
+      id,
+      layout: "2-1",
+      col1: [{ type: "RichText", props: { id: `${id}-t`, text: `${num}. ${title}` } }],
+      col2: [{ type: "RichText", props: { id: `${id}-d`, text: duration } }],
+      col3: [],
+    },
+  };
+}
+
 function buildHomePageSeed(
   artistName: string,
   title: string,
@@ -105,6 +160,10 @@ function buildHomePageSeed(
           width: "lg",
           textAlign: "center",
           children: [
+            {
+              type: "Eyebrow",
+              props: { id: "fr-hero-eyebrow", text: "New record · Out now", textAlign: "center" },
+            },
             {
               type: "Heading",
               props: { id: "fr-hero-title", text: artistName, level: "h1", textAlign: "center" },
@@ -167,6 +226,10 @@ function buildHomePageSeed(
                 ],
                 col2: [
                   {
+                    type: "Eyebrow",
+                    props: { id: "fr-release-eyebrow", text: "Latest release", textAlign: "start" },
+                  },
+                  {
                     type: "Heading",
                     props: {
                       id: "fr-release-title",
@@ -209,12 +272,19 @@ function buildHomePageSeed(
                 col3: [],
               },
             },
+            trackRow("fr-track-1", 1, "Stone Chapel", "3:42"),
+            trackRow("fr-track-2", 2, "Ash & Iron", "4:05"),
+            trackRow("fr-track-3", 3, "The Long Way Home", "3:58"),
+            trackRow("fr-track-4", 4, "Halflight", "5:12"),
           ],
         },
       },
 
-      // On the road — a placeholder until a tour-dates block can be dropped
-      // onto a general page (tracked in design/comp-fidelity-plan.md, PR B).
+      // On the road — composed example rows (date/venue + a Tickets CTA).
+      // A real, data-bound tour-dates block on a general page needs the
+      // collection-block system wired into the page renderer (deferred —
+      // see design/comp-fidelity-plan.md); these rows give the comp look
+      // and the artist edits them in place.
       {
         type: "Section",
         props: {
@@ -223,19 +293,18 @@ function buildHomePageSeed(
           textAlign: "start",
           children: [
             {
+              type: "Eyebrow",
+              props: { id: "fr-tour-eyebrow", text: "On tour", textAlign: "start" },
+            },
+            {
               type: "Heading",
               props: { id: "fr-tour-title", text: "On the road", level: "h2", textAlign: "start" },
             },
-            {
-              type: "RichText",
-              props: {
-                id: "fr-tour-body",
-                text:
-                  "Dates are already on the books — edit them from the Tour " +
-                  "Dates panel on the left, then drop a tour-dates block here " +
-                  "from the Insert menu.",
-              },
-            },
+            tourRow("fr-tour-1", "Fri · Jun 18", "Mercury Lounge — New York, NY"),
+            { type: "Divider", props: { id: "fr-tour-d1", inset: false } },
+            tourRow("fr-tour-2", "Sat · Jul 11", "Mississippi Studios — Portland, OR"),
+            { type: "Divider", props: { id: "fr-tour-d2", inset: false } },
+            tourRow("fr-tour-3", "Thu · Aug 6", "The Echo — Los Angeles, CA"),
           ],
         },
       },
@@ -249,8 +318,12 @@ function buildHomePageSeed(
           textAlign: "start",
           children: [
             {
+              type: "Eyebrow",
+              props: { id: "fr-gallery-eyebrow", text: "Gallery", textAlign: "start" },
+            },
+            {
               type: "Heading",
-              props: { id: "fr-gallery-title", text: "Gallery", level: "h2", textAlign: "start" },
+              props: { id: "fr-gallery-title", text: "On stage & off", level: "h2", textAlign: "start" },
             },
             {
               type: "Columns",

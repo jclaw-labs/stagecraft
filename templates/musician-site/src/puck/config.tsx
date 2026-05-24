@@ -70,18 +70,21 @@ export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];
 export const IMAGE_TONES = ["accent", "primary", "secondary"] as const;
 export type ImageTone = (typeof IMAGE_TONES)[number];
 
-// Theme-driven gradient for an Image/FullscreenSection placeholder. Reads
-// the appearance CSS vars so it adapts per preset (and is replaced the
-// moment the artist uploads a real image).
+// Theme-driven gradient for an Image/FullscreenSection placeholder. Built
+// from the palette vars so it's always a rich, multi-stop gradient that
+// adapts per preset — independent of `accentMode` (which governs gradient
+// accent *backgrounds*, a different feature). The three tones give a row
+// of placeholders (e.g. a gallery) distinct colourways. Replaced the
+// moment the artist uploads a real image.
 export function placeholderGradient(tone: ImageTone): string {
   switch (tone) {
     case "primary":
-      return "linear-gradient(135deg, var(--color-primary), var(--color-accent))";
+      return "linear-gradient(135deg, var(--color-primary), var(--color-secondary))";
     case "secondary":
-      return "linear-gradient(135deg, var(--color-secondary), var(--color-primary))";
+      return "linear-gradient(135deg, var(--color-secondary), var(--color-accent))";
     case "accent":
     default:
-      return "var(--gradient-accent, linear-gradient(135deg, var(--color-accent), var(--color-primary)))";
+      return "linear-gradient(135deg, var(--color-accent), var(--color-primary), var(--color-secondary))";
   }
 }
 
@@ -381,6 +384,7 @@ const COLUMN_LAYOUT_SLOT_COUNT: Record<ColumnLayout, number> = {
 
 export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
+  Eyebrow: { text: string; textAlign: TextAlignment };
   Section: {
     width: SectionWidth;
     textAlign: TextAlignment;
@@ -873,6 +877,7 @@ const cardSizeLabelStyle: CSSProperties = {
  */
 export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   Heading: "Big text — page or section heading. Pick H1 / H2 / H3 for size.",
+  Eyebrow: "A small uppercase accent label — sits above a heading to set it off.",
   Section: "A container — drop other blocks inside. Set the width and text alignment.",
   FullscreenSection: "Hero panel that fills the viewport — image background with a large headline on top.",
   CenteredBlock: "Centered single-column container — keeps content from sprawling on wide screens.",
@@ -977,7 +982,7 @@ export const puckConfig: Config<
     },
     content: {
       title: "Content",
-      components: ["Heading", "RichText", "Quote", "Button", "Card"],
+      components: ["Heading", "Eyebrow", "RichText", "Quote", "Button", "Card"],
     },
     media: {
       title: "Media",
@@ -1006,6 +1011,31 @@ export const puckConfig: Config<
         const Tag = level;
         return <Tag style={textAlignStyle(textAlign)}>{text}</Tag>;
       },
+    },
+    Eyebrow: {
+      fields: {
+        text: { type: "text" },
+        textAlign: {
+          type: "select",
+          options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
+        },
+      },
+      defaultProps: { text: "New release", textAlign: "start" },
+      render: ({ text, textAlign }) => (
+        <p
+          style={{
+            ...textAlignStyle(textAlign),
+            margin: "0 0 var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: "var(--font-weight-semibold)",
+            letterSpacing: "var(--tracking-wide)",
+            textTransform: "uppercase",
+            color: "var(--color-accent)",
+          }}
+        >
+          {text}
+        </p>
+      ),
     },
     Section: {
       // Section is a slot container — drop any blocks (Heading, RichText,
