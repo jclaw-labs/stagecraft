@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frame — portfolio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#ffffff; --text:#101010; --muted:#9a9a9a; --line:#ececec;
+    --sans:"Inter",system-ui,sans-serif; --maxw:1320px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+  .cap{font-size:12px;letter-spacing:.04em;color:var(--muted)}
+  .ucap{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+
+  /* minimal bar — work dominates */
+  header.site{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+  .brand{font-weight:600;font-size:16px;letter-spacing:.02em}
+  nav.main{display:flex;gap:26px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  nav.main a:hover{color:var(--text)}
+
+  .intro{padding:54px 0 30px}
+  .intro h1{font-size:23px;font-weight:500;max-width:30ch;line-height:1.4}
+  .intro h1 span{color:var(--muted)}
+
+  /* masonry grid of works */
+  .grid{columns:3;column-gap:18px;padding-bottom:40px}
+  .item{break-inside:avoid;margin-bottom:18px}
+  .ph{border-radius:2px}
+  .item .meta{display:flex;justify-content:space-between;margin-top:8px}
+  .a{height:420px;background:linear-gradient(150deg,#dfe3e6,#a9b0b5)}
+  .b{height:300px;background:linear-gradient(150deg,#e8e2da,#bdb2a4)}
+  .c{height:360px;background:linear-gradient(150deg,#d8dadf,#9fa3ad)}
+  .d{height:480px;background:linear-gradient(150deg,#e4dfe2,#b3a9b0)}
+  .e{height:280px;background:linear-gradient(150deg,#dde4e1,#a6b1ab)}
+  .f{height:400px;background:linear-gradient(150deg,#e6e1d8,#b9ad9b)}
+  .g{height:330px;background:linear-gradient(150deg,#dcdfe4,#a4abb4)}
+  .h{height:440px;background:linear-gradient(150deg,#e3e0e4,#aeb3bd)}
+  .i{height:300px;background:linear-gradient(150deg,#e8e3dc,#bcb3a6)}
+
+  footer.site{border-top:1px solid var(--line);padding:40px 0;margin-top:20px}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .socials{display:flex;gap:22px}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Work</a><a>Series</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <div class="wrap">
+    <div class="intro">
+      <h1>Aurelia Wren — photographer. <span>Landscape, portrait, and the spaces in between. Selected work, 2019–2026.</span></h1>
+    </div>
+
+    <div class="grid">
+      <div class="item"><div class="ph a"></div><div class="meta cap"><span>High Desert, I</span><span class="ucap">2026</span></div></div>
+      <div class="item"><div class="ph b"></div><div class="meta cap"><span>Coast Range</span><span class="ucap">2025</span></div></div>
+      <div class="item"><div class="ph c"></div><div class="meta cap"><span>Studio Portrait</span><span class="ucap">2025</span></div></div>
+      <div class="item"><div class="ph d"></div><div class="meta cap"><span>Lantern Season</span><span class="ucap">2026</span></div></div>
+      <div class="item"><div class="ph e"></div><div class="meta cap"><span>Fog Study</span><span class="ucap">2024</span></div></div>
+      <div class="item"><div class="ph f"></div><div class="meta cap"><span>Grain Mill</span><span class="ucap">2024</span></div></div>
+      <div class="item"><div class="ph g"></div><div class="meta cap"><span>Backstage</span><span class="ucap">2025</span></div></div>
+      <div class="item"><div class="ph h"></div><div class="meta cap"><span>Dust &amp; Gold</span><span class="ucap">2026</span></div></div>
+      <div class="item"><div class="ph i"></div><div class="meta cap"><span>Tour Diary</span><span class="ucap">2025</span></div></div>
+    </div>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <span class="brand">Aurelia Wren</span>
+    <nav class="socials ucap"><a>Instagram</a><a>Behance</a><a>Email</a></nav>
+    <span class="ucap">© 2026</span>
+  </div></footer>
+</body>
+</html>

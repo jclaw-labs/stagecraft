@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vinyl — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#efe7d4; --surface:#f7f0df; --text:#2c2118;
+    --muted:#8a7a63; --rust:#a9542c; --ochre:#bd8a3a; --line:#ddd0b4;
+    --disp:"Bricolage Grotesque",system-ui,sans-serif; --sans:"DM Sans",system-ui,sans-serif;
+    --maxw:1160px; --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.7}
+  h1,h2,h3{font-family:var(--disp);font-weight:600;line-height:1.05;letter-spacing:-0.015em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 36px}
+  .label{font-weight:500;font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--rust)}
+  .btn{display:inline-block;font-family:var(--sans);font-weight:500;font-size:14px;letter-spacing:.02em;padding:.8rem 1.6rem;border-radius:var(--radius)}
+  .btn-solid{background:var(--rust);color:#f7f0df}
+  .btn-out{border:1px solid var(--text);color:var(--text)}
+
+  /* header: warm, single thin rule, tracked caps */
+  header.site{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--rust)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:80px}
+  .brand{font-family:var(--disp);font-weight:700;font-size:22px;letter-spacing:.01em}
+  nav.main{display:flex;gap:30px;font-weight:500;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  nav.main a:hover{color:var(--rust)}
+
+  /* hero: editorial split, warm duotone image (no record motif) */
+  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:64px;align-items:center;padding:90px 0}
+  .hero .label{margin-bottom:20px}
+  .hero h1{font-size:clamp(54px,7.5vw,96px);max-width:12ch}
+  .hero p{color:var(--muted);font-size:18px;max-width:40ch;margin:24px 0 32px}
+  .btn-row{display:flex;gap:14px;flex-wrap:wrap}
+  .hero-img{aspect-ratio:4/5;border-radius:var(--radius);position:relative;overflow:hidden;
+    background:linear-gradient(150deg,#caa15f,#a9542c 55%,#3a2418);box-shadow:0 24px 50px -28px rgba(44,33,24,.6)}
+  .hero-img::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 70% 20%,rgba(245,224,180,.35),transparent 60%)}
+
+  section{padding:78px 0}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:30px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+  .sec-head h2{font-size:40px}
+
+  /* release: subtly framed cover, clean tracklist */
+  .release{display:grid;grid-template-columns:340px 1fr;gap:48px;align-items:start}
+  .frame{padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+  .cover{aspect-ratio:1;border-radius:6px;background:radial-gradient(circle at 72% 24%,#caa15f,transparent 55%),linear-gradient(150deg,#a9542c,#3a2418)}
+  .release h3{font-size:34px;margin:4px 0 4px}
+  .tracks{columns:2;column-gap:40px;margin-top:20px}
+  .tracks div{padding:9px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:15px}
+  .tracks b{color:var(--text);font-weight:500;margin-right:8px}
+  .release .btn-row{margin-top:26px}
+
+  /* tour: clean single-rule list */
+  .tour-row{display:grid;grid-template-columns:96px 1fr auto;gap:22px;align-items:center;padding:22px 4px;border-bottom:1px solid var(--line)}
+  .tour-date{font-family:var(--disp);font-weight:700;color:var(--rust);font-size:20px}
+  .tour-venue{font-weight:500}
+  .tour-city{color:var(--muted);font-size:14px}
+
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .tile{aspect-ratio:1;border-radius:var(--radius)}
+  .t1{background:linear-gradient(150deg,#caa15f,#a9542c)}
+  .t2{background:linear-gradient(150deg,#b9763a,#3a2418)}
+  .t3{background:linear-gradient(150deg,#caa15f,#7c5a2e)}
+
+  footer.site{margin-top:20px;border-top:1px solid var(--rust);padding:50px 0}
+  footer.site .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
+  .socials{display:flex;gap:24px;font-weight:500;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+  .socials a:hover{color:var(--rust)}
+  .copy{color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>About</a><a>Contact</a></nav>
+  </div></header>
+
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <div class="label">New album · 2026</div>
+        <h1>The Long Way Home</h1>
+        <p>Warm analog folk, recorded live to tape and pressed on 180-gram vinyl.</p>
+        <div class="btn-row"><a class="btn btn-solid">Listen now</a><a class="btn btn-out">Order vinyl</a></div>
+      </div>
+      <div class="hero-img"></div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>Latest release</h2><span class="label">LP · 2026</span></div>
+      <div class="release">
+        <div class="frame"><div class="cover"></div></div>
+        <div>
+          <h3>The Long Way Home</h3>
+          <div class="label" style="color:var(--muted)">Ten songs</div>
+          <div class="tracks">
+            <div><b>01</b> Static Bloom</div><div><b>02</b> Grain Mill</div>
+            <div><b>03</b> Dust &amp; Gold</div><div><b>04</b> The Long Way Home</div>
+            <div><b>05</b> Mustard Sky</div><div><b>06</b> Restless Heart</div>
+          </div>
+          <div class="btn-row"><a class="btn btn-solid">Stream</a><a class="btn btn-out">Buy LP</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>On tour</h2><span class="label">Summer '26</span></div>
+      <div class="tour-row"><div class="tour-date">Jun 14</div><div><div class="tour-venue">The Fillmore</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 18</div><div><div class="tour-venue">Wonder Ballroom</div><div class="tour-city">Portland, OR</div></div><a class="btn btn-out">Tickets</a></div>
+      <div class="tour-row"><div class="tour-date">Jun 22</div><div><div class="tour-venue">Neumos</div><div class="tour-city">Seattle, WA</div></div><a class="btn btn-out">Tickets</a></div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2>Gallery</h2></div>
+      <div class="gallery"><div class="tile t1"></div><div class="tile t2"></div><div class="tile t3"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <div class="socials"><a>Instagram</a><a>Spotify</a><a>Bandcamp</a><a>YouTube</a></div>
+    <span class="copy">© 2026 — All rights reserved</span>
+  </div></footer>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Candy — Aurelia Wren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --pink:#ff2d7e; --blue:#3b5bff; --violet:#7b2ff7; --acid:#e8ff45; --ink:#160a2e; --paper:#ffffff;
+    --disp:"Outfit",system-ui,sans-serif; --sans:"Inter",system-ui,sans-serif; --maxw:1200px;
+    --iri:linear-gradient(110deg,#ff2d7e,#7b2ff7 45%,#3b5bff 80%);
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6}
+  h1,h2,h3{font-family:var(--disp);font-weight:800;line-height:.98;letter-spacing:-0.03em}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 32px}
+  .eyebrow{font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.16em;text-transform:uppercase}
+  .btn{display:inline-flex;align-items:center;gap:.5rem;font-family:var(--disp);font-weight:700;font-size:15px;padding:.95rem 1.9rem;border-radius:14px}
+  .btn-iri{background:var(--iri);color:#fff;box-shadow:0 14px 30px -12px rgba(123,47,247,.55)}
+  .btn-ink{background:var(--ink);color:#fff}
+  .btn-white{background:#fff;color:var(--violet);box-shadow:0 10px 24px -14px rgba(0,0,0,.4)}
+
+  header.site{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.82);backdrop-filter:blur(12px)}
+  header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:72px}
+  .brand{font-family:var(--disp);font-weight:800;font-size:22px;letter-spacing:-0.02em}
+  nav.main{display:flex;gap:28px;font-family:var(--disp);font-weight:600;font-size:15px}
+  nav.main a:hover{color:var(--pink)}
+
+  /* glossy gradient hero */
+  .hero{position:relative;overflow:hidden;text-align:center;color:#fff;padding:104px 0 120px;background:var(--iri)}
+  .hero::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 50% at 50% -10%,rgba(255,255,255,.45),transparent 60%)}
+  .hero .inner{position:relative;z-index:2}
+  .hero .eyebrow{color:var(--acid);margin-bottom:18px}
+  .hero h1{font-size:clamp(60px,11vw,140px);font-weight:900;letter-spacing:-0.04em}
+  .hero p{font-size:20px;opacity:.95;max-width:38ch;margin:18px auto 30px}
+
+  section{padding:80px 0}
+  .release{display:grid;grid-template-columns:0.9fr 1.1fr;gap:46px;align-items:center;background:var(--ink);color:#fff;border-radius:28px;padding:46px}
+  .cover{aspect-ratio:1;border-radius:18px;background:var(--iri);position:relative;overflow:hidden}
+  .cover::after{content:"";position:absolute;inset:0;background:radial-gradient(50% 50% at 30% 20%,rgba(232,255,69,.5),transparent 55%)}
+  .release h2{font-size:46px;margin:8px 0 12px}
+  .release p{opacity:.85;margin-bottom:24px}
+  .btn-row{display:flex;gap:14px;flex-wrap:wrap}
+
+  .section-head{text-align:center;margin-bottom:40px}
+  .section-head h2{font-size:50px;background:var(--iri);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .section-head .eyebrow{color:var(--pink);display:block;margin-bottom:8px}
+
+  .tour-row{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;background:#faf7ff;border:1px solid #ece4ff;border-radius:16px;padding:16px 24px;margin-bottom:14px}
+  .chip{background:var(--iri);color:#fff;font-family:var(--disp);font-weight:700;padding:.5rem 1rem;border-radius:10px;font-size:14px}
+  .tour-venue{font-family:var(--disp);font-weight:700}
+  .tour-city{color:#8a82a0;font-size:14px}
+
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .tile{aspect-ratio:1;border-radius:20px;position:relative;overflow:hidden}
+  .tile::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 50% at 30% 15%,rgba(255,255,255,.4),transparent 55%)}
+  .t1{background:linear-gradient(150deg,var(--pink),var(--violet))}
+  .t2{background:linear-gradient(150deg,var(--blue),var(--pink))}
+  .t3{background:linear-gradient(150deg,var(--violet),var(--blue))}
+
+  footer.site{margin-top:20px;background:var(--ink);color:#fff;text-align:center;padding:60px 0;border-radius:28px 28px 0 0}
+  footer.site .brand{display:block;margin-bottom:14px}
+  .socials{display:flex;gap:24px;justify-content:center;font-family:var(--disp);font-weight:600;font-size:15px}
+  .socials a{opacity:.85}.socials a:hover{opacity:1;color:var(--acid)}
+  .copy{margin-top:18px;opacity:.7;font-size:14px}
+</style>
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <nav class="main"><a>Music</a><a>Tour</a><a>Shop</a><a>About</a></nav>
+  </div></header>
+
+  <section class="hero"><div class="inner wrap">
+    <div class="eyebrow">New single — out now</div>
+    <h1>Sugar Rush</h1>
+    <p>Big, bright, and built for the chorus. Turn it all the way up.</p>
+    <a class="btn btn-white">▶ Play now</a>
+  </div></section>
+
+  <div class="wrap">
+    <section>
+      <div class="release">
+        <div class="cover"></div>
+        <div>
+          <div class="eyebrow" style="color:var(--acid)">The album</div>
+          <h2>Neon Heart</h2>
+          <p>Twelve hooks you won't get out of your head. Out everywhere now.</p>
+          <div class="btn-row"><a class="btn btn-iri">Stream</a><a class="btn btn-white">Get merch</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head"><span class="eyebrow">Live</span><h2>On tour</h2></div>
+      <div class="tour-row"><span class="chip">Jun 14</span><div><div class="tour-venue">The Fillmore</div><div class="tour-city">San Francisco, CA</div></div><a class="btn btn-ink">Tickets</a></div>
+      <div class="tour-row"><span class="chip">Jun 18</span><div><div class="tour-venue">Wonder Ballroom</div><div class="tour-city">Portland, OR</div></div><a class="btn btn-ink">Tickets</a></div>
+      <div class="tour-row"><span class="chip">Jun 22</span><div><div class="tour-venue">Neumos</div><div class="tour-city">Seattle, WA</div></div><a class="btn btn-ink">Tickets</a></div>
+    </section>
+
+    <section>
+      <div class="section-head"><span class="eyebrow">Gallery</span><h2>Moments</h2></div>
+      <div class="gallery"><div class="tile t1"></div><div class="tile t2"></div><div class="tile t3"></div></div>
+    </section>
+  </div>
+
+  <footer class="site"><div class="wrap">
+    <a class="brand">Aurelia Wren</a>
+    <div class="socials"><a>Instagram</a><a>TikTok</a><a>Spotify</a><a>YouTube</a></div>
+    <div class="copy">© 2026 Aurelia Wren</div>
+  </div></footer>
+</body>
+</html>
