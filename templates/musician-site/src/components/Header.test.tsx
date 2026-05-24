@@ -43,11 +43,14 @@ describe("<Header>", () => {
     expect(html).toMatch(/position:\s*sticky/);
   });
 
-  it("becomes absolute (not sticky) in solid-static mode", () => {
+  it("stays in normal flow (relative, not absolute) in solid-static mode", () => {
+    // Non-sticky headers reserve their height instead of overlaying the
+    // page, so they never collide with or hide the top of the content.
     const html = renderHeader({
       header: { ...DEFAULT_HEADER_CONFIG, headerMode: "solid-static" },
     });
-    expect(html).toMatch(/position:\s*absolute/);
+    expect(html).toMatch(/position:\s*relative/);
+    expect(html).not.toMatch(/position:\s*absolute/);
   });
 
   it("removes the background in transparent-static mode", () => {

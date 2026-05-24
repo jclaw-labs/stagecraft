@@ -171,10 +171,26 @@ export function AppearanceStyles({ appearance }: Props) {
       font-family: var(--font-body);
       font-weight: var(--font-weight-body);
     }
-    .stagecraft-site h1 { font-family: var(--font-headings); font-weight: var(--font-weight-h1); }
-    .stagecraft-site h2 { font-family: var(--font-headings); font-weight: var(--font-weight-h2); }
-    .stagecraft-site h3 { font-family: var(--font-headings); font-weight: var(--font-weight-h3); }
-    .stagecraft-site h1, .stagecraft-site h2, .stagecraft-site h3 { text-transform: var(--heading-transform); letter-spacing: var(--tracking-heading); }
+    .stagecraft-site h1 {
+      font-family: var(--font-display, var(--font-headings));
+      font-weight: var(--font-weight-h1);
+      font-size: calc(clamp(2rem, 5.5vw, 3.25rem) * var(--scale-display, 1));
+    }
+    .stagecraft-site h2 {
+      font-family: var(--font-headings);
+      font-weight: var(--font-weight-h2);
+      font-size: calc(clamp(1.5rem, 3.2vw, 2rem) * var(--scale-display, 1));
+    }
+    .stagecraft-site h3 {
+      font-family: var(--font-headings);
+      font-weight: var(--font-weight-h3);
+      font-size: calc(clamp(1.15rem, 2vw, 1.4rem) * var(--scale-display, 1));
+    }
+    .stagecraft-site h1, .stagecraft-site h2, .stagecraft-site h3 {
+      text-transform: var(--heading-transform);
+      letter-spacing: var(--tracking-heading);
+      line-height: var(--line-height-heading);
+    }
     .stagecraft-site a { color: var(--color-link); }
     .stagecraft-site strong, .stagecraft-site b { font-weight: var(--font-weight-body-bold); }
   `;

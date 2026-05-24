@@ -50,10 +50,41 @@ uploads a real photo. This doubles as a better empty-state UX everywhere.
   in the page `puckConfig` + pre-loading collection items in the public
   renderer) is the genuinely architectural piece CLAUDE.md defers — **left as a
   follow-up**, not done here.
-- **PR C — finish token wiring.** Thread `design` into the pure Puck blocks:
-  `buttonFill`, `ruleStyle`, `imageTreatment` (framed/rounded art),
-  `galleryLayout`, `headingScale`, `accentMode: gradient` backgrounds. (Clears
-  the DEFERRED.md "unwired tokens" item.)
+- **PR C (Phase 3) — layout flexibility + menubar.** The blocks render the right
+  content but are too rigid, and the spacing/scale don't match the comps' density.
+  Make components flexible:
+  - **Buttons in a row.** `Button` hard-wraps each in a centred padded `<div>`,
+    so CTA pairs stack. Add an inline/group option so "Stream · Order vinyl" sit
+    side by side (as in every comp).
+  - **Hero scale.** Wire `headingScale` so the hero leads with a display-scale
+    headline instead of default `h1`.
+  - **Card chrome.** The release row should read as a surface tile (bg / padding /
+    radius / shadow), not flush `Columns`.
+  - **Density.** Tighten `--section-space` / Section padding — comps are denser;
+    sections currently float in voids.
+  - **Column alignment.** `Columns` is fixed-ratio + top-aligned; add vertical
+    alignment so album-vs-text balances.
+  - Plus the deferred token wiring: `buttonFill`, `ruleStyle`, `imageTreatment`,
+    `galleryLayout`, `accentMode: gradient` backgrounds.
+
+  **Menubar / header** (examined — `src/components/Header.tsx`):
+  - **Sparse nav** — the seed makes one page, so the navbar shows only "Home"
+    while comps show full navs. *Smart fix (not literal):* seed a few real starter
+    pages (About / Music / Contact) with light content so the nav is genuine and
+    full — no fake/dead links.
+  - **Transparent-header overlap** — non-sticky headers are `position: absolute`
+    and overlay content; over our contained hero that collides with the hero text
+    (and would *hide* the top under a solid theme). *Smart fix:* headers reserve
+    their space (normal flow); transparent overlay is opt-in only behind a
+    full-bleed hero image.
+  - **`logo-center-nav-split` is a no-op** (collapses to nav-below per its own
+    comment). Implement a real left·logo·right split or drop the option — don't
+    ship a misleading setting.
+  - Nav-link presence (tracking/weight tied to theme) + a mobile menu once the
+    nav has several items.
+
+  *Principle: don't blindly match the comps — where a comp choice looks
+  unintentional (fake nav, overlap artifact), do the correct thing instead.*
 
 ## Deferred (architectural)
 
