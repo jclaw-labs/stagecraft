@@ -2,10 +2,12 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@stagecraft/db";
 
+import AppShell from "@/components/AppShell";
 import { STAGECRAFT_GITHUB_APP_INSTALL_URL } from "@/lib/install-url";
 import { ConnectNetlify } from "./ConnectNetlify";
 import { ConnectResend } from "./ConnectResend";
 import { ConnectVercel } from "./ConnectVercel";
+import styles from "./settings.module.css";
 
 export default async function SettingsPage({
   searchParams,
@@ -41,79 +43,82 @@ export default async function SettingsPage({
   const resendAdminEmail = resend?.providerAccountId ?? null;
 
   return (
-    <main style={{ maxWidth: "var(--max-width-wide)", margin: "var(--space-10) auto", fontFamily: "var(--font-body)", color: "var(--color-text)" }}>
-      <h1>Settings</h1>
-      <p><a href="/dashboard">&larr; Dashboard</a></p>
-
-      {params.success && (
-        <div style={{ padding: "var(--space-3)", background: "var(--color-success-bg)", color: "var(--color-success)", borderRadius: "var(--radius-sm)", marginBottom: "var(--space-4)" }}>
-          {params.success === "github_connected" && "GitHub connected successfully."}
-          {params.success === "netlify_connected" && "Netlify connected successfully."}
-          {params.success === "netlify_disconnected" && "Netlify disconnected."}
-          {params.success === "vercel_connected" && "Vercel connected successfully."}
-          {params.success === "vercel_disconnected" && "Vercel disconnected."}
-          {params.success === "resend_connected" && "Resend connected successfully."}
-          {params.success === "resend_disconnected" && "Resend disconnected."}
+    <AppShell user={{ name: session.user.name, email: session.user.email }} current="settings">
+      <div className={styles.container}>
+        <div className={styles.pageHead}>
+          <h1 className={styles.title}>Settings</h1>
+          <p className={styles.sub}>Connect the services Stagecraft uses to build, deploy, and run your sites.</p>
         </div>
-      )}
 
-      {params.error && (
-        <div style={{ padding: "var(--space-3)", background: "var(--color-error-bg)", color: "var(--color-error)", borderRadius: "var(--radius-sm)", marginBottom: "var(--space-4)" }}>
-          Connection failed. Please try again.
-        </div>
-      )}
+        {params.success && (
+          <div className={`${styles.banner} ${styles.bannerSuccess}`}>
+            {params.success === "github_connected" && "GitHub connected successfully."}
+            {params.success === "netlify_connected" && "Netlify connected successfully."}
+            {params.success === "netlify_disconnected" && "Netlify disconnected."}
+            {params.success === "vercel_connected" && "Vercel connected successfully."}
+            {params.success === "vercel_disconnected" && "Vercel disconnected."}
+            {params.success === "resend_connected" && "Resend connected successfully."}
+            {params.success === "resend_disconnected" && "Resend disconnected."}
+          </div>
+        )}
 
-      <section style={{ marginTop: "var(--space-8)" }}>
-        <h2>Integrations</h2>
-        <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+        {params.error && (
+          <div className={`${styles.banner} ${styles.bannerError}`}>
+            Connection failed. Please try again.
+          </div>
+        )}
+
+        <p className={styles.intro}>
           GitHub is required (the platform commits to your repo). For deploys, connect either Vercel or Netlify — Vercel is recommended for new sites because its API auto-resolves repo linking; Netlify needs manual GitHub-App setup per repo. Resend is required for magic-link sign-in on artist sites.
         </p>
 
-        <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "var(--space-4)", marginBottom: "var(--space-4)" }}>
-          <h3>GitHub</h3>
-          {github ? (
-            <p>
-              Connected as <strong>{(github.metadata as { login?: string })?.login ?? github.providerAccountId}</strong>
-            </p>
-          ) : (
-            <p style={{ color: "var(--color-text-muted)" }}>Sign in with GitHub to connect.</p>
+        <div className={styles.grid}>
+          <div className={styles.integration}>
+            <h3 className={styles.integrationTitle}>GitHub</h3>
+            {github ? (
+              <p>
+                Connected as <strong>{(github.metadata as { login?: string })?.login ?? github.providerAccountId}</strong>
+              </p>
+            ) : (
+              <p className={styles.muted}>Sign in with GitHub to connect.</p>
+            )}
+          </div>
+
+          <div className={styles.integration}>
+            <h3 className={styles.integrationTitle}>Vercel <span className={styles.tagBrand}>(recommended)</span></h3>
+            <ConnectVercel connectedUsername={vercelUsername} />
+          </div>
+
+          <div className={styles.integration}>
+            <h3 className={styles.integrationTitle}>Netlify</h3>
+            <ConnectNetlify connectedEmail={netlifyEmail} />
+          </div>
+
+          <div className={styles.integration}>
+            <h3 className={styles.integrationTitle}>Resend <span className={styles.tag}>(required for magic-link sign-in)</span></h3>
+            <ConnectResend connectedAdminEmail={resendAdminEmail} />
+          </div>
+
+          {githubAppInstallUrl && (
+            <div className={styles.integration}>
+              <h3 className={styles.integrationTitle}>Stagecraft GitHub App</h3>
+              <p className={styles.cardText}>
+                Installing the Stagecraft App on your GitHub account lets the platform
+                manage repos without a per-site connection step. Select &ldquo;All repositories&rdquo;
+                for the smoothest experience.
+              </p>
+              <a
+                href={githubAppInstallUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.installLink}
+              >
+                Install Stagecraft App &rarr;
+              </a>
+            </div>
           )}
         </div>
-
-        <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "var(--space-4)", marginBottom: "var(--space-4)" }}>
-          <h3>Vercel <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-brand)", fontWeight: "var(--font-weight-normal)" }}>(recommended)</span></h3>
-          <ConnectVercel connectedUsername={vercelUsername} />
-        </div>
-
-        <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "var(--space-4)", marginBottom: "var(--space-4)" }}>
-          <h3>Netlify</h3>
-          <ConnectNetlify connectedEmail={netlifyEmail} />
-        </div>
-
-        <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "var(--space-4)" }}>
-          <h3>Resend <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", fontWeight: "var(--font-weight-normal)" }}>(required for magic-link sign-in)</span></h3>
-          <ConnectResend connectedAdminEmail={resendAdminEmail} />
-        </div>
-
-        {githubAppInstallUrl && (
-          <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface)", borderRadius: "var(--radius-lg)", padding: "var(--space-4)", marginTop: "var(--space-4)" }}>
-            <h3>Stagecraft GitHub App</h3>
-            <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", marginTop: "var(--space-1)" }}>
-              Installing the Stagecraft App on your GitHub account lets the platform
-              manage repos without a per-site connection step. Select &ldquo;All repositories&rdquo;
-              for the smoothest experience.
-            </p>
-            <a
-              href={githubAppInstallUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-brand)" }}
-            >
-              Install Stagecraft App &rarr;
-            </a>
-          </div>
-        )}
-      </section>
-    </main>
+      </div>
+    </AppShell>
   );
 }
