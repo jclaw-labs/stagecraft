@@ -1,11 +1,11 @@
 {
-  "id": "item_starter_contact",
+  "id": "item_starter_about",
   "createdAt": "2026-05-18T02:47:31.957Z",
   "updatedAt": "2026-05-18T02:47:31.957Z",
   "values": {
     "fld_pages_title": {
       "type": "text",
-      "value": "Contact"
+      "value": "About"
     },
     "fld_pages_isSplashPage": {
       "type": "boolean",
@@ -26,7 +26,7 @@
           {
             "type": "Section",
             "props": {
-              "id": "sp-contact",
+              "id": "sp-about",
               "width": "lg",
               "textAlign": "start",
               "variant": "plain",
@@ -34,16 +34,16 @@
                 {
                   "type": "Eyebrow",
                   "props": {
-                    "id": "sp-contact-eyebrow",
-                    "text": "Get in touch",
+                    "id": "sp-about-eyebrow",
+                    "text": "Bio",
                     "textAlign": "start"
                   }
                 },
                 {
                   "type": "Heading",
                   "props": {
-                    "id": "sp-contact-title",
-                    "text": "Contact",
+                    "id": "sp-about-title",
+                    "text": "About",
                     "level": "h1",
                     "textAlign": "start"
                   }
@@ -51,15 +51,17 @@
                 {
                   "type": "RichText",
                   "props": {
-                    "id": "sp-contact-p0",
-                    "text": "Booking, press, or just to say hello — the form goes to your contact email.",
+                    "id": "sp-about-p0",
+                    "text": "Aurelia Wren — your story goes here. Where you're from, what the music is about, who you make it with.",
                     "align": "start"
                   }
                 },
                 {
-                  "type": "ContactForm",
+                  "type": "RichText",
                   "props": {
-                    "id": "sp-contact-form"
+                    "id": "sp-about-p1",
+                    "text": "Edit this page in the editor: add photos, a press quote, links.",
+                    "align": "start"
                   }
                 }
               ]

@@ -157,11 +157,18 @@ describe("POST /api/welcome/complete — theme", () => {
 });
 
 describe("POST /api/welcome/complete — seedContent", () => {
-  it("seeds the Home page + tour dates by default (no seedContent field)", async () => {
+  it("seeds Home + starter pages (Home-first nav order) + tour dates by default", async () => {
     const res = await POST(jsonReq(VALID_BODY));
     expect(res.status).toBe(200);
     const store = await getRequestReadStore();
-    expect(await store.listItemSlugs("pages")).toEqual(["home"]);
+    expect([...(await store.listItemSlugs("pages"))].sort()).toEqual([
+      "about",
+      "contact",
+      "home",
+      "music",
+    ]);
+    // Home stays first in the nav via the pages collection's _order.json.
+    expect(await store.readOrder("pages")).toEqual(["home", "music", "about", "contact"]);
     expect((await store.listItemSlugs("tour-dates")).length).toBeGreaterThan(0);
   });
 

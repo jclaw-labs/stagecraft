@@ -50,6 +50,12 @@ export type FirstRunTourDateSeed = {
 export type FirstRunSeed = {
   /** Home page, titled with whatever the artist typed in the wizard. */
   homePage: FirstRunPageSeed;
+  /**
+   * Light starter pages (Music / About / Contact) so the nav isn't a
+   * single link out of the box. Seeded only on the content-ful start;
+   * the artist edits or deletes them.
+   */
+  starterPages: FirstRunPageSeed[];
   /** Two illustrative tour dates a few months out. */
   tourDates: FirstRunTourDateSeed[];
 };
@@ -85,8 +91,64 @@ export function buildFirstRunSeed(
   const homeSlug = slugifyForSeed(title);
   return {
     homePage: buildHomePageSeed(trimmedName, title, homeSlug),
+    starterPages: buildStarterPages(trimmedName),
     tourDates: buildTourDateSeeds(now),
   };
+}
+
+// A light starter page: eyebrow + title + a paragraph or two, optionally
+// followed by extra blocks (e.g. a contact form). Kept minimal — the point
+// is a real, editable page so the nav has somewhere to go.
+function starterPageSeed(
+  slug: string,
+  title: string,
+  eyebrow: string,
+  paragraphs: string[],
+  extra: Array<{ type: string; props: Record<string, unknown> }> = [],
+): FirstRunPageSeed {
+  return {
+    slug,
+    data: {
+      content: [
+        {
+          type: "Section",
+          props: {
+            id: `sp-${slug}`,
+            width: "lg",
+            textAlign: "start",
+            variant: "plain",
+            children: [
+              { type: "Eyebrow", props: { id: `sp-${slug}-eyebrow`, text: eyebrow, textAlign: "start" } },
+              { type: "Heading", props: { id: `sp-${slug}-title`, text: title, level: "h1", textAlign: "start" } },
+              ...paragraphs.map((text, i) => ({
+                type: "RichText",
+                props: { id: `sp-${slug}-p${i}`, text, align: "start" },
+              })),
+              ...extra,
+            ],
+          },
+        },
+      ],
+      root: { props: { title, isSplashPage: false, isFooterHidden: false } },
+    } as PuckData,
+  };
+}
+
+function buildStarterPages(artistName: string): FirstRunPageSeed[] {
+  return [
+    starterPageSeed("music", "Music", "Listen", [
+      "Streams, releases, and where to find the records. Drop release links " +
+        "or an embed here, or build it out from the editor.",
+    ]),
+    starterPageSeed("about", "About", "Bio", [
+      `${artistName} — your story goes here. Where you're from, what the ` +
+        "music is about, who you make it with.",
+      "Edit this page in the editor: add photos, a press quote, links.",
+    ]),
+    starterPageSeed("contact", "Contact", "Get in touch", [
+      "Booking, press, or just to say hello — the form goes to your contact email.",
+    ], [{ type: "ContactForm", props: { id: "sp-contact-form" } }]),
+  ];
 }
 
 // One composed tour row: date + venue on the left, a Tickets CTA on the
