@@ -131,7 +131,10 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
     </div>
   );
 
-  const nav = (
+  const navList = (
+    items: readonly string[],
+    justify: "flex-start" | "center" | "flex-end",
+  ) => (
     <nav aria-label="Primary">
       <ul
         style={{
@@ -141,9 +144,10 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
           padding: 0,
           gap: "var(--space-4)",
           fontSize: "var(--font-size-sm)",
+          justifyContent: justify,
         }}
       >
-        {navItems.map((slug) => (
+        {items.map((slug) => (
           <li key={slug}>
             <Link
               href={`/${slug}`}
@@ -163,11 +167,38 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
     </nav>
   );
 
+  let inner: React.ReactNode;
+  if (header.headerLayout === "logo-center-nav-split") {
+    // Real split: nav-left | logo-center | nav-right (3-col grid via
+    // layoutStyle). The nav items divide into two halves.
+    const mid = Math.ceil(navItems.length / 2);
+    inner = (
+      <>
+        {navList(navItems.slice(0, mid), "flex-start")}
+        {brand}
+        {navList(navItems.slice(mid), "flex-end")}
+      </>
+    );
+  } else if (header.headerLayout === "logo-left-nav-right") {
+    inner = (
+      <>
+        {brand}
+        {navList(navItems, "flex-end")}
+      </>
+    );
+  } else {
+    // logo-center-nav-below
+    inner = (
+      <>
+        {brand}
+        {navList(navItems, "center")}
+      </>
+    );
+  }
+
   return (
     <header style={wrapperStyle}>
-      <div style={innerStyle}>
-        {renderByLayout(header.headerLayout, brand, nav)}
-      </div>
+      <div style={innerStyle}>{inner}</div>
     </header>
   );
 }
@@ -189,37 +220,12 @@ function layoutStyle(layout: HeaderLayout): CSSProperties {
         gap: "var(--space-2)",
       };
     case "logo-center-nav-split":
-      // split layout uses a 3-column grid (left half nav | logo | right half nav),
-      // but we collapse to centered-with-nav-below as a fallback when nav has
-      // few enough items that splitting feels noisy. Implementation keeps it
-      // simple: nav above logo for split too.
+      // 3-column grid: left-half nav | centered logo | right-half nav.
       return {
-        display: "flex",
-        flexDirection: "column",
+        display: "grid",
+        gridTemplateColumns: "1fr auto 1fr",
         alignItems: "center",
-        gap: "var(--space-2)",
+        gap: "var(--space-4)",
       };
   }
-}
-
-function renderByLayout(
-  layout: HeaderLayout,
-  brand: React.ReactNode,
-  nav: React.ReactNode,
-): React.ReactNode {
-  if (layout === "logo-left-nav-right") {
-    return (
-      <>
-        {brand}
-        {nav}
-      </>
-    );
-  }
-  // centered variants: brand first then nav, both centered by the layout style.
-  return (
-    <>
-      {brand}
-      {nav}
-    </>
-  );
 }
