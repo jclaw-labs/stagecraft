@@ -23,6 +23,7 @@ import {
   buildCollectionBlockRegistry,
   DefaultItemFieldsList,
 } from "@/lib/collections/template/collection-block";
+import { resolvePageCollectionBlocks } from "@/lib/collections/resolve-page-collections";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
 import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
 import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
@@ -170,6 +171,10 @@ async function renderPage({ segs }: { segs: string[] }) {
 
   if (!pageData) notFound();
 
+  // Page blocks are pure (literal props only); data-bound blocks like
+  // TourDatesView get their items injected here, server-side, before render.
+  const resolvedPageData = await resolvePageCollectionBlocks(pageData);
+
   const rootProps = extractPageRootProps(pageData);
   const pageTitleBySlug = new Map(summaries.map((s) => [s.slug, s.title]));
   const navItems = summaries
@@ -207,7 +212,7 @@ async function renderPage({ segs }: { segs: string[] }) {
           }
         />
       ) : null}
-      <Render config={puckConfig} data={pageData} />
+      <Render config={puckConfig} data={resolvedPageData} />
     </PublicPageChrome>
   );
 }

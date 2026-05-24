@@ -113,6 +113,20 @@ describe("buildFirstRunSeed", () => {
     expect(JSON.stringify(contact?.data.content ?? [])).toContain("ContactForm");
   });
 
+  it("binds the home tour section to a real TourDatesView (no faked rows or tracklist)", () => {
+    type Block = { type: string; props: Record<string, unknown> };
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    const blocks = seed.homePage.data.content as unknown as Block[];
+    const tour = blocks.find((b) => b.props.id === "fr-tour");
+    const tourKids = (tour?.props.children as Block[] | undefined) ?? [];
+    // The section is data-bound, not a stack of hand-faked Columns/Divider rows.
+    expect(tourKids.some((k) => k.type === "TourDatesView")).toBe(true);
+    expect(tourKids.some((k) => k.type === "Columns" || k.type === "Divider")).toBe(false);
+    // The collection-less fake tracklist section is gone entirely.
+    expect(blocks.some((b) => b.props.id === "fr-tracklist")).toBe(false);
+    expect(JSON.stringify(seed.homePage.data.content)).not.toContain("Stone Chapel");
+  });
+
   it("seeds exactly two tour dates with required fields populated", () => {
     const seed = buildFirstRunSeed("Test", "Home", NOW);
     expect(seed.tourDates).toHaveLength(2);

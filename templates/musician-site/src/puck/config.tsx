@@ -11,6 +11,11 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  TourDatesList,
+  TourDatesPlaceholder,
+  type ResolvedTourDate,
+} from "@/components/TourDatesView";
+import {
   collidingAdditionalFieldNames,
   NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
   NEWSLETTER_FIELD_TYPES,
@@ -532,6 +537,13 @@ export type BlockProps = {
      */
     isHoverable: boolean;
   };
+  /**
+   * Data-bound: the artist's upcoming `tour-dates` collection, rendered as
+   * a list. `items` is NOT authored — it's injected server-side by
+   * `resolvePageCollectionBlocks` on the published page (undefined in the
+   * editor → the block shows a placeholder). `limit` caps how many show.
+   */
+  TourDatesView: { limit: number; items?: ResolvedTourDate[] };
 };
 
 /**
@@ -959,6 +971,7 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   Divider: "A horizontal line between blocks.",
   ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
   NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
+  TourDatesView: "Your upcoming tour dates, pulled live from the Tour Dates panel. Set how many to show.",
 };
 
 export const puckConfig: Config<
@@ -1056,6 +1069,10 @@ export const puckConfig: Config<
     forms: {
       title: "Forms",
       components: ["ContactForm", "NewsletterSignup"],
+    },
+    collections: {
+      title: "Collections",
+      components: ["TourDatesView"],
     },
   },
   components: {
@@ -2247,6 +2264,32 @@ export const puckConfig: Config<
           />
         );
       },
+    },
+    TourDatesView: {
+      fields: {
+        limit: { type: "number", label: "Max shows", min: 1 },
+        // Read-only: the list is injected server-side, never authored here.
+        // Declared so Puck threads `items` through to render; the editor
+        // surface just explains where the data comes from.
+        items: {
+          type: "custom",
+          label: "Shows",
+          render: () => (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Pulled live from your Tour Dates — add or edit shows there.
+            </p>
+          ),
+        },
+      },
+      defaultProps: { limit: 5 },
+      render: ({ items }) =>
+        Array.isArray(items) ? <TourDatesList items={items} /> : <TourDatesPlaceholder />,
     },
   },
 };
