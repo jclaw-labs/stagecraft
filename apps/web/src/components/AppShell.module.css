@@ -134,3 +134,10 @@
   .signout { display: none; }
   .hamburger { display: inline-flex; }
 }
+
+/* The dropdown is mobile-only; if it was left open when the viewport grew
+   past the breakpoint, keep it hidden (the hamburger is desktop-hidden too). */
+/* --breakpoint md + 1 (769px) */
+@media (min-width: 769px) {
+  .mobileMenu { display: none; }
+}

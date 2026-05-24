@@ -25,38 +25,24 @@ export default function AppShell({ user, current, children }: AppShellProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const label = user.name || user.email || "Account";
 
-  // Mobile-menu keyboard handling. While open, focus lands on the first
-  // item; Escape closes it and returns focus to the toggle; and Tab is
-  // kept within the menu so focus can't slip behind it to page content.
+  // Mobile-menu keyboard handling, as a disclosure (not a modal): on open
+  // focus moves into the menu, and Escape closes it and returns focus to
+  // the toggle. Tab is left to flow naturally — the menu is an inline,
+  // non-modal dropdown, so trapping focus would be the wrong pattern (it
+  // would strand the toggle, which Shift+Tab reaches on its own). The menu
+  // also closes when a link is chosen (see the items below).
   useEffect(() => {
     if (!menuOpen) return;
 
-    const items = () =>
-      Array.from(
-        menuRef.current?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? [],
-      );
-
-    items()[0]?.focus();
+    menuRef.current
+      ?.querySelector<HTMLElement>("a[href], button:not([disabled])")
+      ?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setMenuOpen(false);
-        hamburgerRef.current?.focus();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusables = items();
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMenuOpen(false);
+      hamburgerRef.current?.focus();
     }
 
     document.addEventListener("keydown", onKeyDown);
@@ -108,8 +94,8 @@ export default function AppShell({ user, current, children }: AppShellProps) {
 
       {menuOpen ? (
         <div className={styles.mobileMenu} id="app-mobile-menu" ref={menuRef}>
-          <Link href="/dashboard" aria-current={current === "sites" ? "page" : undefined}>Sites</Link>
-          <Link href="/settings" aria-current={current === "settings" ? "page" : undefined}>Settings</Link>
+          <Link href="/dashboard" aria-current={current === "sites" ? "page" : undefined} onClick={() => setMenuOpen(false)}>Sites</Link>
+          <Link href="/settings" aria-current={current === "settings" ? "page" : undefined} onClick={() => setMenuOpen(false)}>Settings</Link>
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/auth/signout">Sign out</a>
         </div>
