@@ -206,6 +206,7 @@ function buildHomePageSeed(
           id: "fr-release",
           width: "lg",
           textAlign: "start",
+          variant: "card",
           children: [
             {
               type: "Columns",
@@ -249,28 +250,35 @@ function buildHomePageSeed(
                     },
                   },
                   {
-                    type: "Button",
+                    type: "ButtonRow",
                     props: {
-                      id: "fr-release-stream",
-                      text: "Stream",
-                      href: "#",
-                      variant: "primary",
-                      isExternal: false,
-                    },
-                  },
-                  {
-                    type: "Button",
-                    props: {
-                      id: "fr-release-vinyl",
-                      text: "Order vinyl",
-                      href: "#",
-                      variant: "outline",
-                      isExternal: false,
+                      id: "fr-release-cta",
+                      align: "start",
+                      buttons: [
+                        { text: "Stream", href: "#", variant: "primary", isExternal: false },
+                        { text: "Order vinyl", href: "#", variant: "outline", isExternal: false },
+                      ],
                     },
                   },
                 ],
                 col3: [],
               },
+            },
+          ],
+        },
+      },
+
+      // The record — tracklist, separate from the release card above.
+      {
+        type: "Section",
+        props: {
+          id: "fr-tracklist",
+          width: "lg",
+          textAlign: "start",
+          children: [
+            {
+              type: "Eyebrow",
+              props: { id: "fr-tracklist-eyebrow", text: "The record", textAlign: "start" },
             },
             trackRow("fr-track-1", 1, "Stone Chapel", "3:42"),
             trackRow("fr-track-2", 2, "Ash & Iron", "4:05"),

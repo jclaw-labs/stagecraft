@@ -40,8 +40,21 @@ export type HeadingLevel = (typeof HEADING_LEVELS)[number];
 export const SECTION_WIDTHS = ["sm", "md", "lg", "full"] as const;
 export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 
+// A plain section vs a raised "card" (surface + radius + shadow) — lets a
+// section read as a tile (e.g. a latest-release block) without a new block.
+export const SECTION_VARIANTS = ["plain", "card"] as const;
+export type SectionVariant = (typeof SECTION_VARIANTS)[number];
+
 export const BUTTON_VARIANTS = ["primary", "secondary", "outline"] as const;
 export type ButtonVariant = (typeof BUTTON_VARIANTS)[number];
+
+// A single button inside a ButtonRow (inline group of CTAs).
+export type ButtonRowItem = {
+  text: string;
+  href: string;
+  variant: ButtonVariant;
+  isExternal: boolean;
+};
 
 export const SPACER_SIZES = ["sm", "md", "lg", "xl"] as const;
 export type SpacerSize = (typeof SPACER_SIZES)[number];
@@ -388,8 +401,10 @@ export type BlockProps = {
   Section: {
     width: SectionWidth;
     textAlign: TextAlignment;
+    variant: SectionVariant;
     children: Slot;
   };
+  ButtonRow: { buttons: ButtonRowItem[]; align: TextAlignment };
   FullscreenSection: {
     headline: string;
     body: string;
@@ -885,6 +900,7 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   RichText: "A paragraph of text. Blank lines start a new paragraph.",
   Quote: "A pull quote with an attribution line below.",
   Button: "A clickable button — links to another page or external URL.",
+  ButtonRow: "A row of buttons that sit side by side (and wrap) — for CTA pairs.",
   Card: "Image + title + description tile. Optional link wraps the whole card.",
   Image: "A single image with optional caption. Upload from your computer.",
   ImageCarousel: "Scrollable strip of images with arrows and dots — for galleries, press shots, etc.",
@@ -982,7 +998,7 @@ export const puckConfig: Config<
     },
     content: {
       title: "Content",
-      components: ["Heading", "Eyebrow", "RichText", "Quote", "Button", "Card"],
+      components: ["Heading", "Eyebrow", "RichText", "Quote", "Button", "ButtonRow", "Card"],
     },
     media: {
       title: "Media",
@@ -1057,19 +1073,36 @@ export const puckConfig: Config<
           type: "select",
           options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
         },
+        variant: {
+          type: "select",
+          options: SECTION_VARIANTS.map((v) => ({ label: v, value: v })),
+        },
         children: { type: "slot" },
       },
       defaultProps: {
         width: "md",
         textAlign: "start",
+        variant: "plain",
         children: [],
       },
-      render: ({ width, textAlign, children: Children }) => (
+      render: ({ width, textAlign, variant = "plain", children: Children }) => (
         <section
           style={{
             maxWidth: SECTION_WIDTH_MAX[width],
             margin: "0 auto",
             padding: "var(--space-8) var(--space-4)",
+            // Theme-aware surface (NOT a fixed `--color-surface-raised`, which
+            // isn't re-themed and turns into a light card with light text on
+            // dark presets). The border keeps the card legible even when
+            // surface ≈ background.
+            ...(variant === "card"
+              ? {
+                  background: "var(--color-surface)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius)",
+                  boxShadow: "var(--shadow-md)",
+                }
+              : null),
             ...textAlignStyle(textAlign),
           }}
         >
@@ -1328,6 +1361,63 @@ export const puckConfig: Config<
           >
             {text}
           </a>
+        </div>
+      ),
+    },
+    ButtonRow: {
+      // A row of buttons that sit inline (and wrap), so CTA pairs like
+      // "Stream · Order vinyl" don't stack the way separate Button blocks do.
+      fields: {
+        buttons: {
+          type: "array",
+          arrayFields: {
+            text: { type: "text" },
+            href: { type: "text" },
+            variant: {
+              type: "select",
+              options: BUTTON_VARIANTS.map((v) => ({ label: v, value: v })),
+            },
+            isExternal: {
+              type: "radio",
+              options: [
+                { label: "Same tab", value: false },
+                { label: "Open in new tab", value: true },
+              ],
+            },
+          },
+          defaultItemProps: { text: "Button", href: "#", variant: "primary", isExternal: false },
+        },
+        align: {
+          type: "select",
+          options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
+        },
+      },
+      defaultProps: {
+        buttons: [{ text: "Listen now", href: "#", variant: "primary", isExternal: false }],
+        align: "start",
+      },
+      render: ({ buttons, align }) => (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "var(--space-3)",
+            padding: "var(--space-2) 0",
+            justifyContent:
+              align === "center" ? "center" : align === "end" ? "flex-end" : "flex-start",
+          }}
+        >
+          {(buttons ?? []).map((b, i) => (
+            <a
+              key={i}
+              href={b.href}
+              target={b.isExternal ? "_blank" : undefined}
+              rel={b.isExternal ? "noopener noreferrer" : undefined}
+              style={{ ...BUTTON_BASE, ...BUTTON_STYLE[b.variant] }}
+            >
+              {b.text}
+            </a>
+          ))}
         </div>
       ),
     },

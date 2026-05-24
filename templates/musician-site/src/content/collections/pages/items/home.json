@@ -83,6 +83,7 @@
               "id": "fr-release",
               "width": "lg",
               "textAlign": "start",
+              "variant": "card",
               "children": [
                 {
                   "type": "Columns",
@@ -127,27 +128,46 @@
                         }
                       },
                       {
-                        "type": "Button",
+                        "type": "ButtonRow",
                         "props": {
-                          "id": "fr-release-stream",
-                          "text": "Stream",
-                          "href": "#",
-                          "variant": "primary",
-                          "isExternal": false
-                        }
-                      },
-                      {
-                        "type": "Button",
-                        "props": {
-                          "id": "fr-release-vinyl",
-                          "text": "Order vinyl",
-                          "href": "#",
-                          "variant": "outline",
-                          "isExternal": false
+                          "id": "fr-release-cta",
+                          "align": "start",
+                          "buttons": [
+                            {
+                              "text": "Stream",
+                              "href": "#",
+                              "variant": "primary",
+                              "isExternal": false
+                            },
+                            {
+                              "text": "Order vinyl",
+                              "href": "#",
+                              "variant": "outline",
+                              "isExternal": false
+                            }
+                          ]
                         }
                       }
                     ],
                     "col3": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "Section",
+            "props": {
+              "id": "fr-tracklist",
+              "width": "lg",
+              "textAlign": "start",
+              "children": [
+                {
+                  "type": "Eyebrow",
+                  "props": {
+                    "id": "fr-tracklist-eyebrow",
+                    "text": "The record",
+                    "textAlign": "start"
                   }
                 },
                 {
