@@ -4,7 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Stagecraft",
-  description: "AI-powered musician website platform",
+  description:
+    "The open-source website builder for musicians. Own your code, deploy free, no subscription.",
 };
 
 export default function RootLayout({
