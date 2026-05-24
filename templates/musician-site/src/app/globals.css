@@ -289,3 +289,18 @@
   }
 }
 
+/* Columns block grid. The track template comes from an inline
+   `--sc-cols-tracks` custom property (per-instance), which lets the
+   media query below override it to a single column on small screens
+   without `!important`. */
+.sc-cols {
+  display: grid;
+  grid-template-columns: var(--sc-cols-tracks, 1fr);
+}
+/* --breakpoint-md (768px) */
+@media (max-width: 768px) {
+  .sc-cols[data-stack="true"] {
+    grid-template-columns: 1fr;
+  }
+}
+
