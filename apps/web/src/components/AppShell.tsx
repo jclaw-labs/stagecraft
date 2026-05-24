@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import styles from "./AppShell.module.css";
 
@@ -21,7 +21,33 @@ interface AppShellProps {
  */
 export default function AppShell({ user, current, children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const label = user.name || user.email || "Account";
+
+  // Mobile-menu keyboard handling, as a disclosure (not a modal): on open
+  // focus moves into the menu, and Escape closes it and returns focus to
+  // the toggle. Tab is left to flow naturally — the menu is an inline,
+  // non-modal dropdown, so trapping focus would be the wrong pattern (it
+  // would strand the toggle, which Shift+Tab reaches on its own). The menu
+  // also closes when a link is chosen (see the items below).
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    menuRef.current
+      ?.querySelector<HTMLElement>("a[href], button:not([disabled])")
+      ?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMenuOpen(false);
+      hamburgerRef.current?.focus();
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
 
   return (
     <div className={styles.shell}>
@@ -53,6 +79,7 @@ export default function AppShell({ user, current, children }: AppShellProps) {
 
         <button
           type="button"
+          ref={hamburgerRef}
           className={styles.hamburger}
           aria-label="Menu"
           aria-expanded={menuOpen}
@@ -66,9 +93,9 @@ export default function AppShell({ user, current, children }: AppShellProps) {
       </header>
 
       {menuOpen ? (
-        <div className={styles.mobileMenu} id="app-mobile-menu">
-          <Link href="/dashboard" aria-current={current === "sites" ? "page" : undefined}>Sites</Link>
-          <Link href="/settings" aria-current={current === "settings" ? "page" : undefined}>Settings</Link>
+        <div className={styles.mobileMenu} id="app-mobile-menu" ref={menuRef}>
+          <Link href="/dashboard" aria-current={current === "sites" ? "page" : undefined} onClick={() => setMenuOpen(false)}>Sites</Link>
+          <Link href="/settings" aria-current={current === "settings" ? "page" : undefined} onClick={() => setMenuOpen(false)}>Settings</Link>
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/auth/signout">Sign out</a>
         </div>
