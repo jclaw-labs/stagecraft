@@ -15,6 +15,22 @@ the redesign PRs, parked here so they aren't lost.
   out at `60rem`, so none fit. Consider adding `--max-width-page: 72rem`. Low
   priority — §7's enumerated categories center on colour / type / spacing /
   radii / shadow, not arbitrary layout widths.
+- **Border-width literals** — `1px` (plus a `2px` spinner border and `3px`
+  status accents in site-detail) are written literally across the platform
+  CSS (Button, SiteCard, AppShell, dashboard, site-detail); there's no
+  `--border-width` token anywhere. §7 doesn't enumerate border widths and the
+  whole codebase uses literals, so this is a repo-wide convention call:
+  introduce `--border-width` / `--border-width-accent` everywhere, or leave
+  as-is. Deferred either way (not a site-detail-only issue).
+
+## DRY (root CLAUDE.md §2)
+
+- **Shared `StatusBadge`** — the colour-coded status badge (dot + tone +
+  label) is duplicated in `SiteCard.module.css` and
+  `sites/[siteId]/site-detail.module.css`. Extract a shared `StatusBadge`
+  component handling both the SiteStatus-based card variant and site-detail's
+  richer deploy-state variant (incl. the card's pulse animation). Tones are
+  now colour-aligned across the two surfaces; only the CSS is duplicated.
 
 ## Accessibility
 
