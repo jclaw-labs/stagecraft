@@ -74,4 +74,41 @@ describe("<AppearanceStyles>", () => {
     expect(html).toMatch(/family=Inter:wght@400;700/);
     expect(html).toMatch(/family=Merriweather:wght@700/);
   });
+
+  it("emits the design tokens at their defaults", () => {
+    const html = render();
+    expect(html).toContain("--radius-theme: 0.5rem"); // soft
+    expect(html).toContain("--content-measure: 52rem"); // medium
+    expect(html).toContain("--space-scale: 1"); // comfortable
+    expect(html).toContain("--btn-radius: 0.5rem"); // rounded
+    expect(html).toContain("--rule-width: 1px"); // hairline
+    expect(html).toContain("--heading-transform: none");
+  });
+
+  it("renders a gradient accent in gradient mode", () => {
+    const html = render({
+      design: {
+        ...DEFAULT_APPEARANCE.design!,
+        accentMode: "gradient",
+        accentGradient: { from: "#ff0000", via: "#00ff00", to: "#0000ff" },
+      },
+    });
+    expect(html).toContain("--gradient-accent: linear-gradient(120deg, #ff0000, #00ff00, #0000ff)");
+  });
+
+  it("loads a 3rd family + sets --font-display when displayFont is set", () => {
+    const html = render({
+      typography: { ...DEFAULT_APPEARANCE.typography, displayFont: "Anton" },
+    });
+    expect(html).toContain("--font-display: 'Anton'");
+    expect(html).toMatch(/family=Anton:wght@/);
+  });
+
+  it("inverse footer swaps background and text", () => {
+    const html = render({
+      design: { ...DEFAULT_APPEARANCE.design!, footerStyle: "inverse" },
+    });
+    expect(html).toContain("--footer-bg: #1a1a2e"); // text color
+    expect(html).toContain("--footer-text: #fafafa"); // background color
+  });
 });

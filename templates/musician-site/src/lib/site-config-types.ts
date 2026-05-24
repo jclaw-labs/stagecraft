@@ -171,6 +171,23 @@ export const HEADER_LAYOUT_LABELS: Record<HeaderLayout, string> = {
   "logo-center-nav-split": "Logo centered, nav split left/right",
 };
 
+export const HEADER_HEIGHTS = ["compact", "standard", "tall"] as const;
+export type HeaderHeight = (typeof HEADER_HEIGHTS)[number];
+export const HEADER_HEIGHT_LABELS: Record<HeaderHeight, string> = {
+  compact: "Compact",
+  standard: "Standard (default)",
+  tall: "Tall",
+};
+
+export const HEADER_BORDERS = ["none", "hairline", "bold", "accent"] as const;
+export type HeaderBorder = (typeof HEADER_BORDERS)[number];
+export const HEADER_BORDER_LABELS: Record<HeaderBorder, string> = {
+  none: "None",
+  hairline: "Hairline (default)",
+  bold: "Bold",
+  accent: "Accent color",
+};
+
 export const WORDMARK_SIZE_ADJUSTMENTS = [-2, -1, 0, 1, 2] as const;
 export type WordmarkSizeAdjustment = (typeof WORDMARK_SIZE_ADJUSTMENTS)[number];
 
@@ -199,6 +216,10 @@ export const headerConfigSchema = z.object({
   isHeaderTextUppercase: z.boolean().default(false),
   headerSubtitle: z.string().default(""),
   headerLayout: z.enum(HEADER_LAYOUTS).default("logo-left-nav-right"),
+  // Optional (defaulted at render) so header singletons predating these
+  // fields stay valid.
+  headerHeight: z.enum(HEADER_HEIGHTS).optional(),
+  headerBorder: z.enum(HEADER_BORDERS).optional(),
   // Nav order + visibility moved to `siteConfig.pageOrder` /
   // `siteConfig.hiddenFromNav` — the Pages list is the single editor for
   // both. Zod drops unknown fields by default, so an `items` value left
@@ -214,6 +235,8 @@ export const DEFAULT_HEADER_CONFIG: HeaderConfig = {
   isHeaderTextUppercase: false,
   headerSubtitle: "",
   headerLayout: "logo-left-nav-right",
+  headerHeight: "standard",
+  headerBorder: "hairline",
 };
 
 // ---------------------------------------------------------------------------
@@ -282,6 +305,9 @@ const typographySchema = z.object({
   headingMode: z.enum(HEADING_MODES).default("single"),
   // Only consulted when headingMode === "split".
   headingFont: z.string().default(""),
+  // Optional 3rd font for the wordmark + hero display (blackletter,
+  // condensed, etc.). Absent/blank = inherit the heading font.
+  displayFont: z.string().optional(),
   bodyWeights: z
     .object({
       body: fontWeightSchema.default(400),
@@ -318,13 +344,124 @@ const DEFAULT_TYPOGRAPHY = {
   bodyFont: "Inter",
   headingMode: "single" as const,
   headingFont: "",
+  displayFont: "",
   bodyWeights: { body: 400, bodyBold: 700 },
   headingWeights: { h1: 700, h2: 700, h3: 700 },
+};
+
+// ---------------------------------------------------------------------------
+// Design system — layout / shape / rule / effect controls (ADR-013 tokenized
+// themes). Every field maps to a CSS custom property emitted by
+// `AppearanceStyles` and consumed by the shared blocks + Header/Footer. Named
+// 3-step scales (not numeric) keep presets legible and prevent incoherent
+// layouts.
+// ---------------------------------------------------------------------------
+
+export const DENSITIES = ["compact", "comfortable", "spacious"] as const;
+export type Density = (typeof DENSITIES)[number];
+
+export const CONTENT_WIDTHS = ["narrow", "medium", "wide"] as const;
+export type ContentWidth = (typeof CONTENT_WIDTHS)[number];
+
+export const SECTION_ALIGNS = ["left", "center"] as const;
+export type SectionAlign = (typeof SECTION_ALIGNS)[number];
+
+export const GUTTERS = ["tight", "normal", "airy"] as const;
+export type Gutter = (typeof GUTTERS)[number];
+
+export const RADII = ["sharp", "soft", "round"] as const;
+export type Radius = (typeof RADII)[number];
+
+export const BUTTON_SHAPES = ["square", "rounded", "pill"] as const;
+export type ButtonShape = (typeof BUTTON_SHAPES)[number];
+
+export const BUTTON_FILLS = ["solid", "outline", "underline"] as const;
+export type ButtonFill = (typeof BUTTON_FILLS)[number];
+
+export const SHADOW_STYLES = ["none", "soft", "glow", "hard-offset"] as const;
+export type ShadowStyle = (typeof SHADOW_STYLES)[number];
+
+export const RULE_STYLES = ["none", "hairline", "bold", "accent"] as const;
+export type RuleStyle = (typeof RULE_STYLES)[number];
+
+export const IMAGE_TREATMENTS = ["plain", "rounded", "framed"] as const;
+export type ImageTreatment = (typeof IMAGE_TREATMENTS)[number];
+
+export const GALLERY_LAYOUTS = ["grid", "portrait", "masonry"] as const;
+export type GalleryLayout = (typeof GALLERY_LAYOUTS)[number];
+
+export const HEADING_CASES = ["none", "upper"] as const;
+export type HeadingCase = (typeof HEADING_CASES)[number];
+
+export const HEADING_TRACKINGS = ["tight", "normal", "wide"] as const;
+export type HeadingTracking = (typeof HEADING_TRACKINGS)[number];
+
+export const HEADING_SCALES = ["modest", "balanced", "dramatic"] as const;
+export type HeadingScale = (typeof HEADING_SCALES)[number];
+
+export const ACCENT_MODES = ["solid", "gradient"] as const;
+export type AccentMode = (typeof ACCENT_MODES)[number];
+
+export const FOOTER_STYLES = ["surface", "inverse", "accent"] as const;
+export type FooterStyle = (typeof FOOTER_STYLES)[number];
+
+const accentGradientSchema = z.object({
+  from: z.string().default(""),
+  via: z.string().default(""),
+  to: z.string().default(""),
+});
+
+export const designSchema = z.object({
+  density: z.enum(DENSITIES).default("comfortable"),
+  contentWidth: z.enum(CONTENT_WIDTHS).default("medium"),
+  sectionAlign: z.enum(SECTION_ALIGNS).default("left"),
+  gutter: z.enum(GUTTERS).default("normal"),
+  radius: z.enum(RADII).default("soft"),
+  buttonShape: z.enum(BUTTON_SHAPES).default("rounded"),
+  buttonFill: z.enum(BUTTON_FILLS).default("solid"),
+  shadowStyle: z.enum(SHADOW_STYLES).default("soft"),
+  ruleStyle: z.enum(RULE_STYLES).default("hairline"),
+  imageTreatment: z.enum(IMAGE_TREATMENTS).default("rounded"),
+  galleryLayout: z.enum(GALLERY_LAYOUTS).default("grid"),
+  headingCase: z.enum(HEADING_CASES).default("none"),
+  headingTracking: z.enum(HEADING_TRACKINGS).default("normal"),
+  headingScale: z.enum(HEADING_SCALES).default("balanced"),
+  accentMode: z.enum(ACCENT_MODES).default("solid"),
+  accentGradient: accentGradientSchema.default({ from: "", via: "", to: "" }),
+  onAccent: z.string().default(""),
+  footerStyle: z.enum(FOOTER_STYLES).default("surface"),
+  grain: z.boolean().default(false),
+});
+export type Design = z.infer<typeof designSchema>;
+
+export const DEFAULT_DESIGN: Design = {
+  density: "comfortable",
+  contentWidth: "medium",
+  sectionAlign: "left",
+  gutter: "normal",
+  radius: "soft",
+  buttonShape: "rounded",
+  buttonFill: "solid",
+  shadowStyle: "soft",
+  ruleStyle: "hairline",
+  imageTreatment: "rounded",
+  galleryLayout: "grid",
+  headingCase: "none",
+  headingTracking: "normal",
+  headingScale: "balanced",
+  accentMode: "solid",
+  accentGradient: { from: "", via: "", to: "" },
+  onAccent: "",
+  footerStyle: "surface",
+  grain: false,
 };
 
 export const appearanceSchema = z.object({
   colors: colorsSchema.default(DEFAULT_COLORS),
   typography: typographySchema.default(DEFAULT_TYPOGRAPHY),
+  // Optional so presets / stored singletons predating the design system stay
+  // valid; the renderer merges over DEFAULT_DESIGN.
+  design: designSchema.optional(),
 });
 export type Appearance = z.infer<typeof appearanceSchema>;
 
@@ -344,9 +481,11 @@ export const DEFAULT_APPEARANCE: Appearance = {
     bodyFont: "Inter",
     headingMode: "single",
     headingFont: "",
+    displayFont: "",
     bodyWeights: { body: 400, bodyBold: 700 },
     headingWeights: { h1: 700, h2: 700, h3: 700 },
   },
+  design: DEFAULT_DESIGN,
 };
 
 /**
@@ -377,31 +516,32 @@ export function appearanceFontFamilies(
     appearance.typography.headingWeights.h3,
   ]);
 
+  const sortW = (s: Set<number>) => [...s].sort((a, b) => a - b);
+  const families: { family: string; weights: number[] }[] = [];
+
   if (
     appearance.typography.headingMode === "split" &&
     appearance.typography.headingFont.length > 0 &&
     appearance.typography.headingFont !== appearance.typography.bodyFont
   ) {
-    return [
-      {
-        family: appearance.typography.bodyFont,
-        weights: [...bodyWeights].sort((a, b) => a - b),
-      },
-      {
-        family: appearance.typography.headingFont,
-        weights: [...headingWeights].sort((a, b) => a - b),
-      },
-    ];
-  }
-  // Single-font mode (or split-mode but heading inherits body): one family,
-  // union of all weights.
-  const allWeights = new Set([...bodyWeights, ...headingWeights]);
-  return [
-    {
+    families.push({ family: appearance.typography.bodyFont, weights: sortW(bodyWeights) });
+    families.push({ family: appearance.typography.headingFont, weights: sortW(headingWeights) });
+  } else {
+    // Single-font mode (or split-mode but heading inherits body): one family,
+    // union of all weights.
+    families.push({
       family: appearance.typography.bodyFont,
-      weights: [...allWeights].sort((a, b) => a - b),
-    },
-  ];
+      weights: sortW(new Set([...bodyWeights, ...headingWeights])),
+    });
+  }
+
+  // Optional 3rd (display/wordmark) family — loaded only when set and distinct.
+  const displayFont = appearance.typography.displayFont ?? "";
+  if (displayFont.length > 0 && !families.some((f) => f.family === displayFont)) {
+    families.push({ family: displayFont, weights: sortW(headingWeights) });
+  }
+
+  return families;
 }
 
 // ---------------------------------------------------------------------------

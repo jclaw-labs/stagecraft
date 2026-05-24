@@ -6,8 +6,12 @@ import {
   COLOR_FIELDS,
   createPageRequestSchema,
   DEFAULT_APPEARANCE,
+  DEFAULT_DESIGN,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
+  designSchema,
+  HEADER_BORDERS,
+  HEADER_HEIGHTS,
   HEADER_LAYOUTS,
   HEADER_MODES,
   headerConfigSchema,
@@ -382,5 +386,71 @@ describe("HEADER_MODES / HEADER_LAYOUTS", () => {
       "logo-center-nav-below",
       "logo-center-nav-split",
     ]);
+  });
+});
+
+describe("designSchema (tokenized themes)", () => {
+  it("parses an empty object to the full default design", () => {
+    expect(designSchema.parse({})).toEqual(DEFAULT_DESIGN);
+  });
+
+  it("DEFAULT_APPEARANCE carries the default design", () => {
+    expect(DEFAULT_APPEARANCE.design).toEqual(DEFAULT_DESIGN);
+  });
+
+  it("appearance without a design still parses (design is optional)", () => {
+    const out = appearanceSchema.parse({
+      colors: DEFAULT_APPEARANCE.colors,
+      typography: DEFAULT_APPEARANCE.typography,
+    });
+    expect(out.design).toBeUndefined();
+  });
+
+  it("rejects an out-of-range scale value", () => {
+    expect(() => designSchema.parse({ density: "huge" })).toThrow();
+  });
+
+  it("fills nested gradient defaults", () => {
+    expect(designSchema.parse({ accentMode: "gradient" }).accentGradient).toEqual({
+      from: "",
+      via: "",
+      to: "",
+    });
+  });
+});
+
+describe("header chrome fields", () => {
+  it("HEADER_HEIGHTS / HEADER_BORDERS are the known steps", () => {
+    expect([...HEADER_HEIGHTS]).toEqual(["compact", "standard", "tall"]);
+    expect([...HEADER_BORDERS]).toEqual(["none", "hairline", "bold", "accent"]);
+  });
+
+  it("are optional — a header without them parses", () => {
+    const out = headerConfigSchema.parse({});
+    expect(out.headerHeight).toBeUndefined();
+    expect(out.headerBorder).toBeUndefined();
+  });
+
+  it("DEFAULT_HEADER_CONFIG sets standard/hairline", () => {
+    expect(DEFAULT_HEADER_CONFIG.headerHeight).toBe("standard");
+    expect(DEFAULT_HEADER_CONFIG.headerBorder).toBe("hairline");
+  });
+});
+
+describe("appearanceFontFamilies — display font", () => {
+  it("adds a 3rd family when displayFont is set and distinct", () => {
+    const out = appearanceFontFamilies({
+      ...DEFAULT_APPEARANCE,
+      typography: { ...DEFAULT_APPEARANCE.typography, displayFont: "Anton" },
+    });
+    expect(out.map((f) => f.family)).toContain("Anton");
+  });
+
+  it("does not duplicate when displayFont equals the body font", () => {
+    const out = appearanceFontFamilies({
+      ...DEFAULT_APPEARANCE,
+      typography: { ...DEFAULT_APPEARANCE.typography, bodyFont: "Inter", displayFont: "Inter" },
+    });
+    expect(out.filter((f) => f.family === "Inter")).toHaveLength(1);
   });
 });
