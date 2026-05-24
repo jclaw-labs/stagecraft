@@ -31,6 +31,14 @@
               "textAlign": "center",
               "children": [
                 {
+                  "type": "Eyebrow",
+                  "props": {
+                    "id": "fr-hero-eyebrow",
+                    "text": "New record · Out now",
+                    "textAlign": "center"
+                  }
+                },
+                {
                   "type": "Heading",
                   "props": {
                     "id": "fr-hero-title",
@@ -95,6 +103,14 @@
                     ],
                     "col2": [
                       {
+                        "type": "Eyebrow",
+                        "props": {
+                          "id": "fr-release-eyebrow",
+                          "text": "Latest release",
+                          "textAlign": "start"
+                        }
+                      },
+                      {
                         "type": "Heading",
                         "props": {
                           "id": "fr-release-title",
@@ -133,6 +149,110 @@
                     ],
                     "col3": []
                   }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-track-1",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-1-t",
+                          "text": "1. Stone Chapel"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-1-d",
+                          "text": "3:42"
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-track-2",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-2-t",
+                          "text": "2. Ash & Iron"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-2-d",
+                          "text": "4:05"
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-track-3",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-3-t",
+                          "text": "3. The Long Way Home"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-3-d",
+                          "text": "3:58"
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-track-4",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-4-t",
+                          "text": "4. Halflight"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-track-4-d",
+                          "text": "5:12"
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
                 }
               ]
             }
@@ -145,6 +265,14 @@
               "textAlign": "start",
               "children": [
                 {
+                  "type": "Eyebrow",
+                  "props": {
+                    "id": "fr-tour-eyebrow",
+                    "text": "On tour",
+                    "textAlign": "start"
+                  }
+                },
+                {
                   "type": "Heading",
                   "props": {
                     "id": "fr-tour-title",
@@ -154,10 +282,104 @@
                   }
                 },
                 {
-                  "type": "RichText",
+                  "type": "Columns",
                   "props": {
-                    "id": "fr-tour-body",
-                    "text": "Dates are already on the books — edit them from the Tour Dates panel on the left, then drop a tour-dates block here from the Insert menu."
+                    "id": "fr-tour-1",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-tour-1-text",
+                          "text": "Fri · Jun 18 — Mercury Lounge — New York, NY"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "Button",
+                        "props": {
+                          "id": "fr-tour-1-btn",
+                          "text": "Tickets",
+                          "href": "#",
+                          "variant": "outline",
+                          "isExternal": false
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                },
+                {
+                  "type": "Divider",
+                  "props": {
+                    "id": "fr-tour-d1",
+                    "inset": false
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-tour-2",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-tour-2-text",
+                          "text": "Sat · Jul 11 — Mississippi Studios — Portland, OR"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "Button",
+                        "props": {
+                          "id": "fr-tour-2-btn",
+                          "text": "Tickets",
+                          "href": "#",
+                          "variant": "outline",
+                          "isExternal": false
+                        }
+                      }
+                    ],
+                    "col3": []
+                  }
+                },
+                {
+                  "type": "Divider",
+                  "props": {
+                    "id": "fr-tour-d2",
+                    "inset": false
+                  }
+                },
+                {
+                  "type": "Columns",
+                  "props": {
+                    "id": "fr-tour-3",
+                    "layout": "2-1",
+                    "col1": [
+                      {
+                        "type": "RichText",
+                        "props": {
+                          "id": "fr-tour-3-text",
+                          "text": "Thu · Aug 6 — The Echo — Los Angeles, CA"
+                        }
+                      }
+                    ],
+                    "col2": [
+                      {
+                        "type": "Button",
+                        "props": {
+                          "id": "fr-tour-3-btn",
+                          "text": "Tickets",
+                          "href": "#",
+                          "variant": "outline",
+                          "isExternal": false
+                        }
+                      }
+                    ],
+                    "col3": []
                   }
                 }
               ]
@@ -171,10 +393,18 @@
               "textAlign": "start",
               "children": [
                 {
+                  "type": "Eyebrow",
+                  "props": {
+                    "id": "fr-gallery-eyebrow",
+                    "text": "Gallery",
+                    "textAlign": "start"
+                  }
+                },
+                {
                   "type": "Heading",
                   "props": {
                     "id": "fr-gallery-title",
-                    "text": "Gallery",
+                    "text": "On stage & off",
                     "level": "h2",
                     "textAlign": "start"
                   }

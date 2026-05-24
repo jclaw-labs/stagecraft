@@ -48,6 +48,9 @@
 
   --line-height-base: 1.5;
 
+  /* Wide tracking for eyebrows / small uppercase labels. */
+  --tracking-wide: 0.12em;
+
   /* Spacing scale (rem multiples of 0.25). */
   --space-1: 0.25rem;
   --space-2: 0.5rem;

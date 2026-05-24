@@ -40,14 +40,26 @@ uploads a real photo. This doubles as a better empty-state UX everywhere.
   Home: hero (FullscreenSection) → latest-release (Columns: album + text + 2
   buttons) → gallery (Columns 3-up of Images) → tour placeholder → seed social
   links. Re-screenshot. *Biggest visual win.*
-- **PR B (Phase 2a) — close block gaps.** Register `TourDatesView` (+ a
-  release/tracklist view) in the page editor's `puckConfig`; seed demo tour
-  dates + a release so the Home renders a real dated list with Tickets buttons +
-  a tracklist. Add a responsive Gallery-grid block + an eyebrow text style.
-- **PR C (Phase 2b) — finish token wiring.** Thread `design` into the pure Puck
-  blocks: `buttonFill`, `ruleStyle`, `imageTreatment` (framed/rounded art),
+- **PR B (Phase 2) — fidelity pass, no architecture (DONE).** Per the chosen
+  "lighter" direction: an `Eyebrow` block (small uppercase accent label) used
+  across the seed; richer per-theme placeholder gradients (built from the palette
+  vars, so every preset's hero/gallery is multi-tone — fixes the flat
+  Meadow/Obsidian heroes); a composed tour-list look (dated rows + Tickets CTAs,
+  divided) and a tracklist in the release section; and a re-screenshot of all 15.
+  A **real, data-bound** tour list on a general page (registering `TourDatesView`
+  in the page `puckConfig` + pre-loading collection items in the public
+  renderer) is the genuinely architectural piece CLAUDE.md defers — **left as a
+  follow-up**, not done here.
+- **PR C — finish token wiring.** Thread `design` into the pure Puck blocks:
+  `buttonFill`, `ruleStyle`, `imageTreatment` (framed/rounded art),
   `galleryLayout`, `headingScale`, `accentMode: gradient` backgrounds. (Clears
-  the DEFERRED.md "unwired tokens" item — themes finally look distinct.)
-- **PR D (Phase 3) — per-theme fidelity + screenshots.** Walk each of the 15
-  presets against its comp; adjust tokens where they diverge; regenerate all 15
-  marketing/PR captures from the populated seed.
+  the DEFERRED.md "unwired tokens" item.)
+
+## Deferred (architectural)
+
+- **Collection-data blocks on general pages.** A real tour-date / release list
+  embedded on the Home (or any hand-authored) page needs the collection-block +
+  template-renderer system bridged into the page `puckConfig` and the `(public)`
+  page server component (async item pre-load). CLAUDE.md lists this under "what's
+  intentionally not here yet"; it's a sizable cross-system change. The seed's
+  composed tour rows + tracklist are the stand-in until then.

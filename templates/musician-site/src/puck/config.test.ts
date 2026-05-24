@@ -37,6 +37,7 @@ describe("puckConfig", () => {
         "Divider",
         "Embed",
         "EmbedResponsive",
+        "Eyebrow",
         "FullscreenSection",
         "Heading",
         "Image",
@@ -219,8 +220,9 @@ describe("puckConfig", () => {
 
     it("renders a themed gradient placeholder when image is null", () => {
       const html = render("Image", { image: null, caption: "", aspectRatio: "16/9", tone: "accent" });
-      // A themed gradient stand-in (reads the appearance vars), not a <picture>.
-      expect(html).toContain("var(--gradient-accent");
+      // A themed gradient stand-in built from the palette vars, not a <picture>.
+      expect(html).toContain("linear-gradient");
+      expect(html).toContain("var(--color-accent");
       expect(html).toContain("aspect-ratio");
       expect(html).not.toContain("<picture");
     });
