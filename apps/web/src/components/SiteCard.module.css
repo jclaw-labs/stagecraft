@@ -58,26 +58,6 @@
 }
 .name:hover { color: var(--color-brand); }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-  flex: none;
-}
-.dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; flex: none; }
-
-.live { color: var(--color-success); background: var(--color-success-bg); }
-.building { color: var(--color-info); background: var(--color-info-bg); }
-.error { color: var(--color-error); background: var(--color-error-bg); }
-.archivedBadge { color: var(--color-muted); background: var(--color-neutral-bg); }
-.building .dot { animation: scPulse 1.4s ease-in-out infinite; }
-@keyframes scPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
 .url {
   display: inline-flex;
   align-items: center;

@@ -1,6 +1,7 @@
 import type { SiteStatus } from "@stagecraft/shared";
 
 import Button from "./Button";
+import StatusBadge, { type BadgeTone } from "./StatusBadge";
 import styles from "./SiteCard.module.css";
 
 export interface SiteCardData {
@@ -13,12 +14,12 @@ export interface SiteCardData {
   githubRepoName?: string | null;
 }
 
-const STATUS_META: Record<string, { label: string; tone: string }> = {
-  active: { label: "Live", tone: styles.live },
-  creating: { label: "Building", tone: styles.building },
-  error: { label: "Needs attention", tone: styles.error },
-  deploy_failed: { label: "Deploy failed", tone: styles.error },
-  archived: { label: "Archived", tone: styles.archivedBadge },
+const STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
+  active: { label: "Live", tone: "live" },
+  creating: { label: "Building", tone: "building" },
+  error: { label: "Needs attention", tone: "error" },
+  deploy_failed: { label: "Deploy failed", tone: "error" },
+  archived: { label: "Archived", tone: "neutral" },
 };
 
 const SUBTEXT: Record<string, string> = {
@@ -42,7 +43,7 @@ const PRIMARY_LABEL: Record<string, string> = {
  * and quick actions. Pure render (server component).
  */
 export default function SiteCard({ site }: { site: SiteCardData }) {
-  const status = STATUS_META[site.status] ?? { label: site.status, tone: styles.archivedBadge };
+  const status = STATUS_META[site.status] ?? { label: site.status, tone: "neutral" as BadgeTone };
   const isArchived = site.status === "archived";
   const showUrl = site.status === "active" && Boolean(site.productionUrl);
   const detailHref = `/sites/${site.id}`;
@@ -56,10 +57,7 @@ export default function SiteCard({ site }: { site: SiteCardData }) {
       <div className={styles.body}>
         <div className={styles.row}>
           <a className={styles.name} href={detailHref}>{site.name}</a>
-          <span className={`${styles.badge} ${status.tone}`}>
-            <span className={styles.dot} aria-hidden="true" />
-            {status.label}
-          </span>
+          <StatusBadge tone={status.tone} label={status.label} />
         </div>
 
         {showUrl ? (
