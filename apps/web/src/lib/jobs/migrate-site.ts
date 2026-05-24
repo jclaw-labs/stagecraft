@@ -7,6 +7,7 @@ import { crawlSite } from "@/lib/migration/crawler";
 import { mapExtractedContent } from "@/lib/migration/mapper";
 import { buildMigrationReport } from "@/lib/migration/report";
 import { readTemplateFiles } from "@/lib/template-reader";
+import { buildSiteScaffoldFiles, templateVersionFromFiles } from "@/lib/site-scaffold";
 import path from "path";
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site-legacy");
@@ -82,6 +83,12 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
       ...baseFiles,
       ...mapped.files.map((f) => ({ path: f.path, content: f.content })),
     ];
+    allFiles.push(
+      ...buildSiteScaffoldFiles({
+        template: "musician-site-legacy",
+        templateVersion: templateVersionFromFiles(templateFiles),
+      }),
+    );
 
     await pushFiles(
       userId,
