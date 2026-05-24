@@ -271,6 +271,48 @@ describe("appearance: config ↔ item round-trip", () => {
     expect(round.typography.headingWeights.h1).toBe(800);
   });
 
+  it("preserves the design tokens + display font", () => {
+    const config = {
+      ...DEFAULT_APPEARANCE,
+      typography: { ...DEFAULT_APPEARANCE.typography, displayFont: "Anton" },
+      design: {
+        ...DEFAULT_APPEARANCE.design!,
+        density: "compact" as const,
+        radius: "sharp" as const,
+        buttonShape: "square" as const,
+        accentMode: "gradient" as const,
+        accentGradient: { from: "#ff0000", via: "", to: "#0000ff" },
+        footerStyle: "inverse" as const,
+        grain: true,
+      },
+    };
+    const round = appearanceFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: appearanceToItemValues(config),
+    });
+    expect(round.typography.displayFont).toBe("Anton");
+    expect(round.design?.density).toBe("compact");
+    expect(round.design?.radius).toBe("sharp");
+    expect(round.design?.accentMode).toBe("gradient");
+    expect(round.design?.accentGradient.to).toBe("#0000ff");
+    expect(round.design?.footerStyle).toBe("inverse");
+    expect(round.design?.grain).toBe(true);
+  });
+
+  it("falls back to default design when the design blob is absent/corrupt", () => {
+    const round = appearanceFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: { fld_appearance_design: { type: "text", value: "{not json" } },
+    });
+    expect(round.design?.density).toBe(DEFAULT_APPEARANCE.design!.density);
+  });
+
   it("returns DEFAULT_APPEARANCE when the item is null", () => {
     expect(appearanceFromItem(null)).toEqual(DEFAULT_APPEARANCE);
   });

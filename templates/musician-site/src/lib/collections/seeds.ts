@@ -328,6 +328,16 @@ export const appearanceCollectionDef: CollectionDef = {
       options: selectOptionsFrom(HEADING_MODES, HEADING_MODE_LABELS),
     },
     { id: APPEARANCE_FIELD_IDS.headingFont, key: "headingFont", type: "text", required: false },
+    { id: APPEARANCE_FIELD_IDS.displayFont, key: "displayFont", type: "text", required: false },
+    // The design-token group, serialized as one JSON blob. systemLocked: the
+    // dedicated Appearance panel edits it (the generic editor would show raw JSON).
+    {
+      id: APPEARANCE_FIELD_IDS.design,
+      key: "design",
+      type: "text" as const,
+      required: false,
+      systemLocked: true,
+    },
     // Font weights stored as `select` over the numeric ladder so the
     // editor surfaces a dropdown rather than a free-text field, and
     // values stay constrained to multiples of 100.
