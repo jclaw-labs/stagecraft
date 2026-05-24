@@ -119,8 +119,19 @@ with `PR_SCREENSHOTS_DIR=...`.
 ### Path A: Automated relay (cloud sessions, default)
 
 1. Capture screenshots into `.pr-screenshots/` at the repo root.
-2. Commit those files to the PR branch (use `mcp__github__push_files`
-   in cloud sessions).
+2. **Get the captures onto the PR branch with a commit made via the
+   GitHub API** (`mcp__github__push_files`) — this is load-bearing, see
+   the trigger gotcha below. `push_files` sends file content as a UTF-8
+   string, so it's reliable for text but corrupts binary PNG/JPG. Two
+   robust options:
+   - **(a, default)** Commit the binary captures with `git` (binary-safe:
+     `git add .pr-screenshots && git commit && git push`), then make one
+     small **API** commit via `push_files` that also touches
+     `.pr-screenshots/` (e.g. a `.pr-screenshots/README.md`). Its only
+     job is to fire the workflow, which then relays the images already on
+     the branch.
+   - **(b)** If your `push_files` build handles base64/binary, push the
+     images directly via the API in one step.
 3. In the PR body, reference each screenshot by basename-without-ext via
    a placeholder comment:
 
@@ -137,17 +148,41 @@ with `PR_SCREENSHOTS_DIR=...`.
    Placeholders are optional. Any uploaded file without a matching
    placeholder gets appended under a `## Screenshots` section
    automatically.
-4. Push the PR. The `.github/workflows/pr-screenshots.yml` workflow will:
-   - Push the images to a per-PR public gist (created on first run,
-     reused after).
-   - Replace each placeholder with rendered image markdown, or append
+4. The `.github/workflows/pr-screenshots.yml` workflow — triggered by
+   the API commit on `pull_request: synchronize` (paths
+   `.pr-screenshots/**`) — then:
+   - Pushes the images to a per-PR public gist (created on first run,
+     reused after via a `<!-- screenshot-gist: ID -->` body marker).
+   - Replaces each placeholder with rendered image markdown, or appends
      unmatched files under a `## Screenshots` section.
-   - Commit a `[skip ci]` cleanup that removes `.pr-screenshots/` from
+   - Commits a `[skip ci]` cleanup that removes `.pr-screenshots/` from
      the branch so binary blobs don't pile up.
 
    The workflow only runs on PRs from this repo (not forks) and needs a
    `GIST_TOKEN` secret — a PAT with the `gist` scope. One-time repo
    admin setup.
+
+> **⚠️ Trigger gotcha (cloud sessions) — read this.** A `git push` from a
+> cloud session is authored by a credential whose pushes do **not** spawn
+> GitHub Actions runs, so a screenshots-only `git push` **silently never
+> fires this workflow**: you'll see zero checks on that commit and an
+> unchanged PR body, with `.pr-screenshots/` still on the branch. The
+> commit that adds or touches `.pr-screenshots/**` must be made via the
+> GitHub API (`mcp__github__push_files`), whose commit *does* trigger
+> `synchronize`. (This is also why CI seems to run when the PR is
+> *opened* — that `opened` event fires from the API `create_pull_request`
+> call — but not on a subsequent `git push`.)
+
+5. **Verify the images render — don't assume.** Once the workflow
+   finishes (the branch head advances by the `[skip ci]` cleanup commit),
+   re-read the PR body (`mcp__github__pull_request_read`) and confirm it
+   now shows `![name](https://gist.githubusercontent.com/<user>/<ID>/raw/<sha>/name.png)`
+   for every capture. From the network-restricted cloud sandbox you
+   usually **cannot** `curl` the raw asset — egress blocks
+   `gist.githubusercontent.com` (`Host not in allowlist`); GitHub renders
+   it server-side regardless, so a sandbox 403 is **not** a failure
+   signal. Instead confirm the gist actually holds the files by fetching
+   the gist *page* (`WebFetch https://gist.github.com/<user>/<ID>`).
 
 ### Path B: Manual gist upload (fallback)
 
