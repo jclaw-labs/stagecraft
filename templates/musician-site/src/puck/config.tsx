@@ -59,6 +59,32 @@ export const COLUMN_LAYOUT_LABELS: Record<ColumnLayout, string> = {
 export const TEXT_ALIGNMENTS = ["start", "center", "end"] as const;
 export type TextAlignment = (typeof TEXT_ALIGNMENTS)[number];
 
+// Optional aspect-ratio for the Image block. "auto" keeps the image's
+// natural ratio (the historical behaviour); the fixed ratios drive the
+// shape of the themed gradient placeholder shown before an upload.
+export const IMAGE_ASPECT_RATIOS = ["auto", "16/9", "4/3", "1/1", "3/4"] as const;
+export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];
+
+// Which palette the gradient placeholder draws from, so a row of
+// placeholders (e.g. a gallery) can vary instead of repeating one swatch.
+export const IMAGE_TONES = ["accent", "primary", "secondary"] as const;
+export type ImageTone = (typeof IMAGE_TONES)[number];
+
+// Theme-driven gradient for an Image/FullscreenSection placeholder. Reads
+// the appearance CSS vars so it adapts per preset (and is replaced the
+// moment the artist uploads a real image).
+export function placeholderGradient(tone: ImageTone): string {
+  switch (tone) {
+    case "primary":
+      return "linear-gradient(135deg, var(--color-primary), var(--color-accent))";
+    case "secondary":
+      return "linear-gradient(135deg, var(--color-secondary), var(--color-primary))";
+    case "accent":
+    default:
+      return "var(--gradient-accent, linear-gradient(135deg, var(--color-accent), var(--color-primary)))";
+  }
+}
+
 export const TEXT_ALIGNMENT_LABELS: Record<TextAlignment, string> = {
   start: "Start (default)",
   center: "Center",
@@ -382,6 +408,10 @@ export type BlockProps = {
     /** Full ImageMetadata returned by /api/upload-image, or null when not yet picked. */
     image: ImageMetadata | null;
     caption: string;
+    /** Shape of the themed gradient placeholder shown before an upload. */
+    aspectRatio: ImageAspectRatio;
+    /** Palette the gradient placeholder draws from. */
+    tone: ImageTone;
   };
   Embed: { html: string };
   Spacer: { size: SpacerSize };
@@ -1095,8 +1125,8 @@ export const puckConfig: Config<
               alignItems: "center",
               justifyContent:
                 textAlign === "center" ? "center" : textAlign === "end" ? "flex-end" : "flex-start",
-              color: image ? "var(--color-action-fg)" : "var(--color-text)",
-              background: image ? "transparent" : "var(--color-surface-raised)",
+              color: image ? "var(--color-action-fg)" : "var(--color-on-accent, var(--color-action-fg))",
+              background: image ? "transparent" : placeholderGradient("accent"),
               overflow: "hidden",
             }}
           >
@@ -1289,21 +1319,31 @@ export const puckConfig: Config<
           ),
         },
         caption: { type: "text" },
+        aspectRatio: {
+          type: "select",
+          options: IMAGE_ASPECT_RATIOS.map((v) => ({ label: v, value: v })),
+        },
+        tone: {
+          type: "select",
+          options: IMAGE_TONES.map((v) => ({ label: v, value: v })),
+        },
       },
-      defaultProps: { image: null, caption: "" },
-      render: ({ image, caption }) => {
+      defaultProps: { image: null, caption: "", aspectRatio: "auto", tone: "accent" },
+      render: ({ image, caption, aspectRatio = "auto", tone = "accent" }) => {
         if (!image) {
+          // Themed gradient stand-in: reads the appearance vars so it
+          // matches the active preset, and is replaced in place when the
+          // artist uploads a real image.
           return (
             <div
+              aria-hidden
               style={{
-                padding: "var(--space-8) 0",
-                textAlign: "center",
-                color: "var(--color-text-muted)",
-                fontStyle: "italic",
+                aspectRatio: aspectRatio === "auto" ? "16 / 9" : aspectRatio.replace("/", " / "),
+                width: "100%",
+                borderRadius: "var(--img-radius, var(--radius))",
+                background: placeholderGradient(tone),
               }}
-            >
-              No image picked yet
-            </div>
+            />
           );
         }
         // Puck's Config<T> generic collapses ImageMetadata's branded `id`

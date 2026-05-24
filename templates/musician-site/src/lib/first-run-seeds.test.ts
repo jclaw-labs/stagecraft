@@ -29,13 +29,44 @@ describe("buildFirstRunSeed", () => {
   // Fixed `now` so tour-date assertions are stable across runs.
   const NOW = new Date("2026-05-20T00:00:00.000Z");
 
+  // The hero h1 lives inside the hero Section's `children` slot.
+  function heroHeadingText(seed: ReturnType<typeof buildFirstRunSeed>): string | undefined {
+    type Block = { type: string; props: Record<string, unknown> };
+    const blocks = seed.homePage.data.content as unknown as Block[];
+    const hero = blocks.find((c) => c.props.id === "fr-hero");
+    const children = (hero?.props.children as Block[] | undefined) ?? [];
+    const h1 = children.find((c) => c.type === "Heading" && c.props.level === "h1");
+    return h1?.props.text as string | undefined;
+  }
+
   it("produces a home page seed using the artist name as the hero heading", () => {
     const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
     expect(seed.homePage.slug).toBe("home");
+    expect(heroHeadingText(seed)).toBe("Nova Reyes");
+  });
 
-    const heading = seed.homePage.data.content.find((c) => c.type === "Heading");
-    expect(heading).toBeDefined();
-    expect((heading as { props: { text: string } }).props.text).toBe("Nova Reyes");
+  it("seeds imagery + CTAs so the home reads like the theme comps, not a wall of text", () => {
+    // Regression guard: the original seed placed only Heading/RichText/
+    // Section, so the rendered site (and PR screenshots) looked nothing
+    // like the comps — no images, no buttons. Walk the whole block tree
+    // (slots nest inside children / col1-3).
+    type Block = { type: string; props: Record<string, unknown> };
+    const SLOTS = ["children", "col1", "col2", "col3"];
+    const types = new Set<string>();
+    const walk = (blocks: Block[]) => {
+      for (const b of blocks) {
+        types.add(b.type);
+        for (const slot of SLOTS) {
+          const nested = b.props[slot];
+          if (Array.isArray(nested)) walk(nested as Block[]);
+        }
+      }
+    };
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    walk(seed.homePage.data.content as unknown as Block[]);
+    expect(types).toContain("Image");
+    expect(types).toContain("Button");
+    expect(types).toContain("Columns");
   });
 
   it("honours a custom first-page title", () => {
@@ -52,10 +83,7 @@ describe("buildFirstRunSeed", () => {
 
   it("defaults to 'Artist Name' when the artist name is blank", () => {
     const seed = buildFirstRunSeed("", "Home", NOW);
-    const heading = seed.homePage.data.content.find((c) => c.type === "Heading");
-    expect((heading as { props: { text: string } }).props.text).toBe(
-      "Artist Name",
-    );
+    expect(heroHeadingText(seed)).toBe("Artist Name");
   });
 
   it("Section blocks ship populated `children` arrays (no headline/body string drop)", () => {

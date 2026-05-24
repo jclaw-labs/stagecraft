@@ -213,13 +213,15 @@ describe("puckConfig", () => {
         { type?: string }
       >;
       const fieldKeys = Object.keys(fields).sort();
-      expect(fieldKeys).toEqual(["caption", "image"].sort());
+      expect(fieldKeys).toEqual(["aspectRatio", "caption", "image", "tone"].sort());
       expect(fields.image?.type).toBe("custom");
     });
 
-    it("renders an empty-state placeholder when image is null", () => {
-      const html = render("Image", { image: null, caption: "" });
-      expect(html).toContain("No image picked yet");
+    it("renders a themed gradient placeholder when image is null", () => {
+      const html = render("Image", { image: null, caption: "", aspectRatio: "16/9", tone: "accent" });
+      // A themed gradient stand-in (reads the appearance vars), not a <picture>.
+      expect(html).toContain("var(--gradient-accent");
+      expect(html).toContain("aspect-ratio");
       expect(html).not.toContain("<picture");
     });
 
