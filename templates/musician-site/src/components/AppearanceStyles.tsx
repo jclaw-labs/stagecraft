@@ -65,6 +65,38 @@ const IMG_RADIUS: Record<Design["imageTreatment"], string> = {
   rounded: "1rem",
   framed: "0.25rem",
 };
+// Matte "frame" around images: framed gets padding + a border + a surface
+// mat; plain/rounded get none (radius alone via --img-radius).
+const IMG_FRAME: Record<Design["imageTreatment"], { pad: string; frame: string; bg: string }> = {
+  plain: { pad: "0px", frame: "none", bg: "transparent" },
+  rounded: { pad: "0px", frame: "none", bg: "transparent" },
+  framed: { pad: "var(--space-2)", frame: "1px solid var(--color-border)", bg: "var(--color-surface)" },
+};
+// Theme button fill style — drives the *primary* button's look. Outline /
+// underline reference the accent colour so the CTA still reads as accented.
+const BUTTON_FILL: Record<
+  Design["buttonFill"],
+  { bg: string; fg: string; border: string; decoration: string }
+> = {
+  solid: {
+    bg: "var(--color-accent)",
+    fg: "var(--color-on-accent)",
+    border: "var(--color-accent)",
+    decoration: "none",
+  },
+  outline: {
+    bg: "transparent",
+    fg: "var(--color-accent)",
+    border: "var(--color-accent)",
+    decoration: "none",
+  },
+  underline: {
+    bg: "transparent",
+    fg: "var(--color-accent)",
+    border: "transparent",
+    decoration: "underline",
+  },
+};
 const TRACKING_HEADING: Record<Design["headingTracking"], string> = {
   tight: "-0.02em",
   normal: "0",
@@ -159,6 +191,13 @@ export function AppearanceStyles({ appearance }: Props) {
       --rule-width: ${RULE_WIDTH[design.ruleStyle]};
       --rule-color: ${ruleColor};
       --img-radius: ${IMG_RADIUS[design.imageTreatment]};
+      --img-pad: ${IMG_FRAME[design.imageTreatment].pad};
+      --img-frame: ${IMG_FRAME[design.imageTreatment].frame};
+      --img-frame-bg: ${IMG_FRAME[design.imageTreatment].bg};
+      --btn-bg: ${BUTTON_FILL[design.buttonFill].bg};
+      --btn-fg: ${BUTTON_FILL[design.buttonFill].fg};
+      --btn-border: ${BUTTON_FILL[design.buttonFill].border};
+      --btn-decoration: ${BUTTON_FILL[design.buttonFill].decoration};
       --tracking-heading: ${TRACKING_HEADING[design.headingTracking]};
       --heading-transform: ${design.headingCase === "upper" ? "uppercase" : "none"};
       --scale-display: ${SCALE_DISPLAY[design.headingScale]};
