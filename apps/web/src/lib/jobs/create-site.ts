@@ -16,6 +16,7 @@ import {
   VercelGitHubAppNotInstalledError,
 } from "@/lib/integrations/vercel";
 import { readTemplateFiles } from "@/lib/template-reader";
+import { buildSiteScaffoldFiles, templateVersionFromFiles } from "@/lib/site-scaffold";
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site");
 
@@ -236,8 +237,16 @@ export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
 
     // 2. Push template files (no per-file customization — the artist
     //    personalizes content via the Puck editor at /admin once the
-    //    site is up).
+    //    site is up), plus the platform scaffold (Dependabot config +
+    //    template stamp) so the site keeps its deps current after it
+    //    stops tracking the template. See site-scaffold.ts.
     const files = await readTemplateFiles(TEMPLATE_DIR);
+    files.push(
+      ...buildSiteScaffoldFiles({
+        template: "musician-site",
+        templateVersion: templateVersionFromFiles(files),
+      }),
+    );
     await pushFiles(userId, repo.owner, repo.name, repo.defaultBranch, files, `Initial site: ${name}`);
 
     // 3. Try to provision the broker secret upfront. When the platform's

@@ -603,3 +603,18 @@ describe("handleCreateSite — Vercel preferred when both connected", () => {
     expect((result.data as Record<string, unknown>).deployTarget).toBe("vercel");
   });
 });
+
+describe("handleCreateSite — site scaffold (dependency hygiene)", () => {
+  it("injects the Dependabot config + template stamp into the pushed files", async () => {
+    await handleCreateSite(makeContext());
+
+    expect(mockPushFiles).toHaveBeenCalledTimes(1);
+    const pushedFiles = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
+    const paths = pushedFiles.map((f) => f.path);
+    expect(paths).toContain(".github/dependabot.yml");
+    expect(paths).toContain(".stagecraft-template.json");
+
+    const stamp = pushedFiles.find((f) => f.path === ".stagecraft-template.json");
+    expect(JSON.parse(stamp!.content).template).toBe("musician-site");
+  });
+});
