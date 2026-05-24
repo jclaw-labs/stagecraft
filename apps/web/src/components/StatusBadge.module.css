@@ -1,0 +1,27 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  flex: none;
+}
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.live { color: var(--color-success); background: var(--color-success-bg); }
+/* "Building" reads as in-progress (blue); its dot pulses. */
+.building { color: var(--color-info); background: var(--color-info-bg); }
+.error { color: var(--color-error); background: var(--color-error-bg); }
+.neutral { color: var(--color-muted); background: var(--color-neutral-bg); }
+
+.building .dot { animation: statusBadgePulse 1.4s ease-in-out infinite; }
+@keyframes statusBadgePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

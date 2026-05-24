@@ -47,24 +47,6 @@
 .url svg { width: 0.85rem; height: 0.85rem; opacity: 0.7; }
 .headActions { display: flex; gap: var(--space-2); flex: none; }
 
-/* Status badge */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-}
-.badge .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
-.live { color: var(--color-success); background: var(--color-success-bg); }
-/* "Building" reads as in-progress (blue) — matches the dashboard SiteCard. */
-.building { color: var(--color-info); background: var(--color-info-bg); }
-.error { color: var(--color-error); background: var(--color-error-bg); }
-.archived { color: var(--color-muted); background: var(--color-neutral-bg); }
-
 /* Stacked panels */
 .stack { display: flex; flex-direction: column; gap: var(--space-6); }
 

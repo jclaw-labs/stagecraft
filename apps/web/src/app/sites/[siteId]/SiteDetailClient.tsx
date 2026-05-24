@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import StatusBadge, { type BadgeTone } from "@/components/StatusBadge";
 import type { SiteStatus } from "@stagecraft/shared";
 
 import styles from "./site-detail.module.css";
@@ -299,13 +300,14 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
     ? styles.toneNeutral
     : styles.toneOk;
 
-  const badge = isCreating || isBuilding || isCheckingStatus || needsRepoLink
-    ? { cls: styles.building, label: needsRepoLink ? "Setup" : "Building" }
-    : isError || isDeployError
-    ? { cls: styles.error, label: isError ? "Error" : "Deploy failed" }
-    : isArchived
-    ? { cls: styles.archived, label: "Archived" }
-    : { cls: styles.live, label: "Live" };
+  const badge: { tone: BadgeTone; label: string } =
+    isCreating || isBuilding || isCheckingStatus || needsRepoLink
+      ? { tone: "building", label: needsRepoLink ? "Setup" : "Building" }
+      : isError || isDeployError
+      ? { tone: "error", label: isError ? "Error" : "Deploy failed" }
+      : isArchived
+      ? { tone: "neutral", label: "Archived" }
+      : { tone: "live", label: "Live" };
 
   return (
     <div className={styles.container}>
@@ -318,10 +320,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
         <div>
           <div className={styles.titleRow}>
             <h1 className={styles.name}>{site.name}</h1>
-            <span className={`${styles.badge} ${badge.cls}`}>
-              <span className={styles.dot} aria-hidden="true" />
-              {badge.label}
-            </span>
+            <StatusBadge tone={badge.tone} label={badge.label} />
           </div>
           {site.productionUrl && (isReady || isCheckingStatus) && (
             <a className={styles.url} href={site.productionUrl} target="_blank" rel="noopener noreferrer">
