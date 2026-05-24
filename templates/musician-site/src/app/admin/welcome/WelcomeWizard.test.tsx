@@ -7,8 +7,23 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
-import { WelcomeWizard } from "./WelcomeWizard";
-import { WELCOME_STEPS, type WelcomeStep } from "./welcome-steps";
+import { StepContent, WelcomeWizard } from "./WelcomeWizard";
+import {
+  WELCOME_STEPS,
+  type WelcomeFormValues,
+  type WelcomeStep,
+} from "./welcome-steps";
+
+function startValues(overrides: Partial<WelcomeFormValues> = {}): WelcomeFormValues {
+  return {
+    artistName: "Nova",
+    start: "classic",
+    primaryColor: "#0f3460",
+    wordmark: null,
+    firstPageTitle: "Home",
+    ...overrides,
+  };
+}
 
 function render(props: Partial<React.ComponentProps<typeof WelcomeWizard>> = {}): string {
   return renderToStaticMarkup(
@@ -22,8 +37,8 @@ function render(props: Partial<React.ComponentProps<typeof WelcomeWizard>> = {})
 }
 
 describe("WELCOME_STEPS contract", () => {
-  it("walks name → color → wordmark → firstPage in order", () => {
-    expect(WELCOME_STEPS).toEqual(["name", "color", "wordmark", "firstPage"]);
+  it("walks name → start → wordmark → firstPage in order", () => {
+    expect(WELCOME_STEPS).toEqual(["name", "start", "wordmark", "firstPage"]);
   });
 
   it("never repeats a step id", () => {
@@ -83,5 +98,40 @@ describe("<WelcomeWizard /> initial render (step 1)", () => {
     const html = render();
     expect(html).not.toMatch(/Set up my site/);
     expect(html).toMatch(/Next/);
+  });
+});
+
+describe('<StepContent step="start" />', () => {
+  it("renders a card for every theme plus custom + empty", () => {
+    const html = renderToStaticMarkup(
+      <StepContent step="start" values={startValues()} setField={() => {}} />,
+    );
+    expect(html).toContain("Choose a starting point");
+    expect(html).toContain("Classic");
+    expect(html).toContain("Midnight");
+    expect(html).toContain("Marquee");
+    expect(html).toContain("Custom colour");
+    expect(html).toContain("Start empty");
+    // Five selectable cards, exposed to assistive tech as radios.
+    expect(html.match(/role="radio"/g) ?? []).toHaveLength(5);
+  });
+
+  it("marks exactly the selected start as aria-checked", () => {
+    const html = renderToStaticMarkup(
+      <StepContent step="start" values={startValues({ start: "midnight" })} setField={() => {}} />,
+    );
+    expect(html.match(/aria-checked="true"/g) ?? []).toHaveLength(1);
+  });
+
+  it("reveals the colour picker only on the custom path", () => {
+    const classic = renderToStaticMarkup(
+      <StepContent step="start" values={startValues({ start: "classic" })} setField={() => {}} />,
+    );
+    expect(classic).not.toContain("welcome-primaryColor");
+
+    const custom = renderToStaticMarkup(
+      <StepContent step="start" values={startValues({ start: "custom" })} setField={() => {}} />,
+    );
+    expect(custom).toContain("welcome-primaryColor");
   });
 });

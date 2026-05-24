@@ -155,6 +155,26 @@ describe("POST /api/welcome/complete — theme", () => {
   });
 });
 
+describe("POST /api/welcome/complete — seedContent", () => {
+  it("seeds the Home page + tour dates by default (no seedContent field)", async () => {
+    const res = await POST(jsonReq(VALID_BODY));
+    expect(res.status).toBe(200);
+    const store = await getRequestReadStore();
+    expect(await store.listItemSlugs("pages")).toEqual(["home"]);
+    expect((await store.listItemSlugs("tour-dates")).length).toBeGreaterThan(0);
+  });
+
+  it("with seedContent:false lands a blank Home page and no tour dates", async () => {
+    const res = await POST(jsonReq({ ...VALID_BODY, seedContent: false }));
+    expect(res.status).toBe(200);
+    const store = await getRequestReadStore();
+    // One page (the Home shell) still lands so the public site renders...
+    expect(await store.listItemSlugs("pages")).toEqual(["home"]);
+    // ...but the demo tour dates are skipped.
+    expect((await store.listItemSlugs("tour-dates")).length).toBe(0);
+  });
+});
+
 describe("POST /api/welcome/complete — idempotency", () => {
   it("returns 409 when the site has already completed the wizard", async () => {
     // First completion sets hasCompletedFirstRun:true on disk.

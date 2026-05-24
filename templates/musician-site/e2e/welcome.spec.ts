@@ -40,10 +40,11 @@ test.describe("welcome wizard", () => {
     await expect(nextButton).toBeEnabled();
     await nextButton.click();
 
-    // Step 2 — primary color. ColorField pre-fills with the default
-    // accent so Next is already enabled.
+    // Step 2 — starting point. A theme (Classic) is preselected so Next
+    // is already enabled; click Midnight to exercise the radio cards.
     await expect(page.getByText(/Step\s+2\s+\/\s+4/)).toBeVisible();
-    await expect(page.getByRole("heading", { name: /primary color/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /starting point/i })).toBeVisible();
+    await page.getByRole("radio", { name: /Midnight/i }).click();
     await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 3 — wordmark. Optional; Next is enabled without an upload.
