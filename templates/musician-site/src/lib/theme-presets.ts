@@ -23,7 +23,7 @@ import {
   type HeaderConfig,
 } from "./site-config-types";
 
-export const THEME_IDS = ["classic", "midnight", "marquee"] as const;
+export const THEME_IDS = ["classic", "midnight", "marquee", "lantern"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
 export const DEFAULT_THEME_ID: ThemeId = "classic";
@@ -128,6 +128,37 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
       headerMode: "solid-static",
       headerLayout: "logo-center-nav-split",
       wordmarkSizeAdjust: 1,
+      headerForegroundColor: "",
+      isHeaderTextUppercase: true,
+    },
+  },
+  lantern: {
+    name: "Lantern",
+    description: "Warm gold glow on near-black — cinematic and image-forward.",
+    appearance: {
+      colors: {
+        primary: "#f4f3f0",
+        secondary: "#e7c27d",
+        accent: "#e7c27d",
+        linkColor: "",
+        background: "#0b0c0e",
+        surface: "#141619",
+        text: "#f4f3f0",
+        textMuted: "#a7a9ae",
+        border: "#282b30",
+      },
+      typography: {
+        bodyFont: "Inter",
+        headingMode: "split",
+        headingFont: "Space Grotesk",
+        bodyWeights: { body: 400, bodyBold: 700 },
+        headingWeights: { h1: 700, h2: 700, h3: 600 },
+      },
+    },
+    header: {
+      headerMode: "glass-sticky",
+      headerLayout: "logo-left-nav-right",
+      wordmarkSizeAdjust: 0,
       headerForegroundColor: "",
       isHeaderTextUppercase: true,
     },

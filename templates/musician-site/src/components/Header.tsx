@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { Image as PublicImage } from "@/components/Image";
 import {
+  isGlassHeader,
   isStickyHeader,
   isTransparentHeader,
   type HeaderConfig,
@@ -38,18 +39,22 @@ type Props = {
 };
 
 export function Header({ artistName, header, navItems, pageTitleBySlug }: Props) {
+  const transparent = isTransparentHeader(header.headerMode);
+  const glass = isGlassHeader(header.headerMode);
   const wrapperStyle: CSSProperties = {
     width: "100%",
-    background: isTransparentHeader(header.headerMode)
+    background: transparent
       ? "transparent"
-      : "var(--color-surface)",
+      : glass
+        ? "color-mix(in srgb, var(--color-surface) 72%, transparent)"
+        : "var(--color-surface)",
     color:
-      isTransparentHeader(header.headerMode) && header.headerForegroundColor.length > 0
+      transparent && header.headerForegroundColor.length > 0
         ? header.headerForegroundColor
         : "var(--color-text)",
-    borderBottom: isTransparentHeader(header.headerMode)
-      ? "none"
-      : "1px solid var(--color-border)",
+    borderBottom: transparent ? "none" : "1px solid var(--color-border)",
+    backdropFilter: glass ? "blur(14px)" : undefined,
+    WebkitBackdropFilter: glass ? "blur(14px)" : undefined,
     position: isStickyHeader(header.headerMode) ? "sticky" : "absolute",
     top: 0,
     left: 0,

@@ -134,6 +134,7 @@ export const HEADER_MODES = [
   "solid-sticky",
   "solid-static",
   "transparent-static",
+  "glass-sticky",
 ] as const;
 export type HeaderMode = (typeof HEADER_MODES)[number];
 
@@ -141,14 +142,20 @@ export const HEADER_MODE_LABELS: Record<HeaderMode, string> = {
   "solid-sticky": "Solid, sticky (default)",
   "solid-static": "Solid, scrolls with page",
   "transparent-static": "Transparent, scrolls with page",
+  "glass-sticky": "Glass — translucent + blurred, sticky",
 };
 
 export function isTransparentHeader(mode: HeaderMode): boolean {
   return mode === "transparent-static";
 }
 
+// Translucent surface + backdrop-blur, sticky over the scrolling page.
+export function isGlassHeader(mode: HeaderMode): boolean {
+  return mode === "glass-sticky";
+}
+
 export function isStickyHeader(mode: HeaderMode): boolean {
-  return mode === "solid-sticky";
+  return mode === "solid-sticky" || mode === "glass-sticky";
 }
 
 export const HEADER_LAYOUTS = [
