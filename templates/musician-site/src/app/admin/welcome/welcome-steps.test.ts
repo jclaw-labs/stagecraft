@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_THEME_ID } from "@/lib/theme-presets";
+import { DEFAULT_THEME_ID, THEME_IDS } from "@/lib/theme-presets";
 import {
   buildWelcomePayload,
   START_CHOICES,
@@ -8,10 +8,15 @@ import {
   type WelcomeFormValues,
 } from "./welcome-steps";
 
+// A named preset that isn't the default — keeps the "named preset" case
+// distinct from the "empty → default theme" case below, and stays valid
+// as the preset library changes.
+const NAMED_PRESET = THEME_IDS.find((id) => id !== DEFAULT_THEME_ID)!;
+
 function values(overrides: Partial<WelcomeFormValues> = {}): WelcomeFormValues {
   return {
     artistName: "Nova Reyes",
-    start: "classic",
+    start: DEFAULT_THEME_ID,
     primaryColor: "#0f3460",
     wordmark: null,
     firstPageTitle: "Home",
@@ -27,20 +32,14 @@ describe("WELCOME_STEPS", () => {
 
 describe("START_CHOICES", () => {
   it("offers every theme plus custom + empty", () => {
-    expect(START_CHOICES).toEqual([
-      "classic",
-      "midnight",
-      "marquee",
-      "custom",
-      "empty",
-    ]);
+    expect(START_CHOICES).toEqual([...THEME_IDS, "custom", "empty"]);
   });
 });
 
 describe("buildWelcomePayload", () => {
   it("a named preset sends theme + seedContent:true", () => {
-    const body = buildWelcomePayload(values({ start: "midnight" }));
-    expect(body.theme).toBe("midnight");
+    const body = buildWelcomePayload(values({ start: NAMED_PRESET }));
+    expect(body.theme).toBe(NAMED_PRESET);
     expect(body.seedContent).toBe(true);
   });
 

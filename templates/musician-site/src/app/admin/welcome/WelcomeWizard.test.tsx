@@ -7,6 +7,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
+import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "@/lib/theme-presets";
 import { StepContent, WelcomeWizard } from "./WelcomeWizard";
 import {
   WELCOME_STEPS,
@@ -14,10 +15,14 @@ import {
   type WelcomeStep,
 } from "./welcome-steps";
 
+// A named preset that isn't the default, for the "a theme is selected"
+// cases — stays valid as the preset library changes.
+const NAMED_PRESET = THEME_IDS.find((id) => id !== DEFAULT_THEME_ID)!;
+
 function startValues(overrides: Partial<WelcomeFormValues> = {}): WelcomeFormValues {
   return {
     artistName: "Nova",
-    start: "classic",
+    start: DEFAULT_THEME_ID,
     primaryColor: "#0f3460",
     wordmark: null,
     firstPageTitle: "Home",
@@ -107,27 +112,28 @@ describe('<StepContent step="start" />', () => {
       <StepContent step="start" values={startValues()} setField={() => {}} />,
     );
     expect(html).toContain("Choose a starting point");
-    expect(html).toContain("Classic");
-    expect(html).toContain("Midnight");
-    expect(html).toContain("Marquee");
+    // A card per preset (by display name), derived from the preset library.
+    for (const id of THEME_IDS) {
+      expect(html).toContain(THEME_PRESETS[id].name);
+    }
     expect(html).toContain("Custom colour");
     expect(html).toContain("Start empty");
-    // Five selectable cards, exposed to assistive tech as radios.
-    expect(html.match(/role="radio"/g) ?? []).toHaveLength(5);
+    // One radio per theme plus the custom + empty escape hatches.
+    expect(html.match(/role="radio"/g) ?? []).toHaveLength(THEME_IDS.length + 2);
   });
 
   it("marks exactly the selected start as aria-checked", () => {
     const html = renderToStaticMarkup(
-      <StepContent step="start" values={startValues({ start: "midnight" })} setField={() => {}} />,
+      <StepContent step="start" values={startValues({ start: NAMED_PRESET })} setField={() => {}} />,
     );
     expect(html.match(/aria-checked="true"/g) ?? []).toHaveLength(1);
   });
 
   it("reveals the colour picker only on the custom path", () => {
-    const classic = renderToStaticMarkup(
-      <StepContent step="start" values={startValues({ start: "classic" })} setField={() => {}} />,
+    const preset = renderToStaticMarkup(
+      <StepContent step="start" values={startValues({ start: DEFAULT_THEME_ID })} setField={() => {}} />,
     );
-    expect(classic).not.toContain("welcome-primaryColor");
+    expect(preset).not.toContain("welcome-primaryColor");
 
     const custom = renderToStaticMarkup(
       <StepContent step="start" values={startValues({ start: "custom" })} setField={() => {}} />,
