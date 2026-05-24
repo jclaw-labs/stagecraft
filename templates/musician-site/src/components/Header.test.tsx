@@ -77,6 +77,34 @@ describe("<Header>", () => {
     expect(html).toMatch(/color-mix/);
   });
 
+  it("bold header border renders a 3px rule", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerBorder: "bold" },
+    });
+    expect(html).toMatch(/border-bottom:\s*3px solid/);
+  });
+
+  it("accent header border uses the accent color", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerBorder: "accent" },
+    });
+    expect(html).toMatch(/border-bottom:\s*2px solid var\(--color-accent\)/);
+  });
+
+  it("none header border removes the rule", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerBorder: "none" },
+    });
+    expect(html).toMatch(/border-bottom:\s*none/);
+  });
+
+  it("compact header height tightens the padding", () => {
+    const html = renderHeader({
+      header: { ...DEFAULT_HEADER_CONFIG, headerHeight: "compact" },
+    });
+    expect(html).toContain("var(--space-3) var(--space-4)");
+  });
+
   it("uppercase header text adds text-transform: uppercase", () => {
     const html = renderHeader({
       header: { ...DEFAULT_HEADER_CONFIG, isHeaderTextUppercase: true },

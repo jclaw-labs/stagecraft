@@ -41,6 +41,23 @@ type Props = {
 export function Header({ artistName, header, navItems, pageTitleBySlug }: Props) {
   const transparent = isTransparentHeader(header.headerMode);
   const glass = isGlassHeader(header.headerMode);
+  // Border + height follow the theme's header chrome (defaulted when unset).
+  const borderKind = header.headerBorder ?? "hairline";
+  const borderBottom =
+    transparent || borderKind === "none"
+      ? "none"
+      : borderKind === "bold"
+        ? "3px solid var(--color-border)"
+        : borderKind === "accent"
+          ? "2px solid var(--color-accent)"
+          : "1px solid var(--color-border)";
+  const headerHeight = header.headerHeight ?? "standard";
+  const headerPad =
+    headerHeight === "compact"
+      ? "var(--space-3) var(--space-4)"
+      : headerHeight === "tall"
+        ? "var(--space-6) var(--space-4)"
+        : "var(--space-4)";
   const wrapperStyle: CSSProperties = {
     width: "100%",
     background: transparent
@@ -52,7 +69,7 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
       transparent && header.headerForegroundColor.length > 0
         ? header.headerForegroundColor
         : "var(--color-text)",
-    borderBottom: transparent ? "none" : "1px solid var(--color-border)",
+    borderBottom,
     backdropFilter: glass ? "blur(14px)" : undefined,
     WebkitBackdropFilter: glass ? "blur(14px)" : undefined,
     position: isStickyHeader(header.headerMode) ? "sticky" : "absolute",
@@ -65,7 +82,7 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
   const innerStyle: CSSProperties = {
     maxWidth: "var(--max-width-wide)",
     margin: "0 auto",
-    padding: "var(--space-4)",
+    padding: headerPad,
     ...layoutStyle(header.headerLayout),
   };
 
