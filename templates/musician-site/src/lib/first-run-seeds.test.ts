@@ -105,6 +105,14 @@ describe("buildFirstRunSeed", () => {
     }
   });
 
+  it("seeds Music / About / Contact starter pages so the nav isn't one link", () => {
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    expect(seed.starterPages.map((p) => p.slug)).toEqual(["music", "about", "contact"]);
+    // The Contact page ships a working ContactForm block.
+    const contact = seed.starterPages.find((p) => p.slug === "contact");
+    expect(JSON.stringify(contact?.data.content ?? [])).toContain("ContactForm");
+  });
+
   it("seeds exactly two tour dates with required fields populated", () => {
     const seed = buildFirstRunSeed("Test", "Home", NOW);
     expect(seed.tourDates).toHaveLength(2);

@@ -39,6 +39,7 @@ import {
   getRequestReadStore,
   SINGLETON_ITEM_SLUG,
   writeItem,
+  writeOrder,
   writeSingleton,
   type Item,
 } from "@/lib/collections";
@@ -174,6 +175,18 @@ export async function POST(request: Request) {
     showInNav: true,
   });
 
+  // Starter pages (Music / About / Contact) so the nav isn't a single link.
+  // Only on the content-ful start; an empty start keeps just the Home page.
+  const starterPageItems = seedContent
+    ? seed.starterPages.map((p) => ({
+        slug: p.slug,
+        item: pageDataToItem(p.slug, p.data, { id: generateItemId(), showInNav: true }),
+      }))
+    : [];
+  // Home-first nav order (nav reads the pages collection's _order.json;
+  // absent, it falls back to alphabetical, which would bury Home).
+  const pageOrder = [seed.homePage.slug, ...starterPageItems.map((p) => p.slug)];
+
   // ---------------------------------------------------------------
   // Tour-dates seeds — only with seedContent, and only when the
   // collection is empty. Idempotent: if the artist had already added
@@ -224,6 +237,12 @@ export async function POST(request: Request) {
   await writeSingleton("appearance", appearanceItem, appearanceCollectionDef);
   await writeSingleton("header", headerItem, headerCollectionDef);
   await writeItem("pages", seed.homePage.slug, homeItem, pagesCollectionDef);
+  for (const { slug, item } of starterPageItems) {
+    await writeItem("pages", slug, item, pagesCollectionDef);
+  }
+  if (starterPageItems.length > 0) {
+    await writeOrder("pages", pageOrder);
+  }
   for (const item of tourDateItems) {
     await writeItem(TOUR_DATES_SLUG, item.slug, item, tourDatesDef!);
   }
@@ -234,6 +253,10 @@ export async function POST(request: Request) {
     publishItemTarget("appearance", SINGLETON_ITEM_SLUG, appearanceItem),
     publishItemTarget("header", SINGLETON_ITEM_SLUG, headerItem),
     publishItemTarget("pages", seed.homePage.slug, homeItem),
+    ...starterPageItems.map(({ slug, item }) => publishItemTarget("pages", slug, item)),
+    ...(starterPageItems.length > 0
+      ? [{ kind: "collection-order" as const, collectionSlug: "pages", data: pageOrder }]
+      : []),
     ...tourDateItems.map((item) => publishItemTarget(TOUR_DATES_SLUG, item.slug, item)),
   ];
 
