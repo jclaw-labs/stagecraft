@@ -35,11 +35,16 @@ deleting the directory while anything still points at it breaks those paths
 (most importantly the platform's migrate-site job, whose `TEMPLATE_DIR` *is* the
 legacy template). The work proceeds consumers-first, deletion-last:
 
-1. **Migrate flow (gating prerequisite).** `apps/web/src/lib/jobs/migrate-site.ts`
-   and `apps/web/src/lib/migration/mapper.ts` target the legacy Astro/Markdoc
-   layout. Decide under separate review: either retarget them to emit
-   musician-site (Puck JSON) content, or retire the "migrate an existing site"
-   feature. Legacy cannot be deleted until this is resolved.
+1. **Migrate flow (gating prerequisite) — retarget to musician-site.**
+   `apps/web/src/lib/jobs/migrate-site.ts` (its `TEMPLATE_DIR`) and
+   `apps/web/src/lib/migration/mapper.ts` currently target the legacy
+   Astro/Markdoc layout. The migrate-an-existing-site feature is **kept** and
+   retargeted to musician-site: point `TEMPLATE_DIR` at
+   `templates/musician-site/` and rewrite the mapper to emit Puck JSON (and the
+   Next.js deploy config) instead of Astro `src/content/*`. The mapper rewrite
+   is the bulk of the work and is the gating prerequisite — legacy cannot be
+   deleted until the migrate flow no longer reads from it. Lands as its own
+   change.
 2. **Skills.** Repoint or retire `recreate-artist-site` and `crawl-artist-site`
    (both aim at the legacy template) and drop the legacy branch of the
    `create-pr` build helper.
@@ -56,9 +61,9 @@ legacy template). The work proceeds consumers-first, deletion-last:
 ## Consequences
 - **One template to maintain.** Simpler `CLAUDE.md`, one fewer CI job and
   lockfile, and a single template in the Dependabot/cooldown surface.
-- **The migrate-from-existing-site feature is forced to a decision**
-  (retarget vs retire). That call is out of scope for this ADR and is tracked
-  as the gating prerequisite above.
+- **The migrate-from-existing-site feature is retained** and retargeted to
+  musician-site (Puck JSON). The mapper rewrite is the main implementation task
+  and the gating prerequisite for deletion; it lands as its own change.
 - **Already-deployed legacy sites are unaffected.** Each deployed artist site
   is an independent copy in its own repo (ADR-007, ADR-008); removing the
   template from the monorepo does not touch them — they keep building from
@@ -74,3 +79,6 @@ legacy template). The work proceeds consumers-first, deletion-last:
 - **Delete the directory now and fix consumers afterward.** Breaks the
   migrate-site job (and the skills) the moment the directory is gone.
   Sequencing is the point — consumers first, deletion last.
+- **Retire the migrate-an-existing-site feature** instead of retargeting it.
+  Rejected — the feature is kept so existing sites can still be migrated onto
+  musician-site.
