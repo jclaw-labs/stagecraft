@@ -10,7 +10,7 @@ import {
   SECTION_WIDTHS,
   BUTTON_VARIANTS,
   SPACER_SIZES,
-  COLUMN_LAYOUTS,
+  COLUMN_COUNTS,
   TEXT_ALIGNMENTS,
 } from "./config";
 
@@ -284,15 +284,18 @@ describe("puckConfig", () => {
   });
 
   describe("Columns", () => {
-    it("select options match COLUMN_LAYOUTS", () => {
-      const field = puckConfig.components.Columns.fields?.layout;
+    const stub = (label: string) =>
+      (() => label as unknown as React.ReactElement) as unknown;
+
+    it("count options match COLUMN_COUNTS", () => {
+      const field = puckConfig.components.Columns.fields?.count;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
-        expect(field.options.map((o) => o.value)).toEqual([...COLUMN_LAYOUTS]);
+        expect(field.options.map((o) => o.value)).toEqual([...COLUMN_COUNTS]);
       }
     });
 
-    it("declares col1/col2/col3 as slots (each column accepts any block)", () => {
+    it("declares col1..col4 as slots (each column accepts any block)", () => {
       const fields = (puckConfig.components.Columns.fields ?? {}) as Record<
         string,
         { type?: string }
@@ -300,45 +303,57 @@ describe("puckConfig", () => {
       expect(fields.col1?.type).toBe("slot");
       expect(fields.col2?.type).toBe("slot");
       expect(fields.col3?.type).toBe("slot");
+      expect(fields.col4?.type).toBe("slot");
     });
 
-    it("renders only the slots required by the chosen layout (2 for 1-1, 3 for 1-1-1)", () => {
-      // Stub each slot with a distinguishable marker so we can assert
-      // which columns the renderer actually invoked.
-      const stub = (label: string) =>
-        (() => label as unknown as React.ReactElement) as unknown;
+    it("renders only `count` columns (extra slots stay hidden)", () => {
       const html2 = render("Columns", {
-        layout: "1-1",
-        col1: stub("COL_A"),
-        col2: stub("COL_B"),
-        col3: stub("COL_C_HIDDEN"),
+        count: 2, w1: 1, w2: 1, w3: 1, w4: 1,
+        col1: stub("COL_A"), col2: stub("COL_B"),
+        col3: stub("COL_C_HIDDEN"), col4: stub("COL_D_HIDDEN"),
       });
       expect(html2).toContain("COL_A");
       expect(html2).toContain("COL_B");
       expect(html2).not.toContain("COL_C_HIDDEN");
+      expect(html2).not.toContain("COL_D_HIDDEN");
 
-      const html3 = render("Columns", {
-        layout: "1-1-1",
-        col1: stub("COL_A"),
-        col2: stub("COL_B"),
-        col3: stub("COL_C"),
+      const html4 = render("Columns", {
+        count: 4, w1: 1, w2: 1, w3: 1, w4: 1,
+        col1: stub("COL_A"), col2: stub("COL_B"), col3: stub("COL_C"), col4: stub("COL_D"),
       });
-      expect(html3).toContain("COL_A");
-      expect(html3).toContain("COL_B");
-      expect(html3).toContain("COL_C");
+      expect(html4).toContain("COL_C");
+      expect(html4).toContain("COL_D");
     });
 
-    it("uses CSS Grid with token-only spacing", () => {
-      const stub = () => null as unknown as React.ReactElement;
+    it("still honours legacy `layout`-only content (back-compat)", () => {
       const html = render("Columns", {
-        layout: "1-2",
-        col1: stub,
-        col2: stub,
-        col3: stub,
+        layout: "1-1-1",
+        col1: stub("LA"), col2: stub("LB"), col3: stub("LC"), col4: stub("LD_HIDDEN"),
       });
-      expect(html).toMatch(/display:\s*grid/);
-      expect(html).toMatch(/grid-template-columns:\s*1fr 2fr/);
+      expect(html).toContain("LA");
+      expect(html).toContain("LB");
+      expect(html).toContain("LC");
+      expect(html).not.toContain("LD_HIDDEN");
+    });
+
+    it("uses the .sc-cols grid class, a per-instance tracks var, and a token gap", () => {
+      const noop = () => null as unknown as React.ReactElement;
+      const html = render("Columns", {
+        count: 2, w1: 1, w2: 2, w3: 1, w4: 1, gap: "md",
+        col1: noop, col2: noop, col3: noop, col4: noop,
+      });
+      expect(html).toContain('class="sc-cols"');
+      expect(html).toMatch(/--sc-cols-tracks:\s*1fr 2fr/);
       expect(html).toMatch(/gap:\s*var\(--space-/);
+    });
+
+    it("opts into responsive stacking by default", () => {
+      const noop = () => null as unknown as React.ReactElement;
+      const html = render("Columns", {
+        count: 2, w1: 1, w2: 1, w3: 1, w4: 1,
+        col1: noop, col2: noop, col3: noop, col4: noop,
+      });
+      expect(html).toContain('data-stack="true"');
     });
   });
 

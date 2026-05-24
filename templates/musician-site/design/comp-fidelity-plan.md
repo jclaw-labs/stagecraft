@@ -61,8 +61,14 @@ uploads a real photo. This doubles as a better empty-state UX everywhere.
     (theme-aware surface + border + radius + shadow); release uses it.
   - **Density.** Tighten Section padding — comps are denser; sections currently
     float in voids. (`--section-space` is a dead token — wire or remove it.)
-  - **Column alignment.** `Columns` is fixed-ratio + top-aligned; add vertical
-    alignment so album-vs-text balances.
+  - ~~**Column controls.**~~ DONE (enhanced-columns PR) — `Columns` went from 4
+    fixed ratio presets to: count 2–4, per-column width (`w1..w4` fr), gap,
+    vertical-align, and **responsive stacking** on mobile — all behind an "Edit
+    layout" toggle (`resolveFields`) so the controls recede once configured.
+    Back-compat: legacy `layout`-only content still renders via
+    `resolveColumnsLayout`. Spike confirmed Puck 0.20 resolves a slot inside an
+    array field, so arbitrary-N dynamic columns + a richer visual layout summary
+    are a viable future step (4 slots cover current needs).
   - Plus the deferred token wiring: `buttonFill`, `ruleStyle`, `imageTreatment`,
     `galleryLayout`, `accentMode: gradient` backgrounds.
 

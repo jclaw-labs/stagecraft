@@ -62,12 +62,59 @@ export type SpacerSize = (typeof SPACER_SIZES)[number];
 export const COLUMN_LAYOUTS = ["1-1", "1-2", "2-1", "1-1-1"] as const;
 export type ColumnLayout = (typeof COLUMN_LAYOUTS)[number];
 
-export const COLUMN_LAYOUT_LABELS: Record<ColumnLayout, string> = {
-  "1-1": "Equal (1:1)",
-  "1-2": "Narrow + Wide (1:2)",
-  "2-1": "Wide + Narrow (2:1)",
-  "1-1-1": "Three equal (1:1:1)",
+// Enhanced column controls (supersede the fixed `layout` presets; `layout`
+// is still read for back-compat on content authored before this).
+export const COLUMN_COUNTS = [2, 3, 4] as const;
+export type ColumnCount = (typeof COLUMN_COUNTS)[number];
+
+export const COLUMN_GAPS = ["none", "sm", "md", "lg"] as const;
+export type ColumnGap = (typeof COLUMN_GAPS)[number];
+const COLUMN_GAP_TOKEN: Record<ColumnGap, string> = {
+  none: "0",
+  sm: "var(--space-3)",
+  md: "var(--space-6)",
+  lg: "var(--space-8)",
 };
+
+export const COLUMN_VALIGNS = ["top", "center", "bottom"] as const;
+export type ColumnValign = (typeof COLUMN_VALIGNS)[number];
+const COLUMN_VALIGN_CSS: Record<ColumnValign, string> = {
+  top: "start",
+  center: "center",
+  bottom: "end",
+};
+
+// Legacy `layout` → (count, weights) for content authored before the
+// enhanced controls. New content carries `count`/`w1..w4` directly.
+const LEGACY_LAYOUT_CONFIG: Record<ColumnLayout, { count: ColumnCount; weights: number[] }> = {
+  "1-1": { count: 2, weights: [1, 1] },
+  "1-2": { count: 2, weights: [1, 2] },
+  "2-1": { count: 2, weights: [2, 1] },
+  "1-1-1": { count: 3, weights: [1, 1, 1] },
+};
+
+/**
+ * Resolve the effective column layout from a Columns block's props,
+ * tolerating both the new fields and legacy `layout`-only content.
+ */
+export function resolveColumnsLayout(props: {
+  count?: ColumnCount;
+  w1?: number;
+  w2?: number;
+  w3?: number;
+  w4?: number;
+  layout?: ColumnLayout;
+}): { count: number; tracks: string } {
+  if (typeof props.count === "number") {
+    const weights = [props.w1 ?? 1, props.w2 ?? 1, props.w3 ?? 1, props.w4 ?? 1].slice(
+      0,
+      props.count,
+    );
+    return { count: props.count, tracks: weights.map((w) => `${Math.max(1, w)}fr`).join(" ") };
+  }
+  const legacy = props.layout ? LEGACY_LAYOUT_CONFIG[props.layout] : LEGACY_LAYOUT_CONFIG["1-1"];
+  return { count: legacy.count, tracks: legacy.weights.map((w) => `${w}fr`).join(" ") };
+}
 
 export const TEXT_ALIGNMENTS = ["start", "center", "end"] as const;
 export type TextAlignment = (typeof TEXT_ALIGNMENTS)[number];
@@ -380,21 +427,6 @@ const BUTTON_BASE: CSSProperties = {
   cursor: "pointer",
 };
 
-// Per-layout CSS Grid `grid-template-columns` values.
-const COLUMN_LAYOUT_TRACKS: Record<ColumnLayout, string> = {
-  "1-1": "1fr 1fr",
-  "1-2": "1fr 2fr",
-  "2-1": "2fr 1fr",
-  "1-1-1": "1fr 1fr 1fr",
-};
-
-const COLUMN_LAYOUT_SLOT_COUNT: Record<ColumnLayout, number> = {
-  "1-1": 2,
-  "1-2": 2,
-  "2-1": 2,
-  "1-1-1": 3,
-};
-
 export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
   Eyebrow: { text: string; textAlign: TextAlignment };
@@ -415,10 +447,22 @@ export type BlockProps = {
     overlayOpacity: number;
   };
   Columns: {
-    layout: ColumnLayout;
+    /** Legacy fixed-ratio preset — read for back-compat only; new content uses count/weights. */
+    layout?: ColumnLayout;
+    count: ColumnCount;
+    w1: number;
+    w2: number;
+    w3: number;
+    w4: number;
+    gap: ColumnGap;
+    valign: ColumnValign;
+    stackOnMobile: boolean;
+    /** Editor-only: whether the layout controls are expanded (progressive disclosure). */
+    _edit: boolean;
     col1: Slot;
     col2: Slot;
     col3: Slot;
+    col4: Slot;
   };
   RichText: { text: string };
   Quote: { text: string; attribution: string };
@@ -1233,42 +1277,126 @@ export const puckConfig: Config<
       },
     },
     Columns: {
-      // Each column is a slot — drop any block into a column independently.
-      // The chosen `layout` decides how many columns render: 1-1 / 1-2 / 2-1
-      // emit two columns (col3 is ignored even if it has children);
-      // 1-1-1 emits all three. Keeping col3 as a real slot rather than a
-      // conditional one means the artist's content survives if they switch
-      // a 1-1-1 column back to 1-1 and then back again.
+      // Up to 4 column slots — drop any block into each independently. The
+      // count + per-column widths + gap + vertical-align + responsive
+      // stacking are all configurable, but the controls live behind an
+      // "Edit layout" toggle (resolveFields) so they recede once set up.
+      // Content authored before this carries a fixed `layout` preset, which
+      // `resolveColumnsLayout` still honours. col1..col4 are always real
+      // slots so content survives changing the count back and forth.
       fields: {
-        layout: {
+        _edit: {
+          type: "custom",
+          render: ({ value, onChange }) => (
+            <button
+              type="button"
+              onClick={() => onChange(!value)}
+              style={{
+                width: "100%",
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border)",
+                background: value ? "var(--color-action)" : "var(--color-surface)",
+                color: value ? "var(--color-action-fg)" : "var(--color-text)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: "var(--font-weight-semibold)",
+                cursor: "pointer",
+              }}
+            >
+              {value ? "Done — hide layout controls" : "Edit layout"}
+            </button>
+          ),
+        },
+        count: {
           type: "select",
-          options: COLUMN_LAYOUTS.map((v) => ({ label: COLUMN_LAYOUT_LABELS[v], value: v })),
+          options: COLUMN_COUNTS.map((v) => ({ label: `${v} columns`, value: v })),
+        },
+        w1: { type: "number", min: 1, max: 6 },
+        w2: { type: "number", min: 1, max: 6 },
+        w3: { type: "number", min: 1, max: 6 },
+        w4: { type: "number", min: 1, max: 6 },
+        gap: {
+          type: "select",
+          options: COLUMN_GAPS.map((v) => ({ label: v, value: v })),
+        },
+        valign: {
+          type: "select",
+          options: COLUMN_VALIGNS.map((v) => ({ label: v, value: v })),
+        },
+        stackOnMobile: {
+          type: "radio",
+          options: [
+            { label: "Stack on mobile", value: true },
+            { label: "Keep columns", value: false },
+          ],
         },
         col1: { type: "slot" },
         col2: { type: "slot" },
         col3: { type: "slot" },
+        col4: { type: "slot" },
+      },
+      // Progressive disclosure: only the "Edit layout" toggle (+ the slots,
+      // which render on the canvas) show until the artist opens the controls.
+      resolveFields: (data, { fields }) => {
+        const props = (data.props ?? {}) as { _edit?: boolean; count?: number };
+        const slots = {
+          col1: fields.col1,
+          col2: fields.col2,
+          col3: fields.col3,
+          col4: fields.col4,
+        };
+        if (!props._edit) {
+          return { _edit: fields._edit, ...slots } as typeof fields;
+        }
+        const count = props.count ?? 2;
+        const widths: Record<string, unknown> = { w1: fields.w1 };
+        if (count >= 2) widths.w2 = fields.w2;
+        if (count >= 3) widths.w3 = fields.w3;
+        if (count >= 4) widths.w4 = fields.w4;
+        return {
+          _edit: fields._edit,
+          count: fields.count,
+          ...widths,
+          gap: fields.gap,
+          valign: fields.valign,
+          stackOnMobile: fields.stackOnMobile,
+          ...slots,
+        } as typeof fields;
       },
       defaultProps: {
-        layout: "1-1",
+        count: 2,
+        w1: 1,
+        w2: 1,
+        w3: 1,
+        w4: 1,
+        gap: "md",
+        valign: "top",
+        stackOnMobile: true,
+        _edit: true,
         col1: [],
         col2: [],
         col3: [],
+        col4: [],
       },
-      render: ({ layout, col1: Col1, col2: Col2, col3: Col3 }) => {
-        const slotCount = COLUMN_LAYOUT_SLOT_COUNT[layout];
-        const cols = [Col1, Col2, Col3].slice(0, slotCount);
+      render: (props) => {
+        const { count, tracks } = resolveColumnsLayout(props);
+        const slots = [props.col1, props.col2, props.col3, props.col4].slice(0, count);
         return (
           <div
-            style={{
-              maxWidth: "var(--max-width-wide)",
-              margin: "0 auto",
-              padding: "var(--space-6) var(--space-4)",
-              display: "grid",
-              gridTemplateColumns: COLUMN_LAYOUT_TRACKS[layout],
-              gap: "var(--space-6)",
-            }}
+            className="sc-cols"
+            data-stack={(props.stackOnMobile ?? true) ? "true" : "false"}
+            style={
+              {
+                maxWidth: "var(--max-width-wide)",
+                margin: "0 auto",
+                padding: "var(--space-6) var(--space-4)",
+                gap: COLUMN_GAP_TOKEN[props.gap ?? "md"],
+                alignItems: COLUMN_VALIGN_CSS[props.valign ?? "top"],
+                "--sc-cols-tracks": tracks,
+              } as CSSProperties
+            }
           >
-            {cols.map((Col, i) => (
+            {slots.map((Col, i) => (
               <div key={i}>
                 <Col />
               </div>
