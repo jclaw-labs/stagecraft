@@ -1,0 +1,76 @@
+.container {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-12);
+}
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  margin-bottom: var(--space-4);
+}
+.breadcrumb:hover { color: var(--color-text); }
+.breadcrumb svg { width: 1rem; height: 1rem; }
+
+.pageHead { margin-bottom: var(--space-6); }
+.title {
+  margin: 0;
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+.banner {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-6);
+  font-size: var(--font-size-sm);
+}
+.bannerError { background: var(--color-error-bg); color: var(--color-error); }
+.bannerError p { margin: 0; }
+.bannerLink { font-weight: var(--font-weight-semibold); color: inherit; }
+
+.lead { color: var(--color-text-muted); margin: 0 0 var(--space-5); }
+
+.chooseGrid { display: grid; gap: var(--space-3); }
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+}
+.panelTitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+.panelLead { margin: 0 0 var(--space-4); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.formRows { display: grid; gap: var(--space-4); }
+.actions { margin-top: var(--space-5); display: flex; gap: var(--space-3); align-items: center; }
+
+.progress { text-align: center; padding: var(--space-10) var(--space-4); }
+.progressNow { font-size: var(--font-size-lg); font-weight: var(--font-weight-medium); color: var(--color-text); margin: 0; }
+.progressList {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-6) auto;
+  max-width: 20rem;
+  text-align: left;
+}
+.progressStep { padding: var(--space-1) 0; font-size: var(--font-size-sm); color: var(--color-text-muted); opacity: 0.4; }
+.progressStepOn { opacity: 1; }
+.progressStepCurrent { font-weight: var(--font-weight-semibold); color: var(--color-text); }
+.progressHint { font-size: var(--font-size-sm); color: var(--color-text-faint); margin: 0; }
+
+/* --breakpoint md (768px) */
+@media (max-width: 768px) {
+  .container { padding: var(--space-6) var(--space-4) var(--space-10); }
+}
