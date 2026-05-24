@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   appearanceSchema,
-  DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
   headerConfigSchema,
   type HeaderConfig,
@@ -23,10 +22,6 @@ describe("theme presets", () => {
     expect(THEME_IDS).toContain(DEFAULT_THEME_ID);
   });
 
-  it("classic mirrors the platform default appearance", () => {
-    expect(THEME_PRESETS.classic.appearance).toEqual(DEFAULT_APPEARANCE);
-  });
-
   for (const id of THEME_IDS) {
     describe(`preset "${id}"`, () => {
       const preset = THEME_PRESETS[id];
@@ -38,6 +33,10 @@ describe("theme presets", () => {
 
       it("appearance validates against the appearance schema", () => {
         expect(() => appearanceSchema.parse(preset.appearance)).not.toThrow();
+      });
+
+      it("carries a full design token group", () => {
+        expect(preset.appearance.design).toBeDefined();
       });
 
       it("header style validates against the header schema", () => {
@@ -58,24 +57,18 @@ describe("theme presets", () => {
 });
 
 describe("resolveTheme", () => {
-  it("replaces appearance with the preset palette", () => {
-    const resolved = resolveTheme("midnight", DEFAULT_HEADER_CONFIG);
-    expect(resolved.appearance).toEqual(THEME_PRESETS.midnight.appearance);
-    expect(resolved.appearance.colors.background).toBe("#0b0b12");
+  it("replaces appearance with the preset palette + design", () => {
+    const resolved = resolveTheme("riot", DEFAULT_HEADER_CONFIG);
+    expect(resolved.appearance).toEqual(THEME_PRESETS.riot.appearance);
+    expect(resolved.appearance.colors.background).toBe("#0a0a0a");
+    expect(resolved.appearance.design?.radius).toBe("sharp");
   });
 
   it("applies the preset's header style fields", () => {
-    const resolved = resolveTheme("marquee", DEFAULT_HEADER_CONFIG);
-    expect(resolved.header.headerLayout).toBe("logo-center-nav-split");
-    expect(resolved.header.isHeaderTextUppercase).toBe(true);
-    expect(resolved.header.wordmarkSizeAdjust).toBe(1);
-  });
-
-  it("lantern is a dark palette with the glass header", () => {
-    const resolved = resolveTheme("lantern", DEFAULT_HEADER_CONFIG);
-    expect(resolved.appearance.colors.background).toBe("#0b0c0e");
-    expect(resolved.appearance.colors.accent).toBe("#e7c27d");
-    expect(resolved.header.headerMode).toBe("glass-sticky");
+    const resolved = resolveTheme("aurora", DEFAULT_HEADER_CONFIG);
+    expect(resolved.header.headerMode).toBe("transparent-static");
+    expect(resolved.header.headerForegroundColor).toBe("#ffffff");
+    expect(resolveTheme("riot", DEFAULT_HEADER_CONFIG).header.isHeaderTextUppercase).toBe(true);
   });
 
   it("preserves artist-owned header fields (wordmark + subtitle)", () => {
@@ -85,15 +78,14 @@ describe("resolveTheme", () => {
       wordmark,
       headerSubtitle: "Live in 2026",
     };
-    const resolved = resolveTheme("marquee", existing);
+    const resolved = resolveTheme("paper", existing);
     expect(resolved.header.wordmark).toBe(wordmark);
     expect(resolved.header.headerSubtitle).toBe("Live in 2026");
   });
 
   it("returns a fresh appearance copy (no shared-constant mutation)", () => {
-    const resolved = resolveTheme("classic", DEFAULT_HEADER_CONFIG);
+    const resolved = resolveTheme("meadow", DEFAULT_HEADER_CONFIG);
     resolved.appearance.colors.primary = "#changed";
-    expect(THEME_PRESETS.classic.appearance.colors.primary).not.toBe("#changed");
-    expect(DEFAULT_APPEARANCE.colors.primary).not.toBe("#changed");
+    expect(THEME_PRESETS.meadow.appearance.colors.primary).not.toBe("#changed");
   });
 });
