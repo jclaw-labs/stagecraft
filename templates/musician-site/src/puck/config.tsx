@@ -464,7 +464,7 @@ export type BlockProps = {
     col3: Slot;
     col4: Slot;
   };
-  RichText: { text: string };
+  RichText: { text: string; align: TextAlignment };
   Quote: { text: string; attribution: string };
   Button: { text: string; href: string; variant: ButtonVariant; isExternal: boolean };
   Image: {
@@ -1389,7 +1389,7 @@ export const puckConfig: Config<
               {
                 maxWidth: "var(--max-width-wide)",
                 margin: "0 auto",
-                padding: "var(--space-6) var(--space-4)",
+                padding: "var(--space-2) var(--space-4)",
                 gap: COLUMN_GAP_TOKEN[props.gap ?? "md"],
                 alignItems: COLUMN_VALIGN_CSS[props.valign ?? "top"],
                 "--sc-cols-tracks": tracks,
@@ -1414,11 +1414,20 @@ export const puckConfig: Config<
       // to its parent's width; the seeded pages all wrap text in a
       // Section, and the editor's Insert menu naturally pushes new
       // text-style content into a container.
-      fields: { text: { type: "textarea" } },
+      fields: {
+        text: { type: "textarea" },
+        align: {
+          type: "select",
+          options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
+        },
+      },
       defaultProps: {
         text: "Write your paragraph here.\n\nBlank lines start a new paragraph.",
+        align: "start",
       },
-      render: ({ text }) => <div>{renderParagraphs(text, "rt")}</div>,
+      render: ({ text, align = "start" }) => (
+        <div style={{ textAlign: align }}>{renderParagraphs(text, "rt")}</div>
+      ),
     },
     Quote: {
       // Layout-transparent: no max-width, no horizontal centering. The
@@ -1945,7 +1954,7 @@ export const puckConfig: Config<
           style={{
             border: "none",
             borderTop: "1px solid var(--color-border)",
-            margin: inset ? "var(--space-8) var(--space-16)" : "var(--space-8) 0",
+            margin: inset ? "var(--space-4) var(--space-16)" : "var(--space-4) 0",
           }}
         />
       ),

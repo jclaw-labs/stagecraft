@@ -110,13 +110,11 @@ function tourRow(
       ],
       col2: [
         {
-          type: "Button",
+          type: "ButtonRow",
           props: {
             id: `${id}-btn`,
-            text: "Tickets",
-            href: "#",
-            variant: "outline",
-            isExternal: false,
+            align: "end",
+            buttons: [{ text: "Tickets", href: "#", variant: "outline", isExternal: false }],
           },
         },
       ],
@@ -138,7 +136,7 @@ function trackRow(
       id,
       layout: "2-1",
       col1: [{ type: "RichText", props: { id: `${id}-t`, text: `${num}. ${title}` } }],
-      col2: [{ type: "RichText", props: { id: `${id}-d`, text: duration } }],
+      col2: [{ type: "RichText", props: { id: `${id}-d`, text: duration, align: "end" } }],
       col3: [],
     },
   };
