@@ -82,6 +82,28 @@
   --color-overlay: rgba(0, 0, 0, 0.55);
 }
 
+/* Tokenized themes (ADR-013). AppearanceStyles emits the artist's design
+   tokens (--radius-theme, --content-measure, --shadow-theme, --space-scale,
+   --color-on-accent …) on :root. Here we re-point the static block tokens at
+   them *inside the public site only*, so existing blocks pick up the theme
+   without per-block edits. Each falls back to the :root default, so the editor
+   chrome (outside .stagecraft-site) and any un-themed context are unchanged. */
+.stagecraft-site {
+  --radius: var(--radius-theme, 0.375rem);
+  --radius-md: var(--radius-theme-lg, 0.5rem);
+  --max-width-content: var(--content-measure, 48rem);
+  --shadow-md: var(--shadow-theme, 0 4px 12px rgba(0, 0, 0, 0.08));
+  /* Button text uses the theme's on-accent color (defaults to surface). */
+  --color-action-fg: var(--color-on-accent, #ffffff);
+  /* Density scales the section-rhythm spacings (small internal spacings stay
+     fixed). At --space-scale: 1 these equal the :root defaults. */
+  --space-8: calc(2rem * var(--space-scale, 1));
+  --space-12: calc(3rem * var(--space-scale, 1));
+  --space-16: calc(4rem * var(--space-scale, 1));
+  --space-20: calc(5rem * var(--space-scale, 1));
+  --space-32: calc(8rem * var(--space-scale, 1));
+}
+
 /* Editor spinner — used by /admin's Puck publish-status pill. Defined
    globally because the spinner element lives inside Puck's chrome
    (overrides.headerActions), which doesn't accept scoped CSS modules. */

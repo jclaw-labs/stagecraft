@@ -24,11 +24,13 @@ export function Footer({ site }: Props) {
     .map((platform) => ({ platform, url: site.socialLinks[platform] }))
     .filter((s) => s.url && s.url.length > 0);
 
+  // Background + text follow the theme's footer style (--footer-bg/--footer-text,
+  // emitted by AppearanceStyles; default to surface + muted text).
   const wrapperStyle: CSSProperties = {
     width: "100%",
     borderTop: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    color: "var(--color-text-muted)",
+    background: "var(--footer-bg, var(--color-surface))",
+    color: "var(--footer-text, var(--color-text-muted))",
     padding: "var(--space-8) var(--space-4)",
     marginTop: "var(--space-16)",
   };
@@ -65,7 +67,7 @@ export function Footer({ site }: Props) {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: "var(--color-text)", textDecoration: "none" }}
+                  style={{ color: "var(--footer-text, var(--color-text))", textDecoration: "none" }}
                 >
                   {SOCIAL_PLATFORM_LABELS[platform]}
                 </a>

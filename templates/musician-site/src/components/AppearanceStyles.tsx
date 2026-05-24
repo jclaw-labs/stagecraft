@@ -174,6 +174,7 @@ export function AppearanceStyles({ appearance }: Props) {
     .stagecraft-site h1 { font-family: var(--font-headings); font-weight: var(--font-weight-h1); }
     .stagecraft-site h2 { font-family: var(--font-headings); font-weight: var(--font-weight-h2); }
     .stagecraft-site h3 { font-family: var(--font-headings); font-weight: var(--font-weight-h3); }
+    .stagecraft-site h1, .stagecraft-site h2, .stagecraft-site h3 { text-transform: var(--heading-transform); letter-spacing: var(--tracking-heading); }
     .stagecraft-site a { color: var(--color-link); }
     .stagecraft-site strong, .stagecraft-site b { font-weight: var(--font-weight-body-bold); }
   `;
