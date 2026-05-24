@@ -156,15 +156,16 @@ The two compose.
 
 ---
 
-## 6. Decisions needed before building
+## 6. Decisions (resolved)
 
-1. **3rd font slot (`displayFont`)** — needed for Obsidian/Riot/Concrete. Add
-   it, or drop those specific wordmark treatments? (Recommend add.)
-2. **Admin surface** — ~28 controls. Group into sections with sensible
-   defaults + an "Advanced" disclosure, or expose all flat? (Recommend
-   grouped + defaults so casual artists never touch most of them.)
-3. **Granularity** — 3 steps per scale (density/radius/etc.). Enough, or want
-   numeric sliders? (Recommend 3 steps — keeps presets legible, avoids
-   infinite-tweak breakage.)
-4. **Scope of v1** — all 17 presets at once, or land the system + a first 4–5
-   presets, then add the rest? (Recommend system + 5, then batch the rest.)
+1. **3rd font slot (`displayFont`)** — **yes.** Optional display/wordmark slot
+   so Obsidian (blackletter), Riot (Anton), Concrete (heavy) render true.
+   `appearanceFontFamilies` loads up to 3 families.
+2. **Admin surface** — **grouped + defaults + "Advanced" disclosure.** Casual
+   artists touch a handful; the long tail is tucked away. Sensible defaults so
+   an untouched theme still looks coherent.
+3. **Granularity** — **3 named steps per scale** (e.g. compact/comfortable/
+   spacious). Keeps presets legible and prevents incoherent layouts; no numeric
+   sliders in v1.
+4. **v1 scope** — **the full system + all 17 presets in one push**, then review.
+   (PR4 below builds all 17, not a subset.)
