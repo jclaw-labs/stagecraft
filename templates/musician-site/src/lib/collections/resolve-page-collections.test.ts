@@ -25,13 +25,32 @@ vi.mock("./read-store", () => ({
 }));
 
 import {
+  injectResolvedReleases,
   injectResolvedTourDates,
+  mapToResolvedReleases,
   mapToResolvedTourDates,
   resolvePageCollectionBlocks,
 } from "./resolve-page-collections";
-import { TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
 import type { Item } from "./schema";
+import type { ResolvedRelease } from "@/components/ReleasesView";
 import type { ResolvedTourDate } from "@/components/TourDatesView";
+
+function releaseItem(
+  slug: string,
+  releaseDate: string,
+  extra: Partial<Record<"title" | "releaseType" | "description", string>> = {},
+): Item {
+  const values: Record<string, { type: string; value: string }> = {
+    [RELEASES_FIELD_IDS.title]: { type: "text", value: extra.title ?? "Untitled" },
+    [RELEASES_FIELD_IDS.releaseType]: { type: "select", value: extra.releaseType ?? "album" },
+  };
+  if (releaseDate) values[RELEASES_FIELD_IDS.releaseDate] = { type: "date", value: releaseDate };
+  if (extra.description) {
+    values[RELEASES_FIELD_IDS.description] = { type: "longText", value: extra.description };
+  }
+  return { id: `item_${slug}`, slug, createdAt: "", updatedAt: "", values } as unknown as Item;
+}
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 
@@ -188,5 +207,55 @@ describe("resolvePageCollectionBlocks", () => {
     expect(block.props.items).toEqual([
       { date: "2099-06-01T20:00:00.000Z", venue: "Royal Hall", city: "London", country: "", ticketUrl: "" },
     ]);
+  });
+});
+
+describe("mapToResolvedReleases", () => {
+  it("maps fields and sorts newest-first with undated releases last", () => {
+    const items = [
+      releaseItem("mid", "2024-05-01T00:00:00.000Z", { title: "Mid" }),
+      releaseItem("undated", "", { title: "Undated" }),
+      releaseItem("newest", "2026-01-01T00:00:00.000Z", { title: "Newest" }),
+    ];
+    expect(mapToResolvedReleases(items).map((r) => r.title)).toEqual(["Newest", "Mid", "Undated"]);
+  });
+
+  it("reads cover art as ImageMetadata or null", () => {
+    const withCover = {
+      id: "i",
+      slug: "a",
+      createdAt: "",
+      updatedAt: "",
+      values: {
+        [RELEASES_FIELD_IDS.title]: { type: "text", value: "A" },
+        [RELEASES_FIELD_IDS.coverImage]: { type: "image", value: { id: "img1", alt: "cover" } },
+      },
+    } as unknown as Item;
+    const [a] = mapToResolvedReleases([withCover]);
+    expect(a.coverImage).toEqual({ id: "img1", alt: "cover" });
+
+    const [b] = mapToResolvedReleases([releaseItem("b", "")]);
+    expect(b.coverImage).toBeNull();
+  });
+});
+
+describe("injectResolvedReleases", () => {
+  const sample: ResolvedRelease[] = [
+    { title: "One", coverImage: null, releaseType: "album", releaseDate: "2026-01-01", description: "" },
+    { title: "Two", coverImage: null, releaseType: "ep", releaseDate: "2025-01-01", description: "" },
+  ];
+
+  it("injects items into a ReleasesView block, respecting its limit", () => {
+    const data = {
+      root: { props: {} },
+      content: [
+        { type: "Section", props: { id: "s", children: [{ type: "ReleasesView", props: { id: "r", limit: 1 } }] } },
+      ],
+    } as unknown as Data;
+    const out = injectResolvedReleases(data, sample);
+    const section = (out.content as Array<{ props: { children: Array<{ type: string; props: { items?: ResolvedRelease[] } }> } }>)[0];
+    const view = section.props.children.find((c) => c.type === "ReleasesView");
+    expect(view?.props.items).toHaveLength(1);
+    expect(view?.props.items?.[0].title).toBe("One");
   });
 });

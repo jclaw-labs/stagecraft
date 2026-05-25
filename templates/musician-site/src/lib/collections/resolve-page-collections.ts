@@ -22,10 +22,12 @@
 
 import type { Data } from "@measured/puck";
 
-import { TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
 import { getFsReadStore } from "./read-store";
 import type { Item } from "./schema";
 
+import type { ImageMetadata } from "@/lib/image-types";
+import type { ResolvedRelease } from "@/components/ReleasesView";
 import type { ResolvedTourDate } from "@/components/TourDatesView";
 
 const TOUR_DATES_SLUG = "tour-dates";
@@ -37,6 +39,10 @@ const DEFAULT_TOUR_LIMIT = 5;
 // in lib/collections/seeds.ts).
 const CANCELLED_STATUS = "cancelled";
 
+const RELEASES_SLUG = "releases";
+const RELEASES_BLOCK = "ReleasesView";
+const DEFAULT_RELEASES_LIMIT = 8;
+
 type LooseBlock = { type?: unknown; props?: Record<string, unknown> };
 
 /**
@@ -47,16 +53,32 @@ type LooseBlock = { type?: unknown; props?: Record<string, unknown> };
  */
 export async function resolvePageCollectionBlocks<D extends Data>(data: D): Promise<D> {
   const content = (data.content ?? []) as unknown[];
-  if (!containsBlockType(content, TOUR_DATES_BLOCK)) return data;
+  const hasTourDates = containsBlockType(content, TOUR_DATES_BLOCK);
+  const hasReleases = containsBlockType(content, RELEASES_BLOCK);
+  if (!hasTourDates && !hasReleases) return data;
 
   const store = getFsReadStore();
-  const def = await store.readCollectionDef(TOUR_DATES_SLUG);
-  // Collection deleted / never created → leave the blocks unresolved so
-  // they render their own empty state rather than throwing.
-  if (!def) return data;
+  let resolved: D = data;
 
-  const items = await store.listItemsInOrder(TOUR_DATES_SLUG, def);
-  return injectResolvedTourDates(data, mapToResolvedTourDates(items));
+  // Each collection is loaded only when its block is actually present, and
+  // each inject is an independent structural pass — compose them. A deleted /
+  // missing collection (def === null) leaves its blocks to their own empty
+  // state rather than throwing.
+  if (hasTourDates) {
+    const def = await store.readCollectionDef(TOUR_DATES_SLUG);
+    if (def) {
+      const items = await store.listItemsInOrder(TOUR_DATES_SLUG, def);
+      resolved = injectResolvedTourDates(resolved, mapToResolvedTourDates(items));
+    }
+  }
+  if (hasReleases) {
+    const def = await store.readCollectionDef(RELEASES_SLUG);
+    if (def) {
+      const items = await store.listItemsInOrder(RELEASES_SLUG, def);
+      resolved = injectResolvedReleases(resolved, mapToResolvedReleases(items));
+    }
+  }
+  return resolved;
 }
 
 /**
@@ -110,6 +132,65 @@ function injectTourDates(block: LooseBlock, all: ResolvedTourDate[]): LooseBlock
   const rawLimit = block.props?.limit;
   const limit = typeof rawLimit === "number" && rawLimit > 0 ? rawLimit : DEFAULT_TOUR_LIMIT;
   return { ...block, props: { ...block.props, items: all.slice(0, limit) } };
+}
+
+/**
+ * Pure: project `releases` items into the presentational `ResolvedRelease`
+ * shape, newest first (undated releases sort to the end). The store already
+ * applies the collection's releaseDate-desc default sort; re-sorting here
+ * keeps the projection deterministic for unit tests that pass raw items.
+ */
+export function mapToResolvedReleases(items: readonly Item[]): ResolvedRelease[] {
+  return items
+    .map((item) => ({
+      title: stringValue(item, RELEASES_FIELD_IDS.title),
+      coverImage: imageValue(item, RELEASES_FIELD_IDS.coverImage),
+      releaseType: stringValue(item, RELEASES_FIELD_IDS.releaseType),
+      releaseDate: stringValue(item, RELEASES_FIELD_IDS.releaseDate),
+      description: stringValue(item, RELEASES_FIELD_IDS.description),
+    }))
+    .sort((a, b) => {
+      const am = Date.parse(a.releaseDate);
+      const bm = Date.parse(b.releaseDate);
+      const aok = !Number.isNaN(am);
+      const bok = !Number.isNaN(bm);
+      if (aok && bok) return bm - am; // both dated → newest first
+      if (aok) return -1; // dated before undated
+      if (bok) return 1;
+      return 0; // both undated → keep store order
+    });
+}
+
+/**
+ * Pure: return a new `Data` with `items` injected into every `ReleasesView`
+ * block (sliced to its `limit`). Exported for unit tests that don't touch FS.
+ */
+export function injectResolvedReleases<D extends Data>(data: D, items: ResolvedRelease[]): D {
+  const content = (data.content ?? []) as unknown[];
+  return {
+    ...data,
+    content: mapBlocks(content, (block) => injectReleases(block, items)),
+  } as D;
+}
+
+function injectReleases(block: LooseBlock, all: ResolvedRelease[]): LooseBlock {
+  if (block.type !== RELEASES_BLOCK) return block;
+  const rawLimit = block.props?.limit;
+  const limit = typeof rawLimit === "number" && rawLimit > 0 ? rawLimit : DEFAULT_RELEASES_LIMIT;
+  return { ...block, props: { ...block.props, items: all.slice(0, limit) } };
+}
+
+function imageValue(item: Item, fieldId: string): ImageMetadata | null {
+  const value = item.values[fieldId];
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    (value as { type: unknown }).type === "image"
+  ) {
+    return (value as { value: ImageMetadata }).value;
+  }
+  return null;
 }
 
 function stringValue(item: Item, fieldId: string): string {

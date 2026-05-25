@@ -139,10 +139,16 @@ function starterPageSeed(
 
 function buildStarterPages(artistName: string): FirstRunPageSeed[] {
   return [
-    starterPageSeed("music", "Music", "Listen", [
-      "Streams, releases, and where to find the records. Drop release links " +
-        "or an embed here, or build it out from the editor.",
-    ]),
+    starterPageSeed(
+      "music",
+      "Music",
+      "Listen",
+      [
+        "Streams, releases, and where to find the records. Add releases in " +
+          "the Releases panel — they show up below automatically.",
+      ],
+      [{ type: "ReleasesView", props: { id: "sp-music-releases", limit: 8 } }],
+    ),
     starterPageSeed("about", "About", "Bio", [
       `${artistName} — your story goes here. Where you're from, what the ` +
         "music is about, who you make it with.",

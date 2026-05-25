@@ -51,6 +51,7 @@ describe("puckConfig", () => {
         "Section",
         "Spacer",
         "TourDatesView",
+        "ReleasesView",
       ].sort(),
     );
   });
@@ -1569,6 +1570,33 @@ describe("puckConfig", () => {
         createElement(Render, { config: puckConfig, data } as never),
       );
       expect(html).toContain("Mercury Lounge");
+    });
+  });
+
+  describe("ReleasesView", () => {
+    it("renders the placeholder when items is undefined (editor surface)", () => {
+      const html = render("ReleasesView", { limit: 8 });
+      expect(html).toMatch(/Your releases appear here/i);
+    });
+
+    it("renders the data-bound grid (title + Album · year) when items are injected", () => {
+      const html = render("ReleasesView", {
+        limit: 8,
+        items: [
+          {
+            title: "The Long Way Home",
+            coverImage: null,
+            releaseType: "album",
+            releaseDate: "2026-03-01T00:00:00.000Z",
+            description: "Ten songs cut live to tape.",
+          },
+        ],
+      });
+      expect(html).toContain("The Long Way Home");
+      expect(html).toContain("Album");
+      expect(html).toContain("2026");
+      // No cover art → themed gradient placeholder, not a <picture>/<img>.
+      expect(html).toContain("data-release-cover");
     });
   });
 });

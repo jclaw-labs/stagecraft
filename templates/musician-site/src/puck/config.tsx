@@ -11,6 +11,11 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  ReleasesList,
+  ReleasesPlaceholder,
+  type ResolvedRelease,
+} from "@/components/ReleasesView";
+import {
   TourDatesList,
   TourDatesPlaceholder,
   type ResolvedTourDate,
@@ -561,6 +566,12 @@ export type BlockProps = {
    * editor → the block shows a placeholder). `limit` caps how many show.
    */
   TourDatesView: { limit: number; items?: ResolvedTourDate[] };
+  /**
+   * Data-bound: the artist's `releases` collection, rendered as a cover grid.
+   * Like TourDatesView, `items` is injected server-side (undefined in the
+   * editor → placeholder); `limit` caps how many show.
+   */
+  ReleasesView: { limit: number; items?: ResolvedRelease[] };
 };
 
 /**
@@ -990,6 +1001,7 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
   NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
   TourDatesView: "Your upcoming tour dates, pulled live from the Tour Dates panel. Set how many to show.",
+  ReleasesView: "Your releases, pulled live from the Releases panel, as a cover grid. Set how many to show.",
 };
 
 export const puckConfig: Config<
@@ -1090,7 +1102,7 @@ export const puckConfig: Config<
     },
     collections: {
       title: "Collections",
-      components: ["TourDatesView"],
+      components: ["TourDatesView", "ReleasesView"],
     },
   },
   components: {
@@ -2373,6 +2385,39 @@ export const puckConfig: Config<
       defaultProps: { limit: 5 },
       render: ({ items }) =>
         Array.isArray(items) ? <TourDatesList items={items} /> : <TourDatesPlaceholder />,
+    },
+    ReleasesView: {
+      fields: {
+        limit: { type: "number", label: "Max releases", min: 1 },
+        // Read-only: injected server-side. Declared so Puck threads `items`
+        // through to render; the inspector just explains the data source.
+        items: {
+          type: "custom",
+          label: "Releases",
+          render: () => (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Pulled live from your Releases — add or edit them there.
+            </p>
+          ),
+        },
+      },
+      defaultProps: { limit: 8 },
+      // Cast at the boundary: Puck's Config<T> generic collapses
+      // ImageMetadata's branded `id`, so the resolved `items` (with a
+      // coverImage) isn't structurally assignable to ResolvedRelease[]
+      // even though the runtime shape matches — same pattern as the Image block.
+      render: ({ items }) =>
+        Array.isArray(items) ? (
+          <ReleasesList items={items as ResolvedRelease[]} />
+        ) : (
+          <ReleasesPlaceholder />
+        ),
     },
   },
 };
