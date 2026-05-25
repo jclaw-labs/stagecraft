@@ -149,6 +149,11 @@ export function mapToResolvedReleases(items: readonly Item[]): ResolvedRelease[]
       releaseDate: stringValue(item, RELEASES_FIELD_IDS.releaseDate),
       description: stringValue(item, RELEASES_FIELD_IDS.description),
     }))
+    // Re-sort by parsed instant (newest first). The store already applies the
+    // collection's releaseDate-desc default sort, but that's a lexical string
+    // compare; re-sorting here is instant-based and deterministic for unit
+    // tests that pass raw items. Array.sort is stable, so undated items keep
+    // the store's order among themselves.
     .sort((a, b) => {
       const am = Date.parse(a.releaseDate);
       const bm = Date.parse(b.releaseDate);

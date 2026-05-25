@@ -3,24 +3,44 @@ import { describe, expect, it, vi } from "vitest";
 
 // `read-store` transitively imports server-only modules (next/headers via
 // publish → draft-branch → auth). Mock it so this unit test loads in the
-// node env, and so the async path has deterministic, far-future items
-// (a real date would bit-rot past the "upcoming" filter).
+// node env, and so the async path has deterministic items. The store is
+// slug-aware: `resolvePageCollectionBlocks` reads each present collection by
+// slug, so the mock returns tour-shaped items for "tour-dates" and
+// release-shaped items for "releases" (a page can embed both). The tour date
+// is far-future on purpose — a real date would bit-rot past the "upcoming"
+// filter. Field IDs are inlined as literals: the factory is hoisted above the
+// imports, so it can't reference the RELEASES_/TOUR_DATES_FIELD_IDS bindings.
 vi.mock("./read-store", () => ({
   getFsReadStore: () => ({
-    readCollectionDef: async () => ({ slug: "tour-dates", fields: [] }),
-    listItemsInOrder: async () => [
-      {
-        id: "i_far",
-        slug: "far-future",
-        createdAt: "",
-        updatedAt: "",
-        values: {
-          fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
-          fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
-          fld_tour_dates_city: { type: "text", value: "London" },
-        },
-      },
-    ],
+    readCollectionDef: async (slug: string) => ({ slug, fields: [] }),
+    listItemsInOrder: async (slug: string) =>
+      slug === "releases"
+        ? [
+            {
+              id: "i_rel",
+              slug: "newest-record",
+              createdAt: "",
+              updatedAt: "",
+              values: {
+                fld_releases_title: { type: "text", value: "Newest Record" },
+                fld_releases_releaseType: { type: "select", value: "album" },
+                fld_releases_releaseDate: { type: "date", value: "2026-03-01" },
+              },
+            },
+          ]
+        : [
+            {
+              id: "i_far",
+              slug: "far-future",
+              createdAt: "",
+              updatedAt: "",
+              values: {
+                fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
+                fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
+                fld_tour_dates_city: { type: "text", value: "London" },
+              },
+            },
+          ],
   }),
 }));
 
@@ -206,6 +226,35 @@ describe("resolvePageCollectionBlocks", () => {
     const block = (out.content as Array<{ props: { items?: ResolvedTourDate[] } }>)[0];
     expect(block.props.items).toEqual([
       { date: "2099-06-01T20:00:00.000Z", venue: "Royal Hall", city: "London", country: "", ticketUrl: "" },
+    ]);
+  });
+
+  it("resolves both block types on one page, each from its own collection", async () => {
+    // A page can embed both blocks; the pass composes an inject per present
+    // collection. Assert each block gets items from its matching collection
+    // (tour-shaped vs release-shaped), not the other's.
+    const data = {
+      root: { props: {} },
+      content: [
+        { type: "TourDatesView", props: { id: "t", limit: 5 } },
+        { type: "ReleasesView", props: { id: "r", limit: 8 } },
+      ],
+    } as unknown as Data;
+    const out = await resolvePageCollectionBlocks(data);
+    const [tour, releases] = out.content as Array<{
+      props: { items?: Array<{ venue?: string; title?: string }> };
+    }>;
+    expect(tour.props.items).toEqual([
+      { date: "2099-06-01T20:00:00.000Z", venue: "Royal Hall", city: "London", country: "", ticketUrl: "" },
+    ]);
+    expect(releases.props.items).toEqual([
+      {
+        title: "Newest Record",
+        coverImage: null,
+        releaseType: "album",
+        releaseDate: "2026-03-01",
+        description: "",
+      },
     ]);
   });
 });

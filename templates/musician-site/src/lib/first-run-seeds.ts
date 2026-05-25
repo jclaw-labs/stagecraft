@@ -15,9 +15,10 @@
  * hand-faked rows — so the homepage and the Tour Dates panel never drift
  * apart. Imagery uses empty `Image` blocks, which render a theme-driven
  * gradient placeholder until the artist uploads — so no image binary ships
- * with the template. Releases as a structured collection record still
- * aren't seeded (the coverImage field is required); the home page's
- * release row stands in for one.
+ * with the template. The Music starter page carries a data-bound
+ * `ReleasesView`; the home page keeps its hand-authored release card (it has
+ * Stream / Order CTAs the releases schema has no fields for). `coverImage` is
+ * optional, so a release with no art renders the same gradient placeholder.
  *
  * Everything here is pure — these functions only build value-shapes.
  * The welcome route owns the write-through-publish side, so this file
