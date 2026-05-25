@@ -1,11 +1,11 @@
 ---
 name: crawl-artist-site
-description: Use when the user wants to visit and capture a musician's (or any) website for later design recreation in the stagecraft musician-site-legacy template. Crawls every unique internal page at desktop resolution, takes full-page screenshots, and exercises interactive elements (photo lightboxes, video players, expandable sections, hover states) to capture their playback states. Output is organized under .claude/crawls/<site-slug>/<YYYY-MM-DDTHH-MM>/ with a manifest.json, so repeat crawls of the same site accumulate as dated subdirs rather than overwriting. Trigger phrases include "crawl this site", "capture this artist's site", "take screenshots of...", "visit and screenshot", or any task where the user provides one or more URLs and wants visual reference material before recreating the design.
+description: Use when the user wants to visit and capture a musician's (or any) website as visual design reference. Crawls every unique internal page at desktop resolution, takes full-page screenshots, and exercises interactive elements (photo lightboxes, video players, expandable sections, hover states) to capture their playback states. Output is organized under .claude/crawls/<site-slug>/<YYYY-MM-DDTHH-MM>/ with a manifest.json, so repeat crawls of the same site accumulate as dated subdirs rather than overwriting. Trigger phrases include "crawl this site", "capture this artist's site", "take screenshots of...", "visit and screenshot", or any task where the user provides one or more URLs and wants visual reference material before recreating the design.
 ---
 
 # Crawl Artist Site
 
-Capture a complete desktop design reference for an external website. The output is screenshot-based reference material for later use in recreating the site inside `templates/musician-site-legacy/`. Do NOT attempt the recreation in the same task — that's a separate follow-up.
+Capture a complete desktop design reference for an external website. The output is screenshot-based design reference material for an external site.
 
 ## How it runs
 

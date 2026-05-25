@@ -11,9 +11,7 @@
  * can't find both dimensions, return null and the caller falls
  * back to passthrough rendering (no wrapper).
  *
- * Same intent as the legacy template's `extractIframe` helper
- * (`templates/musician-site-legacy/.../Embed/extractIframe.ts`) but
- * narrower in scope: we only need the dimensions, not the full
+ * Narrower in scope than a full iframe sanitizer: we only need the dimensions, not the full
  * attribute spread + sanitization (the new template's Embed renders
  * with `dangerouslySetInnerHTML` because the admin-only auth limits
  * the threat surface — same trade documented in `puck/config.tsx`).

@@ -1,8 +1,6 @@
 # CLAUDE.md — `templates/musician-site` (Next.js + Puck)
 
-Conventions for the new musician-site template per ADR-007. The legacy
-Astro + Keystatic template lives at `templates/musician-site-legacy/` —
-its conventions don't apply here.
+Conventions for the musician-site template per ADR-007.
 
 ## Stack
 

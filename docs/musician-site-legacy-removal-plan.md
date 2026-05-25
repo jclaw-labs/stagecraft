@@ -13,31 +13,35 @@ either retargets to `musician-site` or is retired.
 | # | Task | State | Notes |
 |---|------|-------|-------|
 | T0 | ADR-014 accepted | ✅ done | PR #271 |
-| T1 | Retarget migrate-site flow to musician-site | 🟡 implemented — pending live validation | this PR; see below |
-| T2 | Repoint/retire `recreate-artist-site` + `crawl-artist-site` skills; drop legacy branch of `create-pr` helper | 🟢 ready (T1 done) | content path no longer needs legacy |
-| T3 | Drop `"musician-site-legacy"` from `ArtistTemplate` union + comments (`site-scaffold.ts`, `template-reader.ts`, `iframe-utils.ts`) | 🟢 ready (T1 done) | no caller passes `"musician-site-legacy"` anymore |
-| T4 | Remove `musician-site-legacy` CI job + its `security-audit` audit-loop/cache entries | 🟢 ready (T1 done) | |
-| T5 | Trim `CLAUDE.md` §6/§7 legacy sections + repo-structure block; mark legacy refs in ADR-003/007/009 superseded | 🔒 gated on T6 | |
-| T6 | Delete `templates/musician-site-legacy/` | 🔒 gated on T2–T5 | destructive; last |
+| T1 | Retarget migrate-site flow to musician-site | ✅ done | PR #277 |
+| T2 | Retire the legacy recreation skills (`recreate-artist-site`, `evaluate-artist-site-recreation`, `artist-site-pipeline`); de-legacy `crawl-artist-site` + `create-pr` | ✅ done | this PR — `crawl-artist-site` kept (generic), reframed |
+| T3 | Drop `"musician-site-legacy"` from `ArtistTemplate` union + comments | ✅ done | PR #278 |
+| T4 | Remove `musician-site-legacy` CI job + its `security-audit` audit-loop entries | ✅ done | PR #278 |
+| T5 | Trim `CLAUDE.md` §6/§7 legacy sections + repo-structure block | ✅ done | this PR — §6 removed, §7→§6; historical ADRs left intact (ADR-014 supersedes) |
+| T6 | Delete `templates/musician-site-legacy/` | ✅ done | this PR |
 
-## T1 — implemented (this PR), pending live validation
+## Completion notes
 
-migrate-site now targets `templates/musician-site/`. A new pure mapper
-(`apps/web/src/lib/migration/musician-site-mapper.ts`) emits unified-collection
-overlay files — the site singleton + page items with `Section > Heading +
-RichText` Puck bodies + `_order.json` — and the job reuses create-site's
-deploy/env/broker provisioning to deploy the Next.js site (only the content
-differs from a fresh create). The legacy Astro/Markdoc mapper is removed.
+**Done.** `musician-site-legacy` is removed: the legacy Astro template, its CI
+job, the legacy migration mapper (replaced by `musician-site-mapper.ts`, which
+emits unified-collection overlay files reusing create-site's provisioning), the
+`ArtistTemplate` legacy member, and the legacy recreation skills
+(`recreate-artist-site`, `evaluate-artist-site-recreation`,
+`artist-site-pipeline`) are all gone; `crawl-artist-site` + `create-pr` are
+de-legacied. Historical ADRs (003/007/009) are left intact — ADR-014 supersedes
+them on the record rather than rewriting history.
 
-Output shapes are pinned to the template seeds and unit-tested; an independent
-review confirmed they satisfy the template's Zod schema
-(`templates/musician-site/src/lib/collections/schema.ts`) and Puck config, and
-that the overlay replaces the demo seed page items at matching paths.
+**Why deleting the template was safe without a live check:** #277 already
+removed the legacy *migration path* (the old mapper), so the remaining
+`musician-site-legacy/` directory was an orphan — used only by the
+now-retired recreation skills + docs, not a live fallback. The deletion is
+fully git-reversible.
 
-**Still needs human validation** — the Puck runtime and Netlify/Vercel deploy
-can't be exercised in CI. Before relying on it in production, run a real
-migration against a live site and open `/admin` + the deployed site to confirm
-pages render and are editable.
+**Still worth a human check (independent of the removal):** the new migrate
+flow's generated Puck content + Netlify/Vercel deploy can't be exercised in CI.
+Run a real migration and open `/admin` + the deployed site to confirm pages
+render and are editable. If it needs fixing, that's a forward fix on
+`musician-site-mapper.ts` (the legacy fallback is in git history if ever needed).
 
 ### Deferred follow-ups (recorded, not done here)
 

@@ -74,24 +74,6 @@ via the dev-login escape hatch — so no manual server/auth setup. Output
 lands directly in the repo-root `.pr-screenshots/` (the relay path).
 Override the dir with `PR_SCREENSHOTS_DIR=...`.
 
-**`templates/musician-site-legacy` (Astro + Keystatic).** Use its helper
-script — it covers site home, each nav page, and the Keystatic admin
-views:
-
-```bash
-# Terminal 1: dev server
-cd templates/musician-site-legacy
-npm run dev
-
-# Terminal 2: capture
-node scripts/capture-pr-screenshots.mjs http://localhost:4321 \
-     <output-dir>
-```
-
-`<output-dir>` is `.pr-screenshots/` at the repo root for the relay path,
-or `/tmp/pr-<N>-screenshots/` for the manual path. See the script header
-for flags (`--only`, `--jpeg-quality`, `--site-format`).
-
 **`apps/web` (platform dashboard).** One command captures the
 authenticated platform surfaces (Dashboard, Settings, and a site-detail
 page). Sign-in is GitHub-OAuth-only with no dev-login bypass, so the
