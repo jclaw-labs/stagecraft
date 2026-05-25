@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "capture:screenshots": "playwright test --config playwright.capture.config.ts"
+    "capture:screenshots": "playwright test --config playwright.capture.config.ts",
+    "capture:screenshots:public": "next build && playwright test --config playwright.public-capture.config.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.0",

@@ -138,14 +138,37 @@ import { JobStatus, JobType } from "@stagecraft/shared";
 
 ## 5. Pull requests
 
-PRs that change rendered UI (public site or Keystatic admin) must
-embed screenshots from a public gist, since this repo is private and
-in-tree / `raw.githubusercontent.com` URLs don't render anonymously.
+PRs that change rendered UI (marketing site, platform dashboard, or
+artist-site admin) must embed screenshots from a public gist, since this
+repo is private and in-tree / `raw.githubusercontent.com` URLs don't
+render anonymously.
 
 Full workflow in the `create-pr` skill at
 `claude/skills/create-pr/SKILL.md`: capture → upload to gist → embed
 in PR body → verify URLs return 200. Refactor-only or backend-only
 PRs may omit screenshots — note this explicitly in the PR body.
+
+**Agents can capture every UI surface — public and authenticated alike;
+there is no rendered UI you cannot screenshot.** A Chromium build ships
+at `/opt/pw-browsers` (`PLAYWRIGHT_BROWSERS_PATH`), auto-detected by
+`apps/web/capture/chromium.ts`, so a cloud session can always render the
+app. Two capture paths, both detailed in the create-pr skill — pick by
+what the PR touches:
+
+- **Public / static pages** (marketing site `/`, `/examples`, …; public
+  artist pages) need no database:
+  `cd apps/web && npm run capture:screenshots:public`.
+- **Authenticated platform pages** (dashboard, settings, site detail) are
+  reached by seeding a NextAuth session row directly in the test database
+  — no real OAuth needed. Bring the DB up, then run the harness:
+  `docker compose up -d && npm run db:migrate`, then
+  `cd apps/web && npm run capture:screenshots`. The session seed lives in
+  `apps/web/capture/setup.ts`.
+
+"It's behind auth" and "docker wasn't running" are not reasons to skip —
+seed the session / bring the database up. Only omit screenshots for
+changes that render nothing visible (refactor / backend / types /
+tooling), and say so explicitly in the PR body.
 
 ---
 
@@ -172,7 +195,6 @@ route handlers. If you need a literal value (e.g. inside an
 | Spacing       | `--space-*`                             | `var(--space-4)`                              |
 | Layout        | `--max-*`, `--radius-*`                 | `var(--max-width-narrow)`, `var(--radius-sm)` |
 | Shadows       | `--shadow-*`                            | `var(--shadow-sm)`                            |
-| Breakpoints   | `--breakpoint-*` (legacy template only) | reference-only — see below                    |
 
 CSS custom properties cannot appear in `@media` queries. Use literal
 pixel values with a comment:

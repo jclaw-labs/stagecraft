@@ -98,6 +98,21 @@ strategy: the cookie value is the raw `Session.sessionToken`, looked up
 verbatim. Output lands in the repo-root `.pr-screenshots/`; override
 with `PR_SCREENSHOTS_DIR=...`.
 
+**`apps/web` public pages — no database needed.** The public marketing
+routes (`/`, `/examples`, `/migrate`, `/privacy`, `/terms`) query no DB
+and call no `auth()`, so they skip the Postgres harness above entirely.
+Capture them in any cloud session, docker daemon or not:
+
+```bash
+cd apps/web
+npm run capture:screenshots:public   # writes .pr-screenshots/site-*.jpg
+```
+
+It builds the app and serves it with `next start` under dummy env
+(`playwright.public-capture.config.ts`), using the pre-installed Chromium
+at `/opt/pw-browsers`. A missing database is never a reason to skip
+screenshots of public UI.
+
 ### Path A: Automated relay (cloud sessions, default)
 
 1. Capture screenshots into `.pr-screenshots/` at the repo root.
