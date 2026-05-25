@@ -166,9 +166,10 @@ describe("POST /api/welcome/complete — seedContent", () => {
       "contact",
       "home",
       "music",
+      "updates",
     ]);
     // Home stays first in the nav via the pages collection's _order.json.
-    expect(await store.readOrder("pages")).toEqual(["home", "music", "about", "contact"]);
+    expect(await store.readOrder("pages")).toEqual(["home", "music", "updates", "about", "contact"]);
     expect((await store.listItemSlugs("tour-dates")).length).toBeGreaterThan(0);
   });
 

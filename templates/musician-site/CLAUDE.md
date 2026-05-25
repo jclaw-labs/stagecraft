@@ -431,13 +431,13 @@ Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
 
 - **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
 - **Remaining collection blocks on general pages.** `TourDatesView`,
-  `ReleasesView`, and the `Gallery` block are registered in the main page
-  editor's `puckConfig` and data-bound on hand-authored pages: each holds
-  only authoring props (e.g. `limit`), and `resolvePageCollectionBlocks`
+  `ReleasesView`, `PostsView`, and the `Gallery` block are registered in the
+  main page editor's `puckConfig` and data-bound on hand-authored pages: each
+  holds only authoring props (e.g. `limit`), and `resolvePageCollectionBlocks`
   (run in the public catch-all before `<Render>`) injects the live
-  collection items. `posts` / `store-items` could get the same treatment
-  (`PostsView` / `StoreView`) when wanted — the resolve pass generalises by
-  block type. (Collections also still render on their own detail/item
-  *templates* via `buildTemplatePuckConfig`; that's unchanged.)
+  collection items. `store-items` could get the same treatment (`StoreView`)
+  when wanted — the resolve pass generalises by block type. (Collections also
+  still render on their own detail/item *templates* via
+  `buildTemplatePuckConfig`; that's unchanged.)
 
 These ship in stacked PRs.

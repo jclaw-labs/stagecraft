@@ -1,0 +1,32 @@
+{
+  "id": "item_demo_a_note_on_the_new_record",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_posts_title": {
+      "type": "text",
+      "value": "A Note on the New Record"
+    },
+    "fld_posts_category": {
+      "type": "select",
+      "value": "news"
+    },
+    "fld_posts_publishedAt": {
+      "type": "date",
+      "value": "2026-03-05"
+    },
+    "fld_posts_summary": {
+      "type": "longText",
+      "value": "The album is out everywhere today. Thank you for listening — here's a little of how it came together."
+    },
+    "fld_posts_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}

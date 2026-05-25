@@ -52,6 +52,7 @@ describe("puckConfig", () => {
         "Spacer",
         "TourDatesView",
         "ReleasesView",
+        "PostsView",
       ].sort(),
     );
   });
@@ -1597,6 +1598,33 @@ describe("puckConfig", () => {
       expect(html).toContain("2026");
       // No cover art → themed gradient placeholder, not a <picture>/<img>.
       expect(html).toContain("data-release-cover");
+    });
+  });
+
+  describe("PostsView", () => {
+    it("renders the placeholder when items is undefined (editor surface)", () => {
+      const html = render("PostsView", { limit: 6 });
+      expect(html).toMatch(/Your posts appear here/i);
+    });
+
+    it("renders the data-bound grid (title + category · date) when items are injected", () => {
+      const html = render("PostsView", {
+        limit: 6,
+        items: [
+          {
+            title: "On the Road This Summer",
+            coverImage: null,
+            category: "announcement",
+            publishedAt: "2026-05-10T00:00:00.000Z",
+            summary: "Dates, cities, and a few surprises.",
+          },
+        ],
+      });
+      expect(html).toContain("On the Road This Summer");
+      expect(html).toContain("Announcement");
+      expect(html).toContain("2026");
+      // No cover image → themed gradient placeholder, not a <picture>/<img>.
+      expect(html).toContain("data-post-cover");
     });
   });
 });

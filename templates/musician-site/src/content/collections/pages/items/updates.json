@@ -1,0 +1,76 @@
+{
+  "id": "item_starter_updates",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_pages_title": {
+      "type": "text",
+      "value": "Updates"
+    },
+    "fld_pages_isSplashPage": {
+      "type": "boolean",
+      "value": false
+    },
+    "fld_pages_isFooterHidden": {
+      "type": "boolean",
+      "value": false
+    },
+    "fld_pages_showInNav": {
+      "type": "boolean",
+      "value": true
+    },
+    "fld_pages_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [
+          {
+            "type": "Section",
+            "props": {
+              "id": "sp-updates",
+              "width": "lg",
+              "textAlign": "start",
+              "variant": "plain",
+              "children": [
+                {
+                  "type": "Eyebrow",
+                  "props": {
+                    "id": "sp-updates-eyebrow",
+                    "text": "Latest",
+                    "textAlign": "start"
+                  }
+                },
+                {
+                  "type": "Heading",
+                  "props": {
+                    "id": "sp-updates-title",
+                    "text": "Updates",
+                    "level": "h1",
+                    "textAlign": "start"
+                  }
+                },
+                {
+                  "type": "RichText",
+                  "props": {
+                    "id": "sp-updates-p0",
+                    "text": "Announcements, interviews, and notes from the studio. Add posts in the Posts panel — they show up below automatically.",
+                    "align": "start"
+                  }
+                },
+                {
+                  "type": "PostsView",
+                  "props": {
+                    "id": "sp-updates-posts",
+                    "limit": 6
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}
