@@ -67,6 +67,28 @@ describe("mapToMusicianSite", () => {
     expect(singleton.values.fld_site_contactEmail.value).toBe("contact@band.example.com");
   });
 
+  it("sanitises a crawled mailto (strips query params; falls back when not a valid email)", () => {
+    // mailto with a ?subject= query — the site schema requires a valid email,
+    // so the query must be stripped or the migrated site 500s on every page.
+    const withQuery = mapToMusicianSite(
+      makeSite({ socialLinks: [{ text: "Email", href: "mailto:booking@band.com?subject=Booking%20inquiry" }] }),
+      "The Band",
+    );
+    expect(
+      fileByPath(withQuery.files, "src/content/collections/site/items/_singleton.json").values.fld_site_contactEmail.value,
+    ).toBe("booking@band.com");
+
+    // A non-address mailto falls back to the domain email rather than shipping
+    // an invalid one.
+    const invalid = mapToMusicianSite(
+      makeSite({ socialLinks: [{ text: "Email", href: "mailto:booking" }] }),
+      "The Band",
+    );
+    expect(
+      fileByPath(invalid.files, "src/content/collections/site/items/_singleton.json").values.fld_site_contactEmail.value,
+    ).toBe("contact@band.example.com");
+  });
+
   it("builds page bodies as a Section > Heading + RichText Puck tree (RichText uses `align`)", () => {
     const { files } = mapToMusicianSite(
       makeSite({

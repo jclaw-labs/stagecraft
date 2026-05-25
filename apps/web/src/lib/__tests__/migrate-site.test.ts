@@ -110,6 +110,11 @@ beforeEach(() => {
   mockReadTemplateFiles.mockResolvedValue([
     { path: "package.json", content: JSON.stringify({ name: "musician-site", version: "1.2.3" }) },
     { path: "src/app/(public)/page.tsx", content: "export default function Page() {}" },
+    // A demo seed page item the crawled overlay must REPLACE (matching path).
+    {
+      path: "src/content/collections/pages/items/home.json",
+      content: JSON.stringify({ id: "item_seed_home", values: { fld_pages_title: { type: "text", value: "Demo Home" } } }),
+    },
   ]);
   mockPushFiles.mockResolvedValue({ commitSha: "abc123" });
   mockGetResendCredentials.mockResolvedValue({ apiKey: "re_test" });
@@ -150,6 +155,14 @@ describe("handleMigrateSite — retarget to musician-site", () => {
     expect(mainPaths).toContain("package.json"); // template file preserved
     expect(mainPaths).not.toContain(".github/workflows/dependabot-auto-merge.yml");
     expect(mainPaths).not.toContain("src/content/pages/home.md"); // legacy path gone
+
+    // The overlay REPLACES the demo seed home item (same path), not duplicates it.
+    const homeItems = (mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>).filter(
+      (f) => f.path === "src/content/collections/pages/items/home.json",
+    );
+    expect(homeItems).toHaveLength(1);
+    expect(homeItems[0].content).toContain("Welcome"); // crawled heading, not the demo seed
+    expect(homeItems[0].content).not.toContain("Demo Home");
 
     const workflowPaths = (mockPushFiles.mock.calls[1][4] as Array<{ path: string }>).map((f) => f.path);
     expect(workflowPaths).toEqual([".github/workflows/dependabot-auto-merge.yml"]);

@@ -93,6 +93,18 @@ const longTextField = (value: string) => ({ type: "longText" as const, value });
 const emailField = (value: string) => ({ type: "email" as const, value });
 const boolField = (value: boolean) => ({ type: "boolean" as const, value });
 
+/**
+ * Clean a crawled `mailto:` value (drop any `?subject=…` query) and accept it
+ * only if it's a plausible address. The site schema makes `fld_site_contactEmail`
+ * a required `z.string().email()`, so an invalid value (e.g. `mailto:booking` or
+ * `mailto:x@y.com?subject=Hi`) would throw on read and break every page of the
+ * migrated site — fall back to a domain address instead.
+ */
+function normalizeEmail(raw: string): string | null {
+  const candidate = raw.split("?")[0].trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : null;
+}
+
 function pageBodyValue(slug: string, heading: string, body: string) {
   return {
     content: [
@@ -128,7 +140,8 @@ export function mapToMusicianSite(extracted: ExtractedSite, artistName: string):
   // (the template's Zod schema enforces z.string().email()), so fall back to a
   // domain-based address rather than an empty string when none is crawled.
   const mailto = extracted.socialLinks.find((l) => l.href.startsWith("mailto:"));
-  const contactEmail = mailto ? mailto.href.replace("mailto:", "") : `contact@${extracted.domain}`;
+  const crawledEmail = mailto ? normalizeEmail(mailto.href.slice("mailto:".length)) : null;
+  const contactEmail = crawledEmail ?? `contact@${extracted.domain}`;
   const siteDescription = extracted.pages[0]?.description || `Official website of ${artistName}.`;
 
   files.push({
