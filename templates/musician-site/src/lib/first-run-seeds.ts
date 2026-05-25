@@ -9,12 +9,15 @@
  * The artist edits in place.
  *
  * The home page mirrors the theme comps: a hero (name + tagline + CTA +
- * banner), a latest-release row (album art + blurb + buttons), a tour
- * placeholder, and a gallery. Imagery uses empty `Image` blocks, which
- * render a theme-driven gradient placeholder until the artist uploads —
- * so no image binary ships with the template. Releases as a structured
- * collection record still aren't seeded (the coverImage field is
- * required); the home page's release row stands in for one.
+ * banner), a latest-release row (album art + blurb + buttons), a
+ * data-bound tour list, and a gallery. The tour section uses a real
+ * `TourDatesView` block bound to the seeded `tour-dates` collection — not
+ * hand-faked rows — so the homepage and the Tour Dates panel never drift
+ * apart. Imagery uses empty `Image` blocks, which render a theme-driven
+ * gradient placeholder until the artist uploads — so no image binary ships
+ * with the template. Releases as a structured collection record still
+ * aren't seeded (the coverImage field is required); the home page's
+ * release row stands in for one.
  *
  * Everything here is pure — these functions only build value-shapes.
  * The welcome route owns the write-through-publish side, so this file
@@ -151,59 +154,6 @@ function buildStarterPages(artistName: string): FirstRunPageSeed[] {
   ];
 }
 
-// One composed tour row: date + venue on the left, a Tickets CTA on the
-// right. Returned as a loose block literal — the whole page data is cast
-// to PuckData below.
-function tourRow(
-  id: string,
-  date: string,
-  venue: string,
-): { type: string; props: Record<string, unknown> } {
-  return {
-    type: "Columns",
-    props: {
-      id,
-      layout: "2-1",
-      col1: [
-        {
-          type: "RichText",
-          props: { id: `${id}-text`, text: `${date} — ${venue}` },
-        },
-      ],
-      col2: [
-        {
-          type: "ButtonRow",
-          props: {
-            id: `${id}-btn`,
-            align: "end",
-            buttons: [{ text: "Tickets", href: "#", variant: "outline", isExternal: false }],
-          },
-        },
-      ],
-      col3: [],
-    },
-  };
-}
-
-// One tracklist row: track number + title on the left, duration on the right.
-function trackRow(
-  id: string,
-  num: number,
-  title: string,
-  duration: string,
-): { type: string; props: Record<string, unknown> } {
-  return {
-    type: "Columns",
-    props: {
-      id,
-      layout: "2-1",
-      col1: [{ type: "RichText", props: { id: `${id}-t`, text: `${num}. ${title}` } }],
-      col2: [{ type: "RichText", props: { id: `${id}-d`, text: duration, align: "end" } }],
-      col3: [],
-    },
-  };
-}
-
 function buildHomePageSeed(
   artistName: string,
   title: string,
@@ -328,31 +278,10 @@ function buildHomePageSeed(
         },
       },
 
-      // The record — tracklist, separate from the release card above.
-      {
-        type: "Section",
-        props: {
-          id: "fr-tracklist",
-          width: "lg",
-          textAlign: "start",
-          children: [
-            {
-              type: "Eyebrow",
-              props: { id: "fr-tracklist-eyebrow", text: "The record", textAlign: "start" },
-            },
-            trackRow("fr-track-1", 1, "Stone Chapel", "3:42"),
-            trackRow("fr-track-2", 2, "Ash & Iron", "4:05"),
-            trackRow("fr-track-3", 3, "The Long Way Home", "3:58"),
-            trackRow("fr-track-4", 4, "Halflight", "5:12"),
-          ],
-        },
-      },
-
-      // On the road — composed example rows (date/venue + a Tickets CTA).
-      // A real, data-bound tour-dates block on a general page needs the
-      // collection-block system wired into the page renderer (deferred —
-      // see design/comp-fidelity-plan.md); these rows give the comp look
-      // and the artist edits them in place.
+      // On the road — a real, data-bound tour list. TourDatesView reads the
+      // artist's tour-dates collection at render (items injected server-side
+      // by resolvePageCollectionBlocks; a placeholder shows in the editor).
+      // No more hand-faked rows that drift from the actual Tour Dates panel.
       {
         type: "Section",
         props: {
@@ -368,16 +297,14 @@ function buildHomePageSeed(
               type: "Heading",
               props: { id: "fr-tour-title", text: "On the road", level: "h2", textAlign: "start" },
             },
-            tourRow("fr-tour-1", "Fri · Jun 18", "Mercury Lounge — New York, NY"),
-            { type: "Divider", props: { id: "fr-tour-d1", inset: false } },
-            tourRow("fr-tour-2", "Sat · Jul 11", "Mississippi Studios — Portland, OR"),
-            { type: "Divider", props: { id: "fr-tour-d2", inset: false } },
-            tourRow("fr-tour-3", "Thu · Aug 6", "The Echo — Los Angeles, CA"),
+            { type: "TourDatesView", props: { id: "fr-tour-list", limit: 5 } },
           ],
         },
       },
 
-      // Gallery — three themed gradient tiles to swap for photos.
+      // Gallery — a tiled photo grid. The Gallery block's arrangement is
+      // theme-driven (galleryLayout token); empty tiles render themed
+      // gradient stand-ins until the artist uploads real photos.
       {
         type: "Section",
         props: {
@@ -394,45 +321,16 @@ function buildHomePageSeed(
               props: { id: "fr-gallery-title", text: "On stage & off", level: "h2", textAlign: "start" },
             },
             {
-              type: "Columns",
+              type: "Gallery",
               props: {
-                id: "fr-gallery-cols",
-                layout: "1-1-1",
-                col1: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-1",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "accent",
-                    },
-                  },
-                ],
-                col2: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-2",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "primary",
-                    },
-                  },
-                ],
-                col3: [
-                  {
-                    type: "Image",
-                    props: {
-                      id: "fr-gallery-3",
-                      image: null,
-                      caption: "",
-                      aspectRatio: "1/1",
-                      tone: "secondary",
-                    },
-                  },
+                id: "fr-gallery-grid",
+                images: [
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
+                  { image: null },
                 ],
               },
             },

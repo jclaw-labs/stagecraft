@@ -35,7 +35,9 @@ const fieldDescriptionStyle: CSSProperties = {
   lineHeight: "var(--line-height-base)",
 };
 
-const inputStyle: CSSProperties = {
+/** Shared control styling — exported so composite fields (e.g. the font
+ *  picker's category + family selects) match the primitives exactly. */
+export const inputStyle: CSSProperties = {
   display: "block",
   width: "100%",
   padding: "var(--space-2) var(--space-3)",

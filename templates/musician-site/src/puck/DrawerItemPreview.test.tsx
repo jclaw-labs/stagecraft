@@ -39,7 +39,10 @@ describe("<DrawerItemPreview>", () => {
     // FullscreenSection scaled in a 5rem box is empty hero space;
     // Spacer's render is empty by design; Divider's 1px <hr> vanishes
     // at thumbnail scale. Verified visually before adding here.
-    for (const name of ["FullscreenSection", "Spacer", "Divider"]) {
+    // Gallery's defaultProps are empty tiles (decorative gradient blocks);
+    // TourDatesView renders an editor placeholder (items only resolve on the
+    // published page) — both are clearer as a name pill.
+    for (const name of ["FullscreenSection", "Spacer", "Divider", "Gallery", "TourDatesView"]) {
       const html = renderPreview(name);
       expect(html).toContain(`>${name}<`);
     }

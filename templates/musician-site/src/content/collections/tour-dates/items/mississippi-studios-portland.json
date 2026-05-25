@@ -1,0 +1,31 @@
+{
+  "id": "item_demo_mississippi_studios",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_tour_dates_date": {
+      "type": "date",
+      "value": "2027-03-13T20:00:00.000Z"
+    },
+    "fld_tour_dates_venue": {
+      "type": "text",
+      "value": "Mississippi Studios"
+    },
+    "fld_tour_dates_city": {
+      "type": "text",
+      "value": "Portland"
+    },
+    "fld_tour_dates_country": {
+      "type": "text",
+      "value": "United States"
+    },
+    "fld_tour_dates_status": {
+      "type": "select",
+      "value": "on_sale"
+    },
+    "fld_tour_dates_notes": {
+      "type": "longText",
+      "value": "Demo show — edit or delete from the Tour Dates panel."
+    }
+  }
+}

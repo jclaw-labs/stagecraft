@@ -113,6 +113,33 @@ describe("buildFirstRunSeed", () => {
     expect(JSON.stringify(contact?.data.content ?? [])).toContain("ContactForm");
   });
 
+  it("binds the home tour section to a real TourDatesView (no faked rows or tracklist)", () => {
+    type Block = { type: string; props: Record<string, unknown> };
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    const blocks = seed.homePage.data.content as unknown as Block[];
+    const tour = blocks.find((b) => b.props.id === "fr-tour");
+    const tourKids = (tour?.props.children as Block[] | undefined) ?? [];
+    // The section is data-bound, not a stack of hand-faked Columns/Divider rows.
+    expect(tourKids.some((k) => k.type === "TourDatesView")).toBe(true);
+    expect(tourKids.some((k) => k.type === "Columns" || k.type === "Divider")).toBe(false);
+    // The collection-less fake tracklist section is gone entirely.
+    expect(blocks.some((b) => b.props.id === "fr-tracklist")).toBe(false);
+    expect(JSON.stringify(seed.homePage.data.content)).not.toContain("Stone Chapel");
+  });
+
+  it("uses a Gallery block for the gallery section (not a Columns of Images)", () => {
+    type Block = { type: string; props: Record<string, unknown> };
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    const blocks = seed.homePage.data.content as unknown as Block[];
+    const gallery = blocks.find((b) => b.props.id === "fr-gallery");
+    const kids = (gallery?.props.children as Block[] | undefined) ?? [];
+    const galleryBlock = kids.find((k) => k.type === "Gallery");
+    expect(galleryBlock).toBeDefined();
+    expect((galleryBlock?.props.images as unknown[]).length).toBeGreaterThan(0);
+    // The old faux-gallery (a Columns of Image blocks) is gone.
+    expect(kids.some((k) => k.type === "Columns")).toBe(false);
+  });
+
   it("seeds exactly two tour dates with required fields populated", () => {
     const seed = buildFirstRunSeed("Test", "Home", NOW);
     expect(seed.tourDates).toHaveLength(2);

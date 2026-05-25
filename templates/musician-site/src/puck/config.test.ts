@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
+import { Render } from "@measured/puck";
 
 import {
   BLOCK_DESCRIPTIONS,
@@ -40,6 +41,7 @@ describe("puckConfig", () => {
         "EmbedResponsive",
         "Eyebrow",
         "FullscreenSection",
+        "Gallery",
         "Heading",
         "Image",
         "ImageCarousel",
@@ -48,6 +50,7 @@ describe("puckConfig", () => {
         "RichText",
         "Section",
         "Spacer",
+        "TourDatesView",
       ].sort(),
     );
   });
@@ -1488,6 +1491,84 @@ describe("puckConfig", () => {
         children: noop,
       });
       expect(html).toContain("var(--gradient-accent");
+    });
+  });
+
+  describe("Gallery", () => {
+    it("renders a [data-gallery] grid with one tile per image", () => {
+      const html = render("Gallery", {
+        images: [{ image: null }, { image: null }, { image: null }],
+      });
+      expect(html).toContain("data-gallery");
+      expect((html.match(/data-gallery-item/g) ?? []).length).toBe(3);
+    });
+
+    it("renders a themed gradient placeholder for an empty tile", () => {
+      const html = render("Gallery", { images: [{ image: null }] });
+      expect(html).toContain("data-gallery-empty");
+      expect(html).toContain("linear-gradient");
+    });
+
+    it("renders nothing when there are no tiles (no editor copy leaks to the page)", () => {
+      const html = render("Gallery", { images: [] });
+      expect(html).toBe("");
+    });
+  });
+
+  describe("TourDatesView", () => {
+    it("renders the placeholder when items is undefined (editor surface)", () => {
+      const html = render("TourDatesView", { limit: 5 });
+      expect(html).toMatch(/Upcoming shows appear here/i);
+    });
+
+    it("renders the data-bound list when items are injected", () => {
+      const html = render("TourDatesView", {
+        limit: 5,
+        items: [
+          {
+            date: "2026-07-04T20:00:00.000Z",
+            venue: "Mercury Lounge",
+            city: "New York",
+            country: "United States",
+            ticketUrl: "",
+          },
+        ],
+      });
+      expect(html).toContain("Mercury Lounge");
+      expect(html).toMatch(/Jul 4/);
+    });
+
+    // The real public-render seam: items are injected onto the block's
+    // props server-side, then Puck's <Render> must thread them to the
+    // component. Asserts the data-binding works end-to-end through Puck,
+    // not just by calling the render fn directly.
+    it("Puck <Render> threads injected items through to the block", () => {
+      const data = {
+        root: { props: { title: "Home" } },
+        content: [
+          {
+            type: "TourDatesView",
+            props: {
+              id: "t",
+              limit: 5,
+              items: [
+                {
+                  date: "2026-07-04T20:00:00.000Z",
+                  venue: "Mercury Lounge",
+                  city: "New York",
+                  country: "United States",
+                  ticketUrl: "",
+                },
+              ],
+            },
+          },
+        ],
+        zones: {},
+      };
+      const html = renderToStaticMarkup(
+        createElement(Render, { config: puckConfig, data } as never),
+      );
+      expect(html).toContain("Mercury Lounge");
     });
   });
 });
