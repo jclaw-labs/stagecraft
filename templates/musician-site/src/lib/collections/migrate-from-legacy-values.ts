@@ -205,6 +205,14 @@ export function headerConfigToItemValues(config: HeaderConfig): Item["values"] {
     },
     [HEADER_FIELD_IDS.headerSubtitle]: { type: "text", value: config.headerSubtitle },
     [HEADER_FIELD_IDS.headerLayout]: { type: "select", value: config.headerLayout },
+    [HEADER_FIELD_IDS.headerHeight]: {
+      type: "select",
+      value: config.headerHeight ?? "standard",
+    },
+    [HEADER_FIELD_IDS.headerBorder]: {
+      type: "select",
+      value: config.headerBorder ?? "hairline",
+    },
   };
   if (config.wordmark !== null) {
     values[HEADER_FIELD_IDS.wordmark] = { type: "image", value: config.wordmark };
@@ -231,6 +239,12 @@ export function headerConfigFromItem(item: Item | null): HeaderConfig {
     headerLayout:
       (getString(item, HEADER_FIELD_IDS.headerLayout) as HeaderConfig["headerLayout"]) ??
       DEFAULT_HEADER_CONFIG.headerLayout,
+    headerHeight:
+      (getString(item, HEADER_FIELD_IDS.headerHeight) as HeaderConfig["headerHeight"]) ??
+      "standard",
+    headerBorder:
+      (getString(item, HEADER_FIELD_IDS.headerBorder) as HeaderConfig["headerBorder"]) ??
+      "hairline",
   };
 }
 

@@ -61,6 +61,8 @@ export const HEADER_FIELD_IDS = {
   isHeaderTextUppercase: "fld_header_isHeaderTextUppercase",
   headerSubtitle: "fld_header_headerSubtitle",
   headerLayout: "fld_header_headerLayout",
+  headerHeight: "fld_header_headerHeight",
+  headerBorder: "fld_header_headerBorder",
 } as const;
 
 export const APPEARANCE_FIELD_IDS = {

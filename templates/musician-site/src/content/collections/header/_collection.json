@@ -88,6 +88,57 @@
           "label": "Logo centered, nav split left/right"
         }
       ]
+    },
+    {
+      "id": "fld_header_headerHeight",
+      "key": "headerHeight",
+      "type": "select",
+      "required": false,
+      "options": [
+        {
+          "id": "o1",
+          "value": "compact",
+          "label": "Compact"
+        },
+        {
+          "id": "o2",
+          "value": "standard",
+          "label": "Standard (default)"
+        },
+        {
+          "id": "o3",
+          "value": "tall",
+          "label": "Tall"
+        }
+      ]
+    },
+    {
+      "id": "fld_header_headerBorder",
+      "key": "headerBorder",
+      "type": "select",
+      "required": false,
+      "options": [
+        {
+          "id": "o1",
+          "value": "none",
+          "label": "None"
+        },
+        {
+          "id": "o2",
+          "value": "hairline",
+          "label": "Hairline (default)"
+        },
+        {
+          "id": "o3",
+          "value": "bold",
+          "label": "Bold"
+        },
+        {
+          "id": "o4",
+          "value": "accent",
+          "label": "Accent color"
+        }
+      ]
     }
   ],
   "slugSourceFieldId": null,
