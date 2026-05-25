@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "capture:screenshots": "playwright test --config playwright.capture.config.ts"
+    "capture:screenshots": "playwright test --config playwright.capture.config.ts",
+    "refresh:demo": "node scripts/refresh-demo-content.mjs"
   },
   "dependencies": {
     "@measured/puck": "^0.20.0",
