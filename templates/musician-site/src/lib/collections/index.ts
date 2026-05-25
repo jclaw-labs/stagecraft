@@ -6,6 +6,7 @@
  */
 
 export * from "./schema";
+export * from "./id-gen";
 export * from "./store";
 export * from "./read-store";
 export * from "./accessors";

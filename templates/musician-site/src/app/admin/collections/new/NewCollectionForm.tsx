@@ -5,6 +5,15 @@ import { useState } from "react";
 
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import { CheckboxField, TextField } from "@/components/admin/form";
+// Imported from the schema *core* (not the `@/lib/collections` barrel,
+// which transitively reaches `node:crypto` / `node:fs` / `next/headers`).
+// schema.ts is node-free, so a `"use client"` file can run the same Zod
+// schemas + slug helper the server uses — client-side validation with no
+// drift from the server contract.
+import {
+  slugSchema,
+  slugifyToCollectionSlug,
+} from "@/lib/collections/schema";
 
 /**
  * Create-a-collection form.
@@ -14,21 +23,13 @@ import { CheckboxField, TextField } from "@/components/admin/form";
  * admin surface — the generic list view for a multi-item collection, or
  * straight to the single item for a singleton.
  *
- * Slug discipline (CLAUDE.md client-bundle rule): we must NOT value-
- * import `@/lib/collections` here, because the barrel transitively
- * reaches `node:crypto` / `node:fs` / `next/headers`. The slug preview
- * is computed by a tiny inline slugify that mirrors the server's
- * `slugifyPluralName` exactly (lowercase, collapse non-alphanumeric
- * runs to `-`, trim leading/trailing `-`). The server re-derives and
- * validates the slug, so this is preview-only.
+ * Slug handling: the plural name is slugified with the shared
+ * `slugifyToCollectionSlug` and validated client-side with `slugSchema`
+ * — the very functions the server route runs — so the artist sees a
+ * field-level error before submitting rather than a round-trip 400. The
+ * server re-derives and re-validates regardless (and still owns
+ * collision detection, surfaced via the error banner below).
  */
-
-function slugifyPluralName(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 type CreateResponse =
   | { ok: true; slug: string; publishWarning?: string }
@@ -44,11 +45,23 @@ export function NewCollectionForm() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const slugPreview = slugifyPluralName(pluralName);
+  const slugPreview = slugifyToCollectionSlug(pluralName);
+  // Validate the derived slug with the same Zod schema the server uses.
+  // An empty input (slug = "") or one that's all punctuation (also "")
+  // fails `slugSchema`, so this single check covers both the blank and
+  // the "no slug-able characters" cases.
+  const slugCheck = slugSchema.safeParse(slugPreview);
+  // Field-level message for the Plural name field. Only surfaced once
+  // the artist has typed something — an untouched empty field shouldn't
+  // shout an error on first paint.
+  const pluralNameError =
+    pluralName.trim().length > 0 && !slugCheck.success
+      ? "Use letters or digits — we couldn't make a URL slug from that."
+      : null;
   const isValid =
     pluralName.trim().length > 0 &&
     singularName.trim().length > 0 &&
-    slugPreview.length > 0;
+    slugCheck.success;
   const canCreate = isValid && !isCreating;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -97,7 +110,24 @@ export function NewCollectionForm() {
         <TextField
           id="new-collection-plural"
           label="Plural name"
-          description="Shown in the sidebar and the list view (e.g. “Press quotes”)."
+          description={
+            <>
+              Shown in the sidebar and the list view (e.g. “Press quotes”).
+              {pluralNameError ? (
+                <span
+                  role="alert"
+                  style={{
+                    display: "block",
+                    marginTop: "var(--space-1)",
+                    color: "var(--color-text-error)",
+                    fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                  }}
+                >
+                  {pluralNameError}
+                </span>
+              ) : null}
+            </>
+          }
           value={pluralName}
           onChange={setPluralName}
           placeholder="e.g. Press quotes"
