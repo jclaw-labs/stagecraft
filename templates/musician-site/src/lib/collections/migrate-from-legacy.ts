@@ -4,15 +4,16 @@
  *
  * Value-only conversions live in `./migrate-from-legacy-values.ts`
  * (re-exported here for source-compat). This module adds the
- * item-creating helper `pageDataToItem`, which calls
- * `generateItemId` and so transitively pulls in `node:crypto` — kept
+ * item-creating helper `pageDataToItem`, which calls `generateItemId`
+ * from `./id-gen` and so transitively pulls in `node:crypto` — kept
  * here so client components can stay on the values-only module
  * without dragging crypto into the browser bundle.
  */
 
 import type { Data as PuckData } from "@measured/puck";
 
-import { generateItemId, type Item } from "./schema";
+import { generateItemId } from "./id-gen";
+import type { Item } from "./schema";
 
 // Re-export everything from the client-safe values module so existing
 // callers (content.ts, /api/save-config-or-equivalent, the migration

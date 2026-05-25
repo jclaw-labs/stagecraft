@@ -12,3 +12,7 @@ dist/
 
 # Playwright capture auth state (seeded session cookie — local only)
 apps/web/capture/.auth/
+
+# Playwright run output (transient — traces, reports, last-run state)
+test-results/
+playwright-report/
