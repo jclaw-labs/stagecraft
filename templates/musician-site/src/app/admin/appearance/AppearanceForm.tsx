@@ -1,14 +1,17 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import {
   ColorField,
   FieldGroup,
   SelectField,
-  TextField,
 } from "@/components/admin/form";
 import { SaveBar } from "@/components/admin/SaveBar";
 import { useSettingsForm } from "@/components/admin/useSettingsForm";
+import { checkAppearanceContrast } from "@/lib/contrast";
+import { FontPickerField } from "./FontPickerField";
 import { appearanceToItemValues } from "@/lib/collections/migrate-from-legacy-values";
 import {
   ACCENT_MODES,
@@ -54,6 +57,68 @@ function label(v: string): string {
 }
 function opts(values: readonly string[]) {
   return values.map((v) => ({ label: label(v), value: v }));
+}
+
+const contrastBoxStyle: CSSProperties = {
+  marginBottom: "var(--space-4)",
+  padding: "var(--space-3)",
+  border: "1px solid var(--color-danger)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--color-surface-subtle)",
+};
+
+/**
+ * Non-blocking WCAG-AA advisory. Lists the legibility-critical colour pairs
+ * (from `checkAppearanceContrast`) that fall below 4.5:1 so the artist sees
+ * unreadable combinations before publishing — but never prevents a save.
+ */
+function ContrastWarnings({
+  colors,
+  onAccent,
+}: {
+  colors: Appearance["colors"];
+  onAccent: string;
+}) {
+  const issues = checkAppearanceContrast(colors, onAccent).filter((r) => !r.passesAA);
+  if (issues.length === 0) return null;
+  return (
+    <div style={contrastBoxStyle} role="status">
+      <strong
+        style={{
+          display: "block",
+          marginBottom: "var(--space-1)",
+          fontSize: "var(--font-size-sm)",
+          color: "var(--color-text-emphasis)",
+        }}
+      >
+        Contrast check — {issues.length} pair{issues.length > 1 ? "s" : ""} below WCAG AA (4.5:1)
+      </strong>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+        {issues.map((issue) => (
+          <li
+            key={issue.label}
+            style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
+          >
+            {issue.label}:{" "}
+            <span style={{ color: "var(--color-text-error)", fontWeight: "var(--font-weight-semibold)" as unknown as number }}>
+              {issue.ratio.toFixed(1)}:1
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p
+        style={{
+          margin: "var(--space-1) 0 0",
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-text-muted)",
+          lineHeight: "var(--line-height-base)",
+        }}
+      >
+        Low-contrast text is hard to read and fails accessibility guidelines. This is a
+        heads-up, not a block — you can still save.
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -144,16 +209,17 @@ export function AppearanceForm({ initial, hasPendingChanges }: Props) {
             isOptional={field === "linkColor"}
           />
         ))}
+        <ContrastWarnings colors={form.value.colors} onAccent={design.onAccent} />
       </FieldGroup>
 
       <FieldGroup
         title="Body typography"
         description="Font family and weights for body copy. The body font is also the fallback when headings inherit it."
       >
-        <TextField
+        <FontPickerField
           id="bodyFont"
           label="Body font family"
-          description="Any Google Font name (case-sensitive). Capitalised with letters/digits/spaces only — e.g. 'Inter', 'IBM Plex Sans', 'Space Grotesk'."
+          description="Pick a category, then a family — or choose Custom to type any Google Font name."
           value={form.value.typography.bodyFont}
           onChange={(v) => setTypography("bodyFont", v)}
           isRequired
@@ -188,22 +254,21 @@ export function AppearanceForm({ initial, hasPendingChanges }: Props) {
           onChange={(v) => setTypography("headingMode", v)}
         />
         {form.value.typography.headingMode === "split" ? (
-          <TextField
+          <FontPickerField
             id="headingFont"
             label="Heading font family"
-            description="Used for h1–h3. Same naming rules as the body font."
+            description="Used for h1–h3. Pick a family or choose Custom."
             value={form.value.typography.headingFont}
             onChange={(v) => setTypography("headingFont", v)}
-            placeholder="e.g. Merriweather"
           />
         ) : null}
-        <TextField
+        <FontPickerField
           id="displayFont"
           label="Display font (optional)"
-          description="Styles the wordmark + hero only (blackletter, condensed, etc.). Blank = use the heading font."
+          description="Styles the wordmark + hero only. Choose Custom and leave it blank to inherit the heading font."
           value={form.value.typography.displayFont ?? ""}
           onChange={(v) => setTypography("displayFont", v)}
-          placeholder="e.g. Anton"
+          placeholder="e.g. Anton (blank = inherit)"
         />
         <SelectField<string>
           id="h1Weight"
