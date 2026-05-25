@@ -65,8 +65,42 @@ up, so they aren't lost. Each notes why and where it should land.
 - **`classic`/`midnight`/`marquee` removed** from `THEME_IDS`; `DEFAULT_THEME_ID`
   is now `meadow`. (`lantern` from the foundation PR also dropped.)
 
+## Open (from the data-bound tour + Gallery PR — #1/#2 review)
+
+- **Committed demo tour-dates bit-rot.** `src/content/collections/tour-dates/items/*.json`
+  use hardcoded 2027 dates, so the *bundled* demo home (what a fresh clone / the
+  dev server renders) will show the empty "No upcoming shows" state once those
+  dates pass. The runtime welcome seed (`first-run-seeds.ts`) is relative-to-now
+  and unaffected; only the committed demo degrades. No clean fix short of a
+  build-time regenerator for committed demo content — accepted for now. Revisit
+  if the bundled demo is used as a live showcase.
+- **Editor can't preview non-grid gallery layouts.** The Puck editor canvas
+  renders outside `.stagecraft-site`, so the scoped `portrait`/`masonry`
+  overrides AppearanceStyles emits don't apply — the editor always shows the
+  `grid` base. Acceptable (Appearance is a separate surface), but an artist on a
+  masonry theme sees a grid while editing. A future fix could scope a preview
+  wrapper into the editor.
+- **Tour date display is UTC-only.** `TourDatesView.formatDate` (and the
+  upcoming filter) work in UTC, matching the rest of the template's date
+  handling. An evening show entered in a far-negative-offset zone can display the
+  next UTC day. Consistent with existing convention; revisit if per-site
+  timezone support lands.
+- **"Upcoming" includes shows earlier today.** The filter keeps any show whose
+  date is ≥ start-of-today (UTC), so a gig that already happened this morning
+  still lists until UTC midnight. Intentional (a same-day show stays visible all
+  day); noted so it isn't mistaken for a filter bug.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
+
+- **Gallery block + `galleryLayout`** — done (this PR): a Gallery block renders a
+  tiled grid; `galleryLayout` (grid/portrait/masonry) is wired via a globals.css
+  base + scoped `.stagecraft-site [data-gallery]` overrides from AppearanceStyles.
+  The last unwired design token is now consumed.
+- **Real data-bound collection block on general pages** — done (this PR): a
+  `TourDatesView` page block + `resolvePageCollectionBlocks` server pass inject
+  the live tour-dates collection into hand-authored pages; the home seed's faked
+  tour rows + fake tracklist were removed.
 
 - **Welcome wizard tests hardcoded to dropped presets** — #243's welcome unit +
   e2e specs asserted `classic`/`midnight`/`marquee` literally and were red on

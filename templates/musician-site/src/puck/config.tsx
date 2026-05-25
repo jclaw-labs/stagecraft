@@ -11,6 +11,11 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
+  TourDatesList,
+  TourDatesPlaceholder,
+  type ResolvedTourDate,
+} from "@/components/TourDatesView";
+import {
   collidingAdditionalFieldNames,
   NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
   NEWSLETTER_FIELD_TYPES,
@@ -138,6 +143,16 @@ export type ImageTone = (typeof IMAGE_TONES)[number];
 // accent *backgrounds*, a different feature). The three tones give a row
 // of placeholders (e.g. a gallery) distinct colourways. Replaced the
 // moment the artist uploads a real image.
+// Aspect-ratio cycle for empty Gallery placeholders so a masonry layout
+// staggers (instead of a uniform column of identical blocks). Ignored in
+// grid / portrait, where the tile's own fixed aspect-ratio wins.
+export const GALLERY_PLACEHOLDER_ASPECTS = [
+  "1 / 1",
+  "4 / 5",
+  "5 / 4",
+  "3 / 4",
+] as const;
+
 export function placeholderGradient(tone: ImageTone): string {
   switch (tone) {
     case "primary":
@@ -502,6 +517,13 @@ export type BlockProps = {
     areArrowsHidden: boolean;
     areDotsHidden: boolean;
   };
+  /**
+   * A tiled photo grid. The tile arrangement (grid / portrait / masonry)
+   * is theme-driven via the `galleryLayout` design token (emitted as
+   * scoped CSS by AppearanceStyles), so the block itself just holds the
+   * images — no per-block layout knob.
+   */
+  Gallery: { images: Array<{ image: ImageMetadata | null }> };
   CenteredBlock: {
     maxWidth: CenteredBlockMaxWidth;
     children: Slot;
@@ -532,6 +554,13 @@ export type BlockProps = {
      */
     isHoverable: boolean;
   };
+  /**
+   * Data-bound: the artist's upcoming `tour-dates` collection, rendered as
+   * a list. `items` is NOT authored — it's injected server-side by
+   * `resolvePageCollectionBlocks` on the published page (undefined in the
+   * editor → the block shows a placeholder). `limit` caps how many show.
+   */
+  TourDatesView: { limit: number; items?: ResolvedTourDate[] };
 };
 
 /**
@@ -952,6 +981,7 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   ButtonRow: "A row of buttons that sit side by side (and wrap) — for CTA pairs.",
   Card: "Image + title + description tile. Optional link wraps the whole card.",
   Image: "A single image with optional caption. Upload from your computer.",
+  Gallery: "A tiled photo grid. The arrangement follows your theme (grid, portrait, or masonry).",
   ImageCarousel: "Scrollable strip of images with arrows and dots — for galleries, press shots, etc.",
   Embed: "Paste embed HTML from Spotify, YouTube, Bandcamp, or another service.",
   EmbedResponsive: "Aspect-ratio-aware wrapper for pasted iframes (Bandcamp, YouTube) — keeps them responsive.",
@@ -959,6 +989,7 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   Divider: "A horizontal line between blocks.",
   ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
   NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
+  TourDatesView: "Your upcoming tour dates, pulled live from the Tour Dates panel. Set how many to show.",
 };
 
 export const puckConfig: Config<
@@ -1051,11 +1082,15 @@ export const puckConfig: Config<
     },
     media: {
       title: "Media",
-      components: ["Image", "ImageCarousel", "Embed", "EmbedResponsive"],
+      components: ["Image", "Gallery", "ImageCarousel", "Embed", "EmbedResponsive"],
     },
     forms: {
       title: "Forms",
       components: ["ContactForm", "NewsletterSignup"],
+    },
+    collections: {
+      title: "Collections",
+      components: ["TourDatesView"],
     },
   },
   components: {
@@ -2247,6 +2282,97 @@ export const puckConfig: Config<
           />
         );
       },
+    },
+    Gallery: {
+      // Layout is theme-driven (the `galleryLayout` design token →
+      // scoped `[data-gallery]` CSS from AppearanceStyles). The block
+      // only holds the images; empty slots render a themed gradient
+      // placeholder (same stand-in as the Image block) so a freshly
+      // dropped gallery — or the first-run seed — isn't visually empty.
+      fields: {
+        images: {
+          type: "array",
+          label: "Photos",
+          arrayFields: {
+            image: {
+              type: "custom",
+              label: "Image",
+              render: ({ value, onChange }) => (
+                <ImagePickerField
+                  value={(value as ImageMetadata | null) ?? null}
+                  onChange={(next) => onChange(next as ImageMetadata | null)}
+                />
+              ),
+            },
+          },
+          getItemSummary: (item, i) => {
+            const v = item as { image: ImageMetadata | null };
+            return v.image?.alt || `Photo ${(i ?? 0) + 1}`;
+          },
+        },
+      },
+      defaultProps: {
+        images: [{ image: null }, { image: null }, { image: null }],
+      },
+      render: ({ images }) => {
+        const tiles = images ?? [];
+        // Nothing to show → render nothing on the public page (empty
+        // fragment; Puck's render type doesn't allow `null`). A freshly
+        // dropped block ships 3 placeholder tiles (defaultProps), so this
+        // only hits if the artist clears every row — in which case an empty
+        // section is the right output, not an authoring prompt.
+        if (tiles.length === 0) return <></>;
+        return (
+          <div data-gallery>
+            {tiles.map((tile, i) => (
+              <div data-gallery-item key={i}>
+                {tile.image ? (
+                  <PublicImage image={tile.image as ImageMetadata} />
+                ) : (
+                  <div
+                    data-gallery-empty
+                    aria-hidden
+                    style={{
+                      aspectRatio:
+                        GALLERY_PLACEHOLDER_ASPECTS[i % GALLERY_PLACEHOLDER_ASPECTS.length] ??
+                        "1 / 1",
+                      background: placeholderGradient(
+                        IMAGE_TONES[i % IMAGE_TONES.length] ?? "accent",
+                      ),
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      },
+    },
+    TourDatesView: {
+      fields: {
+        limit: { type: "number", label: "Max shows", min: 1 },
+        // Read-only: the list is injected server-side, never authored here.
+        // Declared so Puck threads `items` through to render; the editor
+        // surface just explains where the data comes from.
+        items: {
+          type: "custom",
+          label: "Shows",
+          render: () => (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Pulled live from your Tour Dates — add or edit shows there.
+            </p>
+          ),
+        },
+      },
+      defaultProps: { limit: 5 },
+      render: ({ items }) =>
+        Array.isArray(items) ? <TourDatesList items={items} /> : <TourDatesPlaceholder />,
     },
   },
 };

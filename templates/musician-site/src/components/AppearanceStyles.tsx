@@ -99,6 +99,26 @@ const BUTTON_FILL: Record<
     decoration: "underline",
   },
 };
+// Gallery layout is structural (grid vs multi-column), so it can't be a
+// single value-substitution var like the others. `grid` is the globals.css
+// default; `portrait` / `masonry` ship as scoped overrides emitted below.
+const GALLERY_LAYOUT_CSS: Record<Design["galleryLayout"], string> = {
+  grid: "",
+  portrait: `
+    .stagecraft-site [data-gallery-item] { aspect-ratio: 3 / 4; }
+  `,
+  masonry: `
+    .stagecraft-site [data-gallery] { display: block; columns: 200px; }
+    .stagecraft-site [data-gallery-item] {
+      aspect-ratio: auto;
+      break-inside: avoid;
+      margin: 0 0 var(--gutter);
+    }
+    .stagecraft-site [data-gallery-item] > *,
+    .stagecraft-site [data-gallery-item] picture,
+    .stagecraft-site [data-gallery-item] img { height: auto; }
+  `,
+};
 const TRACKING_HEADING: Record<Design["headingTracking"], string> = {
   tight: "-0.02em",
   normal: "0",
@@ -234,6 +254,7 @@ export function AppearanceStyles({ appearance }: Props) {
     }
     .stagecraft-site a { color: var(--color-link); }
     .stagecraft-site strong, .stagecraft-site b { font-weight: var(--font-weight-body-bold); }
+    ${GALLERY_LAYOUT_CSS[design.galleryLayout]}
   `;
 
   return (
