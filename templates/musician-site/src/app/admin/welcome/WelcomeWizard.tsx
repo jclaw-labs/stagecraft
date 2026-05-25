@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import {
   ColorField,
@@ -11,6 +11,8 @@ import {
 } from "@/components/admin/form";
 import { ImagePickerField } from "@/puck/ImagePickerField";
 import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "@/lib/theme-presets";
+
+import { ThemeThumbnail } from "./ThemeThumbnail";
 
 import {
   buildWelcomePayload,
@@ -214,19 +216,13 @@ export function StepContent({
           <div role="radiogroup" aria-label="Starting point" style={cardGridStyle}>
             {THEME_IDS.map((id) => {
               const preset = THEME_PRESETS[id];
-              const { colors } = preset.appearance;
               return (
                 <StartCard
                   key={id}
                   selected={values.start === id}
                   name={preset.name}
                   description={preset.description}
-                  swatches={[
-                    colors.background,
-                    colors.primary,
-                    colors.secondary,
-                    colors.accent,
-                  ]}
+                  preview={<ThemeThumbnail preset={preset} />}
                   onSelect={() => setField("start", id)}
                 />
               );
@@ -306,12 +302,15 @@ function StartCard({
   name,
   description,
   swatches,
+  preview,
   onSelect,
 }: {
   selected: boolean;
   name: string;
   description: string;
   swatches?: string[];
+  /** Rich preview (a theme thumbnail); takes precedence over `swatches`. */
+  preview?: ReactNode;
   onSelect: () => void;
 }) {
   return (
@@ -322,7 +321,9 @@ function StartCard({
       onClick={onSelect}
       style={selected ? selectedCardStyle : cardStyle}
     >
-      {swatches && swatches.length > 0 ? (
+      {preview ? (
+        preview
+      ) : swatches && swatches.length > 0 ? (
         <span style={swatchRowStyle} aria-hidden="true">
           {swatches.map((color, i) => (
             <span key={i} style={{ ...swatchStyle, background: color }} />
