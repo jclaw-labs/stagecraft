@@ -7,7 +7,11 @@
 
 import { capitalise } from "@stagecraft/shared";
 import type { ExtractedSite } from "./crawler";
-import type { MappedContent, MappedFile } from "./mapper";
+import { PAGE_ITEM_PREFIX, type MappedContent, type MappedFile } from "./musician-site-mapper";
+
+/** A page item file (excludes the pages `_order.json`). */
+const isPageItem = (path: string) => path.startsWith(PAGE_ITEM_PREFIX) && !path.endsWith("_order.json");
+const pageSlug = (path: string) => path.slice(PAGE_ITEM_PREFIX.length).replace(/\.json$/, "");
 
 export interface MigrationReportItem {
   label: string;
@@ -53,9 +57,9 @@ function buildImportedItems(
 ): MigrationReportItem[] {
   const items: MigrationReportItem[] = [];
 
-  const pageFiles = mapped.files.filter((f) => f.path.startsWith("src/content/pages/"));
+  const pageFiles = mapped.files.filter((f) => isPageItem(f.path));
   for (const file of pageFiles) {
-    const pageName = file.path.replace("src/content/pages/", "").replace(".md", "");
+    const pageName = pageSlug(file.path);
     items.push({
       label: `${capitalise(pageName)} page`,
       status: file.confidence >= 0.7 ? "imported" : "partial",
@@ -120,10 +124,10 @@ function buildManualReviewItems(
 
   // Low-confidence pages
   const lowConfidence = mapped.files.filter(
-    (f) => f.path.startsWith("src/content/pages/") && f.confidence < 0.7
+    (f) => isPageItem(f.path) && f.confidence < 0.7
   );
   for (const file of lowConfidence) {
-    const pageName = file.path.replace("src/content/pages/", "").replace(".md", "");
+    const pageName = pageSlug(file.path);
     items.push({
       label: `${capitalise(pageName)} page content`,
       status: "partial",
@@ -172,7 +176,7 @@ function buildSummary(
   artistName: string
 ): string[] {
   const lines: string[] = [];
-  const pageCount = mapped.files.filter((f) => f.path.startsWith("src/content/pages/")).length;
+  const pageCount = mapped.files.filter((f) => isPageItem(f.path)).length;
   const imageCount = extracted.pages.reduce((sum, p) => sum + p.images.length, 0);
   const embedCount = extracted.pages.reduce((sum, p) => sum + p.embeds.length, 0);
   const socialCount = extracted.socialLinks.filter((l) => !l.href.startsWith("mailto:")).length;
@@ -204,7 +208,7 @@ export function buildMigrationReport(
   const manualReviewItems = buildManualReviewItems(extracted, mapped);
   const skippedItems = buildSkippedItems(extracted);
 
-  const pageFiles = mapped.files.filter((f) => f.path.startsWith("src/content/pages/"));
+  const pageFiles = mapped.files.filter((f) => isPageItem(f.path));
   const overallConfidence = Math.round(averageConfidence(pageFiles) * 100) / 100;
 
   return {
