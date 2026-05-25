@@ -147,6 +147,22 @@ Full workflow in the `create-pr` skill at
 in PR body → verify URLs return 200. Refactor-only or backend-only
 PRs may omit screenshots — note this explicitly in the PR body.
 
+**Cloud sessions can always capture public pages — never skip them.**
+A Chromium build ships at `/opt/pw-browsers` (`PLAYWRIGHT_BROWSERS_PATH`),
+auto-detected by `apps/web/capture/chromium.ts`. Authenticated platform
+captures need a running Postgres (the harness seeds a session), but
+**public, static pages — the marketing site (`/`, `/examples`, …) and
+public artist pages — need no database**. Capture them with the DB-free
+path:
+
+```bash
+cd apps/web && npm run capture:screenshots:public  # → .pr-screenshots/site-*.jpg
+```
+
+A missing docker daemon is NOT a reason to omit screenshots for public
+UI; only fall back to "no screenshots — <reason>" for changes that
+genuinely render nothing visible (refactor / backend / types / tooling).
+
 ---
 
 ## 6. Design tokens
