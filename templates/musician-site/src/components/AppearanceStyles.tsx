@@ -182,12 +182,18 @@ export function AppearanceStyles({ appearance }: Props) {
   // Keep a `system-ui` step but end the stack with the family's *category*
   // generic (serif / monospace / cursive) instead of a blanket sans-serif —
   // so a serif body font doesn't flash sans while its webfont loads.
-  // buildFontStack returns "'Family', <generic>"; we splice system-ui between.
-  const fontStack = (family: string): string => {
+  // buildFontStack returns "'Family', <generic>"; split on the LAST ", " so a
+  // custom family name containing a comma stays intact, then splice system-ui
+  // (and, for headings, the body font as a cohesive intermediate) before the
+  // generic.
+  const fontStack = (family: string, intermediate?: string): string => {
     const built = buildFontStack(family);
     if (!built) return "system-ui, sans-serif";
-    const [familyName, generic] = built.split(", ");
-    return `${familyName}, system-ui, ${generic}`;
+    const lastComma = built.lastIndexOf(", ");
+    const familyName = built.slice(0, lastComma);
+    const generic = built.slice(lastComma + 2);
+    const mid = intermediate && intermediate !== family ? `'${intermediate}', ` : "";
+    return `${familyName}, ${mid}system-ui, ${generic}`;
   };
   const headingFamily =
     appearance.typography.headingMode === "split" &&
@@ -211,7 +217,7 @@ export function AppearanceStyles({ appearance }: Props) {
       --color-on-accent: ${onAccent};
       --gradient-accent: ${accentImage};
       --font-body: ${fontStack(appearance.typography.bodyFont)};
-      --font-headings: ${fontStack(headingFamily)};
+      --font-headings: ${fontStack(headingFamily, appearance.typography.bodyFont)};
       --font-display: ${displayStack};
       --font-weight-body: ${appearance.typography.bodyWeights.body};
       --font-weight-body-bold: ${appearance.typography.bodyWeights.bodyBold};
