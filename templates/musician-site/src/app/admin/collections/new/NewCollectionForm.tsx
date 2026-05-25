@@ -11,6 +11,7 @@ import { CheckboxField, TextField } from "@/components/admin/form";
 // schemas + slug helper the server uses — client-side validation with no
 // drift from the server contract.
 import {
+  collectionNameSchema,
   slugSchema,
   slugifyToCollectionSlug,
 } from "@/lib/collections/schema";
@@ -20,8 +21,9 @@ import {
  *
  * Posts `{ pluralName, singularName, isSingleton }` to
  * `POST /api/collections`; on success it routes to the new collection's
- * admin surface — the generic list view for a multi-item collection, or
- * straight to the single item for a singleton.
+ * schema editor so the artist defines its fields next (a multi-item
+ * collection starts with a default Title field; a singleton starts
+ * empty).
  *
  * Slug handling: the plural name is slugified with the shared
  * `slugifyToCollectionSlug` and validated client-side with `slugSchema`
@@ -51,17 +53,29 @@ export function NewCollectionForm() {
   // fails `slugSchema`, so this single check covers both the blank and
   // the "no slug-able characters" cases.
   const slugCheck = slugSchema.safeParse(slugPreview);
-  // Field-level message for the Plural name field. Only surfaced once
-  // the artist has typed something — an untouched empty field shouldn't
-  // shout an error on first paint.
+  // Validate the names with the same shared schema the server enforces
+  // (length bound + no line breaks) so the artist sees an inline error
+  // instead of a round-trip 400.
+  const pluralNameCheck = collectionNameSchema.safeParse(pluralName);
+  const singularNameCheck = collectionNameSchema.safeParse(singularName);
+  // Field-level messages. Only surfaced once the artist has typed
+  // something — an untouched empty field shouldn't shout on first paint.
+  // For the plural name a length/format problem (e.g. over 80 chars)
+  // takes precedence over the slug message.
   const pluralNameError =
-    pluralName.trim().length > 0 && !slugCheck.success
-      ? "Use letters or digits — we couldn't make a URL slug from that."
+    pluralName.trim().length === 0
+      ? null
+      : !pluralNameCheck.success
+        ? pluralNameCheck.error.issues[0]?.message ?? "Invalid name"
+        : !slugCheck.success
+          ? "Use letters or digits — we couldn't make a URL slug from that."
+          : null;
+  const singularNameError =
+    singularName.trim().length > 0 && !singularNameCheck.success
+      ? singularNameCheck.error.issues[0]?.message ?? "Invalid name"
       : null;
   const isValid =
-    pluralName.trim().length > 0 &&
-    singularName.trim().length > 0 &&
-    slugCheck.success;
+    pluralNameCheck.success && singularNameCheck.success && slugCheck.success;
   const canCreate = isValid && !isCreating;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -87,13 +101,13 @@ export function NewCollectionForm() {
         );
         return;
       }
-      // Singletons go straight to their single item; multi-item
-      // collections land on the generic list view. Mirrors the
-      // AdminShell sidebar's own singleton-vs-list routing.
-      const destination = isSingleton
-        ? `/admin/collections/${body.slug}/items/_singleton`
-        : `/admin/collections/${body.slug}`;
-      router.push(destination);
+      // Land on the schema editor so the artist defines fields next —
+      // what the panel copy promises ("you'll shape its fields next in
+      // the schema editor"). This is also what lets a singleton start
+      // with no fields without stranding the artist: the singleton's own
+      // item editor has no link back to the schema editor, but this is
+      // the schema editor.
+      router.push(`/admin/collections/${body.slug}/schema`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Create failed");
     } finally {
@@ -140,6 +154,19 @@ export function NewCollectionForm() {
             <>
               Used for buttons and labels for a single entry (e.g. “New{" "}
               {singularName.trim() || "press quote"}”).
+              {singularNameError ? (
+                <span
+                  role="alert"
+                  style={{
+                    display: "block",
+                    marginTop: "var(--space-1)",
+                    color: "var(--color-text-error)",
+                    fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                  }}
+                >
+                  {singularNameError}
+                </span>
+              ) : null}
             </>
           }
           value={singularName}

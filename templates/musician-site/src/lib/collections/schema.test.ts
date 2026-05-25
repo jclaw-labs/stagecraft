@@ -5,6 +5,8 @@ import {
   buildFieldValueZodSchema,
   buildItemFileSchema,
   collectionDefSchema,
+  collectionNameSchema,
+  createCollectionRequestSchema,
   fieldDefSchema,
   fieldValueSchema,
   filterSchema,
@@ -132,6 +134,60 @@ describe("itemSlugSchema", () => {
 
   it("rejects _order (only valid as a filename, not an item slug)", () => {
     expect(itemSlugSchema.safeParse("_order").success).toBe(false);
+  });
+});
+
+describe("collectionNameSchema", () => {
+  it("trims and accepts an ordinary name", () => {
+    expect(collectionNameSchema.parse("  Press quotes  ")).toBe("Press quotes");
+  });
+
+  it("rejects a blank or whitespace-only name", () => {
+    expect(collectionNameSchema.safeParse("").success).toBe(false);
+    expect(collectionNameSchema.safeParse("   ").success).toBe(false);
+  });
+
+  it("rejects a name over 80 characters", () => {
+    expect(collectionNameSchema.safeParse("x".repeat(80)).success).toBe(true);
+    expect(collectionNameSchema.safeParse("x".repeat(81)).success).toBe(false);
+  });
+
+  it.each(["a\nb", "a\rb", "line1\r\nline2"])(
+    "rejects names with line breaks (commit-injection guard): %j",
+    (bad) => {
+      expect(collectionNameSchema.safeParse(bad).success).toBe(false);
+    },
+  );
+});
+
+describe("createCollectionRequestSchema", () => {
+  it("parses a well-formed body and defaults isSingleton to absent", () => {
+    const parsed = createCollectionRequestSchema.parse({
+      pluralName: "Press quotes",
+      singularName: "Press quote",
+    });
+    expect(parsed).toEqual({ pluralName: "Press quotes", singularName: "Press quote" });
+  });
+
+  it("accepts an explicit isSingleton boolean", () => {
+    expect(
+      createCollectionRequestSchema.parse({
+        pluralName: "Booking info",
+        singularName: "Booking info",
+        isSingleton: true,
+      }).isSingleton,
+    ).toBe(true);
+  });
+
+  it("rejects a non-boolean isSingleton and missing names", () => {
+    expect(
+      createCollectionRequestSchema.safeParse({
+        pluralName: "A",
+        singularName: "B",
+        isSingleton: "yes",
+      }).success,
+    ).toBe(false);
+    expect(createCollectionRequestSchema.safeParse({ pluralName: "A" }).success).toBe(false);
   });
 });
 

@@ -119,6 +119,42 @@ export function slugifyToCollectionSlug(input: string): string {
  */
 export const itemSlugSchema = z.union([slugSchema, z.literal(SINGLETON_ITEM_SLUG)]);
 
+/**
+ * Human-facing collection name (the singular or plural label an artist
+ * types when creating a collection). Bounded and single-line:
+ *
+ *   - `.trim()` first so surrounding whitespace doesn't count toward the
+ *     length bounds or smuggle in a trailing newline.
+ *   - `.max(80)` keeps it to a sensible label length.
+ *   - The no-line-break rule matters because the create-collection route
+ *     interpolates the name into a git commit subject; a newline would
+ *     let the caller inject extra commit-message lines.
+ *
+ * Shared by the create-collection API route (server, authoritative) and
+ * the NewCollectionForm (client, for an inline error before submit) so
+ * there's one implementation and no drift. Lives here because schema.ts
+ * is node-free and therefore client-importable.
+ */
+export const collectionNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Name can't be blank")
+  .max(80, "Keep the name to 80 characters or fewer")
+  .regex(/^[^\r\n]+$/, "Name can't contain line breaks");
+
+/**
+ * Request body for `POST /api/collections`. The route re-derives and
+ * re-validates the slug from `pluralName` and owns the collision /
+ * reserved-name checks; this schema just pins the wire shape.
+ */
+export const createCollectionRequestSchema = z.object({
+  pluralName: collectionNameSchema,
+  singularName: collectionNameSchema,
+  isSingleton: z.boolean().optional(),
+});
+
+export type CreateCollectionRequest = z.infer<typeof createCollectionRequestSchema>;
+
 // ---------------------------------------------------------------------------
 // 2. FieldDef
 // ---------------------------------------------------------------------------

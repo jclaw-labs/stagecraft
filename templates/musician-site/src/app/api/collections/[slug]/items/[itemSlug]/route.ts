@@ -15,10 +15,12 @@ import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
   deleteItem,
+  generateItemId,
   getRequestReadStore,
   ItemExistsError,
   itemSlugSchema,
   renameItem,
+  SINGLETON_ITEM_SLUG,
   slugSchema,
   writeItem,
   type Item,
@@ -84,12 +86,20 @@ export async function PUT(request: Request, ctx: Ctx) {
   const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
-  // PUT is update-only — creation lives on POST. Without this guard, a
-  // PUT to a slug that doesn't exist would silently create a fresh
-  // item with a brand-new id, racing any concurrent POST to the same
-  // slug from another tab.
+  // PUT is update-only for multi-item collections — creation lives on
+  // POST. Without this guard a PUT to a missing slug would silently
+  // create a fresh item with a brand-new id, racing any concurrent POST
+  // to the same slug from another tab.
+  //
+  // Singletons are the exception: there's exactly one item at the fixed
+  // `_singleton` slug and no POST flow to create it, so the first save
+  // *is* the creation. Materialize it here (fresh id, createdAt now)
+  // instead of 404ing — matching the prebaked singletons, which also
+  // come into existence on first save.
   const existing = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
-  if (!existing) return err(404, "Item not found");
+  const isSingletonFirstSave =
+    !existing && def.isSingleton && parsedItemSlug.data === SINGLETON_ITEM_SLUG;
+  if (!existing && !isSingletonFirstSave) return err(404, "Item not found");
 
   // Build the per-collection Zod schema from `def.fields` and run the
   // incoming item through it. This is where required-field / option /
@@ -100,10 +110,11 @@ export async function PUT(request: Request, ctx: Ctx) {
     ? (body as { values: unknown }).values
     : undefined;
 
+  const now = new Date().toISOString();
   const parseResult = fileSchema.safeParse({
-    id: existing.id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
+    id: existing?.id ?? generateItemId(),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
     values: valuesShape,
   });
   if (!parseResult.success) {

@@ -18,10 +18,17 @@
  * artist with a usable local copy (the next save retries the publish).
  *
  * The slug is derived from `pluralName`, validated with `slugSchema`,
- * and checked against `listCollectionSlugs()` (which already includes
- * the prebaked pages/site/header/appearance singletons + every
- * existing collection — so the collision check doubles as a
- * reserved-name guard).
+ * then guarded two ways: a static check against `PREBAKED_COLLECTIONS`
+ * (reserved names — robust even if the on-disk/draft listing is
+ * momentarily incomplete) and a draft-aware existence check via the
+ * per-request read store (so a collection created earlier in the same
+ * draft session is seen).
+ *
+ * A multi-item collection starts with one default "Title" field (its
+ * slug source). A singleton starts with no fields and no `_singleton.json`
+ * item: the item is materialized lazily on first save (matching the
+ * prebaked singletons), and the create form routes the artist to the
+ * schema editor to define fields next.
  */
 
 import { NextResponse } from "next/server";
@@ -30,13 +37,15 @@ import { getSession } from "@/lib/auth";
 import {
   collectionDefRepoPath,
   collectionDefSchema,
+  createCollectionRequestSchema,
   CURRENT_COLLECTION_SCHEMA_VERSION,
   generateFieldId,
-  listCollectionSlugs,
+  getRequestReadStore,
   slugifyToCollectionSlug,
   slugSchema,
   type CollectionDef,
 } from "@/lib/collections";
+import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import { localPathForRepoPath, writeJsonAtomic } from "@/lib/fs-helpers";
 import { PublishError, saveToDraft } from "@/lib/publish";
 
@@ -48,37 +57,21 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return err(401, "unauthorized");
 
-  let body: unknown;
+  let rawBody: unknown;
   try {
-    body = await request.json();
+    rawBody = await request.json();
   } catch {
     return err(400, "Body must be JSON");
   }
 
-  const pluralNameRaw =
-    body && typeof body === "object"
-      ? (body as { pluralName?: unknown }).pluralName
-      : undefined;
-  const singularNameRaw =
-    body && typeof body === "object"
-      ? (body as { singularName?: unknown }).singularName
-      : undefined;
-  const isSingletonRaw =
-    body && typeof body === "object"
-      ? (body as { isSingleton?: unknown }).isSingleton
-      : undefined;
-
-  if (typeof pluralNameRaw !== "string" || typeof singularNameRaw !== "string") {
-    return err(400, "pluralName and singularName are required");
+  // One Zod parse covers presence, type, trimming, length bounds, and
+  // the no-line-break rule (the names are interpolated into a git
+  // commit subject below — a newline would inject extra commit lines).
+  const parsedBody = createCollectionRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return err(400, parsedBody.error.issues[0]?.message ?? "Invalid request body");
   }
-  const pluralName = pluralNameRaw.trim();
-  const singularName = singularNameRaw.trim();
-  if (pluralName.length === 0) return err(400, "Plural name can't be blank");
-  if (singularName.length === 0) return err(400, "Singular name can't be blank");
-  if (isSingletonRaw !== undefined && typeof isSingletonRaw !== "boolean") {
-    return err(400, "isSingleton must be a boolean");
-  }
-  const isSingleton = isSingletonRaw ?? false;
+  const { pluralName, singularName, isSingleton = false } = parsedBody.data;
 
   // Derive + validate the slug from the plural name.
   const slug = slugifyToCollectionSlug(pluralName);
@@ -90,35 +83,54 @@ export async function POST(request: Request) {
     );
   }
 
-  // Collision / reserved-name guard. `listCollectionSlugs()` returns
-  // every on-disk collection, which includes the prebaked
-  // pages/site/header/appearance singletons + everything else, so this
-  // single check covers reserved names too.
-  const existing = await listCollectionSlugs();
+  // Reserved-name guard, independent of disk / draft state. The
+  // prebaked collections (pages/site/header/appearance + the starter
+  // content collections) ship with every site; an artist must not be
+  // able to create one whose slug collides with a prebaked def and
+  // overwrite it. Checking the static map closes that hole even when
+  // the on-disk / draft listing is momentarily incomplete (fresh draft
+  // branch, FS-snapshot fallback, …).
+  if (Object.hasOwn(PREBAKED_COLLECTIONS, parsedSlug.data)) {
+    return err(409, "That name is reserved");
+  }
+
+  // Collision guard against existing collections. Read through the
+  // per-request store so this is draft-aware in production: a
+  // collection created earlier in the same draft session lives on the
+  // draft branch, not yet on the deployed FS snapshot of `main`.
+  const store = await getRequestReadStore();
+  const existing = await store.listCollectionSlugs();
   if (existing.includes(parsedSlug.data)) {
     return err(409, "A collection with that name already exists");
   }
 
-  // Build the initial def: one default "Title" text field. For a
-  // multi-item collection that field is the slug source (so new items
-  // get a sensible auto-slug); singletons store under the fixed
-  // `_singleton` filename and have no slug source — matching the
-  // prebaked singletons in seeds.ts (`slugSourceFieldId: null`).
+  // Build the initial def. A multi-item collection starts with one
+  // default "Title" text field that doubles as the slug source (so new
+  // items get a sensible auto-slug). A singleton has no slug and no
+  // list view, so it starts with no fields at all — the artist defines
+  // them in the schema editor next (the create form routes there). Its
+  // `_singleton.json` item is materialized lazily on first save,
+  // matching the prebaked singletons whose read paths fall back to
+  // defaults until then; seeding an empty item here would instead block
+  // the artist from adding any *required* field, since the schema
+  // validator rejects an existing item that lacks it.
   const titleFieldId = generateFieldId();
   const def: CollectionDef = collectionDefSchema.parse({
     schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
     slug: parsedSlug.data,
     singularName,
     pluralName,
-    fields: [
-      {
-        id: titleFieldId,
-        key: "title",
-        type: "text",
-        required: true,
-        // No `systemLocked` — the artist can rename or remove it.
-      },
-    ],
+    fields: isSingleton
+      ? []
+      : [
+          {
+            id: titleFieldId,
+            key: "title",
+            type: "text",
+            required: true,
+            // No `systemLocked` — the artist can rename or remove it.
+          },
+        ],
     slugSourceFieldId: isSingleton ? null : titleFieldId,
     detailUrlPrefix: null,
     defaultSort: null,
