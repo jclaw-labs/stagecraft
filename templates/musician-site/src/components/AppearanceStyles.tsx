@@ -5,6 +5,7 @@ import {
   type Appearance,
   type Design,
 } from "@/lib/site-config-types";
+import { buildFontStack } from "@/lib/google-fonts";
 
 type Props = {
   appearance: Appearance;
@@ -178,6 +179,28 @@ export function AppearanceStyles({ appearance }: Props) {
   const displayStack =
     displayFont.length > 0 ? `'${displayFont}', var(--font-headings)` : "var(--font-headings)";
 
+  // Keep a `system-ui` step but end the stack with the family's *category*
+  // generic (serif / monospace / cursive) instead of a blanket sans-serif —
+  // so a serif body font doesn't flash sans while its webfont loads.
+  // buildFontStack returns "'Family', <generic>"; split on the LAST ", " so a
+  // custom family name containing a comma stays intact, then splice system-ui
+  // (and, for headings, the body font as a cohesive intermediate) before the
+  // generic.
+  const fontStack = (family: string, intermediate?: string): string => {
+    const built = buildFontStack(family);
+    if (!built) return "system-ui, sans-serif";
+    const lastComma = built.lastIndexOf(", ");
+    const familyName = built.slice(0, lastComma);
+    const generic = built.slice(lastComma + 2);
+    const mid = intermediate && intermediate !== family ? `'${intermediate}', ` : "";
+    return `${familyName}, ${mid}system-ui, ${generic}`;
+  };
+  const headingFamily =
+    appearance.typography.headingMode === "split" &&
+    appearance.typography.headingFont.length > 0
+      ? appearance.typography.headingFont
+      : appearance.typography.bodyFont;
+
   const css = `
     :root {
       --color-primary: ${appearance.colors.primary};
@@ -193,8 +216,8 @@ export function AppearanceStyles({ appearance }: Props) {
       --color-action-fg: ${appearance.colors.surface};
       --color-on-accent: ${onAccent};
       --gradient-accent: ${accentImage};
-      --font-body: '${appearance.typography.bodyFont}', system-ui, sans-serif;
-      --font-headings: '${appearance.typography.headingMode === "split" && appearance.typography.headingFont.length > 0 ? appearance.typography.headingFont : appearance.typography.bodyFont}', '${appearance.typography.bodyFont}', system-ui, sans-serif;
+      --font-body: ${fontStack(appearance.typography.bodyFont)};
+      --font-headings: ${fontStack(headingFamily, appearance.typography.bodyFont)};
       --font-display: ${displayStack};
       --font-weight-body: ${appearance.typography.bodyWeights.body};
       --font-weight-body-bold: ${appearance.typography.bodyWeights.bodyBold};

@@ -14,6 +14,10 @@ import { useSettingsForm } from "@/components/admin/useSettingsForm";
 import { headerConfigToItemValues } from "@/lib/collections/migrate-from-legacy-values";
 import { ImagePickerField } from "@/puck/ImagePickerField";
 import {
+  HEADER_BORDERS,
+  HEADER_BORDER_LABELS,
+  HEADER_HEIGHTS,
+  HEADER_HEIGHT_LABELS,
   HEADER_LAYOUTS,
   HEADER_LAYOUT_LABELS,
   HEADER_MODES,
@@ -21,7 +25,9 @@ import {
   WORDMARK_SIZE_ADJUSTMENTS,
   WORDMARK_SIZE_ADJUSTMENT_LABELS,
   isTransparentHeader,
+  type HeaderBorder,
   type HeaderConfig,
+  type HeaderHeight,
   type HeaderLayout,
   type HeaderMode,
 } from "@/lib/site-config-types";
@@ -117,6 +123,22 @@ export function NavigationForm({ initial, hasPendingChanges }: Props) {
           value={form.value.headerLayout}
           options={HEADER_LAYOUTS.map((l) => ({ label: HEADER_LAYOUT_LABELS[l], value: l }))}
           onChange={(v) => setField("headerLayout", v)}
+        />
+        <SelectField<HeaderHeight>
+          id="headerHeight"
+          label="Header height"
+          description="Vertical padding of the header bar — compact, standard, or tall."
+          value={form.value.headerHeight ?? "standard"}
+          options={HEADER_HEIGHTS.map((h) => ({ label: HEADER_HEIGHT_LABELS[h], value: h }))}
+          onChange={(v) => setField("headerHeight", v)}
+        />
+        <SelectField<HeaderBorder>
+          id="headerBorder"
+          label="Header border"
+          description="The rule under the header — none, a hairline, a bold 3px line, or your accent color. (Transparent modes drop it automatically.)"
+          value={form.value.headerBorder ?? "hairline"}
+          options={HEADER_BORDERS.map((b) => ({ label: HEADER_BORDER_LABELS[b], value: b }))}
+          onChange={(v) => setField("headerBorder", v)}
         />
         <CheckboxField
           id="isHeaderTextUppercase"

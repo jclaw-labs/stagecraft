@@ -221,6 +221,37 @@ describe("header: config ↔ item round-trip", () => {
     expect(round.headerMode).toBe("transparent-static");
   });
 
+  it("round-trips headerHeight + headerBorder", () => {
+    const config = {
+      ...DEFAULT_HEADER_CONFIG,
+      headerHeight: "tall" as const,
+      headerBorder: "accent" as const,
+    };
+    const round = headerConfigFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: headerConfigToItemValues(config),
+    });
+    expect(round.headerHeight).toBe("tall");
+    expect(round.headerBorder).toBe("accent");
+  });
+
+  it("defaults headerHeight/headerBorder for a legacy item missing them", () => {
+    // A header singleton written before these fields existed has no values
+    // for them; the reader fills the standard/hairline defaults.
+    const round = headerConfigFromItem({
+      id: "i",
+      slug: "_singleton",
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: {},
+    });
+    expect(round.headerHeight).toBe("standard");
+    expect(round.headerBorder).toBe("hairline");
+  });
+
   it("returns DEFAULT_HEADER_CONFIG when the item is null", () => {
     expect(headerConfigFromItem(null)).toEqual(DEFAULT_HEADER_CONFIG);
   });
