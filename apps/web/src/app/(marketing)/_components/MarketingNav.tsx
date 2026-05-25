@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Button from "@/components/Button";
+import MobileMenu from "./MobileMenu";
 import { GITHUB_URL, PRIMARY_NAV, SIGN_IN_HREF } from "./site-links";
 import styles from "./MarketingNav.module.css";
 
@@ -30,6 +31,7 @@ export default function MarketingNav() {
             Start building
           </Button>
         </div>
+        <MobileMenu />
       </nav>
     </header>
   );
