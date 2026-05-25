@@ -36,6 +36,18 @@ describe("<AppearanceStyles>", () => {
     expect(html).toContain("--font-headings: 'Inter'");
   });
 
+  it("ends the stack with the family's category generic (serif body → serif, not sans)", () => {
+    const html = render({
+      typography: { ...DEFAULT_APPEARANCE.typography, bodyFont: "Merriweather" },
+    });
+    expect(html).toContain("--font-body: 'Merriweather', system-ui, serif");
+  });
+
+  it("keeps a sans-serif tail (with system-ui) for a sans family", () => {
+    const html = render(); // default Inter (sans)
+    expect(html).toContain("--font-body: 'Inter', system-ui, sans-serif");
+  });
+
   it("falls back to accent for the link color when linkColor is blank", () => {
     const html = render({
       colors: { ...DEFAULT_APPEARANCE.colors, linkColor: "" },

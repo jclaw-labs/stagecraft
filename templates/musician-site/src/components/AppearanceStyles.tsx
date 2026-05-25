@@ -5,6 +5,7 @@ import {
   type Appearance,
   type Design,
 } from "@/lib/site-config-types";
+import { buildFontStack } from "@/lib/google-fonts";
 
 type Props = {
   appearance: Appearance;
@@ -178,6 +179,22 @@ export function AppearanceStyles({ appearance }: Props) {
   const displayStack =
     displayFont.length > 0 ? `'${displayFont}', var(--font-headings)` : "var(--font-headings)";
 
+  // Keep a `system-ui` step but end the stack with the family's *category*
+  // generic (serif / monospace / cursive) instead of a blanket sans-serif —
+  // so a serif body font doesn't flash sans while its webfont loads.
+  // buildFontStack returns "'Family', <generic>"; we splice system-ui between.
+  const fontStack = (family: string): string => {
+    const built = buildFontStack(family);
+    if (!built) return "system-ui, sans-serif";
+    const [familyName, generic] = built.split(", ");
+    return `${familyName}, system-ui, ${generic}`;
+  };
+  const headingFamily =
+    appearance.typography.headingMode === "split" &&
+    appearance.typography.headingFont.length > 0
+      ? appearance.typography.headingFont
+      : appearance.typography.bodyFont;
+
   const css = `
     :root {
       --color-primary: ${appearance.colors.primary};
@@ -193,8 +210,8 @@ export function AppearanceStyles({ appearance }: Props) {
       --color-action-fg: ${appearance.colors.surface};
       --color-on-accent: ${onAccent};
       --gradient-accent: ${accentImage};
-      --font-body: '${appearance.typography.bodyFont}', system-ui, sans-serif;
-      --font-headings: '${appearance.typography.headingMode === "split" && appearance.typography.headingFont.length > 0 ? appearance.typography.headingFont : appearance.typography.bodyFont}', '${appearance.typography.bodyFont}', system-ui, sans-serif;
+      --font-body: ${fontStack(appearance.typography.bodyFont)};
+      --font-headings: ${fontStack(headingFamily)};
       --font-display: ${displayStack};
       --font-weight-body: ${appearance.typography.bodyWeights.body};
       --font-weight-body-bold: ${appearance.typography.bodyWeights.bodyBold};
