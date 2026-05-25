@@ -105,15 +105,19 @@ describe("buildFirstRunSeed", () => {
     }
   });
 
-  it("seeds Music / About / Contact starter pages so the nav isn't one link", () => {
+  it("seeds Music / Updates / About / Contact starter pages so the nav isn't one link", () => {
     const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
-    expect(seed.starterPages.map((p) => p.slug)).toEqual(["music", "about", "contact"]);
+    expect(seed.starterPages.map((p) => p.slug)).toEqual(["music", "updates", "about", "contact"]);
     // The Contact page ships a working ContactForm block.
     const contact = seed.starterPages.find((p) => p.slug === "contact");
     expect(JSON.stringify(contact?.data.content ?? [])).toContain("ContactForm");
     // The Music page ships a data-bound ReleasesView.
     const music = seed.starterPages.find((p) => p.slug === "music");
     expect(JSON.stringify(music?.data.content ?? [])).toContain("ReleasesView");
+    // The Updates page ships a data-bound PostsView. Its slug isn't "news":
+    // that segment is reserved by the posts collection's /news detail prefix.
+    const updates = seed.starterPages.find((p) => p.slug === "updates");
+    expect(JSON.stringify(updates?.data.content ?? [])).toContain("PostsView");
   });
 
   it("binds the home tour section to a real TourDatesView (no faked rows or tracklist)", () => {

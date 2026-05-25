@@ -16,9 +16,12 @@
  * apart. Imagery uses empty `Image` blocks, which render a theme-driven
  * gradient placeholder until the artist uploads — so no image binary ships
  * with the template. The Music starter page carries a data-bound
- * `ReleasesView`; the home page keeps its hand-authored release card (it has
- * Stream / Order CTAs the releases schema has no fields for). `coverImage` is
- * optional, so a release with no art renders the same gradient placeholder.
+ * `ReleasesView` and the Updates starter page a data-bound `PostsView` (its
+ * slug isn't "news" — that first segment is reserved by the posts collection's
+ * `/news` detail-URL prefix); the home page keeps its hand-authored release
+ * card (it has Stream / Order CTAs the releases schema has no fields for).
+ * `coverImage` is optional on both collections, so an item with no art renders
+ * the same gradient placeholder.
  *
  * Everything here is pure — these functions only build value-shapes.
  * The welcome route owns the write-through-publish side, so this file
@@ -149,6 +152,16 @@ function buildStarterPages(artistName: string): FirstRunPageSeed[] {
           "the Releases panel — they show up below automatically.",
       ],
       [{ type: "ReleasesView", props: { id: "sp-music-releases", limit: 8 } }],
+    ),
+    starterPageSeed(
+      "updates",
+      "Updates",
+      "Latest",
+      [
+        "Announcements, interviews, and notes from the studio. Add posts in " +
+          "the Posts panel — they show up below automatically.",
+      ],
+      [{ type: "PostsView", props: { id: "sp-updates-posts", limit: 6 } }],
     ),
     starterPageSeed("about", "About", "Bio", [
       `${artistName} — your story goes here. Where you're from, what the ` +

@@ -22,11 +22,12 @@
 
 import type { Data } from "@measured/puck";
 
-import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
 import { getFsReadStore } from "./read-store";
 import type { Item } from "./schema";
 
 import type { ImageMetadata } from "@/lib/image-types";
+import type { ResolvedPost } from "@/components/PostsView";
 import type { ResolvedRelease } from "@/components/ReleasesView";
 import type { ResolvedTourDate } from "@/components/TourDatesView";
 
@@ -43,6 +44,10 @@ const RELEASES_SLUG = "releases";
 const RELEASES_BLOCK = "ReleasesView";
 const DEFAULT_RELEASES_LIMIT = 8;
 
+const POSTS_SLUG = "posts";
+const POSTS_BLOCK = "PostsView";
+const DEFAULT_POSTS_LIMIT = 6;
+
 type LooseBlock = { type?: unknown; props?: Record<string, unknown> };
 
 /**
@@ -55,7 +60,8 @@ export async function resolvePageCollectionBlocks<D extends Data>(data: D): Prom
   const content = (data.content ?? []) as unknown[];
   const hasTourDates = containsBlockType(content, TOUR_DATES_BLOCK);
   const hasReleases = containsBlockType(content, RELEASES_BLOCK);
-  if (!hasTourDates && !hasReleases) return data;
+  const hasPosts = containsBlockType(content, POSTS_BLOCK);
+  if (!hasTourDates && !hasReleases && !hasPosts) return data;
 
   const store = getFsReadStore();
   let resolved: D = data;
@@ -76,6 +82,13 @@ export async function resolvePageCollectionBlocks<D extends Data>(data: D): Prom
     if (def) {
       const items = await store.listItemsInOrder(RELEASES_SLUG, def);
       resolved = injectResolvedReleases(resolved, mapToResolvedReleases(items));
+    }
+  }
+  if (hasPosts) {
+    const def = await store.readCollectionDef(POSTS_SLUG);
+    if (def) {
+      const items = await store.listItemsInOrder(POSTS_SLUG, def);
+      resolved = injectResolvedPosts(resolved, mapToResolvedPosts(items));
     }
   }
   return resolved;
@@ -182,6 +195,56 @@ function injectReleases(block: LooseBlock, all: ResolvedRelease[]): LooseBlock {
   if (block.type !== RELEASES_BLOCK) return block;
   const rawLimit = block.props?.limit;
   const limit = typeof rawLimit === "number" && rawLimit > 0 ? rawLimit : DEFAULT_RELEASES_LIMIT;
+  return { ...block, props: { ...block.props, items: all.slice(0, limit) } };
+}
+
+/**
+ * Pure: project `posts` items into the presentational `ResolvedPost` shape,
+ * newest first (undated posts sort to the end — `publishedAt` is required so
+ * that's defensive). The store already applies the collection's
+ * publishedAt-desc default sort; re-sorting here keeps the projection
+ * deterministic for unit tests that pass raw items.
+ */
+export function mapToResolvedPosts(items: readonly Item[]): ResolvedPost[] {
+  return items
+    .map((item) => ({
+      title: stringValue(item, POSTS_FIELD_IDS.title),
+      coverImage: imageValue(item, POSTS_FIELD_IDS.coverImage),
+      category: stringValue(item, POSTS_FIELD_IDS.category),
+      publishedAt: stringValue(item, POSTS_FIELD_IDS.publishedAt),
+      summary: stringValue(item, POSTS_FIELD_IDS.summary),
+    }))
+    // Re-sort by parsed instant (newest first), instant-based and
+    // deterministic for unit tests. Array.sort is stable, so undated posts
+    // keep the store's order among themselves.
+    .sort((a, b) => {
+      const am = Date.parse(a.publishedAt);
+      const bm = Date.parse(b.publishedAt);
+      const aok = !Number.isNaN(am);
+      const bok = !Number.isNaN(bm);
+      if (aok && bok) return bm - am; // both dated → newest first
+      if (aok) return -1; // dated before undated
+      if (bok) return 1;
+      return 0; // both undated → keep store order
+    });
+}
+
+/**
+ * Pure: return a new `Data` with `items` injected into every `PostsView`
+ * block (sliced to its `limit`). Exported for unit tests that don't touch FS.
+ */
+export function injectResolvedPosts<D extends Data>(data: D, items: ResolvedPost[]): D {
+  const content = (data.content ?? []) as unknown[];
+  return {
+    ...data,
+    content: mapBlocks(content, (block) => injectPosts(block, items)),
+  } as D;
+}
+
+function injectPosts(block: LooseBlock, all: ResolvedPost[]): LooseBlock {
+  if (block.type !== POSTS_BLOCK) return block;
+  const rawLimit = block.props?.limit;
+  const limit = typeof rawLimit === "number" && rawLimit > 0 ? rawLimit : DEFAULT_POSTS_LIMIT;
   return { ...block, props: { ...block.props, items: all.slice(0, limit) } };
 }
 
