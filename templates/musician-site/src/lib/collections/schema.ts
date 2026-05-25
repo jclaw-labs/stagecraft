@@ -26,8 +26,6 @@
  * are silently stripped on read.
  */
 
-import { randomUUID } from "node:crypto";
-
 import type { Data as PuckData } from "@measured/puck";
 import { z, type ZodTypeAny } from "zod";
 
@@ -54,17 +52,14 @@ export type FieldKey = string;
 export type ItemId = string;
 
 /**
- * ID generation helpers. Every consumer that creates a new field or
- * item should call these rather than rolling its own scheme — keeps
- * id shapes consistent across the codebase, and gives us one place to
- * change the strategy (e.g. swap UUID for nanoid) if we ever need to.
- *
- * The prefixes (`fld_` / `item_`) carry no semantic load at the data
- * layer; they exist so a stray id in a log line tells you what it
- * refers to.
+ * ID generation helpers (`generateFieldId` / `generateItemId`) moved to
+ * `./id-gen.ts`. They import `node:crypto`, which would otherwise pull a
+ * node-only dependency into this module; keeping them out is what makes
+ * this file node-free and therefore client-importable (admin forms run
+ * the same Zod schemas the server uses). Server callers reach the
+ * generators via the barrel `@/lib/collections`; sibling submodules
+ * import `./id-gen` directly.
  */
-export const generateFieldId = (): FieldId => `fld_${randomUUID()}`;
-export const generateItemId = (): ItemId => `item_${randomUUID()}`;
 
 /**
  * Slug pattern shared by collection slugs and item slugs. Matches the
@@ -97,6 +92,25 @@ export const slugSchema = z
     SLUG_PATTERN,
     "Slug must be lowercase letters, digits, and hyphens (start with a letter or digit)",
   );
+
+/**
+ * Derive a collection slug from a free-text plural name: lowercase,
+ * collapse every run of non-`[a-z0-9]` characters to a single hyphen,
+ * then trim leading/trailing hyphens. The result is not guaranteed to
+ * satisfy `slugSchema` (e.g. an all-punctuation input yields `""`), so
+ * callers validate the output with `slugSchema` before using it.
+ *
+ * Shared by the create-collection API route (server) and the
+ * NewCollectionForm (client) so the slug the artist previews matches
+ * the slug the server derives — exactly one implementation. Lives here
+ * because schema.ts is node-free and therefore client-importable.
+ */
+export function slugifyToCollectionSlug(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 /**
  * Accepts either a regular slug or the reserved `_singleton` for
@@ -510,12 +524,14 @@ export const CURRENT_COLLECTION_SCHEMA_VERSION = 1;
  * `_collection.json` validation — the slug-derivation function
  * (PR 4 territory) would have no string to work with.
  */
-// Field-type classification sets live in `./field-classification.ts`
-// so client components can import them without dragging `node:crypto`
-// (this file's `generateFieldId` dependency) into the browser bundle.
-// Imported here so the validator below can consult them, and re-
-// exported for source-compat with callers that consumed them from
-// the schema module before the split.
+// Field-type classification sets live in `./field-classification.ts`.
+// (Historically they were split out so client components could import
+// them without dragging `node:crypto` — schema.ts's old `generateFieldId`
+// dependency — into the browser bundle. That dependency now lives in
+// `./id-gen.ts` and schema.ts is node-free, but the dedicated module is
+// still the home for these sets.) Imported here so the validator below
+// can consult them, and re-exported for source-compat with callers that
+// consumed them from the schema module before the split.
 import { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES } from "./field-classification";
 
 export { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES };
@@ -743,10 +759,12 @@ export type Bindable<T> =
 // ---------------------------------------------------------------------------
 // 7. Collection-block filters (ADR-009 §5.1)
 //
-// Declared in `./filter-schema.ts` so the Zod definitions don't
-// pull `node:crypto` into client bundles via this file's
-// `generateFieldId` import. Re-exported here for the curated
-// `@/lib/collections` surface.
+// Declared in `./filter-schema.ts` and re-exported here for the curated
+// `@/lib/collections` surface. (Historically the split kept the filter
+// Zod defs out of client bundles back when this file imported
+// `node:crypto` via `generateFieldId`; that generator now lives in
+// `./id-gen.ts` and schema.ts is node-free, but the dedicated module
+// remains the home for the filter schema.)
 // ---------------------------------------------------------------------------
 
 export { filterSchema } from "./filter-schema";

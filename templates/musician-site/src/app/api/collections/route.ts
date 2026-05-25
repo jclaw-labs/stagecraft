@@ -33,6 +33,7 @@ import {
   CURRENT_COLLECTION_SCHEMA_VERSION,
   generateFieldId,
   listCollectionSlugs,
+  slugifyToCollectionSlug,
   slugSchema,
   type CollectionDef,
 } from "@/lib/collections";
@@ -41,19 +42,6 @@ import { PublishError, saveToDraft } from "@/lib/publish";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
-}
-
-/**
- * Slugify a plural name the same way the client preview does:
- * lowercase, collapse every run of non-`[a-z0-9]` to a single hyphen,
- * then trim leading/trailing hyphens. Validation of the result happens
- * via `slugSchema` at the call site.
- */
-function slugifyPluralName(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 export async function POST(request: Request) {
@@ -93,7 +81,7 @@ export async function POST(request: Request) {
   const isSingleton = isSingletonRaw ?? false;
 
   // Derive + validate the slug from the plural name.
-  const slug = slugifyPluralName(pluralName);
+  const slug = slugifyToCollectionSlug(pluralName);
   const parsedSlug = slugSchema.safeParse(slug);
   if (!parsedSlug.success) {
     return err(

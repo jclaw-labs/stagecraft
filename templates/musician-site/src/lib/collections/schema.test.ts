@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { generateFieldId, generateItemId } from "./id-gen";
 import {
   buildFieldValueZodSchema,
   buildItemFileSchema,
@@ -8,8 +9,6 @@ import {
   fieldValueSchema,
   filterSchema,
   findField,
-  generateFieldId,
-  generateItemId,
   isFieldRequired,
   itemFileShellSchema,
   itemSlugSchema,
