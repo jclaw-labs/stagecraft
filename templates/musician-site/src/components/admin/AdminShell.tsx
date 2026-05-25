@@ -185,28 +185,45 @@ export async function AdminShell({
             </li>
           ))}
         </ul>
-        {genericCollections.length > 0 ? (
-          <>
-            <div style={groupHeadingStyle}>Collections</div>
-            <ul style={navListStyle}>
-              {genericCollections.map((c) => {
-                const section: AdminSection = `collection:${c.slug}`;
-                // Singletons go straight to the item; multi-item
-                // collections to the list view.
-                const href = c.isSingleton
-                  ? `/admin/collections/${c.slug}/items/_singleton`
-                  : `/admin/collections/${c.slug}`;
-                return (
-                  <li key={c.slug}>
-                    <Link href={href} style={navItemStyle(section === activeSection)}>
-                      {c.pluralName}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : null}
+        {/*
+          The Collections group header + the "+ New collection" link
+          render unconditionally so the create-a-collection entry point
+          is always reachable, even on a fresh site with no custom
+          collections yet. The collection list below only appears once
+          the artist has added one.
+        */}
+        <div style={groupHeadingStyle}>Collections</div>
+        <ul style={navListStyle}>
+          {genericCollections.map((c) => {
+            const section: AdminSection = `collection:${c.slug}`;
+            // Singletons go straight to the item; multi-item
+            // collections to the list view.
+            const href = c.isSingleton
+              ? `/admin/collections/${c.slug}/items/_singleton`
+              : `/admin/collections/${c.slug}`;
+            return (
+              <li key={c.slug}>
+                <Link href={href} style={navItemStyle(section === activeSection)}>
+                  {c.pluralName}
+                </Link>
+              </li>
+            );
+          })}
+          <li>
+            <Link
+              href="/admin/collections/new"
+              style={{
+                ...navItemStyle(activeSection === "collections"),
+                color:
+                  activeSection === "collections"
+                    ? "var(--color-text)"
+                    : "var(--color-text-muted)",
+              }}
+            >
+              + New collection
+            </Link>
+          </li>
+        </ul>
         <div style={{ marginTop: "auto", paddingTop: "var(--space-6)" }}>
           <PendingChangesIndicator />
           <PublishPendingChangesButton isDegraded={isDegraded} />
