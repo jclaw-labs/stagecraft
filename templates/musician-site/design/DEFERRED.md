@@ -110,6 +110,18 @@ up, so they aren't lost. Each notes why and where it should land.
   webfont load. Wiring `buildFontStack` into AppearanceStyles would fix the FOUT
   character; deferred to keep this PR's render output unchanged.
 
+## Open (from the data-bound Releases + Posts page blocks)
+
+- **Collection-view cards don't link to detail pages.** `ReleasesView` and
+  `PostsView` (and the home tour list) render non-interactive cards — they show
+  the collection's items but don't link to each item's detail page
+  (`/releases/<slug>`, `/news/<slug>`). Those detail routes already resolve via
+  the public catch-all (falling back to the minimal `DefaultItemFieldsList`
+  when the collection's `detailTemplate` is null), so an optional per-card link
+  is a natural follow-on. Kept non-linking for v1 to match the original
+  ReleasesView and because the null-`detailTemplate` fallback page is bare;
+  revisit when releases/posts ship real detail templates.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 

@@ -1,0 +1,32 @@
+{
+  "id": "item_demo_on_the_road_this_summer",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_posts_title": {
+      "type": "text",
+      "value": "On the Road This Summer"
+    },
+    "fld_posts_category": {
+      "type": "select",
+      "value": "announcement"
+    },
+    "fld_posts_publishedAt": {
+      "type": "date",
+      "value": "2026-05-10"
+    },
+    "fld_posts_summary": {
+      "type": "longText",
+      "value": "New tour dates just announced. Full run, cities, and ticket links — all live now."
+    },
+    "fld_posts_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}

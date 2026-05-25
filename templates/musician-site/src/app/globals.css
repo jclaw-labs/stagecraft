@@ -202,6 +202,25 @@
   object-fit: cover;
 }
 
+/* PostsView cover — a 16:9 article thumbnail frame. Same fill/cover approach
+   as the release cover; the gradient placeholder (when a post has no cover
+   image yet) fills it via the `> *` rule. */
+[data-post-cover] {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--img-radius, var(--radius));
+}
+[data-post-cover] > *,
+[data-post-cover] picture,
+[data-post-cover] img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+[data-post-cover] img {
+  object-fit: cover;
+}
+
 /* ImageCarousel — scroll-snap track + slide layout. Inline styles
    in ImageCarousel.tsx handle per-instance values (aspectRatio)
    and stateful look (arrow disabled, dot active); class hooks here

@@ -5,54 +5,74 @@ import { describe, expect, it, vi } from "vitest";
 // publish → draft-branch → auth). Mock it so this unit test loads in the
 // node env, and so the async path has deterministic items. The store is
 // slug-aware: `resolvePageCollectionBlocks` reads each present collection by
-// slug, so the mock returns tour-shaped items for "tour-dates" and
-// release-shaped items for "releases" (a page can embed both). The tour date
-// is far-future on purpose — a real date would bit-rot past the "upcoming"
-// filter. Field IDs are inlined as literals: the factory is hoisted above the
-// imports, so it can't reference the RELEASES_/TOUR_DATES_FIELD_IDS bindings.
+// slug, so the mock returns release-shaped items for "releases", post-shaped
+// for "posts", and tour-shaped otherwise (a page can embed several). The tour
+// date is far-future on purpose — a real date would bit-rot past the
+// "upcoming" filter. Field IDs are inlined as literals: the factory is hoisted
+// above the imports, so it can't reference the *_FIELD_IDS bindings.
 vi.mock("./read-store", () => ({
   getFsReadStore: () => ({
     readCollectionDef: async (slug: string) => ({ slug, fields: [] }),
-    listItemsInOrder: async (slug: string) =>
-      slug === "releases"
-        ? [
-            {
-              id: "i_rel",
-              slug: "newest-record",
-              createdAt: "",
-              updatedAt: "",
-              values: {
-                fld_releases_title: { type: "text", value: "Newest Record" },
-                fld_releases_releaseType: { type: "select", value: "album" },
-                fld_releases_releaseDate: { type: "date", value: "2026-03-01" },
-              },
+    listItemsInOrder: async (slug: string) => {
+      if (slug === "releases") {
+        return [
+          {
+            id: "i_rel",
+            slug: "newest-record",
+            createdAt: "",
+            updatedAt: "",
+            values: {
+              fld_releases_title: { type: "text", value: "Newest Record" },
+              fld_releases_releaseType: { type: "select", value: "album" },
+              fld_releases_releaseDate: { type: "date", value: "2026-03-01" },
             },
-          ]
-        : [
-            {
-              id: "i_far",
-              slug: "far-future",
-              createdAt: "",
-              updatedAt: "",
-              values: {
-                fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
-                fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
-                fld_tour_dates_city: { type: "text", value: "London" },
-              },
+          },
+        ];
+      }
+      if (slug === "posts") {
+        return [
+          {
+            id: "i_post",
+            slug: "latest-news",
+            createdAt: "",
+            updatedAt: "",
+            values: {
+              fld_posts_title: { type: "text", value: "Latest News" },
+              fld_posts_category: { type: "select", value: "announcement" },
+              fld_posts_publishedAt: { type: "date", value: "2026-05-10" },
             },
-          ],
+          },
+        ];
+      }
+      return [
+        {
+          id: "i_far",
+          slug: "far-future",
+          createdAt: "",
+          updatedAt: "",
+          values: {
+            fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
+            fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
+            fld_tour_dates_city: { type: "text", value: "London" },
+          },
+        },
+      ];
+    },
   }),
 }));
 
 import {
+  injectResolvedPosts,
   injectResolvedReleases,
   injectResolvedTourDates,
+  mapToResolvedPosts,
   mapToResolvedReleases,
   mapToResolvedTourDates,
   resolvePageCollectionBlocks,
 } from "./resolve-page-collections";
-import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
 import type { Item } from "./schema";
+import type { ResolvedPost } from "@/components/PostsView";
 import type { ResolvedRelease } from "@/components/ReleasesView";
 import type { ResolvedTourDate } from "@/components/TourDatesView";
 
@@ -69,6 +89,20 @@ function releaseItem(
   if (extra.description) {
     values[RELEASES_FIELD_IDS.description] = { type: "longText", value: extra.description };
   }
+  return { id: `item_${slug}`, slug, createdAt: "", updatedAt: "", values } as unknown as Item;
+}
+
+function postItem(
+  slug: string,
+  publishedAt: string,
+  extra: Partial<Record<"title" | "category" | "summary", string>> = {},
+): Item {
+  const values: Record<string, { type: string; value: string }> = {
+    [POSTS_FIELD_IDS.title]: { type: "text", value: extra.title ?? "Untitled" },
+  };
+  if (publishedAt) values[POSTS_FIELD_IDS.publishedAt] = { type: "date", value: publishedAt };
+  if (extra.category) values[POSTS_FIELD_IDS.category] = { type: "select", value: extra.category };
+  if (extra.summary) values[POSTS_FIELD_IDS.summary] = { type: "longText", value: extra.summary };
   return { id: `item_${slug}`, slug, createdAt: "", updatedAt: "", values } as unknown as Item;
 }
 
@@ -229,19 +263,20 @@ describe("resolvePageCollectionBlocks", () => {
     ]);
   });
 
-  it("resolves both block types on one page, each from its own collection", async () => {
-    // A page can embed both blocks; the pass composes an inject per present
-    // collection. Assert each block gets items from its matching collection
-    // (tour-shaped vs release-shaped), not the other's.
+  it("resolves multiple block types on one page, each from its own collection", async () => {
+    // A page can embed several collection blocks; the pass composes an inject
+    // per present collection. Assert each block gets items from its matching
+    // collection (tour- vs release- vs post-shaped), not another's.
     const data = {
       root: { props: {} },
       content: [
         { type: "TourDatesView", props: { id: "t", limit: 5 } },
         { type: "ReleasesView", props: { id: "r", limit: 8 } },
+        { type: "PostsView", props: { id: "p", limit: 6 } },
       ],
     } as unknown as Data;
     const out = await resolvePageCollectionBlocks(data);
-    const [tour, releases] = out.content as Array<{
+    const [tour, releases, posts] = out.content as Array<{
       props: { items?: Array<{ venue?: string; title?: string }> };
     }>;
     expect(tour.props.items).toEqual([
@@ -254,6 +289,15 @@ describe("resolvePageCollectionBlocks", () => {
         releaseType: "album",
         releaseDate: "2026-03-01",
         description: "",
+      },
+    ]);
+    expect(posts.props.items).toEqual([
+      {
+        title: "Latest News",
+        coverImage: null,
+        category: "announcement",
+        publishedAt: "2026-05-10",
+        summary: "",
       },
     ]);
   });
@@ -304,6 +348,75 @@ describe("injectResolvedReleases", () => {
     const out = injectResolvedReleases(data, sample);
     const section = (out.content as Array<{ props: { children: Array<{ type: string; props: { items?: ResolvedRelease[] } }> } }>)[0];
     const view = section.props.children.find((c) => c.type === "ReleasesView");
+    expect(view?.props.items).toHaveLength(1);
+    expect(view?.props.items?.[0].title).toBe("One");
+  });
+});
+
+describe("mapToResolvedPosts", () => {
+  it("maps fields and sorts newest-first", () => {
+    const items = [
+      postItem("mid", "2026-03-01", { title: "Mid" }),
+      postItem("newest", "2026-05-01", { title: "Newest" }),
+      postItem("oldest", "2026-01-01", { title: "Oldest" }),
+    ];
+    expect(mapToResolvedPosts(items).map((p) => p.title)).toEqual(["Newest", "Mid", "Oldest"]);
+  });
+
+  it("maps every presentational field, defaulting missing optionals to empty", () => {
+    const [p] = mapToResolvedPosts([
+      postItem("x", "2026-05-10", {
+        title: "On the Road",
+        category: "announcement",
+        summary: "Dates and cities.",
+      }),
+    ]);
+    expect(p).toEqual({
+      title: "On the Road",
+      coverImage: null,
+      category: "announcement",
+      publishedAt: "2026-05-10",
+      summary: "Dates and cities.",
+    });
+
+    const [bare] = mapToResolvedPosts([postItem("y", "2026-05-10", { title: "Bare" })]);
+    expect(bare.category).toBe("");
+    expect(bare.summary).toBe("");
+    expect(bare.coverImage).toBeNull();
+  });
+
+  it("reads cover art as ImageMetadata or null", () => {
+    const withCover = {
+      id: "i",
+      slug: "a",
+      createdAt: "",
+      updatedAt: "",
+      values: {
+        [POSTS_FIELD_IDS.title]: { type: "text", value: "A" },
+        [POSTS_FIELD_IDS.publishedAt]: { type: "date", value: "2026-05-10" },
+        [POSTS_FIELD_IDS.coverImage]: { type: "image", value: { id: "img1", alt: "cover" } },
+      },
+    } as unknown as Item;
+    expect(mapToResolvedPosts([withCover])[0].coverImage).toEqual({ id: "img1", alt: "cover" });
+  });
+});
+
+describe("injectResolvedPosts", () => {
+  const sample: ResolvedPost[] = [
+    { title: "One", coverImage: null, category: "news", publishedAt: "2026-05-01", summary: "" },
+    { title: "Two", coverImage: null, category: "essay", publishedAt: "2026-04-01", summary: "" },
+  ];
+
+  it("injects items into a PostsView block, respecting its limit", () => {
+    const data = {
+      root: { props: {} },
+      content: [
+        { type: "Section", props: { id: "s", children: [{ type: "PostsView", props: { id: "p", limit: 1 } }] } },
+      ],
+    } as unknown as Data;
+    const out = injectResolvedPosts(data, sample);
+    const section = (out.content as Array<{ props: { children: Array<{ type: string; props: { items?: ResolvedPost[] } }> } }>)[0];
+    const view = section.props.children.find((c) => c.type === "PostsView");
     expect(view?.props.items).toHaveLength(1);
     expect(view?.props.items?.[0].title).toBe("One");
   });
