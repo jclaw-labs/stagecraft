@@ -195,7 +195,6 @@ route handlers. If you need a literal value (e.g. inside an
 | Spacing       | `--space-*`                             | `var(--space-4)`                              |
 | Layout        | `--max-*`, `--radius-*`                 | `var(--max-width-narrow)`, `var(--radius-sm)` |
 | Shadows       | `--shadow-*`                            | `var(--shadow-sm)`                            |
-| Breakpoints   | `--breakpoint-*` (legacy template only) | reference-only — see below                    |
 
 CSS custom properties cannot appear in `@media` queries. Use literal
 pixel values with a comment:
