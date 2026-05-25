@@ -215,7 +215,7 @@ export function ImagePickerField({ value, onChange }: Props) {
                 display: "block",
                 maxWidth: "100%",
                 height: "auto",
-                border: "1px solid var(--color-border)",
+                border: "var(--border-width) solid var(--color-border)",
                 borderRadius: "var(--radius-sm)",
                 cursor: "crosshair",
               }}
@@ -340,7 +340,7 @@ export function ImagePickerField({ value, onChange }: Props) {
             style={{
               padding: "var(--space-1) var(--space-3)",
               fontSize: "var(--font-size-sm)",
-              border: "1px solid var(--color-action)",
+              border: "var(--border-width) solid var(--color-action)",
               background: isUploading ? "var(--color-action-disabled)" : "var(--color-action)",
               color: "var(--color-action-fg)",
               cursor: isUploading ? "wait" : "pointer",
@@ -389,7 +389,7 @@ export function SanitisedHint({ sanitised }: { sanitised: SanitisedInfoWire }) {
       data-testid="image-picker-sanitised-hint"
       style={{
         padding: "var(--space-2)",
-        border: "1px solid var(--color-border)",
+        border: "var(--border-width) solid var(--color-border)",
         borderRadius: "var(--radius-sm)",
         background: "var(--color-surface-muted)",
         fontSize: "var(--font-size-xs)",
@@ -437,7 +437,7 @@ function FocalPointMarker({ focalPoint }: { focalPoint: FocalPoint }) {
         width: "1.25rem",
         height: "1.25rem",
         borderRadius: "50%",
-        border: "2px solid var(--color-action-fg)",
+        border: "var(--border-width-thick) solid var(--color-action-fg)",
         boxShadow: "0 0 0 2px var(--color-action), var(--shadow-md)",
         background: "var(--color-action)",
         pointerEvents: "none",
@@ -468,7 +468,7 @@ const textInputStyle: CSSProperties = {
   width: "100%",
   marginTop: "var(--space-1)",
   padding: "var(--space-1) var(--space-2)",
-  border: "1px solid var(--color-border-strong)",
+  border: "var(--border-width) solid var(--color-border-strong)",
   borderRadius: "var(--radius-sm)",
   fontSize: "var(--font-size-sm)",
 };
@@ -476,7 +476,7 @@ const textInputStyle: CSSProperties = {
 const secondaryButtonStyle: CSSProperties = {
   padding: "var(--space-1) var(--space-2)",
   fontSize: "var(--font-size-xs)",
-  border: "1px solid var(--color-border)",
+  border: "var(--border-width) solid var(--color-border)",
   background: "var(--color-surface)",
   cursor: "pointer",
   alignSelf: "flex-start",

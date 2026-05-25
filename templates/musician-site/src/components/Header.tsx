@@ -49,8 +49,8 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
       : borderKind === "bold"
         ? "3px solid var(--color-border)"
         : borderKind === "accent"
-          ? "2px solid var(--color-accent)"
-          : "1px solid var(--color-border)";
+          ? "var(--border-width-thick) solid var(--color-accent)"
+          : "var(--border-width) solid var(--color-border)";
   const headerHeight = header.headerHeight ?? "standard";
   const headerPad =
     headerHeight === "compact"

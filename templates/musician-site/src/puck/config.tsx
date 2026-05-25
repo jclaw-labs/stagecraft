@@ -39,6 +39,12 @@ import {
   type NewsletterService,
 } from "@/components/newsletter-types";
 import {
+  BUTTON_BASE,
+  BUTTON_VARIANT_STYLE as BUTTON_STYLE,
+  BUTTON_VARIANTS,
+  type ButtonVariant,
+} from "@/lib/button-style";
+import {
   cardMediaFilename,
   inferCardMediaKind,
   type CardMediaKind,
@@ -62,8 +68,11 @@ export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 export const SECTION_VARIANTS = ["plain", "card", "accent"] as const;
 export type SectionVariant = (typeof SECTION_VARIANTS)[number];
 
-export const BUTTON_VARIANTS = ["primary", "secondary", "outline"] as const;
-export type ButtonVariant = (typeof BUTTON_VARIANTS)[number];
+// Button variants + styling are defined in @/lib/button-style (shared with the
+// collection-template renderer); re-exported as part of the config's public
+// surface (block field options + tests).
+export { BUTTON_VARIANTS };
+export type { ButtonVariant };
 
 // A single button inside a ButtonRow (inline group of CTAs).
 export type ButtonRowItem = {
@@ -390,7 +399,7 @@ const newsletterUrlInputStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   fontSize: "var(--font-size-sm)",
   fontFamily: "var(--font-mono)",
-  border: "1px solid var(--color-border)",
+  border: "var(--border-width) solid var(--color-border)",
   borderRadius: "var(--radius-sm)",
   background: "var(--color-surface)",
   color: "var(--color-text)",
@@ -426,36 +435,8 @@ const SPACER_HEIGHT: Record<SpacerSize, string> = {
   xl: "var(--space-32)",
 };
 
-const BUTTON_STYLE: Record<ButtonVariant, CSSProperties> = {
-  primary: {
-    // Theme button fill (solid / outline / underline) via --btn-* vars,
-    // falling back to a solid accent button.
-    background: "var(--btn-bg, var(--color-action))",
-    color: "var(--btn-fg, var(--color-action-fg))",
-    border: "1px solid var(--btn-border, var(--color-action))",
-    textDecoration: "var(--btn-decoration, none)",
-  },
-  secondary: {
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-surface-raised)",
-  },
-  outline: {
-    background: "transparent",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-text)",
-  },
-};
-
-const BUTTON_BASE: CSSProperties = {
-  display: "inline-block",
-  padding: "var(--space-2) var(--space-4)",
-  // Theme button shape (square / rounded / pill); falls back to the corner radius.
-  borderRadius: "var(--btn-radius, var(--radius))",
-  textDecoration: "none",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-  cursor: "pointer",
-};
+// Button styling (base + variants) is shared via @/lib/button-style — the
+// collection-template renderer (primitives.tsx) consumes the same source.
 
 export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
@@ -664,7 +645,7 @@ function cardContainerStyle(
     gap: CARD_SIZE_GAP[size],
     margin: "var(--space-4) 0",
     padding: isMinimal ? 0 : CARD_SIZE_PADDING[size],
-    border: isMinimal ? undefined : "1px solid var(--color-border)",
+    border: isMinimal ? undefined : "var(--border-width) solid var(--color-border)",
     borderRadius: isMinimal ? undefined : "var(--radius-md)",
     background: variant === "filled" ? "var(--color-surface)" : "transparent",
   };
@@ -900,7 +881,7 @@ const cardEyebrowStyle: CSSProperties = {
   fontWeight: "var(--font-weight-semibold)" as unknown as number,
   color: "var(--color-text-muted)",
   textTransform: "uppercase",
-  letterSpacing: "0.05em",
+  letterSpacing: "var(--tracking-sm)",
 };
 
 const cardFileTileStyle: CSSProperties = {
@@ -961,15 +942,14 @@ const cardDownloadRowStyle: CSSProperties = {
 };
 
 const cardDownloadButtonStyle: CSSProperties = {
+  ...BUTTON_BASE,
+  ...BUTTON_STYLE.primary,
+  // Compact download CTA: inherit the themed button look, then tighten the
+  // padding + size and lay out as a row (glyph + label).
   display: "inline-flex",
   alignItems: "center",
   padding: "var(--space-1) var(--space-3)",
-  background: "var(--color-action)",
-  color: "var(--color-action-fg)",
-  borderRadius: "var(--radius)",
-  textDecoration: "none",
   fontSize: "var(--font-size-sm)",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
 };
 
 const cardSizeLabelStyle: CSSProperties = {
@@ -1212,7 +1192,7 @@ export const puckConfig: Config<
               ? {
                   padding: "var(--space-6)",
                   background: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
+                  border: "var(--border-width) solid var(--color-border)",
                   borderRadius: "var(--radius)",
                   boxShadow: "var(--shadow-md)",
                 }
@@ -1330,7 +1310,7 @@ export const puckConfig: Config<
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: "#000",
+                    background: "var(--color-scrim)",
                     opacity: clampedOpacity,
                   }}
                 />
@@ -1345,7 +1325,7 @@ export const puckConfig: Config<
               }}
             >
               {headline ? (
-                <h1 style={{ fontSize: "2.5rem", margin: 0 }}>{headline}</h1>
+                <h1 style={{ margin: 0 }}>{headline}</h1>
               ) : null}
               {body ? renderParagraphs(body, "fs") : null}
             </div>
@@ -1372,7 +1352,7 @@ export const puckConfig: Config<
                 width: "100%",
                 padding: "var(--space-2) var(--space-3)",
                 borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--color-border)",
+                border: "var(--border-width) solid var(--color-border)",
                 background: value ? "var(--color-action)" : "var(--color-surface)",
                 color: value ? "var(--color-action-fg)" : "var(--color-text)",
                 fontSize: "var(--font-size-sm)",

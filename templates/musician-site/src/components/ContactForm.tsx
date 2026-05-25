@@ -31,7 +31,7 @@ const fieldStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   fontSize: "var(--font-size-base)",
   fontFamily: "var(--font-body)",
-  border: "1px solid var(--color-border-strong)",
+  border: "var(--border-width) solid var(--color-border-strong)",
   borderRadius: "var(--radius-sm)",
   background: "var(--color-surface)",
   color: "var(--color-text)",
@@ -69,7 +69,7 @@ function buttonStyle(isDisabled: boolean): CSSProperties {
     cursor: isDisabled ? "default" : "pointer",
     background: bg,
     color: "var(--color-action-fg)",
-    border: `1px solid ${bg}`,
+    border: `var(--border-width) solid ${bg}`,
   };
 }
 
@@ -79,7 +79,7 @@ const statusBaseStyle: CSSProperties = {
   borderRadius: "var(--radius-sm)",
   fontSize: "var(--font-size-sm)",
   background: "var(--color-surface-subtle)",
-  border: "1px solid var(--color-border)",
+  border: "var(--border-width) solid var(--color-border)",
 };
 
 const statusSuccessStyle: CSSProperties = {

@@ -363,7 +363,7 @@ function arrowStyle(isDisabled: boolean, side: "prev" | "next"): CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     borderRadius: "var(--radius-md)",
-    border: "1px solid var(--color-border)",
+    border: "var(--border-width) solid var(--color-border)",
     background: "var(--color-surface)",
     color: "var(--color-text)",
     fontSize: "var(--font-size-lg)",

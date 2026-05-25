@@ -73,7 +73,7 @@ const IMG_RADIUS: Record<Design["imageTreatment"], string> = {
 const IMG_FRAME: Record<Design["imageTreatment"], { pad: string; frame: string; bg: string }> = {
   plain: { pad: "0px", frame: "none", bg: "transparent" },
   rounded: { pad: "0px", frame: "none", bg: "transparent" },
-  framed: { pad: "var(--space-2)", frame: "1px solid var(--color-border)", bg: "var(--color-surface)" },
+  framed: { pad: "var(--space-2)", frame: "var(--border-width) solid var(--color-border)", bg: "var(--color-surface)" },
 };
 // Theme button fill style — drives the *primary* button's look. Outline /
 // underline reference the accent colour so the CTA still reads as accented.
@@ -213,7 +213,6 @@ export function AppearanceStyles({ appearance }: Props) {
       --color-text-muted: ${appearance.colors.textMuted};
       --color-border: ${appearance.colors.border};
       --color-action: ${appearance.colors.accent};
-      --color-action-fg: ${appearance.colors.surface};
       --color-on-accent: ${onAccent};
       --gradient-accent: ${accentImage};
       --font-body: ${fontStack(appearance.typography.bodyFont)};

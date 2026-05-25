@@ -28,6 +28,12 @@ import type { ReactNode } from "react";
 import type { SlotComponent } from "@measured/puck";
 
 import { Image as PublicImage } from "@/components/Image";
+import {
+  BUTTON_BASE,
+  BUTTON_VARIANT_STYLE,
+  BUTTON_VARIANTS,
+  type ButtonVariant,
+} from "@/lib/button-style";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import {
@@ -344,7 +350,7 @@ const TEXT_VARIANT_STYLE: Record<TextVariant, React.CSSProperties> = {
   label: {
     fontSize: "var(--font-size-xs)",
     textTransform: "uppercase",
-    letterSpacing: "0.05em",
+    letterSpacing: "var(--tracking-sm)",
     color: "var(--color-text-muted)",
   },
 };
@@ -409,34 +415,10 @@ function ImageBlock({ src, altOverride }: ImageProps): ReactNode {
 // Button — bindable label and href
 // ---------------------------------------------------------------------------
 
-export const BUTTON_VARIANTS = ["primary", "secondary", "outline"] as const;
-export type ButtonVariant = (typeof BUTTON_VARIANTS)[number];
-
-const BUTTON_VARIANT_STYLE: Record<ButtonVariant, React.CSSProperties> = {
-  primary: {
-    background: "var(--color-action)",
-    color: "var(--color-action-fg)",
-    border: "1px solid var(--color-action)",
-  },
-  secondary: {
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-surface-raised)",
-  },
-  outline: {
-    background: "transparent",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-text)",
-  },
-};
-
-const BUTTON_BASE_STYLE: React.CSSProperties = {
-  display: "inline-block",
-  padding: "var(--space-2) var(--space-4)",
-  borderRadius: "var(--radius)",
-  textDecoration: "none",
-  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-};
+// Variants + styling live in @/lib/button-style (shared with the page editor,
+// so the two render paths can't drift). Re-exported for buildEditorPuckConfig.
+export { BUTTON_VARIANTS };
+export type { ButtonVariant };
 
 type ButtonRawProps = {
   label: Bindable<string>;
@@ -460,7 +442,7 @@ function resolveButtonProps(raw: ButtonRawProps, ctx: ResolveContext): ButtonPro
 function Button({ label, href, variant }: ButtonProps): ReactNode {
   if (label === undefined || label === "" || href === undefined || href === "") return null;
   return (
-    <a href={href} style={{ ...BUTTON_BASE_STYLE, ...BUTTON_VARIANT_STYLE[variant] }}>
+    <a href={href} style={{ ...BUTTON_BASE, ...BUTTON_VARIANT_STYLE[variant] }}>
       {label}
     </a>
   );
