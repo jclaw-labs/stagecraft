@@ -1,9 +1,0 @@
-{
-  "wordmarkSizeAdjust": "0",
-  "headerMode": "solid-sticky",
-  "headerForegroundColor": "",
-  "isHeaderTextUppercase": false,
-  "headerSubtitle": "",
-  "headerLayout": "logo-left-nav-right",
-  "items": ["home", "about", "music", "photos", "press", "contact"]
-}

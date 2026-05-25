@@ -1,10 +1,7 @@
 # CLAUDE.md — Monorepo Coding Standards
 
 Code-quality rules for the Stagecraft monorepo. These override general
-defaults. Musician-facing documentation for the `templates/musician-site-legacy/`
-template lives inside that directory and is user-oriented; the
-convention-level rules for how that template is built and edited live
-in this file.
+defaults.
 
 ## Repo structure
 
@@ -16,7 +13,6 @@ packages/
   db/               Prisma schema + client
   queue/            Async job queue
 templates/
-  musician-site-legacy/  Legacy Astro + Keystatic template (superseded by ADR-007)
   musician-site/         Next.js + Puck template (per ADR-007)
 claude/
   skills/           Repo-scoped skills (e.g. create-pr, artist-site-pipeline)
@@ -153,138 +149,12 @@ PRs may omit screenshots — note this explicitly in the PR body.
 
 ---
 
-## 6. Legacy musician-site template (`templates/musician-site-legacy/`)
+## 6. Design tokens
 
-The user-facing docs inside the template (`README.md`, `EDITING.md`,
-`CLAUDE.md`) are for musicians editing their own site. The
-conventions below are for working on the template itself within this
-monorepo.
-
-### Schema-first editing
-
-Every editable piece of content has a named field in a Zod schema in
-`src/lib/schemas.ts`, which maps to a specific file under
-`src/content/`.
-
-- For any content change, edit the file in `src/content/` — not
-  `.astro` / `.tsx` components. Components render content; they don't
-  define it.
-- Run `npm run validate:content` after any content change.
-- Do not add ad-hoc keys outside the schema. Do not remove required
-  fields. To add a field, update the Zod schema first, then the
-  content file.
-- Image references in YAML use the `imageMetadataSchema` shape
-  (required: `src`, `alt`). Paths are relative from the content file
-  to `src/assets/images/` so Astro's image pipeline can optimise.
-
-### Seed examples
-
-Every seed file under `src/content/collections/<name>/` must populate
-every required field with a real value or sensible placeholder.
-When adding a required field to a collection schema, update the seed
-example in the same commit — otherwise `npm run validate:content`
-fails for anyone who pulls the change. Status-like enums are always
-written out explicitly (e.g. `status: upcoming`); don't rely on
-defaults.
-
-### Enum single source of truth
-
-Every string-literal enum has exactly **one** canonical declaration.
-Zod schemas, Astro content collections, Keystatic selects, Markdoc
-`matches` arrays, and TypeScript unions all derive from that const —
-never redeclare the values.
-
-**Where they live:**
-
-- **Data-shape enums** (values persisted in content files) → canonical
-  in `src/lib/schemas.ts`. Examples: `RELEASE_TYPES`, `VIDEO_TYPES`,
-  `TOUR_DATE_STATUSES`, `POST_CATEGORIES`, `POST_STATUSES`,
-  `STORE_ITEM_FORMATS`, `STORE_ITEM_STATUSES`, `IMAGE_USAGE_SLOTS`,
-  `FONT_CATEGORIES`.
-- **UI / attribute enums** (Markdoc tag attributes or Keystatic
-  content-component selects only) → canonical in
-  `src/content-components/_shared/types.ts`. Examples:
-  `HEADING_LEVELS`, `BUTTON_VARIANTS`, `COLUMNS_LAYOUTS`,
-  `TOUR_DATES_FILTERS`, `POSTS_LIST_LAYOUTS`, `EMBED_ASPECT_RATIOS`,
-  `NEWSLETTER_SERVICES`, `VIDEO_URL_TYPES`.
-
-When unsure, default to `schemas.ts`.
-
-**The pattern.** Always `as const` + derived union — never a bare
-`string[]`:
-
-```ts
-export const FOO_VALUES = ["a", "b", "c"] as const;
-export type FooValue = (typeof FOO_VALUES)[number];
-
-// When display labels differ from values, colocate a sibling record:
-export const FOO_LABELS: Record<FooValue, string> = { a: "Alpha", ... };
-```
-
-**Consumers.** Import and derive; never paste the values again:
-
-```ts
-// Markdoc `matches`:
-matches: FOO_VALUES as unknown as string[]
-
-// Keystatic `fields.select`:
-options: FOO_VALUES.map((v) => ({ label: FOO_LABELS[v] ?? v, value: v }))
-
-// content.config.ts:
-z.enum(FOO_VALUES)
-```
-
-**Adding a new enum:** (1) decide data-shape vs UI, (2) declare the
-const + optional labels record, (3) reference it via the consumer
-patterns above. Run `npm run check:markdoc-config` and `npm test` —
-the cross-schema consistency test asserts Markdoc `matches` and
-Keystatic `options` stay aligned.
-
-**Intentional divergences** (don't "fix" these): currency codes
-(permissive Zod, curated Keystatic select), social-link keys (record
-shape, not enum), `parseColumnsLayout` regex (runtime-permissive;
-authoring surfaces curate).
-
-### Design tokens
-
-See §7. The rule applies here too; the per-location token source for
-this template is documented there.
-
-### Boolean props
-
-Start all boolean props with `is`, `are`, `has` (e.g. `isExternal`,
-`isRequired`, `isTextarea`).
-
-### Styling in React components
-
-CSS modules (`.module.css`). No CSS-in-JS.
-
-### Rendering + routing
-
-- Pages are prerendered by default via `@astrojs/netlify`.
-- Only API endpoints set `export const prerender = false`.
-- All pages route through `src/pages/[...slug].astro`. Page layout
-  lives entirely in the `.mdoc` body via Markdoc layout tags
-  (`{% section %}`, `{% fullscreen-section %}`, `{% columns %}`,
-  `{% column %}`); the catch-all doesn't branch on slug.
-
-### General constraints
-
-- Prefer `.astro` components over React unless stateful interactivity
-  is needed.
-- Keep diffs small and focused; don't refactor unrelated code.
-- Don't introduce new dependencies without justification.
-- Maintain accessibility (semantic HTML, alt text, keyboard
-  navigation, color contrast).
-
----
-
-## 7. Design tokens
-
-Applies to: `apps/web/`, `templates/musician-site/`,
-`templates/musician-site-legacy/`. The three have separate token sets
-(intentionally — different brand surfaces) but share the same naming
-convention so reviewers can verify adherence the same way everywhere.
+Applies to: `apps/web/` and `templates/musician-site/`. The two have
+separate token sets (intentionally — different brand surfaces) but share
+the same naming convention so reviewers can verify adherence the same way
+everywhere.
 
 All visual values (colors, fonts, spacing, sizes, radii, shadows) use
 CSS custom properties. Never hardcode hex colors, font sizes, font
@@ -321,10 +191,6 @@ pixel values with a comment:
   template's CSS as the styling layer lands. The rule applies the
   moment any styles are introduced; pick token names matching the
   prefixes above.
-- **`templates/musician-site-legacy/`** — `src/content/config/appearance.json`
-  (CMS-editable) → injected via `BaseLayout.astro` → consumed by
-  `src/styles/global.css`. Non-CMS tokens (font-size scale, spacing,
-  breakpoints) live in `src/content/config/theme.json`.
 
 ### Inline HTML returned from route handlers
 
