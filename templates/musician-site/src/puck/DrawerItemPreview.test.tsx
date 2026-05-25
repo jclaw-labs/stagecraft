@@ -42,7 +42,7 @@ describe("<DrawerItemPreview>", () => {
     // Gallery's defaultProps are empty tiles (decorative gradient blocks);
     // TourDatesView renders an editor placeholder (items only resolve on the
     // published page) — both are clearer as a name pill.
-    for (const name of ["FullscreenSection", "Spacer", "Divider", "Gallery", "TourDatesView"]) {
+    for (const name of ["FullscreenSection", "Spacer", "Divider", "Gallery", "TourDatesView", "ReleasesView"]) {
       const html = renderPreview(name);
       expect(html).toContain(`>${name}<`);
     }

@@ -59,9 +59,9 @@ import { puckConfig } from "./config";
  *     thumbnail scale.
  *   - **Gallery** — defaultProps are empty image tiles, so the live
  *     render is just decorative gradient blocks with no context.
- *   - **TourDatesView** — `items` only resolves on the published page;
- *     in the editor it renders an empty-state placeholder, so a name
- *     pill is clearer than a scaled-down placeholder box.
+ *   - **TourDatesView** / **ReleasesView** — `items` only resolves on the
+ *     published page; in the editor they render an empty-state placeholder,
+ *     so a name pill is clearer than a scaled-down placeholder box.
  *
  * Slot containers (Section, Columns) are detected automatically by
  * scanning `fields` for `{ type: "slot" }` — their `defaultProps`
@@ -77,6 +77,7 @@ const STATIC_PREVIEW_BLOCKS = new Set<keyof BlockProps>([
   "Divider",
   "Gallery",
   "TourDatesView",
+  "ReleasesView",
 ]);
 
 type ConfigComponent = {

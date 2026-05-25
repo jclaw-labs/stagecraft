@@ -111,6 +111,9 @@ describe("buildFirstRunSeed", () => {
     // The Contact page ships a working ContactForm block.
     const contact = seed.starterPages.find((p) => p.slug === "contact");
     expect(JSON.stringify(contact?.data.content ?? [])).toContain("ContactForm");
+    // The Music page ships a data-bound ReleasesView.
+    const music = seed.starterPages.find((p) => p.slug === "music");
+    expect(JSON.stringify(music?.data.content ?? [])).toContain("ReleasesView");
   });
 
   it("binds the home tour section to a real TourDatesView (no faked rows or tracklist)", () => {

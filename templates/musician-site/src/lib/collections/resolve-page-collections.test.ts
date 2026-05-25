@@ -3,35 +3,74 @@ import { describe, expect, it, vi } from "vitest";
 
 // `read-store` transitively imports server-only modules (next/headers via
 // publish → draft-branch → auth). Mock it so this unit test loads in the
-// node env, and so the async path has deterministic, far-future items
-// (a real date would bit-rot past the "upcoming" filter).
+// node env, and so the async path has deterministic items. The store is
+// slug-aware: `resolvePageCollectionBlocks` reads each present collection by
+// slug, so the mock returns tour-shaped items for "tour-dates" and
+// release-shaped items for "releases" (a page can embed both). The tour date
+// is far-future on purpose — a real date would bit-rot past the "upcoming"
+// filter. Field IDs are inlined as literals: the factory is hoisted above the
+// imports, so it can't reference the RELEASES_/TOUR_DATES_FIELD_IDS bindings.
 vi.mock("./read-store", () => ({
   getFsReadStore: () => ({
-    readCollectionDef: async () => ({ slug: "tour-dates", fields: [] }),
-    listItemsInOrder: async () => [
-      {
-        id: "i_far",
-        slug: "far-future",
-        createdAt: "",
-        updatedAt: "",
-        values: {
-          fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
-          fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
-          fld_tour_dates_city: { type: "text", value: "London" },
-        },
-      },
-    ],
+    readCollectionDef: async (slug: string) => ({ slug, fields: [] }),
+    listItemsInOrder: async (slug: string) =>
+      slug === "releases"
+        ? [
+            {
+              id: "i_rel",
+              slug: "newest-record",
+              createdAt: "",
+              updatedAt: "",
+              values: {
+                fld_releases_title: { type: "text", value: "Newest Record" },
+                fld_releases_releaseType: { type: "select", value: "album" },
+                fld_releases_releaseDate: { type: "date", value: "2026-03-01" },
+              },
+            },
+          ]
+        : [
+            {
+              id: "i_far",
+              slug: "far-future",
+              createdAt: "",
+              updatedAt: "",
+              values: {
+                fld_tour_dates_date: { type: "date", value: "2099-06-01T20:00:00.000Z" },
+                fld_tour_dates_venue: { type: "text", value: "Royal Hall" },
+                fld_tour_dates_city: { type: "text", value: "London" },
+              },
+            },
+          ],
   }),
 }));
 
 import {
+  injectResolvedReleases,
   injectResolvedTourDates,
+  mapToResolvedReleases,
   mapToResolvedTourDates,
   resolvePageCollectionBlocks,
 } from "./resolve-page-collections";
-import { TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
 import type { Item } from "./schema";
+import type { ResolvedRelease } from "@/components/ReleasesView";
 import type { ResolvedTourDate } from "@/components/TourDatesView";
+
+function releaseItem(
+  slug: string,
+  releaseDate: string,
+  extra: Partial<Record<"title" | "releaseType" | "description", string>> = {},
+): Item {
+  const values: Record<string, { type: string; value: string }> = {
+    [RELEASES_FIELD_IDS.title]: { type: "text", value: extra.title ?? "Untitled" },
+    [RELEASES_FIELD_IDS.releaseType]: { type: "select", value: extra.releaseType ?? "album" },
+  };
+  if (releaseDate) values[RELEASES_FIELD_IDS.releaseDate] = { type: "date", value: releaseDate };
+  if (extra.description) {
+    values[RELEASES_FIELD_IDS.description] = { type: "longText", value: extra.description };
+  }
+  return { id: `item_${slug}`, slug, createdAt: "", updatedAt: "", values } as unknown as Item;
+}
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 
@@ -188,5 +227,84 @@ describe("resolvePageCollectionBlocks", () => {
     expect(block.props.items).toEqual([
       { date: "2099-06-01T20:00:00.000Z", venue: "Royal Hall", city: "London", country: "", ticketUrl: "" },
     ]);
+  });
+
+  it("resolves both block types on one page, each from its own collection", async () => {
+    // A page can embed both blocks; the pass composes an inject per present
+    // collection. Assert each block gets items from its matching collection
+    // (tour-shaped vs release-shaped), not the other's.
+    const data = {
+      root: { props: {} },
+      content: [
+        { type: "TourDatesView", props: { id: "t", limit: 5 } },
+        { type: "ReleasesView", props: { id: "r", limit: 8 } },
+      ],
+    } as unknown as Data;
+    const out = await resolvePageCollectionBlocks(data);
+    const [tour, releases] = out.content as Array<{
+      props: { items?: Array<{ venue?: string; title?: string }> };
+    }>;
+    expect(tour.props.items).toEqual([
+      { date: "2099-06-01T20:00:00.000Z", venue: "Royal Hall", city: "London", country: "", ticketUrl: "" },
+    ]);
+    expect(releases.props.items).toEqual([
+      {
+        title: "Newest Record",
+        coverImage: null,
+        releaseType: "album",
+        releaseDate: "2026-03-01",
+        description: "",
+      },
+    ]);
+  });
+});
+
+describe("mapToResolvedReleases", () => {
+  it("maps fields and sorts newest-first with undated releases last", () => {
+    const items = [
+      releaseItem("mid", "2024-05-01T00:00:00.000Z", { title: "Mid" }),
+      releaseItem("undated", "", { title: "Undated" }),
+      releaseItem("newest", "2026-01-01T00:00:00.000Z", { title: "Newest" }),
+    ];
+    expect(mapToResolvedReleases(items).map((r) => r.title)).toEqual(["Newest", "Mid", "Undated"]);
+  });
+
+  it("reads cover art as ImageMetadata or null", () => {
+    const withCover = {
+      id: "i",
+      slug: "a",
+      createdAt: "",
+      updatedAt: "",
+      values: {
+        [RELEASES_FIELD_IDS.title]: { type: "text", value: "A" },
+        [RELEASES_FIELD_IDS.coverImage]: { type: "image", value: { id: "img1", alt: "cover" } },
+      },
+    } as unknown as Item;
+    const [a] = mapToResolvedReleases([withCover]);
+    expect(a.coverImage).toEqual({ id: "img1", alt: "cover" });
+
+    const [b] = mapToResolvedReleases([releaseItem("b", "")]);
+    expect(b.coverImage).toBeNull();
+  });
+});
+
+describe("injectResolvedReleases", () => {
+  const sample: ResolvedRelease[] = [
+    { title: "One", coverImage: null, releaseType: "album", releaseDate: "2026-01-01", description: "" },
+    { title: "Two", coverImage: null, releaseType: "ep", releaseDate: "2025-01-01", description: "" },
+  ];
+
+  it("injects items into a ReleasesView block, respecting its limit", () => {
+    const data = {
+      root: { props: {} },
+      content: [
+        { type: "Section", props: { id: "s", children: [{ type: "ReleasesView", props: { id: "r", limit: 1 } }] } },
+      ],
+    } as unknown as Data;
+    const out = injectResolvedReleases(data, sample);
+    const section = (out.content as Array<{ props: { children: Array<{ type: string; props: { items?: ResolvedRelease[] } }> } }>)[0];
+    const view = section.props.children.find((c) => c.type === "ReleasesView");
+    expect(view?.props.items).toHaveLength(1);
+    expect(view?.props.items?.[0].title).toBe("One");
   });
 });

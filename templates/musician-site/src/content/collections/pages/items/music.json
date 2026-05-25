@@ -52,8 +52,15 @@
                   "type": "RichText",
                   "props": {
                     "id": "sp-music-p0",
-                    "text": "Streams, releases, and where to find the records. Drop release links or an embed here, or build it out from the editor.",
+                    "text": "Streams, releases, and where to find the records. Add releases in the Releases panel — they show up below automatically.",
                     "align": "start"
+                  }
+                },
+                {
+                  "type": "ReleasesView",
+                  "props": {
+                    "id": "sp-music-releases",
+                    "limit": 8
                   }
                 }
               ]

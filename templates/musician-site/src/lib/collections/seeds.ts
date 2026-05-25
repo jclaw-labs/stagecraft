@@ -494,10 +494,13 @@ export const releasesCollectionDef: CollectionDef = {
       systemLocked: true,
     },
     {
+      // Optional: a single / upcoming release may not have final art yet.
+      // The ReleasesView block (and the detail render) fall back to a
+      // themed gradient placeholder, same as the Image / Gallery blocks.
       id: RELEASES_FIELD_IDS.coverImage,
       key: "coverImage",
       type: "image",
-      required: true,
+      required: false,
       systemLocked: true,
     },
     {

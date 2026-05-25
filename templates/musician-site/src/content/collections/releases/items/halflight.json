@@ -1,0 +1,32 @@
+{
+  "id": "item_demo_halflight",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_releases_title": {
+      "type": "text",
+      "value": "Halflight"
+    },
+    "fld_releases_releaseType": {
+      "type": "select",
+      "value": "ep"
+    },
+    "fld_releases_releaseDate": {
+      "type": "date",
+      "value": "2025-06-15"
+    },
+    "fld_releases_description": {
+      "type": "longText",
+      "value": "A four-track EP."
+    },
+    "fld_releases_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}

@@ -16,7 +16,7 @@
       "key": "coverImage",
       "systemLocked": true,
       "type": "image",
-      "required": true
+      "required": false
     },
     {
       "id": "fld_releases_releaseType",

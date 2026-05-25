@@ -183,6 +183,25 @@
   object-fit: cover;
 }
 
+/* ReleasesView cover — a square, cropped cover-art frame. Same fill/cover
+   approach as the gallery tile; the gradient placeholder (when a release has
+   no art yet) fills it via the `> *` rule. */
+[data-release-cover] {
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--img-radius, var(--radius));
+}
+[data-release-cover] > *,
+[data-release-cover] picture,
+[data-release-cover] img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+[data-release-cover] img {
+  object-fit: cover;
+}
+
 /* ImageCarousel — scroll-snap track + slide layout. Inline styles
    in ImageCarousel.tsx handle per-instance values (aspectRatio)
    and stateful look (arrow disabled, dot active); class hooks here

@@ -1,0 +1,32 @@
+{
+  "id": "item_demo_stone_chapel",
+  "createdAt": "2026-05-18T02:47:31.957Z",
+  "updatedAt": "2026-05-18T02:47:31.957Z",
+  "values": {
+    "fld_releases_title": {
+      "type": "text",
+      "value": "Stone Chapel"
+    },
+    "fld_releases_releaseType": {
+      "type": "select",
+      "value": "single"
+    },
+    "fld_releases_releaseDate": {
+      "type": "date",
+      "value": "2024-09-20"
+    },
+    "fld_releases_description": {
+      "type": "longText",
+      "value": "The lead single."
+    },
+    "fld_releases_body": {
+      "type": "puckContent",
+      "value": {
+        "content": [],
+        "root": {
+          "props": {}
+        }
+      }
+    }
+  }
+}
