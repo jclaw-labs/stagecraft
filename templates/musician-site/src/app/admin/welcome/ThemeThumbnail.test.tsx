@@ -16,12 +16,16 @@ describe("<ThemeThumbnail>", () => {
     expect(html).toContain(preset.appearance.colors.accent);
   });
 
-  it("conveys typographic character via the family's CSS generic fallback", () => {
-    // ink ships a serif body (Lora) → the stack must carry the serif generic
-    // so the preview reads as serif even though the webfont isn't loaded.
-    const html = renderToStaticMarkup(<ThemeThumbnail preset={THEME_PRESETS.ink} />);
-    // buildFontStack appends a CSS generic, e.g. "'Lora', serif" → ", serif".
-    expect(html).toMatch(/,\s(serif|sans-serif|monospace|cursive)/);
+  it("conveys serif-vs-sans character via the CSS generic fallback", () => {
+    // meadow's heading is Fraunces (a curated serif) → "'Fraunces', serif".
+    // The webfont isn't loaded in the wizard, so the serif generic is what
+    // actually telegraphs the character. ", serif" is NOT a substring of
+    // ", sans-serif", so this distinguishes serif from sans themes.
+    const serifHtml = renderToStaticMarkup(<ThemeThumbnail preset={THEME_PRESETS.meadow} />);
+    expect(serifHtml).toMatch(/,\sserif/);
+    // concrete is wholly sans (Archivo) → no standalone serif generic.
+    const sansHtml = renderToStaticMarkup(<ThemeThumbnail preset={THEME_PRESETS.concrete} />);
+    expect(sansHtml).not.toMatch(/,\sserif/);
   });
 
   it("renders for every preset without throwing", () => {

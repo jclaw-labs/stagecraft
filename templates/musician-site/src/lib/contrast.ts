@@ -61,11 +61,20 @@ export type ContrastResult = ContrastPair & {
   passesAA: boolean;
 };
 
+/** How the primary button is filled — drives which colours its label sits on. */
+export type ButtonFill = "solid" | "outline" | "underline";
+
 /**
  * The color pairs whose contrast actually matters for legibility — body and
- * muted text on the page + card surfaces, links, and the on-accent label that
- * sits on accent-filled buttons. `onAccent` falls back to `surface` (the same
- * default `AppearanceStyles` uses) when the artist hasn't set it.
+ * muted text on the page + card surfaces, links, and the primary button's
+ * label. The blank-fallbacks mirror what `AppearanceStyles` actually emits
+ * (`onAccent` → `surface`, blank `linkColor` → `accent`), using the same
+ * `.length` test (not trim) so the guardrail matches render exactly.
+ *
+ * The button pair depends on `buttonFill`: a `solid` button puts `onAccent`
+ * on the `accent` fill, but `outline` / `underline` buttons render the label
+ * in `accent` over the page `background` (no fill) — so the meaningful pair
+ * differs.
  */
 export function appearanceContrastPairs(
   colors: {
@@ -77,16 +86,21 @@ export function appearanceContrastPairs(
     linkColor: string;
   },
   onAccent: string,
+  buttonFill: ButtonFill,
 ): ContrastPair[] {
-  const link = colors.linkColor.trim().length > 0 ? colors.linkColor : colors.accent;
-  const onAccentColor = onAccent.trim().length > 0 ? onAccent : colors.surface;
+  const link = colors.linkColor.length > 0 ? colors.linkColor : colors.accent;
+  const onAccentColor = onAccent.length > 0 ? onAccent : colors.surface;
+  const buttonPair: ContrastPair =
+    buttonFill === "solid"
+      ? { label: "Button label on accent", fg: onAccentColor, bg: colors.accent }
+      : { label: "Button label", fg: colors.accent, bg: colors.background };
   return [
     { label: "Body text on background", fg: colors.text, bg: colors.background },
     { label: "Body text on surface", fg: colors.text, bg: colors.surface },
     { label: "Muted text on background", fg: colors.textMuted, bg: colors.background },
     { label: "Muted text on surface", fg: colors.textMuted, bg: colors.surface },
     { label: "Links on background", fg: link, bg: colors.background },
-    { label: "Button label on accent", fg: onAccentColor, bg: colors.accent },
+    buttonPair,
   ];
 }
 
@@ -98,9 +112,10 @@ export function appearanceContrastPairs(
 export function checkAppearanceContrast(
   colors: Parameters<typeof appearanceContrastPairs>[0],
   onAccent: string,
+  buttonFill: ButtonFill,
 ): ContrastResult[] {
   const results: ContrastResult[] = [];
-  for (const pair of appearanceContrastPairs(colors, onAccent)) {
+  for (const pair of appearanceContrastPairs(colors, onAccent, buttonFill)) {
     const ratio = contrastRatio(pair.fg, pair.bg);
     if (ratio === null) continue;
     results.push({ ...pair, ratio, passesAA: ratio >= WCAG_AA_NORMAL });

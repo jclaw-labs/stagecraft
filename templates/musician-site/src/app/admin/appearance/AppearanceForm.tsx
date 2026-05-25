@@ -75,14 +75,19 @@ const contrastBoxStyle: CSSProperties = {
 function ContrastWarnings({
   colors,
   onAccent,
+  buttonFill,
 }: {
   colors: Appearance["colors"];
   onAccent: string;
+  buttonFill: Design["buttonFill"];
 }) {
-  const issues = checkAppearanceContrast(colors, onAccent).filter((r) => !r.passesAA);
+  const issues = checkAppearanceContrast(colors, onAccent, buttonFill).filter((r) => !r.passesAA);
   if (issues.length === 0) return null;
+  // Deliberately not an aria-live region: it recomputes on every colour
+  // keystroke, which would spam screen readers. It's a visual advisory the
+  // artist encounters in DOM order while reviewing the palette.
   return (
-    <div style={contrastBoxStyle} role="status">
+    <div style={contrastBoxStyle}>
       <strong
         style={{
           display: "block",
@@ -209,7 +214,11 @@ export function AppearanceForm({ initial, hasPendingChanges }: Props) {
             isOptional={field === "linkColor"}
           />
         ))}
-        <ContrastWarnings colors={form.value.colors} onAccent={design.onAccent} />
+        <ContrastWarnings
+          colors={form.value.colors}
+          onAccent={design.onAccent}
+          buttonFill={design.buttonFill}
+        />
       </FieldGroup>
 
       <FieldGroup
@@ -257,18 +266,21 @@ export function AppearanceForm({ initial, hasPendingChanges }: Props) {
           <FontPickerField
             id="headingFont"
             label="Heading font family"
-            description="Used for h1–h3. Pick a family or choose Custom."
+            description="Used for h1–h3. Pick a family, choose Custom, or inherit the body font."
             value={form.value.typography.headingFont}
             onChange={(v) => setTypography("headingFont", v)}
+            allowInherit
+            inheritLabel="Same as body"
           />
         ) : null}
         <FontPickerField
           id="displayFont"
           label="Display font (optional)"
-          description="Styles the wordmark + hero only. Choose Custom and leave it blank to inherit the heading font."
+          description="Styles the wordmark + hero only. Leave it inheriting the heading font, or pick a display face."
           value={form.value.typography.displayFont ?? ""}
           onChange={(v) => setTypography("displayFont", v)}
-          placeholder="e.g. Anton (blank = inherit)"
+          allowInherit
+          inheritLabel="Inherit heading font"
         />
         <SelectField<string>
           id="h1Weight"

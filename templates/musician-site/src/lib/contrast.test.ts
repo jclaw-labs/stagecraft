@@ -63,6 +63,7 @@ describe("checkAppearanceContrast", () => {
     const results = checkAppearanceContrast(
       { ...goodColors, text: "#cccccc" },
       "#ffffff",
+      "solid",
     );
     const bodyOnBg = results.find((r) => r.label === "Body text on background");
     expect(bodyOnBg?.passesAA).toBe(false);
@@ -70,23 +71,30 @@ describe("checkAppearanceContrast", () => {
   });
 
   it("passes a high-contrast palette", () => {
-    const results = checkAppearanceContrast(goodColors, "#ffffff");
-    // accent (#0b3d91) on its own button label fg #ffffff is the on-accent pair.
+    const results = checkAppearanceContrast(goodColors, "#ffffff", "solid");
     expect(results.every((r) => r.passesAA)).toBe(true);
   });
 
-  it("falls back to surface for the on-accent pair when onAccent is blank", () => {
-    // White-ish surface text on a white accent → unreadable → must fail.
-    const results = checkAppearanceContrast(
-      { ...goodColors, accent: "#fafafa" },
-      "",
-    );
-    const onAccent = results.find((r) => r.label === "Button label on accent");
-    expect(onAccent?.passesAA).toBe(false);
+  it("solid button: checks the on-accent label against the accent fill (surface fallback)", () => {
+    // White-ish surface label on a white accent → unreadable → must fail.
+    const results = checkAppearanceContrast({ ...goodColors, accent: "#fafafa" }, "", "solid");
+    const button = results.find((r) => r.label === "Button label on accent");
+    expect(button?.passesAA).toBe(false);
+  });
+
+  it("outline button: checks the accent label against the page background instead", () => {
+    // A light accent on a white background is unreadable for an outline button,
+    // even though a solid button (with a dark on-accent label) would pass.
+    const colors = { ...goodColors, accent: "#f2f2f2" };
+    const outline = checkAppearanceContrast(colors, "#111111", "outline");
+    const solid = checkAppearanceContrast(colors, "#111111", "solid");
+    expect(outline.find((r) => r.label === "Button label")?.passesAA).toBe(false);
+    // Solid checks dark-onAccent (#111) vs the light accent → passes.
+    expect(solid.find((r) => r.label === "Button label on accent")?.passesAA).toBe(true);
   });
 
   it("skips pairs whose color isn't a hex value", () => {
-    const results = checkAppearanceContrast({ ...goodColors, text: "" }, "#ffffff");
+    const results = checkAppearanceContrast({ ...goodColors, text: "" }, "#ffffff", "solid");
     expect(results.find((r) => r.label === "Body text on background")).toBeUndefined();
     // Other measurable pairs still evaluated.
     expect(results.length).toBeGreaterThan(0);

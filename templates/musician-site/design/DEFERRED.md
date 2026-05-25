@@ -90,9 +90,33 @@ up, so they aren't lost. Each notes why and where it should land.
   still lists until UTC midnight. Intentional (a same-day show stays visible all
   day); noted so it isn't mistaken for a filter bug.
 
+## Open (from the fonts / thumbnails / a11y PR — #3 review)
+
+- **FontPickerField doesn't resync `category` to external `value` changes.** The
+  picker holds the selected category in local state, initialised once from
+  `value`. The Appearance form only ever changes the font via the field's own
+  onChange, so it's correct today — but if an "apply a preset to Appearance" or
+  a form-reset/undo flow ever rewrites `typography.*` externally, the category
+  select would go stale. Add a resync (effect keyed on `value`, or a `key`) when
+  that lands.
+- **Border / non-text contrast not checked.** The contrast advisory covers
+  text-on-surface pairs against WCAG AA (4.5:1). WCAG 1.4.11 sets a separate
+  3:1 bar for non-text UI (borders, dividers, focus rings) — not evaluated.
+  Low priority; revisit if borders become load-bearing for legibility.
+- **Per-category font fallbacks in the live stack.** `buildFontStack` exists and
+  the picker/thumbnail use it, but `AppearanceStyles` still emits the public
+  `--font-*` stacks with a generic `system-ui, sans-serif` tail rather than the
+  family's category generic — so a serif body briefly flashes sans during the
+  webfont load. Wiring `buildFontStack` into AppearanceStyles would fix the FOUT
+  character; deferred to keep this PR's render output unchanged.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
+- **Curated Google-Fonts picker, preset thumbnails, contrast guardrails** — done
+  (this PR): `FontPickerField` (category→family + Custom + inherit) replaces the
+  free-text font inputs; `ThemeThumbnail` previews each preset in the welcome
+  wizard; a `contrast.ts` WCAG util drives a non-blocking advisory in Appearance.
 - **Gallery block + `galleryLayout`** — done (this PR): a Gallery block renders a
   tiled grid; `galleryLayout` (grid/portrait/masonry) is wired via a globals.css
   base + scoped `.stagecraft-site [data-gallery]` overrides from AppearanceStyles.

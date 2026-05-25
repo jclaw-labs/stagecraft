@@ -82,6 +82,11 @@ const FAMILIES: Record<CuratedFontCategory, string[]> = {
     "Bitter",
     "Source Serif 4",
     "Spectral",
+    // Serif faces several theme presets use as their heading font — curated
+    // so the welcome thumbnails render them with a serif (not sans) generic.
+    "Fraunces",
+    "Bodoni Moda",
+    "Zilla Slab",
   ],
   monospace: [
     "JetBrains Mono",
