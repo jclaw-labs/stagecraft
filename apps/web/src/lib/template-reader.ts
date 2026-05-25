@@ -1,7 +1,7 @@
 /**
  * Template file reader — shared between create-site and migrate-site jobs.
  *
- * Reads all text files from the musician-site-legacy template directory, skipping
+ * Reads all text files from a site template directory, skipping
  * binary files, build artifacts, and files that should not be committed.
  *
  * Skip directories are defined explicitly rather than parsed from .gitignore
