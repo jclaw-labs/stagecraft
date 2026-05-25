@@ -41,7 +41,7 @@ interface CreateSitePayload {
  * checks this earlier, so a throw here means an integration was
  * disconnected between the request and worker invocation.
  */
-async function pickDeployTarget(userId: string): Promise<"netlify" | "vercel"> {
+export async function pickDeployTarget(userId: string): Promise<"netlify" | "vercel"> {
   const integrations = await prisma.integrationAccount.findMany({
     where: { userId, provider: { in: ["netlify", "vercel"] } },
     select: { provider: true, metadata: true },
@@ -56,7 +56,7 @@ async function pickDeployTarget(userId: string): Promise<"netlify" | "vercel"> {
   throw new Error("No deploy-target integration connected (Vercel or Netlify required)");
 }
 
-interface DeployResult {
+export interface DeployResult {
   /** Generic fields shared by both providers */
   productionUrl: string;
   adminUrl: string;
@@ -72,7 +72,7 @@ interface DeployResult {
   envWarning?: string;
 }
 
-async function deployToNetlify(args: {
+export async function deployToNetlify(args: {
   userId: string;
   siteId: string;
   slug: string;
@@ -133,7 +133,7 @@ async function deployToNetlify(args: {
   };
 }
 
-async function deployToVercel(args: {
+export async function deployToVercel(args: {
   userId: string;
   siteId: string;
   slug: string;
