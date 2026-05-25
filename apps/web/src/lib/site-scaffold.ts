@@ -20,7 +20,7 @@
 import type { TemplateFile } from "@/lib/template-reader";
 
 /** Which on-disk template a generated site was scaffolded from. */
-export type ArtistTemplate = "musician-site" | "musician-site-legacy";
+export type ArtistTemplate = "musician-site";
 
 /**
  * Days a newly published release must age before Dependabot proposes it on

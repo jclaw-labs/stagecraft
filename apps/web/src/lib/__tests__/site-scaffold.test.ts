@@ -32,13 +32,13 @@ describe("buildSiteScaffoldFiles", () => {
   it("records template, version, and an ISO createdAt in the stamp", () => {
     const createdAt = new Date("2026-05-24T12:00:00.000Z");
     const stamp = buildSiteScaffoldFiles({
-      template: "musician-site-legacy",
+      template: "musician-site",
       templateVersion: "1.2.3",
       createdAt,
     }).find((f) => f.path === TEMPLATE_STAMP_PATH);
     expect(stamp).toBeDefined();
     expect(JSON.parse(stamp!.content)).toEqual({
-      template: "musician-site-legacy",
+      template: "musician-site",
       templateVersion: "1.2.3",
       createdAt: "2026-05-24T12:00:00.000Z",
     });
