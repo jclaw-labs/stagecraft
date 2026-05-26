@@ -11,21 +11,6 @@ import {
 import { Image as PublicImage } from "@/components/Image";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import {
-  PostsList,
-  PostsPlaceholder,
-  type ResolvedPost,
-} from "@/components/PostsView";
-import {
-  ReleasesList,
-  ReleasesPlaceholder,
-  type ResolvedRelease,
-} from "@/components/ReleasesView";
-import {
-  TourDatesList,
-  TourDatesPlaceholder,
-  type ResolvedTourDate,
-} from "@/components/TourDatesView";
-import {
   collidingAdditionalFieldNames,
   NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
   NEWSLETTER_FIELD_TYPES,
@@ -545,25 +530,6 @@ export type BlockProps = {
      */
     isHoverable: boolean;
   };
-  /**
-   * Data-bound: the artist's upcoming `tour-dates` collection, rendered as
-   * a list. `items` is NOT authored — it's injected server-side by
-   * `resolvePageCollectionBlocks` on the published page (undefined in the
-   * editor → the block shows a placeholder). `limit` caps how many show.
-   */
-  TourDatesView: { limit: number; items?: ResolvedTourDate[] };
-  /**
-   * Data-bound: the artist's `releases` collection, rendered as a cover grid.
-   * Like TourDatesView, `items` is injected server-side (undefined in the
-   * editor → placeholder); `limit` caps how many show.
-   */
-  ReleasesView: { limit: number; items?: ResolvedRelease[] };
-  /**
-   * Data-bound: the artist's `posts` collection, rendered as a news/blog grid.
-   * Like the other collection blocks, `items` is injected server-side
-   * (undefined in the editor → placeholder); `limit` caps how many show.
-   */
-  PostsView: { limit: number; items?: ResolvedPost[] };
 };
 
 /**
@@ -991,9 +957,6 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   Divider: "A horizontal line between blocks.",
   ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
   NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
-  TourDatesView: "Your upcoming tour dates, pulled live from the Tour Dates panel. Set how many to show.",
-  ReleasesView: "Your releases, pulled live from the Releases panel, as a cover grid. Set how many to show.",
-  PostsView: "Your news posts, pulled live from the Posts panel, as a grid. Set how many to show.",
 };
 
 export const puckConfig: Config<
@@ -1092,10 +1055,9 @@ export const puckConfig: Config<
       title: "Forms",
       components: ["ContactForm", "NewsletterSignup"],
     },
-    collections: {
-      title: "Collections",
-      components: ["TourDatesView", "ReleasesView", "PostsView"],
-    },
+    // The "Collections" category is added by the page editor's
+    // `buildUnifiedEditorConfig` (one generic Collection block per embeddable
+    // collection) — not here, where the bespoke `*View` blocks used to live.
   },
   components: {
     Heading: {
@@ -2351,93 +2313,6 @@ export const puckConfig: Config<
           </div>
         );
       },
-    },
-    TourDatesView: {
-      fields: {
-        limit: { type: "number", label: "Max shows", min: 1 },
-        // Read-only: the list is injected server-side, never authored here.
-        // Declared so Puck threads `items` through to render; the editor
-        // surface just explains where the data comes from.
-        items: {
-          type: "custom",
-          label: "Shows",
-          render: () => (
-            <p
-              style={{
-                margin: 0,
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-              }}
-            >
-              Pulled live from your Tour Dates — add or edit shows there.
-            </p>
-          ),
-        },
-      },
-      defaultProps: { limit: 5 },
-      render: ({ items }) =>
-        Array.isArray(items) ? <TourDatesList items={items} /> : <TourDatesPlaceholder />,
-    },
-    ReleasesView: {
-      fields: {
-        limit: { type: "number", label: "Max releases", min: 1 },
-        // Read-only: injected server-side. Declared so Puck threads `items`
-        // through to render; the inspector just explains the data source.
-        items: {
-          type: "custom",
-          label: "Releases",
-          render: () => (
-            <p
-              style={{
-                margin: 0,
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-              }}
-            >
-              Pulled live from your Releases — add or edit them there.
-            </p>
-          ),
-        },
-      },
-      defaultProps: { limit: 8 },
-      // Cast at the boundary: Puck's Config<T> generic collapses
-      // ImageMetadata's branded `id`, so the resolved `items` (with a
-      // coverImage) isn't structurally assignable to ResolvedRelease[]
-      // even though the runtime shape matches — same pattern as the Image block.
-      render: ({ items }) =>
-        Array.isArray(items) ? (
-          <ReleasesList items={items as ResolvedRelease[]} />
-        ) : (
-          <ReleasesPlaceholder />
-        ),
-    },
-    PostsView: {
-      fields: {
-        limit: { type: "number", label: "Max posts", min: 1 },
-        // Read-only: injected server-side. Declared so Puck threads `items`
-        // through to render; the inspector just explains the data source.
-        items: {
-          type: "custom",
-          label: "Posts",
-          render: () => (
-            <p
-              style={{
-                margin: 0,
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-              }}
-            >
-              Pulled live from your News posts — add or edit them there.
-            </p>
-          ),
-        },
-      },
-      defaultProps: { limit: 6 },
-      // Cast at the boundary, same as ReleasesView: Puck's Config<T> collapses
-      // ImageMetadata's branded `id`, so resolved `items` (with a coverImage)
-      // isn't structurally assignable to ResolvedPost[] despite matching at runtime.
-      render: ({ items }) =>
-        Array.isArray(items) ? <PostsList items={items as ResolvedPost[]} /> : <PostsPlaceholder />,
     },
   },
 };

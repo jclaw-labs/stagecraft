@@ -315,10 +315,11 @@ function buildHomePageSeed(
         },
       },
 
-      // On the road — a real, data-bound tour list. TourDatesView reads the
-      // artist's tour-dates collection at render (items injected server-side
-      // by resolvePageCollectionBlocks; a placeholder shows in the editor).
-      // No more hand-faked rows that drift from the actual Tour Dates panel.
+      // On the road — a real, data-bound tour list. The TourDatesView block is
+      // the generic Collection block (ADR-015): the public render walker
+      // resolves the artist's tour-dates collection from its sort/filter props;
+      // the editor shows a placeholder. No more hand-faked rows that drift from
+      // the actual Tour Dates panel.
       {
         type: "Section",
         props: {

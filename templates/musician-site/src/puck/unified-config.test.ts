@@ -18,12 +18,15 @@ describe("buildUnifiedPublicConfig", () => {
     expect(c.Button?.render).toBe(pc.Button.render);
   });
 
-  it("registers a generic Collection block per slug, overriding the bespoke *View", () => {
+  it("registers a generic Collection block per slug (the bespoke *View blocks are gone)", () => {
     expect(c.TourDatesView).toBeDefined();
     expect(c.ReleasesView).toBeDefined();
     expect(c.PostsView).toBeDefined();
-    // The generic, walker-resolved render replaces the bespoke page block.
-    expect(c.TourDatesView?.render).not.toBe(pc.TourDatesView.render);
+    expect(c.TourDatesView?.render).toBeTypeOf("function");
+    // Post-ADR-015 PR-6, puckConfig no longer defines the bespoke `*View`
+    // blocks — these names resolve solely to the generic Collection-block
+    // registry layered on top.
+    expect(pc.TourDatesView).toBeUndefined();
   });
 
   it("excludes template-only primitives (no name leak onto pages)", () => {

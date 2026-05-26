@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { Render } from "@measured/puck";
 
 import {
   BLOCK_DESCRIPTIONS,
@@ -50,9 +49,6 @@ describe("puckConfig", () => {
         "RichText",
         "Section",
         "Spacer",
-        "TourDatesView",
-        "ReleasesView",
-        "PostsView",
       ].sort(),
     );
   });
@@ -1514,117 +1510,6 @@ describe("puckConfig", () => {
     it("renders nothing when there are no tiles (no editor copy leaks to the page)", () => {
       const html = render("Gallery", { images: [] });
       expect(html).toBe("");
-    });
-  });
-
-  describe("TourDatesView", () => {
-    it("renders the placeholder when items is undefined (editor surface)", () => {
-      const html = render("TourDatesView", { limit: 5 });
-      expect(html).toMatch(/Upcoming shows appear here/i);
-    });
-
-    it("renders the data-bound list when items are injected", () => {
-      const html = render("TourDatesView", {
-        limit: 5,
-        items: [
-          {
-            date: "2026-07-04T20:00:00.000Z",
-            venue: "Mercury Lounge",
-            city: "New York",
-            country: "United States",
-            ticketUrl: "",
-          },
-        ],
-      });
-      expect(html).toContain("Mercury Lounge");
-      expect(html).toMatch(/Jul 4/);
-    });
-
-    // The real public-render seam: items are injected onto the block's
-    // props server-side, then Puck's <Render> must thread them to the
-    // component. Asserts the data-binding works end-to-end through Puck,
-    // not just by calling the render fn directly.
-    it("Puck <Render> threads injected items through to the block", () => {
-      const data = {
-        root: { props: { title: "Home" } },
-        content: [
-          {
-            type: "TourDatesView",
-            props: {
-              id: "t",
-              limit: 5,
-              items: [
-                {
-                  date: "2026-07-04T20:00:00.000Z",
-                  venue: "Mercury Lounge",
-                  city: "New York",
-                  country: "United States",
-                  ticketUrl: "",
-                },
-              ],
-            },
-          },
-        ],
-        zones: {},
-      };
-      const html = renderToStaticMarkup(
-        createElement(Render, { config: puckConfig, data } as never),
-      );
-      expect(html).toContain("Mercury Lounge");
-    });
-  });
-
-  describe("ReleasesView", () => {
-    it("renders the placeholder when items is undefined (editor surface)", () => {
-      const html = render("ReleasesView", { limit: 8 });
-      expect(html).toMatch(/Your releases appear here/i);
-    });
-
-    it("renders the data-bound grid (title + Album · year) when items are injected", () => {
-      const html = render("ReleasesView", {
-        limit: 8,
-        items: [
-          {
-            title: "The Long Way Home",
-            coverImage: null,
-            releaseType: "album",
-            releaseDate: "2026-03-01T00:00:00.000Z",
-            description: "Ten songs cut live to tape.",
-          },
-        ],
-      });
-      expect(html).toContain("The Long Way Home");
-      expect(html).toContain("Album");
-      expect(html).toContain("2026");
-      // No cover art → themed gradient placeholder, not a <picture>/<img>.
-      expect(html).toContain("data-release-cover");
-    });
-  });
-
-  describe("PostsView", () => {
-    it("renders the placeholder when items is undefined (editor surface)", () => {
-      const html = render("PostsView", { limit: 6 });
-      expect(html).toMatch(/Your posts appear here/i);
-    });
-
-    it("renders the data-bound grid (title + category · date) when items are injected", () => {
-      const html = render("PostsView", {
-        limit: 6,
-        items: [
-          {
-            title: "On the Road This Summer",
-            coverImage: null,
-            category: "announcement",
-            publishedAt: "2026-05-10T00:00:00.000Z",
-            summary: "Dates, cities, and a few surprises.",
-          },
-        ],
-      });
-      expect(html).toContain("On the Road This Summer");
-      expect(html).toContain("Announcement");
-      expect(html).toContain("2026");
-      // No cover image → themed gradient placeholder, not a <picture>/<img>.
-      expect(html).toContain("data-post-cover");
     });
   });
 });
