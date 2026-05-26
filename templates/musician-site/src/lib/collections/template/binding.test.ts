@@ -10,7 +10,7 @@ import {
   STRING_VALUED_FIELD_TYPES,
 } from "./binding";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
-import type { Item } from "../schema";
+import type { CollectionDef, Item } from "../schema";
 import { z } from "zod";
 
 function makeItem(values: Item["values"]): Item {
@@ -151,6 +151,91 @@ describe("resolveStringBindable", () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolveStringBindable — format (date presets + select label)
+// ---------------------------------------------------------------------------
+
+// Minimal def carrying one select field with options — enough for the
+// `label` format lookup (formatBoundString only reads `fields[].options`).
+const defWithSelect = {
+  fields: [
+    {
+      id: "fld_s",
+      key: "category",
+      type: "select",
+      required: false,
+      options: [
+        { id: "o1", value: "album", label: "Album" },
+        { id: "o2", value: "ep", label: "EP" },
+      ],
+    },
+  ],
+} as unknown as CollectionDef;
+
+/** A `binding` with a `format` (the helper export omits it). */
+function fmtBinding(fieldId: string, format: "year" | "weekday-day" | "full" | "label") {
+  return { kind: "binding" as const, fieldId, format };
+}
+
+describe("resolveStringBindable — date formats", () => {
+  const item = makeItem({ fld_d: { type: "date", value: "2026-05-10" } });
+
+  it("year → UTC calendar year", () => {
+    expect(resolveStringBindable(fmtBinding("fld_d", "year"), item)).toBe("2026");
+  });
+
+  it("full → 'May 10, 2026' (UTC, no timezone drift)", () => {
+    expect(resolveStringBindable(fmtBinding("fld_d", "full"), item)).toBe("May 10, 2026");
+  });
+
+  it("weekday-day → short weekday + month + day", () => {
+    // Don't hardcode the weekday (avoid miscomputing it); assert the shape.
+    expect(resolveStringBindable(fmtBinding("fld_d", "weekday-day"), item)).toMatch(
+      /^\w{3}, \w{3} \d{1,2}$/,
+    );
+  });
+
+  it("leaves the raw value when the date can't be parsed", () => {
+    const bad = makeItem({ fld_d: { type: "date", value: "not-a-date" } });
+    expect(resolveStringBindable(fmtBinding("fld_d", "year"), bad)).toBe("not-a-date");
+  });
+
+  it("ignores a date format on a non-date field (renders raw)", () => {
+    const textItem = makeItem({ fld_d: { type: "text", value: "hello" } });
+    expect(resolveStringBindable(fmtBinding("fld_d", "year"), textItem)).toBe("hello");
+  });
+});
+
+describe("resolveStringBindable — select label format", () => {
+  const item = makeItem({ fld_s: { type: "select", value: "album" } });
+
+  it("maps the select value to its option label when the def is supplied", () => {
+    expect(resolveStringBindable(fmtBinding("fld_s", "label"), item, defWithSelect)).toBe("Album");
+  });
+
+  it("falls back to the raw value without a def (label lookup needs options)", () => {
+    expect(resolveStringBindable(fmtBinding("fld_s", "label"), item)).toBe("album");
+  });
+
+  it("falls back to the raw value when no option matches", () => {
+    const unknown = makeItem({ fld_s: { type: "select", value: "single" } });
+    expect(resolveStringBindable(fmtBinding("fld_s", "label"), unknown, defWithSelect)).toBe(
+      "single",
+    );
+  });
+
+  it("ignores a label format on a non-select field (renders raw)", () => {
+    const dateItem = makeItem({ fld_s: { type: "date", value: "2026-05-10" } });
+    expect(resolveStringBindable(fmtBinding("fld_s", "label"), dateItem, defWithSelect)).toBe(
+      "2026-05-10",
+    );
+  });
+
+  it("a binding with no format still returns the raw value", () => {
+    expect(resolveStringBindable(binding("fld_s"), item, defWithSelect)).toBe("album");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // bindableSchema (Zod)
 // ---------------------------------------------------------------------------
 
@@ -169,6 +254,20 @@ describe("bindableSchema", () => {
       kind: "binding",
       fieldId: "fld_v",
     });
+  });
+
+  it("accepts a binding with a valid format", () => {
+    expect(textBindable.parse({ kind: "binding", fieldId: "fld_v", format: "year" })).toEqual({
+      kind: "binding",
+      fieldId: "fld_v",
+      format: "year",
+    });
+  });
+
+  it("rejects a binding with an unknown format", () => {
+    expect(
+      textBindable.safeParse({ kind: "binding", fieldId: "fld_v", format: "bogus" }).success,
+    ).toBe(false);
   });
 
   it("rejects a missing kind discriminator", () => {

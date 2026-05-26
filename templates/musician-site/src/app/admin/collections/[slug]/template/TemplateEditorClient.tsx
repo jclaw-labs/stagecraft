@@ -210,9 +210,10 @@ export function TemplateEditorClient({
     return resolveTemplate(liveData, selectedItem, {
       registry: previewRegistry,
       currentItem: selectedItem,
+      itemDef: def,
       loadedCollections: loadedCollections ?? {},
     });
-  }, [liveData, selectedItem, previewRegistry, loadedCollections]);
+  }, [liveData, selectedItem, previewRegistry, def, loadedCollections]);
 
   const onPublish = useCallback(
     async (data: Data) => {

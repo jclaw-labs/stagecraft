@@ -70,6 +70,12 @@ export type ResolveContext = {
   item: Item;
   currentItem: Item;
   /**
+   * The def of `item` — supplies field metadata (e.g. a `select` field's
+   * option labels) so `resolveStringBindable` can apply a binding's
+   * `format`. Optional: absent in primitive-only walks that don't format.
+   */
+  itemDef?: CollectionDef;
+  /**
    * Pre-loaded items + defs for any Collection blocks the template
    * embeds. Keyed by collection slug. Empty for primitive-only
    * templates; the renderer fills this only when the template
@@ -368,7 +374,7 @@ type TextProps = {
 
 function resolveTextProps(raw: TextRawProps, ctx: ResolveContext): TextProps {
   return {
-    content: resolveStringBindable(raw.content, ctx.item),
+    content: resolveStringBindable(raw.content, ctx.item, ctx.itemDef),
     variant: raw.variant ?? "body",
     align: raw.align ?? "start",
   };
@@ -397,7 +403,9 @@ type ImageProps = {
 function resolveImageProps(raw: ImageRawProps, ctx: ResolveContext): ImageProps {
   return {
     src: resolveBindable(raw.src, ctx.item, "image"),
-    altOverride: raw.altOverride ? resolveStringBindable(raw.altOverride, ctx.item) : undefined,
+    altOverride: raw.altOverride
+      ? resolveStringBindable(raw.altOverride, ctx.item, ctx.itemDef)
+      : undefined,
   };
 }
 
@@ -433,8 +441,8 @@ type ButtonProps = {
 
 function resolveButtonProps(raw: ButtonRawProps, ctx: ResolveContext): ButtonProps {
   return {
-    label: resolveStringBindable(raw.label, ctx.item),
-    href: resolveStringBindable(raw.href, ctx.item),
+    label: resolveStringBindable(raw.label, ctx.item, ctx.itemDef),
+    href: resolveStringBindable(raw.href, ctx.item, ctx.itemDef),
     variant: raw.variant ?? "primary",
   };
 }
@@ -463,8 +471,8 @@ type LinkProps = {
 
 function resolveLinkProps(raw: LinkRawProps, ctx: ResolveContext): LinkProps {
   return {
-    label: resolveStringBindable(raw.label, ctx.item),
-    href: resolveStringBindable(raw.href, ctx.item),
+    label: resolveStringBindable(raw.label, ctx.item, ctx.itemDef),
+    href: resolveStringBindable(raw.href, ctx.item, ctx.itemDef),
   };
 }
 

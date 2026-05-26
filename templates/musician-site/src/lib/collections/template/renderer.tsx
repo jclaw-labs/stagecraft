@@ -64,6 +64,7 @@ export type TemplateRendererProps = {
 export function TemplateRenderer({
   template,
   item,
+  collection,
   currentItem,
   registry = PRIMITIVE_BLOCKS,
   loadedCollections,
@@ -72,6 +73,7 @@ export function TemplateRenderer({
   const resolved = resolveTemplate(template, item, {
     registry,
     currentItem,
+    itemDef: collection,
     loadedCollections,
   });
   const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
@@ -105,6 +107,13 @@ export type ResolveTemplateOptions = {
    */
   currentItem?: Item;
   /**
+   * The def of `item`. Threaded into binding resolution so a binding's
+   * `format` can reach field metadata (e.g. a `select` field's option
+   * labels). Optional — omit it and `format: "label"` falls back to the
+   * raw value (date presets still work, they need only the value).
+   */
+  itemDef?: CollectionDef;
+  /**
    * Items + defs Collection blocks may iterate. Keys are collection
    * slugs; the renderer pre-loads only the collections the template
    * actually references. Empty / missing means no Collection blocks
@@ -127,12 +136,14 @@ export function resolveTemplate(
   const registry = options.registry ?? PRIMITIVE_BLOCKS;
   const currentItem = options.currentItem ?? item;
   const loadedCollections = options.loadedCollections ?? {};
+  const itemDef = options.itemDef;
   const ctx = {
     item,
     currentItem,
+    itemDef,
     loadedCollections,
     recurse: (block: BlockInstance) =>
-      resolveBlock(block, item, currentItem, loadedCollections, registry, ctx.recurse),
+      resolveBlock(block, item, currentItem, itemDef, loadedCollections, registry, ctx.recurse),
   };
   return {
     ...template,
@@ -145,6 +156,7 @@ function resolveBlock(
   block: BlockInstance,
   item: Item,
   currentItem: Item,
+  itemDef: CollectionDef | undefined,
   loadedCollections: LoadedCollections,
   registry: Readonly<Record<string, BlockEntry>>,
   recurse: (b: BlockInstance) => BlockInstance,
@@ -157,6 +169,7 @@ function resolveBlock(
   const resolved = entry.resolveProps(block.props, {
     item,
     currentItem,
+    itemDef,
     loadedCollections,
     recurse,
   });

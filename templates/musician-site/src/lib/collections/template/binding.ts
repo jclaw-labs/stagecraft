@@ -24,6 +24,8 @@ import type { ImageMetadata } from "../../image-types";
 
 import type {
   Bindable,
+  BindableFormat,
+  CollectionDef,
   CollectionRefValue,
   FieldId,
   FileRef,
@@ -43,10 +45,17 @@ import type {
  * (it trusts the editor), but it's useful in tests and gives the
  * template-editor PR a ready-made validator.
  */
+/** Zod enum mirroring the `BindableFormat` union in `schema.ts`. */
+export const bindableFormatSchema = z.enum(["year", "weekday-day", "full", "label"]);
+
 export function bindableSchema<T extends z.ZodTypeAny>(inner: T) {
   return z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("literal"), value: inner }),
-    z.object({ kind: z.literal("binding"), fieldId: z.string().min(1) }),
+    z.object({
+      kind: z.literal("binding"),
+      fieldId: z.string().min(1),
+      format: bindableFormatSchema.optional(),
+    }),
   ]);
 }
 
@@ -164,6 +173,7 @@ type StringValuedType = (typeof STRING_VALUED_FIELD_TYPES)[number];
 export function resolveStringBindable(
   bindable: Bindable<string>,
   item: Item,
+  itemDef?: CollectionDef,
 ): string | undefined {
   if (bindable.kind === "literal") return bindable.value;
   const value = item.values[bindable.fieldId];
@@ -177,7 +187,63 @@ export function resolveStringBindable(
     }
     return undefined;
   }
-  return (value as { value: string }).value;
+  const raw = (value as { value: string }).value;
+  if (bindable.format === undefined) return raw;
+  return formatBoundString(
+    raw,
+    value.type as StringValuedType,
+    bindable.format,
+    bindable.fieldId,
+    itemDef,
+  );
+}
+
+/**
+ * Apply a `BindableFormat` to an already-resolved string. Date presets format
+ * the ISO value in UTC; `label` maps a `select` value to its option label
+ * (needs `itemDef` for the option list). Any mismatch — a date format on a
+ * non-date field, an unparseable date, a missing def, or a select value with
+ * no matching option — falls back to the raw value. Formatting is
+ * presentational; it never blanks a binding the way a type mismatch does.
+ */
+function formatBoundString(
+  raw: string,
+  fieldType: StringValuedType,
+  format: BindableFormat,
+  fieldId: FieldId,
+  itemDef: CollectionDef | undefined,
+): string {
+  if (format === "label") {
+    if (fieldType !== "select") return raw;
+    const field = itemDef?.fields.find((f) => f.id === fieldId);
+    if (field?.type !== "select") return raw;
+    return field.options?.find((o) => o.value === raw)?.label ?? raw;
+  }
+  // Date presets (year / weekday-day / full).
+  if (fieldType !== "date") return raw;
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) return raw;
+  const d = new Date(ms);
+  switch (format) {
+    case "year":
+      return String(d.getUTCFullYear());
+    case "weekday-day":
+      return d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    case "full":
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+    default:
+      return raw;
+  }
 }
 
 // ---------------------------------------------------------------------------
