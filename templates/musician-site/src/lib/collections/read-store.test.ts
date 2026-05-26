@@ -58,10 +58,16 @@ vi.mock("./store", async () => {
   };
 });
 
-import { getReadStore, getFsReadStore } from "./read-store";
+import {
+  getReadStore,
+  getFsReadStore,
+  readItemOrSingletonDraft,
+  type ReadStore,
+} from "./read-store";
 import { resetDraftStoreCache } from "./draft-store";
 import { PublishError } from "../publish";
 import { tourDatesDef } from "./test-fixtures";
+import type { Item } from "./schema";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -432,5 +438,57 @@ describe("getReadStore — wasDegraded (read-only banner signal)", () => {
 
   it("is false for the always-FS public store", () => {
     expect(getFsReadStore().wasDegraded()).toBe(false);
+  });
+});
+
+describe("readItemOrSingletonDraft", () => {
+  // The helper only calls `store.readItem`; stub the rest of the facade.
+  function stubStore(item: Item | null): ReadStore {
+    return {
+      readItem: vi.fn(async () => item),
+      readCollectionDef: vi.fn(),
+      readSingleton: vi.fn(),
+      listItemSlugs: vi.fn(),
+      listItemsInOrder: vi.fn(),
+      readOrder: vi.fn(),
+      listCollectionSlugs: vi.fn(),
+      mode: "fs",
+      wasDegraded: () => false,
+    } as unknown as ReadStore;
+  }
+
+  const singletonDef = { ...tourDatesDef(), isSingleton: true };
+  const multiItemDef = tourDatesDef(); // isSingleton: false
+
+  it("returns the persisted item unchanged when it exists", async () => {
+    const existing: Item = {
+      id: "item_x",
+      slug: "_singleton",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      values: {},
+    };
+    const out = await readItemOrSingletonDraft(stubStore(existing), "booking", "_singleton", singletonDef);
+    expect(out).toBe(existing);
+  });
+
+  it("synthesizes an empty draft for a missing singleton item", async () => {
+    const out = await readItemOrSingletonDraft(stubStore(null), "booking", "_singleton", singletonDef);
+    expect(out).not.toBeNull();
+    expect(out!.slug).toBe("_singleton");
+    expect(out!.values).toEqual({});
+    expect(out!.id.length).toBeGreaterThan(0);
+    // Freshly minted, so the two timestamps match.
+    expect(out!.createdAt).toBe(out!.updatedAt);
+  });
+
+  it("returns null for a missing multi-item item (a genuine 404)", async () => {
+    const out = await readItemOrSingletonDraft(stubStore(null), "tour-dates", "some-slug", multiItemDef);
+    expect(out).toBeNull();
+  });
+
+  it("returns null when a multi-item collection is asked for the singleton slug", async () => {
+    const out = await readItemOrSingletonDraft(stubStore(null), "tour-dates", "_singleton", multiItemDef);
+    expect(out).toBeNull();
   });
 });

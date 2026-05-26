@@ -59,7 +59,9 @@ import { cache } from "react";
 
 import { DraftReadError, type DraftStoreContext } from "./draft-store";
 import * as draftStore from "./draft-store";
+import { generateItemId } from "./id-gen";
 import * as fsStore from "./store";
+import { isSingletonItem, SINGLETON_ITEM_SLUG } from "./schema";
 import type { CollectionDef, Item } from "./schema";
 import {
   fetchPublishToken,
@@ -301,5 +303,43 @@ function draftReadStoreWithFallback(ctx: DraftStoreContext): ReadStore {
         () => draftStore.listCollectionSlugsFromDraft(ctx),
         () => fsStore.listCollectionSlugs(),
       ),
+  };
+}
+
+/**
+ * Read an item for an admin edit surface, synthesizing an empty draft for
+ * a singleton whose `_singleton.json` doesn't exist yet.
+ *
+ * A singleton's one record is materialized lazily: the create-collection
+ * route writes only the def, and the item is created by its first save
+ * (mirrors the prebaked singletons, whose read paths fall back to defaults
+ * until then). So an edit surface has to render before that first save
+ * rather than 404. This returns:
+ *
+ *   - the persisted item when it exists;
+ *   - a fresh empty draft (`values: {}`) for a singleton's missing
+ *     `_singleton.json` — the item PUT route create-on-first-saves it;
+ *   - `null` for any other missing item, a genuine 404 the caller
+ *     surfaces with `notFound()`.
+ *
+ * The draft's `id` is throwaway — the editor submits only `values`, and
+ * the PUT route mints the persisted id on first save.
+ */
+export async function readItemOrSingletonDraft(
+  store: ReadStore,
+  collectionSlug: string,
+  itemSlug: string,
+  def: CollectionDef,
+): Promise<Item | null> {
+  const item = await store.readItem(collectionSlug, itemSlug, def);
+  if (item) return item;
+  if (!isSingletonItem(def, itemSlug)) return null;
+  const now = new Date().toISOString();
+  return {
+    id: generateItemId(),
+    slug: SINGLETON_ITEM_SLUG,
+    createdAt: now,
+    updatedAt: now,
+    values: {},
   };
 }

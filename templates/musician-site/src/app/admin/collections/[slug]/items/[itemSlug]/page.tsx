@@ -22,9 +22,9 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { findCustomSurface } from "@/components/admin/admin-surfaces";
 import { getSession } from "@/lib/auth";
 import {
-  generateItemId,
   getRequestReadStore,
   itemSlugSchema,
+  readItemOrSingletonDraft,
   SINGLETON_ITEM_SLUG,
   slugSchema,
   type Item,
@@ -69,27 +69,10 @@ export default async function ItemEdit({ params }: { params: Promise<Params> }) 
   if (!def) notFound();
 
   const store = await storePromise;
-  let item = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
-  if (!item) {
-    // A singleton's `_singleton.json` is materialized lazily on first
-    // save (mirrors the prebaked singletons, whose read paths fall back
-    // to defaults when the item doesn't exist yet). Synthesize an empty
-    // draft so a freshly-created singleton renders instead of 404ing;
-    // the item PUT route create-on-first-saves it. A missing multi-item
-    // item is a genuine 404.
-    if (def.isSingleton && parsedItemSlug.data === SINGLETON_ITEM_SLUG) {
-      const now = new Date().toISOString();
-      item = {
-        id: generateItemId(),
-        slug: SINGLETON_ITEM_SLUG,
-        createdAt: now,
-        updatedAt: now,
-        values: {},
-      };
-    } else {
-      notFound();
-    }
-  }
+  // Synthesizes an empty draft for a not-yet-saved singleton instead of
+  // returning null; a missing multi-item item stays a genuine 404.
+  const item = await readItemOrSingletonDraft(store, parsedSlug.data, parsedItemSlug.data, def);
+  if (!item) notFound();
 
   // Pre-fetch every collection referenced by any collectionRef /
   // multiCollectionRef field on this def. The editor uses these to

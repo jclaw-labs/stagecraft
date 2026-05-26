@@ -97,14 +97,19 @@ describe("PUT singleton create-on-first-save", () => {
     expect(out.item.id.length).toBeGreaterThan(0);
     expect(out.item.values).toEqual({});
 
-    // It's now on disk.
+    // First save stamps createdAt (the create-on-first-save path took
+    // the `?? now` branch rather than reusing a non-existent prior item).
+    expect(typeof out.item.createdAt).toBe("string");
+    expect(out.item.createdAt.length).toBeGreaterThan(0);
+
+    // It's now on disk, and the re-read matches the response exactly.
     const saved = await readItem(
       "booking-info",
       "_singleton",
       defOf({ slug: "booking-info", isSingleton: true }),
     );
     expect(saved).not.toBeNull();
-    expect(saved!.id).toBe(out.item.id);
+    expect(saved).toEqual(out.item);
   });
 
   it("creates the singleton with a required field's value on first save", async () => {

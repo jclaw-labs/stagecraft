@@ -16,6 +16,7 @@ import {
   findField,
   getRequestReadStore,
   itemSlugSchema,
+  readItemOrSingletonDraft,
   slugSchema,
 } from "@/lib/collections";
 
@@ -40,7 +41,12 @@ export default async function BodyEdit({ params }: { params: Promise<Params> }) 
   if (!field || field.type !== "puckContent") notFound();
 
   const store = await storePromise;
-  const item = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
+  // Mirror the item-edit page: synthesize an empty draft for a not-yet-
+  // saved singleton so editing a `puckContent` field before the
+  // singleton's first save renders instead of 404ing (the save PUTs back
+  // through the create-on-first-save path). A missing multi-item item is
+  // a genuine 404.
+  const item = await readItemOrSingletonDraft(store, parsedSlug.data, parsedItemSlug.data, def);
   if (!item) notFound();
 
   return (

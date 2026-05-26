@@ -666,6 +666,19 @@ export const collectionDefSchema = z
 
 export type CollectionDef = z.infer<typeof collectionDefSchema>;
 
+/**
+ * True when `(def, itemSlug)` addresses a singleton's one record. Named
+ * so the several admin surfaces that special-case the singleton (the
+ * item read pages' lazy-draft synthesis, the item PUT's create-on-first-
+ * save) share one predicate and can't drift apart.
+ */
+export function isSingletonItem(
+  def: Pick<CollectionDef, "isSingleton">,
+  itemSlug: string,
+): boolean {
+  return def.isSingleton && itemSlug === SINGLETON_ITEM_SLUG;
+}
+
 /** Look up a field by id on a CollectionDef, or `undefined` if absent. */
 export function findField(def: CollectionDef, fieldId: FieldId): FieldDef | undefined {
   return def.fields.find((f) => f.id === fieldId);

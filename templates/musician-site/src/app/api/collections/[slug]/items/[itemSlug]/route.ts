@@ -17,10 +17,10 @@ import {
   deleteItem,
   generateItemId,
   getRequestReadStore,
+  isSingletonItem,
   ItemExistsError,
   itemSlugSchema,
   renameItem,
-  SINGLETON_ITEM_SLUG,
   slugSchema,
   writeItem,
   type Item,
@@ -97,8 +97,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   // instead of 404ing — matching the prebaked singletons, which also
   // come into existence on first save.
   const existing = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
-  const isSingletonFirstSave =
-    !existing && def.isSingleton && parsedItemSlug.data === SINGLETON_ITEM_SLUG;
+  const isSingletonFirstSave = !existing && isSingletonItem(def, parsedItemSlug.data);
   if (!existing && !isSingletonFirstSave) return err(404, "Item not found");
 
   // Build the per-collection Zod schema from `def.fields` and run the

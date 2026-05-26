@@ -114,15 +114,16 @@ export async function POST(request: Request) {
   // defaults until then; seeding an empty item here would instead block
   // the artist from adding any *required* field, since the schema
   // validator rejects an existing item that lacks it.
-  const titleFieldId = generateFieldId();
+  // Multi-item only: one default "Title" field, which is also the slug
+  // source. A singleton gets neither (no fields, null slug source).
+  const titleFieldId = isSingleton ? null : generateFieldId();
   const def: CollectionDef = collectionDefSchema.parse({
     schemaVersion: CURRENT_COLLECTION_SCHEMA_VERSION,
     slug: parsedSlug.data,
     singularName,
     pluralName,
-    fields: isSingleton
-      ? []
-      : [
+    fields: titleFieldId
+      ? [
           {
             id: titleFieldId,
             key: "title",
@@ -130,8 +131,9 @@ export async function POST(request: Request) {
             required: true,
             // No `systemLocked` — the artist can rename or remove it.
           },
-        ],
-    slugSourceFieldId: isSingleton ? null : titleFieldId,
+        ]
+      : [],
+    slugSourceFieldId: titleFieldId,
     detailUrlPrefix: null,
     defaultSort: null,
     itemTemplate: null,
