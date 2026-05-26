@@ -194,6 +194,14 @@ describe("resolveStringBindable — date formats", () => {
     );
   });
 
+  it("formats a date that carries a time component in UTC (no drift across midnight)", () => {
+    // A late-UTC timestamp must still read as its UTC calendar day, not roll
+    // forward/back under a local timezone.
+    const timed = makeItem({ fld_d: { type: "date", value: "2026-05-10T23:30:00.000Z" } });
+    expect(resolveStringBindable(fmtBinding("fld_d", "full"), timed)).toBe("May 10, 2026");
+    expect(resolveStringBindable(fmtBinding("fld_d", "year"), timed)).toBe("2026");
+  });
+
   it("leaves the raw value when the date can't be parsed", () => {
     const bad = makeItem({ fld_d: { type: "date", value: "not-a-date" } });
     expect(resolveStringBindable(fmtBinding("fld_d", "year"), bad)).toBe("not-a-date");
@@ -228,6 +236,11 @@ describe("resolveStringBindable — select label format", () => {
     expect(resolveStringBindable(fmtBinding("fld_s", "label"), dateItem, defWithSelect)).toBe(
       "2026-05-10",
     );
+  });
+
+  it("returns the raw empty string when the select value is blank", () => {
+    const blank = makeItem({ fld_s: { type: "select", value: "" } });
+    expect(resolveStringBindable(fmtBinding("fld_s", "label"), blank, defWithSelect)).toBe("");
   });
 
   it("a binding with no format still returns the raw value", () => {
