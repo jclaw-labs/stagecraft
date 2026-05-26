@@ -3,15 +3,20 @@
 import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
-import { BLOCK_DESCRIPTIONS, puckConfig } from "@/puck/config";
+import {
+  buildUnifiedEditorConfig,
+  type EmbeddableCollection,
+} from "@/puck/collection-view-editor";
+import { BLOCK_DESCRIPTIONS } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { PageData } from "@/lib/content";
 
 import {
+  type CategoryConfig,
   computeCategoryVisibility,
   isVisibilityDispatchTrivial,
 } from "./drawer-visibility";
@@ -20,6 +25,12 @@ type Props = {
   initialData: PageData;
   pageSlug: string;
   email: string;
+  /**
+   * Collections embeddable as page blocks (non-singleton, non-`pages`),
+   * resolved server-side. Drives the generic Collection-block authoring config
+   * (ADR-015 step 5) — see `buildUnifiedEditorConfig`.
+   */
+  embeddableCollections: EmbeddableCollection[];
 };
 
 /**
@@ -45,7 +56,15 @@ type PublishState =
   | { status: "saved" }
   | { status: "error"; message: string };
 
-export function Editor({ initialData, pageSlug, email }: Props) {
+export function Editor({ initialData, pageSlug, email, embeddableCollections }: Props) {
+  // Page editor's unified config (ADR-015 step 5): chrome blocks + the generic
+  // Collection-block authoring config per embeddable collection. Memoised so
+  // Puck doesn't re-init on every keystroke (a fresh config identity resets
+  // editor state).
+  const config = useMemo(
+    () => buildUnifiedEditorConfig(embeddableCollections),
+    [embeddableCollections],
+  );
   const [publishState, setPublishState] = useState<PublishState>({ status: "idle" });
   // Puck doesn't surface dirty state to wrappers; track it ourselves
   // via onChange. Reset on successful publish (the saved data becomes
@@ -101,7 +120,7 @@ export function Editor({ initialData, pageSlug, email }: Props) {
 
   return (
     <Puck
-      config={puckConfig}
+      config={config}
       data={initialData}
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}
@@ -110,12 +129,15 @@ export function Editor({ initialData, pageSlug, email }: Props) {
           const q = drawerFilter.trim().toLowerCase();
           const hasMatch =
             !q ||
-            Object.keys(puckConfig.components).some((name) =>
+            Object.keys(config.components).some((name) =>
               name.toLowerCase().includes(q),
             );
           return (
             <>
-              <DrawerCategoryVisibilitySync filter={drawerFilter} />
+              <DrawerCategoryVisibilitySync
+                filter={drawerFilter}
+                categories={config.categories ?? {}}
+              />
               <DrawerSearchInput
                 value={drawerFilter}
                 onChange={setDrawerFilter}
@@ -321,7 +343,13 @@ function Dot() {
  *   case dispatches normally — that's when categories were just
  *   hidden by a filter and need to come back to visible.
  */
-function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
+function DrawerCategoryVisibilitySync({
+  filter,
+  categories,
+}: {
+  filter: string;
+  categories: Record<string, CategoryConfig | undefined>;
+}) {
   const { dispatch } = usePuck();
   const hasDispatchedRef = useRef(false);
   useEffect(() => {
@@ -341,12 +369,12 @@ function DrawerCategoryVisibilitySync({ filter }: { filter: string }) {
       ui: (previous) => ({
         componentList: computeCategoryVisibility(
           filter,
-          puckConfig.categories ?? {},
+          categories,
           previous.componentList,
         ),
       }),
     });
-  }, [filter, dispatch]);
+  }, [filter, categories, dispatch]);
   return null;
 }
 

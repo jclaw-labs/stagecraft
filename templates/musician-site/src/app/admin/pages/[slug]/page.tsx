@@ -17,11 +17,31 @@ export default async function AdminEditPage({ params }: Props) {
   if (!parsed.success) notFound();
   const slug = parsed.data;
 
-  const [data, session] = await Promise.all([
-    getRequestReadStore().then((s) => readPageOrNull(slug, s)),
+  const store = await getRequestReadStore();
+  const [data, session, collectionSlugs] = await Promise.all([
+    readPageOrNull(slug, store),
     getSession(),
+    store.listCollectionSlugs(),
   ]);
   if (!data) notFound();
 
-  return <Editor initialData={data} pageSlug={slug} email={session?.email ?? ""} />;
+  // Collections embeddable as page blocks: every collection except the page
+  // collection itself and the singletons (site / header / appearance). Each
+  // becomes a generic Collection block in the editor's "Collections" drawer
+  // group (ADR-015 step 5). Sorted by display name for a stable drawer order.
+  const defs = await Promise.all(collectionSlugs.map((s) => store.readCollectionDef(s)));
+  const embeddableCollections = defs
+    .flatMap((d) =>
+      d && !d.isSingleton && d.slug !== "pages" ? [{ slug: d.slug, label: d.pluralName }] : [],
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return (
+    <Editor
+      initialData={data}
+      pageSlug={slug}
+      email={session?.email ?? ""}
+      embeddableCollections={embeddableCollections}
+    />
+  );
 }

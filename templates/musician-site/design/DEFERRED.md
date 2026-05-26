@@ -141,31 +141,49 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
   (no crash; if-chains, not an exhaustive switch). Add a `today` option to the
   toggle and a read-only display arm, alongside the binding-picker work above.
 
-## Open (from ADR-015 step 3 — convergence)
+## Open (from ADR-015 — remaining: PR-6 deletion)
 
-- **Collection-block empty state has no copy.** The bespoke
-  `TourDatesList`/`ReleasesList`/`PostsList` rendered a friendly empty message
-  ("No upcoming shows right now — check back soon.", etc.) when there were no
-  items; the generic `CollectionBlockRender` renders an empty
-  `<div data-collection-view>` instead. The PR-5a public flip ships without it
-  — the demo collections are all non-empty, so nothing renders blank today —
-  but a real artist who empties a collection sees a blank section. Restore it
-  (a per-block `emptyMessage` prop, or a default per-slug message) in a
-  follow-up; pairs naturally with the editor switch below.
-- **Page editor still on the bespoke config (PR-5b).** PR-5a flipped only the
-  *public* render to the unified config + walker. The Puck page editor
-  (`Editor.tsx`) still uses the bespoke `puckConfig`, so the bespoke
-  `TourDatesView`/`ReleasesView`/`PostsView` blocks (with their editor
-  placeholders) stay live for authoring, and the migrated pages open with the
-  bespoke `limit` field (the extra `sourceCollection`/`sort`/`filter` props are
-  preserved but not editable). Switch the editor to the unified config — adding
-  the generic Collection block's authoring fields (the source picker + filter
-  UI) and an editor placeholder — then PR-6 can delete the bespoke blocks +
-  `resolve-page-collections.ts`.
+- **Delete the now-dead bespoke collection path (PR-6).** PR-5a flipped the
+  public render and PR-5b flipped the editor onto the unified config, so the
+  bespoke `TourDatesView`/`ReleasesView`/`PostsView` blocks in
+  `src/puck/config.tsx` and `resolvePageCollectionBlocks`
+  (`resolve-page-collections.ts`) are no longer reached by either render path —
+  both configs override the bespoke `*View` names with the generic block. Only
+  their `keyof BlockProps` names still anchor `DrawerItemPreview`'s
+  `STATIC_PREVIEW_BLOCKS`. Delete the bespoke block configs + their
+  `*View.tsx` component files + `resolve-page-collections.ts` (+ test), drop the
+  now-stale `STATIC_PREVIEW_BLOCKS` / `BlockProps` entries, and rewrite the
+  "Remaining collection blocks on general pages" note in
+  `templates/musician-site/CLAUDE.md` (it still describes the deleted
+  `resolvePageCollectionBlocks` mechanism). This closes ADR-015.
+- **No artist-editable filter / sort on a Collection block (ADR-015).** The
+  page-editor Collection block exposes only `limit`; `sourceCollection` is a
+  read-only note and `sort` / `filter` ride in `defaultProps` (the three demos'
+  upcoming/newest-first defaults), so an artist can't change ordering or filter
+  per block from the inspector. Matches the bespoke blocks (which exposed only
+  `limit`) and keeps PR-5b focused. A future polish could surface a filter /
+  sort builder (the `FilterField` editor already exists for collection
+  templates) — pairs with the binding-`format` / `today`-filter editor UI above.
 
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
+- **Page editor on the unified config (PR-5b / ADR-015 step 5)** — done: the page
+  editor (`Editor.tsx`) builds its config via `buildUnifiedEditorConfig`
+  (`collection-view-editor.tsx`) — `puckConfig` chrome blocks plus a generic
+  Collection-block authoring config per *embeddable* collection (non-singleton,
+  non-`pages`, resolved server-side in the editor's parent page): a `limit`
+  control + a read-only source note + an editor placeholder, with `defaultProps`
+  (source + sort + filter) shared with the seeds via the new `collectionViewProps`
+  helper (`collection-view-props.ts`) so a freshly dragged-in block matches the
+  seeded one. The bespoke `*View` names are overridden in place, so migrated
+  pages keep authoring; *any* collection is now embeddable (ADR-015's headline
+  outcome), not just the three demos. Only PR-6 (deletion) remains.
+- **Collection-block empty-state copy (PR-5b / ADR-015)** — done: `emptyMessageFor`
+  (`specialized-views.tsx`) restores the bespoke per-slug copy ("No upcoming
+  shows right now — check back soon.", etc.); `CollectionBlockRender` renders it
+  as a plain muted paragraph (no grid wrapper) when a block resolves zero items.
+  Slugs without bespoke copy keep the empty `<div data-collection-view>`.
 - **ADR-015 public render flip (PR-5a)** — done (#297): hand-authored pages now
   render through the template walker + `buildUnifiedPublicConfig`, so the generic
   Collection block is the single collection-view on public pages. Chrome blocks

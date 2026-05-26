@@ -31,7 +31,7 @@ import { applyFilter } from "./filter";
 import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
 import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
-import { specialisedRendererFor } from "./specialized-views";
+import { emptyMessageFor, specialisedRendererFor } from "./specialized-views";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
@@ -142,6 +142,19 @@ export function CollectionBlockRender({
     // throwing. The resolver's empty `items` already covers this,
     // but be defensive about render-time invariants.
     return null;
+  }
+  if (items.length === 0) {
+    // Restore the bespoke views' empty-state copy (ADR-015 step 5). The
+    // message renders as a plain muted paragraph — no `data-collection-view`
+    // wrapper, so a grid-layout slug (releases / posts) doesn't lay the single
+    // line out as a grid cell. Slugs without bespoke copy fall back to the
+    // empty wrapper, matching the block's prior behaviour.
+    const message = emptyMessageFor(sourceDef.slug);
+    return message ? (
+      <p style={{ color: "var(--color-text-muted)", margin: 0 }}>{message}</p>
+    ) : (
+      <div data-collection-view={sourceDef.slug} />
+    );
   }
   return (
     <div data-collection-view={sourceDef.slug}>
