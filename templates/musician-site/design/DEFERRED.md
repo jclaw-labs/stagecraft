@@ -168,7 +168,7 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
-- **Page editor on the unified config (PR-5b / ADR-015 step 5)** — done: the page
+- **Page editor on the unified config (PR-5b / ADR-015 step 5)** — done (#298): the page
   editor (`Editor.tsx`) builds its config via `buildUnifiedEditorConfig`
   (`collection-view-editor.tsx`) — `puckConfig` chrome blocks plus a generic
   Collection-block authoring config per *embeddable* collection (non-singleton,
@@ -179,7 +179,7 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
   seeded one. The bespoke `*View` names are overridden in place, so migrated
   pages keep authoring; *any* collection is now embeddable (ADR-015's headline
   outcome), not just the three demos. Only PR-6 (deletion) remains.
-- **Collection-block empty-state copy (PR-5b / ADR-015)** — done: `emptyMessageFor`
+- **Collection-block empty-state copy (PR-5b / ADR-015)** — done (#298): `emptyMessageFor`
   (`specialized-views.tsx`) restores the bespoke per-slug copy ("No upcoming
   shows right now — check back soon.", etc.); `CollectionBlockRender` renders it
   as a plain muted paragraph (no grid wrapper) when a block resolves zero items.
