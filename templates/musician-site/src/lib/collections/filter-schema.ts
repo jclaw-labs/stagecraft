@@ -17,6 +17,7 @@ const filterValueSchema: z.ZodType<FilterValue> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("literal"), value: z.unknown() }),
   z.object({ kind: z.literal("currentItemId") }),
   z.object({ kind: z.literal("currentItemField"), fieldId: fieldIdSchema }),
+  z.object({ kind: z.literal("today") }),
 ]);
 
 const filterClauseSchema: z.ZodType<FilterClause> = z.union([
@@ -54,13 +55,22 @@ export const filterSchema: z.ZodType<Filter> = z.union([
 
 /**
  * A value substituted into a filter clause at resolution time. The
- * three-arm discriminator avoids the `_id`-named-FieldId collision
- * the single-arm shape (`field: "_id"` sentinel) would have.
+ * discriminator avoids the `_id`-named-FieldId collision the single-arm
+ * shape (`field: "_id"` sentinel) would have.
+ *
+ * `today` resolves to the start of the current day in UTC, formatted as a
+ * date-only `YYYY-MM-DD` string. Paired with a date field and `gte`/`lt` it
+ * expresses relative windows like "upcoming" (`date gte today`) without
+ * baking a fixed date into the content. The date-only form compares
+ * correctly (lexicographically) against both date-only and full-ISO field
+ * values — a same-day timestamped value sorts after `YYYY-MM-DD`, so a show
+ * later today still counts as upcoming.
  */
 export type FilterValue =
   | { kind: "literal"; value: unknown }
   | { kind: "currentItemId" }
-  | { kind: "currentItemField"; fieldId: string };
+  | { kind: "currentItemField"; fieldId: string }
+  | { kind: "today" };
 
 /**
  * One comparison clause inside a `Filter`. `excludeCurrentItem` is a

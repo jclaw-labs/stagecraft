@@ -122,15 +122,24 @@ up, so they aren't lost. Each notes why and where it should land.
   ReleasesView and because the null-`detailTemplate` fallback page is bare;
   revisit when releases/posts ship real detail templates.
 
-## Open (from ADR-015 step 1 — Bindable `format`)
+## Open (from ADR-015 steps 1–2 — editor authoring of new renderer capabilities)
 
-- **No editor UI to author a binding `format` yet.** Step 1 added the `format`
-  directive (date presets + select→label) to the *renderer* (`binding.ts` +
-  the primitives) and the Zod schema, but the template editor's binding picker
-  has no control to set it — a `format` is only authorable by hand-editing JSON
-  / in seeded `itemTemplate`s (which is all step 4 needs). When the editor is
-  unified onto the template config (ADR-015 steps 3/5), add a format dropdown to
-  the binding picker, shown only for date / select fields.
+Both enabling features added a renderer/schema capability without the editor UI
+to author it. The values are authorable by hand-editing JSON / in seeded
+templates + Collection-block props (all steps 4–5 need); the editor controls
+land when the editor unifies onto the template config (ADR-015 steps 3/5).
+
+- **No editor UI to author a binding `format` yet (step 1).** The `format`
+  directive (date presets + select→label) is in the renderer (`binding.ts` +
+  primitives) and the Zod schema, but the template editor's binding picker has
+  no control to set it. Add a format dropdown to the binding picker, shown only
+  for date / select fields.
+- **No editor UI to author/display the `today` filter value yet (step 2).** The
+  `{ kind: "today" }` `FilterValue` resolves at render time, but
+  `FilterValueEditor` (`FilterField.tsx`) has no "today (relative)" option in
+  its value-kind toggle — and a seeded `today` value shows a blank kind select
+  (no crash; if-chains, not an exhaustive switch). Add a `today` option to the
+  toggle and a read-only display arm, alongside the binding-picker work above.
 
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
