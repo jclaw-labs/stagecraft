@@ -193,6 +193,19 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     const resolved = resolveTemplate(tpl, parisItem());
     expect((resolved.content[0] as unknown as ChildSlot).props.children).toEqual([]);
   });
+
+  it("preserves a resolved block's `id` (Puck keys rendered blocks by it)", () => {
+    // resolveProps returns only render fields (no id); resolveBlock carries the
+    // original `id` through so Puck can key the block (no React key warning).
+    const tpl: Template = {
+      content: [{ type: "Text", props: { id: "t1", content: binding("f_venue") } }],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const text = resolved.content[0] as { props: { id?: string; content?: unknown } };
+    expect(text.props.id).toBe("t1");
+    expect(text.props.content).toBe("La Cigale");
+  });
 });
 
 // ---------------------------------------------------------------------------

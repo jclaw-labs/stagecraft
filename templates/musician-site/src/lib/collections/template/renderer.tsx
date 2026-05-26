@@ -190,6 +190,15 @@ function resolveBlock(
     itemDef,
     loadedCollections,
     recurse,
-  });
-  return { type: block.type, props: resolved as Record<string, unknown> };
+  }) as Record<string, unknown>;
+  // Carry the block's `id` onto the resolved props. `resolveProps` returns only
+  // the render-facing fields (no `id`), but Puck keys rendered blocks by
+  // `props.id`; without it, walker-resolved blocks (Collection blocks,
+  // primitives) render keyless and React warns "unique key". `resolved` never
+  // carries an `id`, so this can't clobber one.
+  const id = (block.props as { id?: unknown })?.id;
+  return {
+    type: block.type,
+    props: id === undefined ? resolved : { id, ...resolved },
+  };
 }
