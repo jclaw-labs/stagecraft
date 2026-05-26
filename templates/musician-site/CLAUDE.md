@@ -429,14 +429,15 @@ Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
 ## What's intentionally not here yet
 
 - **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
-- **Remaining collection blocks on general pages.** `TourDatesView`,
-  `ReleasesView`, `PostsView`, and the `Gallery` block are registered in the
-  main page editor's `puckConfig` and data-bound on hand-authored pages: each
-  holds only authoring props (e.g. `limit`), and `resolvePageCollectionBlocks`
-  (run in the public catch-all before `<Render>`) injects the live
-  collection items. `store-items` could get the same treatment (`StoreView`)
-  when wanted — the resolve pass generalises by block type. (Collections also
-  still render on their own detail/item *templates* via
-  `buildTemplatePuckConfig`; that's unchanged.)
 
 These ship in stacked PRs.
+
+> **Collection blocks on hand-authored pages (ADR-015, done).** Pages embed a
+> collection via the generic Collection block (`<Slug>View`, e.g.
+> `TourDatesView`): the public catch-all walks the page through the ADR-009
+> template renderer (`resolveTemplate` + `buildUnifiedPublicConfig`), resolving
+> each block's `sourceCollection`/`sort`/`filter` against the live collection;
+> the page editor authors them via `buildUnifiedEditorConfig`. This replaced the
+> bespoke `TourDatesView`/`ReleasesView`/`PostsView` page blocks +
+> `resolvePageCollectionBlocks` (deleted). Any collection is embeddable — no
+> per-collection code. Per-slug card layouts live in `specialized-views.tsx`.

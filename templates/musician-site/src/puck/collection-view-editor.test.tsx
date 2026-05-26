@@ -51,9 +51,11 @@ describe("buildUnifiedEditorConfig", () => {
     expect(c.Heading?.render).toBe(pc.Heading.render);
   });
 
-  it("overrides the bespoke *View blocks with the generic authoring config", () => {
-    // Generic editor render replaces the bespoke list/placeholder render.
-    expect(c.TourDatesView?.render).not.toBe(pc.TourDatesView.render);
+  it("registers the generic *View blocks with the authoring config (bespoke ones deleted)", () => {
+    // Post-ADR-015 PR-6 the bespoke blocks are gone from puckConfig; the `*View`
+    // names now resolve solely to the generic authoring config.
+    expect(pc.TourDatesView).toBeUndefined();
+    expect(c.TourDatesView?.render).toBeTypeOf("function");
     expect(c.TourDatesView?.defaultProps?.sourceCollection).toBe("tour-dates");
     expect(c.ReleasesView?.defaultProps?.sourceCollection).toBe("releases");
     expect(c.PostsView?.defaultProps?.sourceCollection).toBe("posts");

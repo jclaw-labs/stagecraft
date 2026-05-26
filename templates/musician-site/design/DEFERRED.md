@@ -141,21 +141,8 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
   (no crash; if-chains, not an exhaustive switch). Add a `today` option to the
   toggle and a read-only display arm, alongside the binding-picker work above.
 
-## Open (from ADR-015 — remaining: PR-6 deletion)
+## Open (from ADR-015)
 
-- **Delete the now-dead bespoke collection path (PR-6).** PR-5a flipped the
-  public render and PR-5b flipped the editor onto the unified config, so the
-  bespoke `TourDatesView`/`ReleasesView`/`PostsView` blocks in
-  `src/puck/config.tsx` and `resolvePageCollectionBlocks`
-  (`resolve-page-collections.ts`) are no longer reached by either render path —
-  both configs override the bespoke `*View` names with the generic block. Only
-  their `keyof BlockProps` names still anchor `DrawerItemPreview`'s
-  `STATIC_PREVIEW_BLOCKS`. Delete the bespoke block configs + their
-  `*View.tsx` component files + `resolve-page-collections.ts` (+ test), drop the
-  now-stale `STATIC_PREVIEW_BLOCKS` / `BlockProps` entries, and rewrite the
-  "Remaining collection blocks on general pages" note in
-  `templates/musician-site/CLAUDE.md` (it still describes the deleted
-  `resolvePageCollectionBlocks` mechanism). This closes ADR-015.
 - **No artist-editable filter / sort on a Collection block (ADR-015).** The
   page-editor Collection block exposes only `limit`; `sourceCollection` is a
   read-only note and `sort` / `filter` ride in `defaultProps` (the three demos'
@@ -168,6 +155,16 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
+- **ADR-015 closed — bespoke collection path deleted (PR-6)** — done (this PR):
+  removed the bespoke `TourDatesView`/`ReleasesView`/`PostsView` blocks from
+  `config.tsx` (+ their `BlockProps` / `BLOCK_DESCRIPTIONS` / drawer-category
+  entries), the three `src/components/*View.tsx` files, and
+  `resolve-page-collections.ts` (`resolvePageCollectionBlocks`) — all
+  unreachable after PR-5a/5b. Dropped the three names from `DrawerItemPreview`'s
+  `STATIC_PREVIEW_BLOCKS` (they now hit the unregistered-block name-pill
+  fallback) and rewrote the stale CLAUDE.md note. The generic Collection block +
+  walker are the single collection-view across public render and editor; ADR-015
+  is complete.
 - **Page editor on the unified config (PR-5b / ADR-015 step 5)** — done (#298): the page
   editor (`Editor.tsx`) builds its config via `buildUnifiedEditorConfig`
   (`collection-view-editor.tsx`) — `puckConfig` chrome blocks plus a generic
