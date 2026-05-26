@@ -143,20 +143,39 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
 
 ## Open (from ADR-015 step 3 — convergence)
 
-- **Collection-block empty state has no copy (handle at the PR-5 flip).** The
-  bespoke `TourDatesList`/`ReleasesList`/`PostsList` render a friendly empty
-  message ("No upcoming shows right now — check back soon.", etc.) when there
-  are no items. The generic `CollectionBlockRender` renders an empty
-  `<div data-collection-view>` instead — no message. This is invisible while
-  the convergence is inert, but the **PR-5 render-path flip must restore an
-  empty state** (e.g. a per-block `emptyMessage` prop on the Collection block,
-  or a default per-slug message) so a page's tour/releases/news section doesn't
-  silently render blank when a collection is empty. Tracked so the flip PR
-  doesn't ship the regression.
+- **Collection-block empty state has no copy.** The bespoke
+  `TourDatesList`/`ReleasesList`/`PostsList` rendered a friendly empty message
+  ("No upcoming shows right now — check back soon.", etc.) when there were no
+  items; the generic `CollectionBlockRender` renders an empty
+  `<div data-collection-view>` instead. The PR-5a public flip ships without it
+  — the demo collections are all non-empty, so nothing renders blank today —
+  but a real artist who empties a collection sees a blank section. Restore it
+  (a per-block `emptyMessage` prop, or a default per-slug message) in a
+  follow-up; pairs naturally with the editor switch below.
+- **Page editor still on the bespoke config (PR-5b).** PR-5a flipped only the
+  *public* render to the unified config + walker. The Puck page editor
+  (`Editor.tsx`) still uses the bespoke `puckConfig`, so the bespoke
+  `TourDatesView`/`ReleasesView`/`PostsView` blocks (with their editor
+  placeholders) stay live for authoring, and the migrated pages open with the
+  bespoke `limit` field (the extra `sourceCollection`/`sort`/`filter` props are
+  preserved but not editable). Switch the editor to the unified config — adding
+  the generic Collection block's authoring fields (the source picker + filter
+  UI) and an editor placeholder — then PR-6 can delete the bespoke blocks +
+  `resolve-page-collections.ts`.
 
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
+- **ADR-015 public render flip (PR-5a)** — done (#297): hand-authored pages now
+  render through the template walker + `buildUnifiedPublicConfig`, so the generic
+  Collection block is the single collection-view on public pages. Chrome blocks
+  (Section/Button/Image/Columns/…) pass through via PR-1's slot recursion and
+  render via their `puckConfig` fns; the bespoke `TourDatesView`/`ReleasesView`/
+  `PostsView` are overridden by the generic block (specialised renderers, PR-3a/
+  3b) reading the migrated `sourceCollection`/`sort`/`filter` props (PR-4). The
+  page is its own `currentItem`; root props / metadata / chrome stay outside the
+  walker. The editor switch (PR-5b) + per-collection empty-state copy remain open
+  above; both gate PR-6's deletion of the bespoke blocks + `resolve-page-collections.ts`.
 - **Curated Google-Fonts picker, preset thumbnails, contrast guardrails** — done
   (this PR): `FontPickerField` (category→family + Custom + inherit) replaces the
   free-text font inputs; `ThemeThumbnail` previews each preset in the welcome

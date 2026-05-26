@@ -23,7 +23,8 @@ import {
   buildCollectionBlockRegistry,
   DefaultItemFieldsList,
 } from "@/lib/collections/template/collection-block";
-import { resolvePageCollectionBlocks } from "@/lib/collections/resolve-page-collections";
+import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
+import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
 import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
 import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
@@ -39,7 +40,7 @@ import {
   resolveRootPageSlug,
 } from "@/lib/content";
 import { pageSlugSchema } from "@/lib/site-config-types";
-import { puckConfig } from "@/puck/config";
+import { buildUnifiedPublicConfig } from "@/puck/unified-config";
 
 // ---------------------------------------------------------------------------
 // Per-request caches
@@ -171,9 +172,34 @@ async function renderPage({ segs }: { segs: string[] }) {
 
   if (!pageData) notFound();
 
-  // Page blocks are pure (literal props only); data-bound blocks like
-  // TourDatesView get their items injected here, server-side, before render.
-  const resolvedPageData = await resolvePageCollectionBlocks(pageData);
+  // Render the page body through the template walker (ADR-015 convergence):
+  // chrome blocks (Section, Columns, …) pass through with their literal props,
+  // and Collection blocks (TourDatesView / ReleasesView / PostsView, now the
+  // generic block) resolve their items from the live collections via the same
+  // machinery the collection detail pages use. The page is its own
+  // `currentItem` (ADR-009 §2); root props / metadata / chrome stay outside
+  // the walker (handled below). `loadCollectionsForTemplate` short-circuits
+  // when the page embeds no Collection block, so the common case is cheap.
+  const allDefs = await cachedAllDefs();
+  const slugs = allDefs.map((d) => d.slug);
+  // Walker registry is Collection blocks ONLY — no primitives. The page body's
+  // chrome blocks (Section, Button, Image, …) are unknown to this registry, so
+  // the walker passes them through (recursing their slots, renderer.tsx) and
+  // they render via their chrome fns in the unified config. Including
+  // primitives would mis-dispatch same-named chrome blocks to Bindable
+  // resolvers. (A collection's own itemTemplate still uses PRIMITIVE_BLOCKS
+  // internally, inside CollectionBlockItem.)
+  const registry = buildCollectionBlockRegistry(slugs);
+  const pageItem = pageDataToItem(requestedSlug, pageData as Template, {
+    id: `page_${requestedSlug}`,
+  });
+  const loaded = await loadCollectionsForTemplate(pageData as Template);
+  const resolvedPageData = resolveTemplate(pageData as Template, pageItem, {
+    registry,
+    currentItem: pageItem,
+    itemDef: pagesCollectionDef,
+    loadedCollections: loaded,
+  });
 
   const rootProps = extractPageRootProps(pageData);
   const pageTitleBySlug = new Map(summaries.map((s) => [s.slug, s.title]));
@@ -212,7 +238,7 @@ async function renderPage({ segs }: { segs: string[] }) {
           }
         />
       ) : null}
-      <Render config={puckConfig} data={resolvedPageData} />
+      <Render config={buildUnifiedPublicConfig(slugs)} data={resolvedPageData} />
     </PublicPageChrome>
   );
 }
