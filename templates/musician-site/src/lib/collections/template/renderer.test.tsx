@@ -14,7 +14,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { asImageId } from "@/lib/image-types";
 
 import { binding, literal } from "./binding";
-import { TemplateRenderer } from "./renderer";
+import { blockNameForCollection, buildCollectionBlockRegistry } from "./collection-block";
+import { resolveTemplate, TemplateRenderer } from "./renderer";
 import type { Template } from "./types";
 import type { Item } from "../schema";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "../test-fixtures";
@@ -65,6 +66,132 @@ describe("TemplateRenderer — boundary cases", () => {
     });
     // Puck doesn't render the block but may still emit wrapper markup.
     expect(html).not.toContain("DoesNotExist");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Walker: slot recursion through unknown (page chrome) blocks
+// ---------------------------------------------------------------------------
+
+// ADR-015: hand-authored pages embed Collection blocks / bound primitives
+// inside page chrome blocks (Section, Columns) that the template registry
+// doesn't define. The walker must still descend into those chrome blocks'
+// slot arrays so the nested blocks resolve.
+type ChildSlot = { props: { children: Array<{ type: string; props: Record<string, unknown> }> } };
+
+describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => {
+  it("resolves a bound primitive nested in an unknown block's slot array", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Section", // unknown to PRIMITIVE_BLOCKS
+          props: { id: "s1", children: [{ type: "Text", props: { content: binding("f_venue") } }] },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const section = resolved.content[0] as unknown as ChildSlot;
+    // The inner Text's binding resolved to a literal string.
+    expect(section.props.children[0].props.content).toBe("La Cigale");
+  });
+
+  it("recurses deeply (bound primitive two unknown levels down)", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Section",
+          props: {
+            children: [
+              { type: "Columns", props: { col1: [{ type: "Text", props: { content: binding("f_city") } }] } },
+            ],
+          },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const col1 = (resolved.content[0] as unknown as ChildSlot).props.children[0].props.col1 as Array<{
+      props: { content: unknown };
+    }>;
+    expect(col1[0].props.content).toBe("Paris");
+  });
+
+  it("leaves non-block array props (a data list, not a slot) untouched", () => {
+    const tpl: Template = {
+      content: [
+        // `images` items have no `type` → they're data, not blocks; left as-is.
+        { type: "Gallery", props: { id: "g1", images: [{ image: null }, { image: null }] } },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const gallery = resolved.content[0] as unknown as { props: { images: unknown[] } };
+    expect(gallery.props.images).toEqual([{ image: null }, { image: null }]);
+  });
+
+  it("leaves an unknown block with no slots unchanged", () => {
+    const tpl: Template = {
+      content: [{ type: "Divider", props: { id: "d1", inset: true } }],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    expect(resolved.content[0]).toEqual({ type: "Divider", props: { id: "d1", inset: true } });
+  });
+
+  it("resolves a Collection block nested in chrome (the convergence target)", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Section", // unknown chrome
+          props: {
+            children: [
+              {
+                type: blockNameForCollection("tour-dates"), // "TourDatesView"
+                props: { sourceCollection: "tour-dates", limit: 5 },
+              },
+            ],
+          },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem(), {
+      registry: buildCollectionBlockRegistry(["tour-dates"]),
+      loadedCollections: { "tour-dates": { def: tourDatesDef(), items: [parisItem()] } },
+    });
+    const view = (resolved.content[0] as unknown as ChildSlot).props.children[0];
+    // resolveCollectionBlockProps injected the loaded items + sourceDef.
+    expect((view.props as { items: unknown[] }).items).toHaveLength(1);
+    expect((view.props as { sourceDef: { slug: string } }).sourceDef.slug).toBe("tour-dates");
+  });
+
+  it("handles a block carrying both a slot array and a data array in one pass", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Frame", // unknown; a slot AND a data array side by side
+          props: {
+            children: [{ type: "Text", props: { content: binding("f_venue") } }],
+            images: [{ image: null }],
+          },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const frame = resolved.content[0] as unknown as ChildSlot & { props: { images: unknown[] } };
+    expect(frame.props.children[0].props.content).toBe("La Cigale"); // slot resolved
+    expect(frame.props.images).toEqual([{ image: null }]); // data array untouched
+  });
+
+  it("leaves an empty slot array empty", () => {
+    const tpl: Template = {
+      content: [{ type: "Section", props: { children: [] } }],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    expect((resolved.content[0] as unknown as ChildSlot).props.children).toEqual([]);
   });
 });
 
