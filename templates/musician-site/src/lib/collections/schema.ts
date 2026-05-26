@@ -801,9 +801,23 @@ export const orderFileSchema = z.array(slugSchema);
  * value, every prop is a literal — there's no "field" to bind to,
  * because the artist is producing this item's data, not a template.
  */
+/**
+ * Optional display format for a *string* binding (date / select fields),
+ * applied by `resolveStringBindable`. Date presets format the ISO value in
+ * UTC; `label` maps a `select` value to its option label. A format that
+ * doesn't match the bound field's type is ignored (the raw value renders),
+ * so a mis-set format fails safe rather than blanking the binding.
+ *
+ *   - `year`        — `"2026"` (UTC calendar year)
+ *   - `weekday-day` — `"Sat, Aug 1"` (UTC short weekday + month + day)
+ *   - `full`        — `"May 10, 2026"` (UTC short month + day + year)
+ *   - `label`       — a `select` value mapped to its option label
+ */
+export type BindableFormat = "year" | "weekday-day" | "full" | "label";
+
 export type Bindable<T> =
   | { kind: "literal"; value: T }
-  | { kind: "binding"; fieldId: FieldId };
+  | { kind: "binding"; fieldId: FieldId; format?: BindableFormat };
 
 // ---------------------------------------------------------------------------
 // 7. Collection-block filters (ADR-009 §5.1)

@@ -349,6 +349,7 @@ async function CollectionItemBody({
   const resolved = resolveTemplate(template, item, {
     registry,
     currentItem: item,
+    itemDef: def,
     loadedCollections: loaded,
   });
 

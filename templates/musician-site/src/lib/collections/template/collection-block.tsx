@@ -177,6 +177,7 @@ function CollectionBlockItem({
     const resolved = resolveTemplate(template as Template, item, {
       registry: PRIMITIVE_BLOCKS,
       currentItem,
+      itemDef: sourceDef,
     });
     // Use the cached PRIMITIVE_BLOCKS-only config so this doesn't rebuild
     // once per iterated item.

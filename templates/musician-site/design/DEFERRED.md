@@ -122,6 +122,16 @@ up, so they aren't lost. Each notes why and where it should land.
   ReleasesView and because the null-`detailTemplate` fallback page is bare;
   revisit when releases/posts ship real detail templates.
 
+## Open (from ADR-015 step 1 — Bindable `format`)
+
+- **No editor UI to author a binding `format` yet.** Step 1 added the `format`
+  directive (date presets + select→label) to the *renderer* (`binding.ts` +
+  the primitives) and the Zod schema, but the template editor's binding picker
+  has no control to set it — a `format` is only authorable by hand-editing JSON
+  / in seeded `itemTemplate`s (which is all step 4 needs). When the editor is
+  unified onto the template config (ADR-015 steps 3/5), add a format dropdown to
+  the binding picker, shown only for date / select fields.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
