@@ -22,6 +22,7 @@ import {
 } from "./specialized-views";
 import {
   PHOTOS_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
 import type { Item } from "../schema";
@@ -89,14 +90,14 @@ describe("extractVimeoId", () => {
 // ---------------------------------------------------------------------------
 
 describe("SPECIALISED_RENDERERS / specialisedRendererFor", () => {
-  it("registers photos + videos and nothing else by default", () => {
-    expect(Object.keys(SPECIALISED_RENDERERS).sort()).toEqual(["photos", "videos"]);
+  it("registers photos + videos + tour-dates", () => {
+    expect(Object.keys(SPECIALISED_RENDERERS).sort()).toEqual(["photos", "tour-dates", "videos"]);
   });
   it("looks up by slug, null for unregistered", () => {
     expect(specialisedRendererFor("photos")).toBeTypeOf("function");
     expect(specialisedRendererFor("videos")).toBeTypeOf("function");
+    expect(specialisedRendererFor("tour-dates")).toBeTypeOf("function");
     expect(specialisedRendererFor("releases")).toBeNull();
-    expect(specialisedRendererFor("tour-dates")).toBeNull();
   });
 });
 
@@ -473,5 +474,67 @@ describe("CollectionBlockRender — specialised dispatch", () => {
     // Custom-template marker rendered; PhotoTile markers absent.
     expect(html).toContain("CUSTOM-TEMPLATE-MARKER");
     expect(html).not.toMatch(/<figure/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TourDateRow (tour-dates specialisation)
+// ---------------------------------------------------------------------------
+
+function tourDateItem(
+  opts: { date?: string; venue?: string; city?: string; country?: string; ticketUrl?: string } = {},
+): Item {
+  const values: Item["values"] = {};
+  if (opts.date) values[TOUR_DATES_FIELD_IDS.date] = { type: "date", value: opts.date };
+  if (opts.venue) values[TOUR_DATES_FIELD_IDS.venue] = { type: "text", value: opts.venue };
+  if (opts.city) values[TOUR_DATES_FIELD_IDS.city] = { type: "text", value: opts.city };
+  if (opts.country) values[TOUR_DATES_FIELD_IDS.country] = { type: "text", value: opts.country };
+  if (opts.ticketUrl) {
+    values[TOUR_DATES_FIELD_IDS.ticketUrl] = { type: "url", value: opts.ticketUrl };
+  }
+  return { id: "item_t", slug: "t1", ...TS, values } satisfies Item;
+}
+
+function renderTourDate(item: Item): string {
+  const TourDateRow = specialisedRendererFor("tour-dates")!;
+  return renderToStaticMarkup(<>{TourDateRow({ item })}</>);
+}
+
+describe("TourDateRow", () => {
+  it("renders date · venue · city, country + a Tickets link", () => {
+    const html = renderTourDate(
+      tourDateItem({
+        date: "2026-08-01",
+        venue: "Sala Apolo",
+        city: "Madrid",
+        country: "Spain",
+        ticketUrl: "https://tix.example/madrid",
+      }),
+    );
+    expect(html).toContain("Aug 1"); // UTC-formatted date
+    expect(html).toContain("Sala Apolo");
+    expect(html).toContain("Madrid");
+    expect(html).toContain("Spain");
+    expect(html).toContain('href="https://tix.example/madrid"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).toContain("Tickets");
+  });
+
+  it("formats the date in UTC (no drift across midnight)", () => {
+    const html = renderTourDate(tourDateItem({ date: "2026-08-01T23:30:00.000Z", venue: "V" }));
+    expect(html).toContain("Aug 1");
+  });
+
+  it("renders a disabled Tickets affordance when there's no ticket URL", () => {
+    const html = renderTourDate(tourDateItem({ date: "2026-08-01", venue: "V", city: "C" }));
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain("<a "); // no real link
+  });
+
+  it("omits the date element when the date is missing", () => {
+    const html = renderTourDate(tourDateItem({ venue: "V", city: "C" }));
+    expect(html).not.toContain("<strong>");
+    expect(html).toContain("V");
   });
 });

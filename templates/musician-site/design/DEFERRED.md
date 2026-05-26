@@ -141,6 +141,19 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
   (no crash; if-chains, not an exhaustive switch). Add a `today` option to the
   toggle and a read-only display arm, alongside the binding-picker work above.
 
+## Open (from ADR-015 step 3 — convergence)
+
+- **Collection-block empty state has no copy (handle at the PR-5 flip).** The
+  bespoke `TourDatesList`/`ReleasesList`/`PostsList` render a friendly empty
+  message ("No upcoming shows right now — check back soon.", etc.) when there
+  are no items. The generic `CollectionBlockRender` renders an empty
+  `<div data-collection-view>` instead — no message. This is invisible while
+  the convergence is inert, but the **PR-5 render-path flip must restore an
+  empty state** (e.g. a per-block `emptyMessage` prop on the Collection block,
+  or a default per-slug message) so a page's tour/releases/news section doesn't
+  silently render blank when a collection is empty. Tracked so the flip PR
+  doesn't ship the regression.
+
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 

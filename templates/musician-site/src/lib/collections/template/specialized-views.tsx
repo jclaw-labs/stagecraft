@@ -23,10 +23,12 @@ import { Image } from "@/components/Image";
 import { largestVariantUrl } from "@/lib/image-urls";
 import type { ImageMetadata } from "@/lib/image-types";
 import {
+  getDateOrNull,
   getImageOrNull,
   getLongTextOrNull,
   getSelectOrNull,
   getTextOrNull,
+  getUrlOrNull,
 } from "../accessors";
 // Always import field-id constants directly from `../field-ids`, never
 // via `seeds.ts`'s convenience re-export — `seeds.ts` pulls
@@ -37,6 +39,7 @@ import {
 // discipline."
 import {
   PHOTOS_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
 import type { Item } from "../schema";
@@ -299,6 +302,76 @@ export function extractVimeoId(url: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Tour-date row — date · venue · city + a Tickets CTA
+// ---------------------------------------------------------------------------
+
+/** "Sat · Aug 1" — short weekday + month + day, UTC (matches the template's
+ *  UTC date convention). Empty for an unparseable / missing date. */
+function formatTourDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const month = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return `${weekday} · ${month} ${d.getUTCDate()}`;
+}
+
+/**
+ * One tour-date row, rendered inside the `TourDatesView` Collection block's
+ * `[data-collection-view="tour-dates"]` wrapper (which carries the list
+ * layout + the per-row rule via CSS). Ports the bespoke `TourDatesList` row:
+ * date · venue · city, country + a Tickets link (disabled when no URL). The
+ * upcoming / exclude-cancelled filtering + soonest-first sort are applied by
+ * the Collection block (its `filter`/`sort` props), not here.
+ */
+function TourDateRow({ item }: { item: Item }): ReactNode {
+  const date = formatTourDate(getDateOrNull(item, TOUR_DATES_FIELD_IDS.date));
+  const venue = getTextOrNull(item, TOUR_DATES_FIELD_IDS.venue);
+  const city = getTextOrNull(item, TOUR_DATES_FIELD_IDS.city);
+  const country = getTextOrNull(item, TOUR_DATES_FIELD_IDS.country);
+  const ticketUrl = getUrlOrNull(item, TOUR_DATES_FIELD_IDS.ticketUrl);
+  return (
+    <div style={tourRowStyle}>
+      <span>
+        {date ? <strong>{date}</strong> : null}
+        {venue ? ` — ${venue}` : ""}
+        {city ? ` — ${city}${country ? `, ${country}` : ""}` : ""}
+      </span>
+      {ticketUrl ? (
+        <a href={ticketUrl} target="_blank" rel="noopener noreferrer" style={tourTicketStyle}>
+          Tickets
+        </a>
+      ) : (
+        <span style={{ ...tourTicketStyle, opacity: 0.5 }} aria-disabled="true">
+          Tickets
+        </span>
+      )}
+    </div>
+  );
+}
+
+const tourRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--space-4)",
+  padding: "var(--space-3) 0",
+  borderBottom: "var(--rule-width, 1px) solid var(--rule-color, var(--color-border))",
+};
+
+const tourTicketStyle: CSSProperties = {
+  flexShrink: 0,
+  display: "inline-block",
+  padding: "var(--space-1) var(--space-3)",
+  borderRadius: "var(--btn-radius, var(--radius))",
+  border: "var(--border-width) solid var(--color-text)",
+  color: "var(--color-text)",
+  textDecoration: "none",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+};
+
+// ---------------------------------------------------------------------------
 // Registry — collection-block.tsx consults this before falling back to
 // DefaultItemRender. Adding a new specialisation: register here.
 // ---------------------------------------------------------------------------
@@ -309,6 +382,7 @@ export const SPECIALISED_RENDERERS: Readonly<Record<string, SpecialisedRenderer>
   Object.freeze({
     photos: PhotoTile,
     videos: VideoTile,
+    "tour-dates": TourDateRow,
   });
 
 /**
