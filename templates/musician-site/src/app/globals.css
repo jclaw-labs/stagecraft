@@ -166,6 +166,13 @@
   display: block;
 }
 
+/* Tour-dates list — rows stack in normal block flow (no grid). Each row
+   carries its own bottom rule (set inline in specialized-views.tsx's
+   TourDateRow); drop it on the last row so the list doesn't end on a rule. */
+[data-collection-view="tour-dates"] > *:last-child {
+  border-bottom: none;
+}
+
 /* Gallery block — a tiled photo grid. The active layout is theme-driven:
    AppearanceStyles emits `.stagecraft-site [data-gallery]` overrides for
    the `portrait` / `masonry` galleryLayout tokens. This base is the `grid`
