@@ -162,7 +162,7 @@ const PREVIEW_COMPENSATION = `${100 / PREVIEW_SCALE}%`;
 const previewBoxStyle: CSSProperties = {
   width: "100%",
   height: "var(--space-20)",
-  border: "1px solid var(--color-border)",
+  border: "var(--border-width) solid var(--color-border)",
   borderRadius: "var(--radius-sm)",
   overflow: "hidden",
   pointerEvents: "none",

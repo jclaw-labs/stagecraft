@@ -255,7 +255,7 @@ the three above.
 
 ## Design tokens
 
-Follows the monorepo-wide rule in the root `CLAUDE.md` §7. All visual
+Follows the monorepo-wide rule in the root `CLAUDE.md` §6. All visual
 values (colors, fonts, spacing, sizes, radii, shadows) come from CSS
 custom properties — no hardcoded hex, sizes, or weights in CSS, in
 inline `style={...}` props, or in HTML returned from route handlers.
@@ -263,8 +263,7 @@ inline `style={...}` props, or in HTML returned from route handlers.
 The token set is defined at `src/app/globals.css` (imported once from
 `src/app/layout.tsx`). Naming follows the shared prefix conventions
 (`--color-*`, `--font-size-*`, `--font-weight-*`, `--space-*`,
-`--radius-*`) so it stays consistent with `apps/web/` and the legacy
-template.
+`--radius-*`) so it stays consistent with `apps/web/`.
 
 ## Validation
 

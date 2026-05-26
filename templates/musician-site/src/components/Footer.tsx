@@ -28,7 +28,7 @@ export function Footer({ site }: Props) {
   // emitted by AppearanceStyles; default to surface + muted text).
   const wrapperStyle: CSSProperties = {
     width: "100%",
-    borderTop: "1px solid var(--color-border)",
+    borderTop: "var(--border-width) solid var(--color-border)",
     background: "var(--footer-bg, var(--color-surface))",
     color: "var(--footer-text, var(--color-text-muted))",
     padding: "var(--space-8) var(--space-4)",

@@ -42,7 +42,7 @@ const ticketStyle: CSSProperties = {
   display: "inline-block",
   padding: "var(--space-1) var(--space-3)",
   borderRadius: "var(--btn-radius, var(--radius))",
-  border: "1px solid var(--color-text)",
+  border: "var(--border-width) solid var(--color-text)",
   color: "var(--color-text)",
   textDecoration: "none",
   fontSize: "var(--font-size-sm)",

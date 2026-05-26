@@ -109,7 +109,7 @@ describe("<Header>", () => {
     const html = renderHeader({
       header: { ...DEFAULT_HEADER_CONFIG, headerBorder: "accent" },
     });
-    expect(html).toMatch(/border-bottom:\s*2px solid var\(--color-accent\)/);
+    expect(html).toMatch(/border-bottom:\s*var\(--border-width-thick\) solid var\(--color-accent\)/);
   });
 
   it("none header border removes the rule", () => {
