@@ -166,6 +166,16 @@ land when the editor unifies onto the template config (ADR-015 steps 3/5).
 ## Resolved
 <!-- move items here once handled, with the PR/commit that did it -->
 
+- **ADR-015 public render flip (PR-5a)** — done (#297): hand-authored pages now
+  render through the template walker + `buildUnifiedPublicConfig`, so the generic
+  Collection block is the single collection-view on public pages. Chrome blocks
+  (Section/Button/Image/Columns/…) pass through via PR-1's slot recursion and
+  render via their `puckConfig` fns; the bespoke `TourDatesView`/`ReleasesView`/
+  `PostsView` are overridden by the generic block (specialised renderers, PR-3a/
+  3b) reading the migrated `sourceCollection`/`sort`/`filter` props (PR-4). The
+  page is its own `currentItem`; root props / metadata / chrome stay outside the
+  walker. The editor switch (PR-5b) + per-collection empty-state copy remain open
+  above; both gate PR-6's deletion of the bespoke blocks + `resolve-page-collections.ts`.
 - **Curated Google-Fonts picker, preset thumbnails, contrast guardrails** — done
   (this PR): `FontPickerField` (category→family + Custom + inherit) replaces the
   free-text font inputs; `ThemeThumbnail` previews each preset in the welcome
