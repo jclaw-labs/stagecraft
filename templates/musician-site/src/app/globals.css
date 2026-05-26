@@ -173,6 +173,21 @@
   border-bottom: none;
 }
 
+/* Releases / posts card grids — the surrounding grid for the ReleaseTile /
+   PostTile cards (specialized-views.tsx). Cover cropping is the shared
+   [data-release-cover] / [data-post-cover] rules below. Releases use a square
+   cover (narrower min track); posts a 16:9 cover (wider min track). */
+[data-collection-view="releases"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-5);
+}
+[data-collection-view="posts"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-5);
+}
+
 /* Gallery block — a tiled photo grid. The active layout is theme-driven:
    AppearanceStyles emits `.stagecraft-site [data-gallery]` overrides for
    the `portrait` / `masonry` galleryLayout tokens. This base is the `grid`

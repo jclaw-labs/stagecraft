@@ -39,6 +39,8 @@ import {
 // discipline."
 import {
   PHOTOS_FIELD_IDS,
+  POSTS_FIELD_IDS,
+  RELEASES_FIELD_IDS,
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
@@ -372,6 +374,134 @@ const tourTicketStyle: CSSProperties = {
 };
 
 // ---------------------------------------------------------------------------
+// Release card — square cover + title + "type · year" meta + description
+// ---------------------------------------------------------------------------
+
+const RELEASE_TYPE_LABELS: Record<string, string> = {
+  album: "Album",
+  ep: "EP",
+  single: "Single",
+};
+
+/** "Album · 2026" — release-type label + release year, each dropped if unset. */
+function releaseMetaLine(releaseType: string, releaseDate: string): string {
+  const typeLabel = RELEASE_TYPE_LABELS[releaseType] ?? "";
+  const ms = Date.parse(releaseDate);
+  const year = Number.isNaN(ms) ? "" : String(new Date(ms).getUTCFullYear());
+  return [typeLabel, year].filter(Boolean).join(" · ");
+}
+
+/**
+ * One release card inside the `ReleasesView` Collection block's
+ * `[data-collection-view="releases"]` grid. Ports the bespoke ReleasesList
+ * card: square cover (themed gradient placeholder when no art) + title +
+ * type · year meta + description. Cover cropping is the shared
+ * `[data-release-cover]` CSS.
+ */
+function ReleaseTile({ item }: { item: Item }): ReactNode {
+  const cover = getImageOrNull(item, RELEASES_FIELD_IDS.coverImage);
+  const title = getTextOrNull(item, RELEASES_FIELD_IDS.title) ?? "";
+  const releaseType = getSelectOrNull(item, RELEASES_FIELD_IDS.releaseType) ?? "";
+  const releaseDate = getDateOrNull(item, RELEASES_FIELD_IDS.releaseDate) ?? "";
+  const description = getLongTextOrNull(item, RELEASES_FIELD_IDS.description) ?? "";
+  const meta = releaseMetaLine(releaseType, releaseDate);
+  return (
+    <article>
+      <div data-release-cover>
+        {cover ? (
+          <Image image={cover} sizes="(max-width: 768px) 50vw, 25vw" />
+        ) : (
+          <div aria-hidden style={tileCoverPlaceholderStyle} />
+        )}
+      </div>
+      <h3 style={tileTitleStyle}>{title}</h3>
+      {meta ? <p style={tileMetaStyle}>{meta}</p> : null}
+      {description ? <p style={tileBodyStyle}>{description}</p> : null}
+    </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Post card — 16:9 cover + title + "category · date" meta + summary
+// ---------------------------------------------------------------------------
+
+const POST_CATEGORY_LABELS: Record<string, string> = {
+  news: "News",
+  announcement: "Announcement",
+  interview: "Interview",
+  essay: "Essay",
+};
+
+/** "May 10, 2026" — published date in UTC. */
+function formatPostDate(iso: string): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return "";
+  return new Date(ms).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** "Interview · May 10, 2026" — category label + date, each dropped if unset. */
+function postMetaLine(category: string, publishedAt: string): string {
+  return [POST_CATEGORY_LABELS[category] ?? "", formatPostDate(publishedAt)]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * One post card inside the `PostsView` Collection block's
+ * `[data-collection-view="posts"]` grid. Ports the bespoke PostsList card:
+ * 16:9 cover (themed gradient placeholder when no image) + title +
+ * category · date meta + summary. Cover cropping is the shared
+ * `[data-post-cover]` CSS.
+ */
+function PostTile({ item }: { item: Item }): ReactNode {
+  const cover = getImageOrNull(item, POSTS_FIELD_IDS.coverImage);
+  const title = getTextOrNull(item, POSTS_FIELD_IDS.title) ?? "";
+  const category = getSelectOrNull(item, POSTS_FIELD_IDS.category) ?? "";
+  const publishedAt = getDateOrNull(item, POSTS_FIELD_IDS.publishedAt) ?? "";
+  const summary = getLongTextOrNull(item, POSTS_FIELD_IDS.summary) ?? "";
+  const meta = postMetaLine(category, publishedAt);
+  return (
+    <article>
+      <div data-post-cover>
+        {cover ? (
+          <Image image={cover} sizes="(max-width: 768px) 100vw, 33vw" />
+        ) : (
+          <div aria-hidden style={tileCoverPlaceholderStyle} />
+        )}
+      </div>
+      <h3 style={tilePostTitleStyle}>{title}</h3>
+      {meta ? <p style={tileMetaStyle}>{meta}</p> : null}
+      {summary ? <p style={tileBodyStyle}>{summary}</p> : null}
+    </article>
+  );
+}
+
+// Shared release/post card styles (the post title is a touch larger, matching
+// the two bespoke views). Gradient placeholder uses palette tokens.
+const tileCoverPlaceholderStyle: CSSProperties = {
+  background:
+    "linear-gradient(135deg, var(--color-accent), var(--color-primary), var(--color-secondary))",
+};
+const tileTitleStyle: CSSProperties = {
+  margin: "var(--space-2) 0 0",
+  fontSize: "var(--font-size-base)",
+  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+  color: "var(--color-text)",
+};
+const tilePostTitleStyle: CSSProperties = { ...tileTitleStyle, fontSize: "var(--font-size-lg)" };
+const tileMetaStyle: CSSProperties = {
+  margin: "var(--space-1) 0 0",
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
+const tileBodyStyle: CSSProperties = { ...tileMetaStyle, lineHeight: "var(--line-height-base)" };
+
+// ---------------------------------------------------------------------------
 // Registry — collection-block.tsx consults this before falling back to
 // DefaultItemRender. Adding a new specialisation: register here.
 // ---------------------------------------------------------------------------
@@ -383,6 +513,8 @@ export const SPECIALISED_RENDERERS: Readonly<Record<string, SpecialisedRenderer>
     photos: PhotoTile,
     videos: VideoTile,
     "tour-dates": TourDateRow,
+    releases: ReleaseTile,
+    posts: PostTile,
   });
 
 /**
