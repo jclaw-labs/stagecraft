@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  emptyMessageFor,
   extractVimeoId,
   extractYouTubeId,
   specialisedRendererFor,
@@ -644,5 +645,75 @@ describe("PostTile", () => {
   it("renders a cover <img> when an image is present", () => {
     const html = renderPost(postItem({ title: "X", cover: IMAGE_FIXTURE }));
     expect(html).toContain("<img");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Empty-state copy — restored from the bespoke *List components (ADR-015).
+// ---------------------------------------------------------------------------
+
+describe("emptyMessageFor", () => {
+  it("returns the bespoke copy for the three demo collections", () => {
+    expect(emptyMessageFor("tour-dates")).toBe(
+      "No upcoming shows right now — check back soon.",
+    );
+    expect(emptyMessageFor("releases")).toBe("No releases yet — add one in the Releases panel.");
+    expect(emptyMessageFor("posts")).toBe("No posts yet — add one in the Posts panel.");
+  });
+
+  it("returns null for collections without bespoke copy", () => {
+    expect(emptyMessageFor("store-items")).toBeNull();
+    expect(emptyMessageFor("photos")).toBeNull();
+  });
+});
+
+describe("CollectionBlockRender — empty state", () => {
+  const defFor = (slug: string) => ({
+    schemaVersion: 1 as const,
+    slug,
+    singularName: slug,
+    pluralName: slug,
+    fields: [],
+    slugSourceFieldId: null,
+    detailUrlPrefix: null,
+    defaultSort: null,
+    itemTemplate: null,
+    detailTemplate: null,
+    listTemplate: null,
+    isSingleton: false,
+  });
+
+  it("renders the per-slug message (no grid wrapper) when items is empty", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const item: Item = { id: "x", slug: "x", ...TS, values: {} };
+    const html = renderToStaticMarkup(
+      <>
+        {CollectionBlockRender({
+          items: [],
+          sourceDef: defFor("tour-dates"),
+          hideFields: [],
+          currentItem: item,
+        })}
+      </>,
+    );
+    expect(html).toContain("No upcoming shows right now — check back soon.");
+    // Plain paragraph — not the data-collection-view grid wrapper.
+    expect(html).not.toContain("data-collection-view");
+  });
+
+  it("renders an empty data-collection-view wrapper for slugs without copy", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const item: Item = { id: "x", slug: "x", ...TS, values: {} };
+    const html = renderToStaticMarkup(
+      <>
+        {CollectionBlockRender({
+          items: [],
+          sourceDef: defFor("store-items"),
+          hideFields: [],
+          currentItem: item,
+        })}
+      </>,
+    );
+    expect(html).toContain('data-collection-view="store-items"');
   });
 });

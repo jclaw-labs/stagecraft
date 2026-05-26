@@ -527,6 +527,29 @@ export function specialisedRendererFor(slug: string): SpecialisedRenderer | null
 }
 
 // ---------------------------------------------------------------------------
+// Empty-state copy — restored from the bespoke TourDatesList / ReleasesList /
+// PostsList (ADR-015 step 5). The generic CollectionBlockRender consults this
+// when its resolved item set is empty.
+// ---------------------------------------------------------------------------
+
+const EMPTY_VIEW_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  "tour-dates": "No upcoming shows right now — check back soon.",
+  releases: "No releases yet — add one in the Releases panel.",
+  posts: "No posts yet — add one in the Posts panel.",
+});
+
+/**
+ * Friendly per-slug message for a Collection block whose resolved items are
+ * empty — the copy the three bespoke `*List` components showed before the
+ * convergence. Returns null for collections without bespoke copy; the block
+ * then renders an empty wrapper (its prior behaviour for arbitrary
+ * collections).
+ */
+export function emptyMessageFor(slug: string): string | null {
+  return EMPTY_VIEW_MESSAGES[slug] ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Styles — inline because these tiles are server-rendered and the public
 // site stylesheet is owned by globals.css + appearance tokens. The
 // wrapper-level grid layout lives in globals.css keyed off the
