@@ -60,7 +60,9 @@
                   "type": "PostsView",
                   "props": {
                     "id": "sp-updates-posts",
-                    "limit": 6
+                    "sourceCollection": "posts",
+                    "limit": 6,
+                    "sort": { "fieldId": "fld_posts_publishedAt", "direction": "desc" }
                   }
                 }
               ]

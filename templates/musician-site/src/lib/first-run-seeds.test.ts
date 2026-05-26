@@ -134,6 +134,18 @@ describe("buildFirstRunSeed", () => {
     expect(JSON.stringify(seed.homePage.data.content)).not.toContain("Stone Chapel");
   });
 
+  it("emits generic Collection-block props (sourceCollection + sort/filter) for data-bound sections", () => {
+    const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);
+    const json = JSON.stringify(seed);
+    // tour-dates: upcoming (date ≥ today) + exclude-cancelled (ADR-015 step 2).
+    expect(json).toContain('"sourceCollection":"tour-dates"');
+    expect(json).toContain('"kind":"today"');
+    expect(json).toContain('"value":"cancelled"');
+    // releases + posts: bound to their collection (newest-first sort).
+    expect(json).toContain('"sourceCollection":"releases"');
+    expect(json).toContain('"sourceCollection":"posts"');
+  });
+
   it("uses a Gallery block for the gallery section (not a Columns of Images)", () => {
     type Block = { type: string; props: Record<string, unknown> };
     const seed = buildFirstRunSeed("Nova Reyes", "Home", NOW);

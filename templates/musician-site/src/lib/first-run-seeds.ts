@@ -30,7 +30,12 @@
 
 import type { Data as PuckData } from "@measured/puck";
 
-import { PAGES_FIELD_IDS } from "./collections/field-ids";
+import {
+  PAGES_FIELD_IDS,
+  POSTS_FIELD_IDS,
+  RELEASES_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
+} from "./collections/field-ids";
 import type { FieldValue } from "./collections/schema";
 
 export type ItemValuesMap = Record<string, FieldValue>;
@@ -103,6 +108,42 @@ export function buildFirstRunSeed(
   };
 }
 
+/**
+ * Generic Collection-block props for a page-embedded collection view
+ * (ADR-015). The block name (e.g. `TourDatesView`) carries the dispatch;
+ * these props name the source collection + the sort/filter that reproduce
+ * each demo section: tour-dates → upcoming (date ≥ today) + not-cancelled,
+ * soonest-first; releases / posts → newest-first. Used by both the home seed
+ * and the starter pages; the committed demo page JSON mirrors this shape.
+ */
+function collectionViewProps(
+  id: string,
+  sourceCollection: "tour-dates" | "releases" | "posts",
+  limit: number,
+): Record<string, unknown> {
+  if (sourceCollection === "tour-dates") {
+    return {
+      id,
+      sourceCollection,
+      limit,
+      sort: { fieldId: TOUR_DATES_FIELD_IDS.date, direction: "asc" },
+      filter: {
+        all: [
+          { field: TOUR_DATES_FIELD_IDS.date, op: "gte", value: { kind: "today" } },
+          {
+            field: TOUR_DATES_FIELD_IDS.status,
+            op: "notEquals",
+            value: { kind: "literal", value: "cancelled" },
+          },
+        ],
+      },
+    };
+  }
+  const sortField =
+    sourceCollection === "releases" ? RELEASES_FIELD_IDS.releaseDate : POSTS_FIELD_IDS.publishedAt;
+  return { id, sourceCollection, limit, sort: { fieldId: sortField, direction: "desc" } };
+}
+
 // A light starter page: eyebrow + title + a paragraph or two, optionally
 // followed by extra blocks (e.g. a contact form). Kept minimal — the point
 // is a real, editable page so the nav has somewhere to go.
@@ -151,7 +192,7 @@ function buildStarterPages(artistName: string): FirstRunPageSeed[] {
         "Streams, releases, and where to find the records. Add releases in " +
           "the Releases panel — they show up below automatically.",
       ],
-      [{ type: "ReleasesView", props: { id: "sp-music-releases", limit: 8 } }],
+      [{ type: "ReleasesView", props: collectionViewProps("sp-music-releases", "releases", 8) }],
     ),
     starterPageSeed(
       "updates",
@@ -161,7 +202,7 @@ function buildStarterPages(artistName: string): FirstRunPageSeed[] {
         "Announcements, interviews, and notes from the studio. Add posts in " +
           "the Posts panel — they show up below automatically.",
       ],
-      [{ type: "PostsView", props: { id: "sp-updates-posts", limit: 6 } }],
+      [{ type: "PostsView", props: collectionViewProps("sp-updates-posts", "posts", 6) }],
     ),
     starterPageSeed("about", "About", "Bio", [
       `${artistName} — your story goes here. Where you're from, what the ` +
@@ -317,7 +358,7 @@ function buildHomePageSeed(
               type: "Heading",
               props: { id: "fr-tour-title", text: "On the road", level: "h2", textAlign: "start" },
             },
-            { type: "TourDatesView", props: { id: "fr-tour-list", limit: 5 } },
+            { type: "TourDatesView", props: collectionViewProps("fr-tour-list", "tour-dates", 5) },
           ],
         },
       },
