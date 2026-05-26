@@ -181,13 +181,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-5);
-  margin-block: var(--space-4);
 }
 [data-collection-view="posts"] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--space-5);
-  margin-block: var(--space-4);
 }
 
 /* Gallery block — a tiled photo grid. The active layout is theme-driven:

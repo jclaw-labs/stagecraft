@@ -598,6 +598,12 @@ describe("ReleaseTile", () => {
     expect(html).toContain("Bare");
     expect(html).not.toContain(" · ");
   });
+
+  it("drops an unknown release type from the meta but keeps the year", () => {
+    const html = renderRelease(releaseItem({ title: "X", type: "boxset", date: "2026-01-01" }));
+    expect(html).not.toContain("boxset");
+    expect(html).toContain("2026");
+  });
 });
 
 function postItem(
@@ -633,5 +639,10 @@ describe("PostTile", () => {
     expect(html).toContain("News · May 10, 2026");
     expect(html).toContain("linear-gradient");
     expect(html).not.toContain("<img");
+  });
+
+  it("renders a cover <img> when an image is present", () => {
+    const html = renderPost(postItem({ title: "X", cover: IMAGE_FIXTURE }));
+    expect(html).toContain("<img");
   });
 });
