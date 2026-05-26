@@ -183,7 +183,15 @@
                   "type": "TourDatesView",
                   "props": {
                     "id": "fr-tour-list",
-                    "limit": 5
+                    "sourceCollection": "tour-dates",
+                    "limit": 5,
+                    "sort": { "fieldId": "fld_tour_dates_date", "direction": "asc" },
+                    "filter": {
+                      "all": [
+                        { "field": "fld_tour_dates_date", "op": "gte", "value": { "kind": "today" } },
+                        { "field": "fld_tour_dates_status", "op": "notEquals", "value": { "kind": "literal", "value": "cancelled" } }
+                      ]
+                    }
                   }
                 }
               ]

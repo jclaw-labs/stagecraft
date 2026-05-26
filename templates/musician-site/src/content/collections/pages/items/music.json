@@ -60,7 +60,9 @@
                   "type": "ReleasesView",
                   "props": {
                     "id": "sp-music-releases",
-                    "limit": 8
+                    "sourceCollection": "releases",
+                    "limit": 8,
+                    "sort": { "fieldId": "fld_releases_releaseDate", "direction": "desc" }
                   }
                 }
               ]
