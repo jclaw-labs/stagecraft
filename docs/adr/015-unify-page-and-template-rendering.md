@@ -71,13 +71,22 @@ Consumers-first, deletion-last (mirrors ADR-014):
    `primitives ∪ page-chrome ∪ collection-blocks`. This is the bulk of the work
    (the template primitive set is currently the smaller Section/Stack/Text/
    Image/Button/Link/RichText).
-4. **Seed the three views.** Author `releases` / `posts` as `itemTemplate`s using
-   feature #1; keep `tour-dates` as a **specialised renderer** — its list
-   layout, Tickets CTA, and disabled state read clearer in React (the same call
-   `photos` / `videos` already make). Its upcoming / exclude-cancelled rules
-   apply at the Collection-block level via feature #2, feeding the specialised
-   renderer a pre-filtered item set (specialised renderers receive only
-   `{ item }`, so the filter can't live inside them).
+4. **Render the three demo collections via specialised renderers** (revised
+   during implementation — originally planned as `itemTemplate`s for
+   releases/posts). All three (`tour-dates`, `releases`, `posts`) get a per-slug
+   specialised renderer (`specialized-views.tsx`, the same call `photos` /
+   `videos` already make), porting the bespoke cards' exact output — the themed
+   gradient placeholder, the cover-crop frame (`[data-release-cover]` /
+   `[data-post-cover]`), and the combined `type · year` / `category · date` meta.
+   An `itemTemplate` built from the current primitives can't reproduce those
+   without new primitive features (gradient-on-null Image, a cover-frame
+   wrapper, multi-field meta interpolation), so specialised renderers give exact
+   parity at lower risk. **Feature #1 (`format`) + `itemTemplate`s remain the
+   path for *artist*-authored collections** — they're a general renderer
+   capability, not tied to the prebaked demos. Each block's filter / sort
+   (upcoming + exclude-cancelled via feature #2, soonest/newest-first) applies at
+   the Collection-block level, feeding the specialised renderer a pre-filtered,
+   ordered item set (renderers receive only `{ item }`).
 5. **Render-path convergence + content migration.** Point the catch-all's
    `renderPage` at `buildTemplatePuckConfig` + the Collection-block registry +
    the walker, threading the page as its own `currentItem` (built via the

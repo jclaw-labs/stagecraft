@@ -22,6 +22,8 @@ import {
 } from "./specialized-views";
 import {
   PHOTOS_FIELD_IDS,
+  POSTS_FIELD_IDS,
+  RELEASES_FIELD_IDS,
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
@@ -90,14 +92,20 @@ describe("extractVimeoId", () => {
 // ---------------------------------------------------------------------------
 
 describe("SPECIALISED_RENDERERS / specialisedRendererFor", () => {
-  it("registers photos + videos + tour-dates", () => {
-    expect(Object.keys(SPECIALISED_RENDERERS).sort()).toEqual(["photos", "tour-dates", "videos"]);
+  it("registers photos, videos, tour-dates, releases, posts", () => {
+    expect(Object.keys(SPECIALISED_RENDERERS).sort()).toEqual([
+      "photos",
+      "posts",
+      "releases",
+      "tour-dates",
+      "videos",
+    ]);
   });
   it("looks up by slug, null for unregistered", () => {
-    expect(specialisedRendererFor("photos")).toBeTypeOf("function");
-    expect(specialisedRendererFor("videos")).toBeTypeOf("function");
+    expect(specialisedRendererFor("releases")).toBeTypeOf("function");
+    expect(specialisedRendererFor("posts")).toBeTypeOf("function");
     expect(specialisedRendererFor("tour-dates")).toBeTypeOf("function");
-    expect(specialisedRendererFor("releases")).toBeNull();
+    expect(specialisedRendererFor("store-items")).toBeNull();
   });
 });
 
@@ -536,5 +544,94 @@ describe("TourDateRow", () => {
     const html = renderTourDate(tourDateItem({ venue: "V", city: "C" }));
     expect(html).not.toContain("<strong>");
     expect(html).toContain("V");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ReleaseTile / PostTile (releases + posts specialisations)
+// ---------------------------------------------------------------------------
+
+function releaseItem(
+  opts: { title?: string; type?: string; date?: string; description?: string; cover?: ImageMetadata } = {},
+): Item {
+  const values: Item["values"] = {
+    [RELEASES_FIELD_IDS.title]: { type: "text", value: opts.title ?? "Untitled" },
+  };
+  if (opts.cover) values[RELEASES_FIELD_IDS.coverImage] = { type: "image", value: opts.cover };
+  if (opts.type) values[RELEASES_FIELD_IDS.releaseType] = { type: "select", value: opts.type };
+  if (opts.date) values[RELEASES_FIELD_IDS.releaseDate] = { type: "date", value: opts.date };
+  if (opts.description) {
+    values[RELEASES_FIELD_IDS.description] = { type: "longText", value: opts.description };
+  }
+  return { id: "item_r", slug: "r1", ...TS, values } satisfies Item;
+}
+
+function renderRelease(item: Item): string {
+  return renderToStaticMarkup(<>{specialisedRendererFor("releases")!({ item })}</>);
+}
+
+describe("ReleaseTile", () => {
+  it("renders cover frame, title, type · year meta, and description", () => {
+    const html = renderRelease(
+      releaseItem({ title: "The Long Way Home", type: "album", date: "2026-03-01", description: "Ten songs." }),
+    );
+    expect(html).toContain("data-release-cover");
+    expect(html).toContain("The Long Way Home");
+    expect(html).toContain("Album · 2026");
+    expect(html).toContain("Ten songs.");
+  });
+
+  it("shows a themed gradient placeholder (no <img>) when there's no cover art", () => {
+    const html = renderRelease(releaseItem({ title: "X", type: "ep", date: "2025-01-01" }));
+    expect(html).toContain("linear-gradient");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("EP · 2025");
+  });
+
+  it("renders a cover <img> when art is present", () => {
+    const html = renderRelease(releaseItem({ title: "X", cover: IMAGE_FIXTURE }));
+    expect(html).toContain("<img");
+  });
+
+  it("drops the meta line when both type and date are unset", () => {
+    const html = renderRelease(releaseItem({ title: "Bare" }));
+    expect(html).toContain("Bare");
+    expect(html).not.toContain(" · ");
+  });
+});
+
+function postItem(
+  opts: { title?: string; category?: string; date?: string; summary?: string; cover?: ImageMetadata } = {},
+): Item {
+  const values: Item["values"] = {
+    [POSTS_FIELD_IDS.title]: { type: "text", value: opts.title ?? "Untitled" },
+  };
+  if (opts.cover) values[POSTS_FIELD_IDS.coverImage] = { type: "image", value: opts.cover };
+  if (opts.category) values[POSTS_FIELD_IDS.category] = { type: "select", value: opts.category };
+  if (opts.date) values[POSTS_FIELD_IDS.publishedAt] = { type: "date", value: opts.date };
+  if (opts.summary) values[POSTS_FIELD_IDS.summary] = { type: "longText", value: opts.summary };
+  return { id: "item_post", slug: "p1", ...TS, values } satisfies Item;
+}
+
+function renderPost(item: Item): string {
+  return renderToStaticMarkup(<>{specialisedRendererFor("posts")!({ item })}</>);
+}
+
+describe("PostTile", () => {
+  it("renders cover frame, title, category · full-date meta, and summary", () => {
+    const html = renderPost(
+      postItem({ title: "On the Road", category: "interview", date: "2026-05-10", summary: "A chat." }),
+    );
+    expect(html).toContain("data-post-cover");
+    expect(html).toContain("On the Road");
+    expect(html).toContain("Interview · May 10, 2026");
+    expect(html).toContain("A chat.");
+  });
+
+  it("formats the published date in UTC (no drift) and shows a gradient when no cover", () => {
+    const html = renderPost(postItem({ title: "X", category: "news", date: "2026-05-10T23:30:00.000Z" }));
+    expect(html).toContain("News · May 10, 2026");
+    expect(html).toContain("linear-gradient");
+    expect(html).not.toContain("<img");
   });
 });
