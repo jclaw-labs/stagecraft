@@ -163,8 +163,26 @@ function resolveBlock(
 ): BlockInstance {
   const entry = registry[block.type];
   if (!entry) {
-    // Unknown block — leave as-is. Puck's <Render> will skip it.
-    return block;
+    // Unknown block — no resolver of its own (e.g. a page chrome block like
+    // Section / Columns, which the template registry doesn't define). It still
+    // has to be *traversed*: a Collection block (or any bound primitive) nested
+    // in one of its slot arrays must still resolve. So recurse structurally
+    // into every array-valued prop, descending only into block-shaped items
+    // (those with a string `type`) — non-block data arrays like Gallery's
+    // `images: [{ image }]` or ButtonRow's `buttons` are left untouched. The
+    // block's own props are returned verbatim; only its slots are rewritten.
+    const props = block.props;
+    if (!props || typeof props !== "object") return block;
+    let next: Record<string, unknown> | undefined;
+    for (const [key, value] of Object.entries(props)) {
+      if (!Array.isArray(value)) continue;
+      (next ??= { ...props })[key] = value.map((v) =>
+        v && typeof v === "object" && typeof (v as { type?: unknown }).type === "string"
+          ? recurse(v as BlockInstance)
+          : v,
+      );
+    }
+    return next ? { ...block, props: next } : block;
   }
   const resolved = entry.resolveProps(block.props, {
     item,
