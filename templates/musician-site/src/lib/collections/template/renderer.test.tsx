@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { asImageId } from "@/lib/image-types";
 
 import { binding, literal } from "./binding";
+import { blockNameForCollection, buildCollectionBlockRegistry } from "./collection-block";
 import { resolveTemplate, TemplateRenderer } from "./renderer";
 import type { Template } from "./types";
 import type { Item } from "../schema";
@@ -136,6 +137,61 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     } as Template;
     const resolved = resolveTemplate(tpl, parisItem());
     expect(resolved.content[0]).toEqual({ type: "Divider", props: { id: "d1", inset: true } });
+  });
+
+  it("resolves a Collection block nested in chrome (the convergence target)", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Section", // unknown chrome
+          props: {
+            children: [
+              {
+                type: blockNameForCollection("tour-dates"), // "TourDatesView"
+                props: { sourceCollection: "tour-dates", limit: 5 },
+              },
+            ],
+          },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem(), {
+      registry: buildCollectionBlockRegistry(["tour-dates"]),
+      loadedCollections: { "tour-dates": { def: tourDatesDef(), items: [parisItem()] } },
+    });
+    const view = (resolved.content[0] as unknown as ChildSlot).props.children[0];
+    // resolveCollectionBlockProps injected the loaded items + sourceDef.
+    expect((view.props as { items: unknown[] }).items).toHaveLength(1);
+    expect((view.props as { sourceDef: { slug: string } }).sourceDef.slug).toBe("tour-dates");
+  });
+
+  it("handles a block carrying both a slot array and a data array in one pass", () => {
+    const tpl: Template = {
+      content: [
+        {
+          type: "Frame", // unknown; a slot AND a data array side by side
+          props: {
+            children: [{ type: "Text", props: { content: binding("f_venue") } }],
+            images: [{ image: null }],
+          },
+        },
+      ],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    const frame = resolved.content[0] as unknown as ChildSlot & { props: { images: unknown[] } };
+    expect(frame.props.children[0].props.content).toBe("La Cigale"); // slot resolved
+    expect(frame.props.images).toEqual([{ image: null }]); // data array untouched
+  });
+
+  it("leaves an empty slot array empty", () => {
+    const tpl: Template = {
+      content: [{ type: "Section", props: { children: [] } }],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    expect((resolved.content[0] as unknown as ChildSlot).props.children).toEqual([]);
   });
 });
 
