@@ -24,6 +24,7 @@ import { getSession } from "@/lib/auth";
 import {
   getRequestReadStore,
   itemSlugSchema,
+  readItemOrSingletonDraft,
   SINGLETON_ITEM_SLUG,
   slugSchema,
   type Item,
@@ -68,7 +69,9 @@ export default async function ItemEdit({ params }: { params: Promise<Params> }) 
   if (!def) notFound();
 
   const store = await storePromise;
-  const item = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
+  // Synthesizes an empty draft for a not-yet-saved singleton instead of
+  // returning null; a missing multi-item item stays a genuine 404.
+  const item = await readItemOrSingletonDraft(store, parsedSlug.data, parsedItemSlug.data, def);
   if (!item) notFound();
 
   // Pre-fetch every collection referenced by any collectionRef /

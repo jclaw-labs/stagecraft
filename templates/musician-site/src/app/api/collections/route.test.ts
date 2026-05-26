@@ -27,7 +27,7 @@ vi.mock("@/lib/publish", async () => {
 import { POST } from "./route";
 import { PublishError } from "@/lib/publish";
 import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
-import { readCollectionDef, writeCollectionDef } from "@/lib/collections";
+import { readCollectionDef, readItem, writeCollectionDef } from "@/lib/collections";
 
 let TMP_CONTENT_DIR: string;
 
@@ -104,7 +104,7 @@ describe("POST /api/collections", () => {
     expect(saved!.slugSourceFieldId).toBe(titleField.id);
   });
 
-  it("creates a singleton with a null slug source", async () => {
+  it("creates a singleton with no fields, a null slug source, and no eagerly-written item", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
 
     const res = await POST(
@@ -117,13 +117,31 @@ describe("POST /api/collections", () => {
     expect(body.def.isSingleton).toBe(true);
     // Singletons match the prebaked-singleton convention: no slug source.
     expect(body.def.slugSourceFieldId).toBeNull();
-    // The Title field is still present (and editable).
-    expect(body.def.fields).toHaveLength(1);
-    expect(body.def.fields[0]).toMatchObject({ key: "title", type: "text" });
+    // A fresh singleton starts with no fields — the artist defines them
+    // in the schema editor next. Starting empty also keeps a later "add a
+    // required field" save from being blocked: there's no seeded item to
+    // violate the new requirement.
+    expect(body.def.fields).toHaveLength(0);
 
     const saved = await readCollectionDef("booking-info");
     expect(saved!.isSingleton).toBe(true);
     expect(saved!.slugSourceFieldId).toBeNull();
+    expect(saved!.fields).toHaveLength(0);
+
+    // The `_singleton.json` item is materialized lazily on first save, not
+    // at creation — so it doesn't exist yet.
+    const item = await readItem("booking-info", "_singleton", saved!);
+    expect(item).toBeNull();
+
+    // Only the collection-def is published — no collection-item target.
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: [
+          expect.objectContaining({ kind: "collection-def", collectionSlug: "booking-info" }),
+        ],
+      }),
+    );
+    expect(publishMock.mock.calls[0][0].targets).toHaveLength(1);
   });
 
   it("returns 401 without session", async () => {
@@ -166,24 +184,60 @@ describe("POST /api/collections", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
-  it("returns 409 when the slug already exists", async () => {
+  it("returns 400 when a name exceeds 80 characters", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
-    // `tour-dates` is one of the prebaked collections seeded in
-    // beforeEach; "Tour Dates" slugifies to it.
-    const res = await POST(jsonReq({ pluralName: "Tour Dates", singularName: "tour date" }));
-    expect(res.status).toBe(409);
-    const body = await res.json();
+    const res = await POST(jsonReq({ pluralName: "x".repeat(81), singularName: "thing" }));
+    expect(res.status).toBe(400);
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when a name contains a line break (commit-injection guard)", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await POST(
+      jsonReq({ pluralName: "Press\nQuotes", singularName: "press quote" }),
+    );
+    expect(res.status).toBe(400);
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when a non-prebaked collection with that slug already exists", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    // First create lands "faq-entries" on disk; the second collides. The
+    // FS read store re-reads the collections dir on every call, so the
+    // second request sees the just-written def.
+    const first = await POST(jsonReq({ pluralName: "FAQ Entries", singularName: "FAQ entry" }));
+    expect(first.status).toBe(200);
+    const dup = await POST(jsonReq({ pluralName: "FAQ Entries", singularName: "FAQ entry" }));
+    expect(dup.status).toBe(409);
+    const body = await dup.json();
     expect(body).toMatchObject({
       ok: false,
       error: "A collection with that name already exists",
     });
-    expect(publishMock).not.toHaveBeenCalled();
+    // Only the first create published; the collision short-circuits.
+    expect(publishMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns 409 for a reserved prebaked slug (pages)", async () => {
+  it("returns 409 'reserved' for a prebaked slug (pages)", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const res = await POST(jsonReq({ pluralName: "Pages", singularName: "page" }));
     expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, error: "That name is reserved" });
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reserved prebaked slug even when nothing is seeded on disk", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    // Wipe the seeded collections so only the *static* PREBAKED_COLLECTIONS
+    // guard can catch this — proving the reserved check doesn't depend on
+    // the on-disk / draft listing being complete.
+    await fs.rm(path.join(TMP_CONTENT_DIR, "collections"), { recursive: true, force: true });
+    const res = await POST(jsonReq({ pluralName: "Tour Dates", singularName: "tour date" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("That name is reserved");
+    expect(publishMock).not.toHaveBeenCalled();
   });
 
   it("returns { ok: true, publishWarning } when the publish fails", async () => {
