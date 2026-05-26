@@ -5,8 +5,9 @@ Accepted
 
 ## Context
 musician-site has **two render paths and two implementations of the same
-"show a collection" block** — a duality ADR-009 introduced on purpose that has
-since calcified into avoidable duplication.
+"show a collection" block** — a duality ADR-009 introduced on purpose (its
+template stack shipped as code, though ADR-009's own status still reads
+*Proposed*) that has since calcified into avoidable duplication.
 
 - **Template path (ADR-009 §4–§5).** Collection *detail* / *item* pages render
   through the template walker (`resolveTemplate`) + `buildTemplatePuckConfig`.
@@ -72,15 +73,24 @@ Consumers-first, deletion-last (mirrors ADR-014):
    Image/Button/Link/RichText).
 4. **Seed the three views.** Author `releases` / `posts` as `itemTemplate`s using
    feature #1; keep `tour-dates` as a **specialised renderer** — its list
-   layout, upcoming filter, Tickets CTA, and disabled state read clearer in
-   React (the same call `photos` / `videos` already make), driven by feature
-   #2's filter.
+   layout, Tickets CTA, and disabled state read clearer in React (the same call
+   `photos` / `videos` already make). Its upcoming / exclude-cancelled rules
+   apply at the Collection-block level via feature #2, feeding the specialised
+   renderer a pre-filtered item set (specialised renderers receive only
+   `{ item }`, so the filter can't live inside them).
 5. **Render-path convergence + content migration.** Point the catch-all's
    `renderPage` at `buildTemplatePuckConfig` + the Collection-block registry +
-   the walker (the page item is its own `currentItem`, ADR-009 §2). Switch the
-   page editor (`Editor.tsx`) to the unified config. Migrate committed page JSON
-   + first-run seeds: a bespoke `TourDatesView {limit}` becomes a Collection
-   block `{ sourceCollection, limit, sort, filter }`.
+   the walker, threading the page as its own `currentItem` (built via the
+   existing `pageDataToItem`). This *realises* the page-as-item model ADR-009 §2
+   only **proposed** — today `renderPage` passes raw Puck `Data` and never
+   constructs an Item. Because the walker resolves `content` only, this step
+   must also preserve the **root-props surface** `renderPage` owns and the
+   template model has no slot for: `isSplashPage` / `isFooterHidden` /
+   `pageBackground` / `pageBackgroundOverlay`, plus the `generateMetadata`
+   title/description. Switch the page editor (`Editor.tsx`) to the unified
+   config. Migrate committed page JSON + first-run seeds: a bespoke
+   `TourDatesView {limit}` becomes a Collection block
+   `{ sourceCollection, limit, sort, filter }`.
 6. **Delete** the bespoke collection blocks in `src/puck/config.tsx` and
    `resolve-page-collections.ts` once 1–5 land. The `TourDatesView` name
    collision resolves by deletion.
@@ -104,6 +114,16 @@ capabilities usable on detail templates too.
   (and any future formatting/filter-heavy view) lives in `specialized-views.tsx`
   beside `photos` / `videos` — one well-named home, consulted by the single
   Collection block.
+- **Root-level page settings + SEO stay outside the template model.** The walker
+  resolves `content` only, so the splash/footer/background root props and the
+  document title/description (`generateMetadata`) remain owned by the converged
+  `renderPage`, not turned into blocks — the convergence wraps the walker, it
+  doesn't replace this surface. (Cycle safety is unaffected: a page-embedded
+  Collection block is the `detailTemplate` analog, and items still render via
+  Primitives-only itemTemplates — ADR-009 §4.3 — but pages do shift from the
+  "Collection-blocks-stripped-from-`puckContent`" regime to the detailTemplate
+  regime, and every page request now runs the walker's async collection
+  pre-load, bounded by a short-circuit when a page embeds no Collection block.)
 - **Migration cost + risk.** Committed page bodies and first-run seeds change
   block shape; needs a one-shot page-JSON migration with tests. The catch-all
   render-path merge and the block-palette port are the risky pieces — every page
