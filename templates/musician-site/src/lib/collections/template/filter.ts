@@ -6,8 +6,10 @@
  * being rendered) + the candidate items to filter, return the items
  * the block should render.
  *
- * Pure function; no I/O. The caller (`<RenderCollectionView>` in
- * PR 7b) loads the candidates from disk first.
+ * Pure function; no I/O. `now` (defaulting to the call-time `new Date()`) is
+ * the clock the `today` FilterValue resolves against — injected so tests stay
+ * deterministic and the function stays referentially transparent. The caller
+ * (`<RenderCollectionView>` in PR 7b) loads the candidates from disk first.
  *
  * Filter shape lives in `../schema.ts` (the Zod side); the resolver
  * lives here so the template-renderer module owns the runtime
@@ -23,7 +25,8 @@
  *   - `FilterValue` resolves to a scalar comparable: literals are
  *     compared by value, `currentItemId` resolves to
  *     `currentItem.id`, `currentItemField` reaches into
- *     `currentItem.values[fieldId].value`.
+ *     `currentItem.values[fieldId].value`, and `today` resolves to the
+ *     start of the current day in UTC (`YYYY-MM-DD`).
  *
  *   - `excludeCurrentItem` short-circuits when the candidate's id
  *     matches `currentItem.id`. Combines with other clauses under
@@ -35,7 +38,8 @@
  *
  *   - `gt` / `gte` / `lt` / `lte` work on numbers and on ISO date
  *     strings (lexicographic comparison gives the right order for
- *     `YYYY-MM-DD[THH:MM[:SS]]`).
+ *     `YYYY-MM-DD[THH:MM[:SS]]`). Pairing a date field's `gte` with the
+ *     `today` value expresses an "upcoming" window; `lt today` a "past" one.
  */
 
 import type { Filter, FilterClause, FilterValue, Item } from "../schema";
@@ -44,19 +48,20 @@ export function applyFilter(
   items: ReadonlyArray<Item>,
   filter: Filter | null | undefined,
   currentItem: Item,
+  now: Date = new Date(),
 ): Item[] {
   if (!filter) return [...items];
-  return items.filter((item) => matchesFilter(item, filter, currentItem));
+  return items.filter((item) => matchesFilter(item, filter, currentItem, now));
 }
 
-function matchesFilter(item: Item, filter: Filter, currentItem: Item): boolean {
+function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {
   if ("all" in filter) {
-    return filter.all.every((clause) => matchesClause(item, clause, currentItem));
+    return filter.all.every((clause) => matchesClause(item, clause, currentItem, now));
   }
-  return filter.any.some((clause) => matchesClause(item, clause, currentItem));
+  return filter.any.some((clause) => matchesClause(item, clause, currentItem, now));
 }
 
-function matchesClause(item: Item, clause: FilterClause, currentItem: Item): boolean {
+function matchesClause(item: Item, clause: FilterClause, currentItem: Item, now: Date): boolean {
   // Single dispatch on the discriminator. The shape narrows cleanly
   // per-case (TS doesn't propagate complex narrowings across early
   // returns when the clause shape varies between `value` and
@@ -73,7 +78,7 @@ function matchesClause(item: Item, clause: FilterClause, currentItem: Item): boo
     case "notIn": {
       const itemValue = scalarValueAt(item, clause.field);
       if (itemValue === undefined) return false;
-      const allowed = clause.values.map((v) => resolveFilterValue(v, currentItem));
+      const allowed = clause.values.map((v) => resolveFilterValue(v, currentItem, now));
       const hit = Array.isArray(itemValue)
         ? itemValue.some((v) => allowed.includes(v))
         : allowed.includes(itemValue);
@@ -88,7 +93,7 @@ function matchesClause(item: Item, clause: FilterClause, currentItem: Item): boo
     case "contains": {
       const itemValue = scalarValueAt(item, clause.field);
       if (itemValue === undefined) return false;
-      const compareTo = resolveFilterValue(clause.value, currentItem);
+      const compareTo = resolveFilterValue(clause.value, currentItem, now);
       switch (clause.op) {
         case "equals":
           return scalarEquals(itemValue, compareTo);
@@ -162,7 +167,7 @@ function scalarValueAt(item: Item, fieldId: string): unknown {
   }
 }
 
-function resolveFilterValue(value: FilterValue, currentItem: Item): unknown {
+function resolveFilterValue(value: FilterValue, currentItem: Item, now: Date): unknown {
   switch (value.kind) {
     case "literal":
       return value.value;
@@ -170,12 +175,22 @@ function resolveFilterValue(value: FilterValue, currentItem: Item): unknown {
       return currentItem.id;
     case "currentItemField":
       return scalarValueAt(currentItem, value.fieldId);
+    case "today":
+      // Start of the current day in UTC, date-only. Compares correctly
+      // (lexicographically) against both `YYYY-MM-DD` and full-ISO date
+      // field values — see the `FilterValue` doc in filter-schema.ts.
+      return toUtcDateOnly(now);
     default: {
       const _exhaustive: never = value;
       void _exhaustive;
       return undefined;
     }
   }
+}
+
+/** `Date` → `YYYY-MM-DD` in UTC (the ISO date portion). */
+function toUtcDateOnly(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
 /**

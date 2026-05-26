@@ -311,3 +311,51 @@ describe("applyFilter — missing fields and unsupported shapes", () => {
     expect(applyFilter(ITEMS, filter, CURRENT)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// `today` FilterValue — relative-date windows
+// ---------------------------------------------------------------------------
+
+describe("applyFilter — `today` value", () => {
+  // Fixed clock so the relative window is deterministic (UTC noon, Jul 17).
+  const NOW = new Date("2026-07-17T12:00:00.000Z");
+
+  it("`gte today` keeps today + future, drops past (the upcoming window)", () => {
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    // ITEMS: paris 07-15, lyon 07-16 (both past), berlin 07-20, madrid 08-01.
+    expect(applyFilter(ITEMS, filter, CURRENT, NOW).map((i) => i.slug)).toEqual(["berlin", "madrid"]);
+  });
+
+  it("`lt today` keeps strictly past dates", () => {
+    const filter: Filter = { all: [{ field: "f_date", op: "lt", value: { kind: "today" } }] };
+    expect(applyFilter(ITEMS, filter, CURRENT, NOW).map((i) => i.slug)).toEqual(["paris", "lyon"]);
+  });
+
+  it("`gte today` is inclusive of a same-day date-only value", () => {
+    const onToday = tourDateItem("today-show", "2026-07-17", "Venue", "City", "on_sale");
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    expect(applyFilter([onToday], filter, CURRENT, NOW).map((i) => i.slug)).toEqual(["today-show"]);
+  });
+
+  it("`gte today` keeps a timestamped value later the same day (date-only compare)", () => {
+    const evening = tourDateItem("evening", "2026-07-17T20:00:00.000Z", "Venue", "City", "on_sale");
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    expect(applyFilter([evening], filter, CURRENT, NOW).map((i) => i.slug)).toEqual(["evening"]);
+  });
+
+  it("composes 'upcoming + exclude cancelled' (the tour-dates use case)", () => {
+    const filter: Filter = {
+      all: [
+        { field: "f_date", op: "gte", value: { kind: "today" } },
+        { field: "f_status", op: "notEquals", value: { kind: "literal", value: "cancelled" } },
+      ],
+    };
+    // Upcoming: berlin (07-20) + madrid (08-01); madrid is cancelled → dropped.
+    expect(applyFilter(ITEMS, filter, CURRENT, NOW).map((i) => i.slug)).toEqual(["berlin"]);
+  });
+
+  it("defaults `now` to the current date when the arg is omitted (no throw)", () => {
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    expect(() => applyFilter(ITEMS, filter, CURRENT)).not.toThrow();
+  });
+});

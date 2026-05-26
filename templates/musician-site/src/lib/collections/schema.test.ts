@@ -845,6 +845,13 @@ describe("filterSchema (ADR §5.1)", () => {
     expect(() => filterSchema.parse(filter)).not.toThrow();
   });
 
+  it("accepts the `today` relative-date value (e.g. an upcoming window)", () => {
+    const filter = {
+      all: [{ field: "fld_tour_date", op: "gte" as const, value: { kind: "today" as const } }],
+    };
+    expect(() => filterSchema.parse(filter)).not.toThrow();
+  });
+
   it("accepts every comparison operator", () => {
     const ops = ["equals", "notEquals", "gt", "gte", "lt", "lte", "contains"] as const;
     for (const op of ops) {
