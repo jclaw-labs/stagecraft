@@ -516,6 +516,8 @@ describe("TourDateRow", () => {
     expect(html).toContain("Madrid");
     expect(html).toContain("Spain");
     expect(html).toContain('href="https://tix.example/madrid"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain("Tickets");
   });
 
