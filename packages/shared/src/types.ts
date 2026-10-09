@@ -57,9 +57,16 @@ export type JobStatus =
   | "awaiting_review"
   | "canceled";
 
+/** Integration provider identifiers stored in `IntegrationAccount.provider`. */
+export const INTEGRATION_PROVIDERS = ["github", "netlify", "vercel", "resend"] as const;
 
 /** Integration provider identifiers */
-export type IntegrationProvider = "github" | "netlify";
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+
+/** Type guard: returns true if `value` is a valid IntegrationProvider. */
+export function isIntegrationProvider(value: string): value is IntegrationProvider {
+  return (INTEGRATION_PROVIDERS as readonly string[]).includes(value);
+}
 
 /** Site status lifecycle */
 export type SiteStatus =

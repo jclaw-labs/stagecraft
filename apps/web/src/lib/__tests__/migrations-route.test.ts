@@ -22,7 +22,8 @@ vi.mock("next/server", () => ({
   },
 }));
 
-vi.mock("@stagecraft/shared", () => ({
+vi.mock("@stagecraft/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@stagecraft/shared")>()),
   isValidHttpUrl: (raw: string) => {
     try {
       const p = new URL(raw);

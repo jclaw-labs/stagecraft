@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { handleCreateSite } from "@/lib/jobs/create-site";
 import { slugify } from "@/lib/slugify";
 import { prisma } from "@stagecraft/db";
+import { connectedProviders } from "@stagecraft/shared";
 import type { JobContext } from "@stagecraft/queue";
 
 const DEFAULT_BLUEPRINT = "solo-artist";
@@ -39,10 +40,11 @@ export async function POST(req: NextRequest) {
     where: { userId: session.user.id },
   });
 
-  const hasGithub = integrations.some((i: { provider: string }) => i.provider === "github");
-  const hasNetlify = integrations.some((i: { provider: string }) => i.provider === "netlify");
-  const hasVercel = integrations.some((i: { provider: string }) => i.provider === "vercel");
-  const hasResend = integrations.some((i: { provider: string }) => i.provider === "resend");
+  const connected = connectedProviders(integrations);
+  const hasGithub = connected.has("github");
+  const hasNetlify = connected.has("netlify");
+  const hasVercel = connected.has("vercel");
+  const hasResend = connected.has("resend");
 
   if (!hasGithub) {
     return NextResponse.json(
