@@ -33,6 +33,16 @@ export type WorkerFetch<Env extends ScheduledEnv> = (
   ctx: WorkerExecutionContext,
 ) => Promise<Response>;
 
+/**
+ * The Worker entry's shape (cloudflare/worker.ts). Typing the entry against
+ * it makes typecheck fail if the `scheduled` wiring is dropped or its
+ * arguments are passed in the wrong order.
+ */
+export interface StagecraftWorker<Env extends ScheduledEnv> {
+  fetch: WorkerFetch<Env>;
+  scheduled(controller: unknown, env: Env, ctx: WorkerExecutionContext): Promise<void>;
+}
+
 /** Builds the authenticated request the Cron Trigger sends to the drain route. */
 export function buildCronRequest(secret: string): Request {
   return new Request(new URL(CRON_JOBS_PATH, CRON_REQUEST_ORIGIN), {
