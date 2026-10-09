@@ -56,4 +56,4 @@ environment — observed on #263 / #264, where checks ran on the pushed head and
 auto-merge fired without any API commit. The older caveat (push doesn't trigger
 CI) only bites when the `pr-screenshots` relay leaves a `[skip ci]` commit at
 the head; for code-only PRs a plain `git push` is sufficient. See
-`claude/skills/create-pr/SKILL.md`.
+`docs/screenshots/README.md`.
