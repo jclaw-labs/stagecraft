@@ -37,13 +37,13 @@ artist-site /api/publish
       { siteId }
   ← { ok: true, token, expiresAt, repo: { owner, name } }  # GitHub installation token, ~1hr lifetime
   → uses token to commit via Octokit Git Data API
-  → discards token
+  → keeps token in memory for later publishes until near expiry
 ```
 
 - **Why broker, not at-edge:** the App private key is the master credential. Distributing it to every artist site multiplies the blast radius of any single-site compromise. The broker model keeps the master credential confined to the platform's secret manager.
 - **Auth from artist site to platform:** *per-site shared secret* (`STAGECRAFT_BROKER_SECRET`) sent as `Authorization: Bearer`. The platform stores only the SHA-256 hash on the `Site` row (`brokerSecretHash`); the plaintext is shown to the artist exactly once at install time and lives only in their site's deployment env vars. Comparison is constant-time. **(Amended from earlier draft.)**
 - **Tokens are scoped to the site's own repo.** The broker mints with `repositories: [githubRepoName]` and only `contents: write` + `metadata: read`, so a site's broker secret can't reach the other repos the same installation covers. **(Amended, see revision history.)**
-- **Tokens are not cached on the artist site.** Each publish requests a token from the broker. The platform caches each site's token in memory until five minutes before expiry; the cache key is the site, and a change to its installation or repo mints afresh.
+- **Tokens are cached in memory on both sides.** The artist site keeps the token it was handed, per process, and asks the broker again shortly before it expires. The platform caches each site's token until five minutes before expiry; the cache key is the site, and a change to its installation or repo mints afresh.
 - **Rate limiting** lives in the broker, not in the artist site — the broker is the chokepoint for all publishes.
 
 ### 3. Installation flow

@@ -74,6 +74,12 @@ function getAppCredentials(): { appId: string; privateKey: string } {
 }
 
 /**
+ * The repository permissions this App holds (ADR-008 §1). A scope can only
+ * narrow these, so naming anything else is a mistake GitHub would reject.
+ */
+export type GitHubAppPermission = "contents" | "metadata";
+
+/**
  * Repository and permission limits for an installation token. GitHub sends
  * `repositoryNames` as the `repositories` field of
  * `POST /app/installations/{id}/access_tokens`, and refuses to mint when the
@@ -81,7 +87,7 @@ function getAppCredentials(): { appId: string; privateKey: string } {
  */
 export type InstallationTokenScope = {
   repositoryNames: string[];
-  permissions: Record<string, "read" | "write">;
+  permissions: Partial<Record<GitHubAppPermission, "read" | "write">>;
 };
 
 /**
