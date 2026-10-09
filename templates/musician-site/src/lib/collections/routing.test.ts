@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertCollectionRouting,
   describeRoutingConflict,
   findShadowingPrefix,
   itemDetailUrl,
+  listPublicRouteSegments,
   resolveCollectionItemUrl,
   validateCollectionRouting,
 } from "./routing";
@@ -233,5 +235,81 @@ describe("itemDetailUrl", () => {
       collectionSlug: "posts",
       itemSlug: "hello",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertCollectionRouting
+// ---------------------------------------------------------------------------
+
+describe("assertCollectionRouting", () => {
+  it("passes a registry with no conflicts", () => {
+    expect(() =>
+      assertCollectionRouting([def("pages", "/"), def("tour-dates", "/shows")], ["home"]),
+    ).not.toThrow();
+  });
+
+  it("throws one message line per conflict", () => {
+    const defs = [def("pages", "/"), def("tour-dates", "/shows"), def("gigs", "/shows")];
+    expect(() => assertCollectionRouting(defs, ["shows"])).toThrow(
+      /^Collection-routing conflict:\nTwo collections claim .*"\/shows".*\nThe Page slugged "shows"/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listPublicRouteSegments
+// ---------------------------------------------------------------------------
+
+describe("listPublicRouteSegments", () => {
+  const PAGES = def("pages", "/");
+  const TOUR = def("tour-dates", "/shows");
+
+  it("lists the root, then each item of every collection with detail pages", () => {
+    const items = new Map([
+      ["pages", ["home", "about"]],
+      ["tour-dates", ["mercury-lounge"]],
+    ]);
+    expect(listPublicRouteSegments([PAGES, TOUR], items, true)).toEqual([
+      [],
+      ["home"],
+      ["about"],
+      ["shows", "mercury-lounge"],
+    ]);
+  });
+
+  it("leaves the root out when no page owns it", () => {
+    expect(listPublicRouteSegments([PAGES], new Map([["pages", ["about"]]]), false)).toEqual([
+      ["about"],
+    ]);
+  });
+
+  it("skips singletons and collections without a detail URL prefix", () => {
+    const items = new Map([
+      ["site", ["_singleton"]],
+      ["photos", ["sunset"]],
+    ]);
+    const defs = [def("site", "/site", { isSingleton: true }), def("photos", null)];
+    expect(listPublicRouteSegments(defs, items, false)).toEqual([]);
+  });
+
+  it("skips a URL the renderer would dispatch to a different collection", () => {
+    // `/news/archive` is the `archive` collection's list URL, so the
+    // `news` item slugged `archive` has no reachable detail page.
+    const NEWS = def("news", "/news");
+    const ARCHIVE = def("archive", "/news/archive");
+    const items = new Map([
+      ["news", ["archive", "hello"]],
+      ["archive", ["old-post"]],
+    ]);
+    expect(listPublicRouteSegments([NEWS, ARCHIVE], items, false)).toEqual([
+      ["news", "hello"],
+      ["news", "archive", "old-post"],
+    ]);
+  });
+
+  it("lists each URL once", () => {
+    const items = new Map([["pages", ["about", "about"]]]);
+    expect(listPublicRouteSegments([PAGES], items, false)).toEqual([["about"]]);
   });
 });
