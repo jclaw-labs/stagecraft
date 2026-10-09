@@ -50,3 +50,13 @@ export function inferArtistName(title: string): string {
     )
     .trim();
 }
+
+/**
+ * Pull the token out of an `Authorization: Bearer <token>` header value.
+ * Returns null when the header is missing or isn't a Bearer credential.
+ */
+export function extractBearer(header: string | null): string | null {
+  if (!header) return null;
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1] : null;
+}

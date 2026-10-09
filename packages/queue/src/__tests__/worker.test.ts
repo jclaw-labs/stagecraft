@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { JobResult } from "../types";
 
 const mockFindFirst = vi.fn();
 const mockUpdate = vi.fn();
+const mockUpdateMany = vi.fn();
 
 vi.mock("@stagecraft/db", () => ({
   prisma: {
     siteJob: {
       findFirst: mockFindFirst,
       update: mockUpdate,
+      updateMany: mockUpdateMany,
     },
   },
 }));
@@ -29,6 +32,8 @@ describe("createWorker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Default: this runner wins the queued → running claim.
+    mockUpdateMany.mockResolvedValue({ count: 1 });
   });
 
   afterEach(() => {
@@ -47,9 +52,9 @@ describe("createWorker", () => {
     await vi.advanceTimersByTimeAsync(0);
     worker.stop();
 
-    // Marked as running
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: "job-1" },
+    // Claimed atomically: only flips the row if it is still queued
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: "job-1", status: "queued" },
       data: expect.objectContaining({ status: "running" }),
     });
 
@@ -210,5 +215,120 @@ describe("createWorker", () => {
     worker.start();
     worker.start();
     worker.stop();
+  });
+});
+
+describe("runNext", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    mockUpdate.mockResolvedValue({});
+  });
+
+  it("returns idle when no jobs are queued", async () => {
+    mockFindFirst.mockResolvedValueOnce(null);
+    const worker = createWorker({ handlers: {} });
+
+    await expect(worker.runNext()).resolves.toBe("idle");
+  });
+
+  it("returns lost-claim and skips the handler when another runner claimed the job", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 });
+    const handler = vi.fn();
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.runNext()).resolves.toBe("lost-claim");
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns busy when a job is already in flight on this worker", async () => {
+    let finish: (v: JobResult) => void = () => {};
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    const handler = vi.fn(() => new Promise<JobResult>((resolve) => { finish = resolve; }));
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    const first = worker.runNext();
+    await vi.waitFor(() => expect(handler).toHaveBeenCalled());
+    await expect(worker.runNext()).resolves.toBe("busy");
+
+    finish({ success: true });
+    await expect(first).resolves.toBe("processed");
+  });
+
+  it("returns idle when the queue read throws", async () => {
+    mockFindFirst.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const worker = createWorker({ handlers: {} });
+
+    await expect(worker.runNext()).resolves.toBe("idle");
+  });
+});
+
+describe("drain", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    mockUpdate.mockResolvedValue({});
+  });
+
+  it("processes jobs until the queue is empty and returns the count", async () => {
+    mockFindFirst
+      .mockResolvedValueOnce(makeJob({ id: "job-1" }))
+      .mockResolvedValueOnce(makeJob({ id: "job-2" }))
+      .mockResolvedValueOnce(null);
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.drain()).resolves.toBe(2);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 0 when nothing is queued", async () => {
+    mockFindFirst.mockResolvedValueOnce(null);
+    const worker = createWorker({ handlers: {} });
+
+    await expect(worker.drain()).resolves.toBe(0);
+  });
+
+  it("stops at maxJobs", async () => {
+    mockFindFirst.mockResolvedValue(makeJob());
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.drain({ maxJobs: 3 })).resolves.toBe(3);
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not start another job once the time budget is spent", async () => {
+    vi.useFakeTimers();
+    try {
+      mockFindFirst.mockResolvedValue(makeJob());
+      const handler = vi.fn(async () => {
+        vi.advanceTimersByTime(30_000);
+        return { success: true };
+      });
+      const worker = createWorker({ handlers: { create_site: handler } });
+
+      // Job 1 starts at t=0 and ends at 30s; job 2 starts at 30s (< 50s
+      // budget) and ends at 60s; no job 3.
+      await expect(worker.drain()).resolves.toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not count a lost claim and keeps draining", async () => {
+    mockFindFirst
+      .mockResolvedValueOnce(makeJob({ id: "job-1" }))
+      .mockResolvedValueOnce(makeJob({ id: "job-2" }))
+      .mockResolvedValueOnce(null);
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.drain()).resolves.toBe(1);
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

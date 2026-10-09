@@ -31,13 +31,31 @@ function emit(event: WorkerEvent, onEvent?: (e: WorkerEvent) => void): void {
   onEvent?.(event);
 }
 
+/** Outcome of one `runNext()` call. */
+export type RunNextOutcome =
+  | "processed" // claimed a job and drove it to its next state
+  | "idle" //      no queued jobs (or the queue read failed)
+  | "lost-claim" // another runner claimed the job first
+  | "busy"; //     this worker is already mid-job (interval tick overlapped)
+
+export interface DrainOptions {
+  /** Stop after this many jobs. Default 10. */
+  maxJobs?: number;
+  /**
+   * Don't start another job once this much wall time has elapsed. A job
+   * already in flight is allowed to finish. Default 50s, which keeps a
+   * drain inside a typical 60s serverless / cron invocation.
+   */
+  timeBudgetMs?: number;
+}
+
 export function createWorker(options: WorkerOptions) {
   const { handlers, pollIntervalMs = 5000, onEvent } = options;
   let running = false;
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  async function poll() {
-    if (running) return;
+  async function runNext(): Promise<RunNextOutcome> {
+    if (running) return "busy";
     running = true;
 
     try {
@@ -47,10 +65,7 @@ export function createWorker(options: WorkerOptions) {
         orderBy: { createdAt: "asc" },
       });
 
-      if (!job) {
-        running = false;
-        return;
-      }
+      if (!job) return "idle";
 
       const handler = handlers[job.type];
       if (!handler) {
@@ -67,15 +82,17 @@ export function createWorker(options: WorkerOptions) {
           { event: "job.failed", jobId: job.id, jobType: job.type, siteId: job.siteId, error: "No handler" },
           onEvent
         );
-        running = false;
-        return;
+        return "processed";
       }
 
-      // Mark as running
-      await prisma.siteJob.update({
-        where: { id: job.id },
+      // Claim atomically: only flip queued → running if nobody else has.
+      // Two runners (the in-process poller and the cron route, or two
+      // concurrent cron invocations) can both see the same queued row.
+      const claim = await prisma.siteJob.updateMany({
+        where: { id: job.id, status: "queued" },
         data: { status: "running", startedAt: new Date() },
       });
+      if (claim.count === 0) return "lost-claim";
       emit({ event: "job.started", jobId: job.id, jobType: job.type, siteId: job.siteId }, onEvent);
 
       const startMs = Date.now();
@@ -98,8 +115,7 @@ export function createWorker(options: WorkerOptions) {
           { event: "job.failed", jobId: job.id, jobType: job.type, siteId: job.siteId, durationMs, error: message },
           onEvent
         );
-        running = false;
-        return;
+        return "processed";
       }
 
       const durationMs = Date.now() - startMs;
@@ -146,16 +162,40 @@ export function createWorker(options: WorkerOptions) {
           onEvent
         );
       }
+      return "processed";
     } catch (error) {
       console.error(
         JSON.stringify({ event: "worker.poll_error", error: String(error), ts: new Date().toISOString() })
       );
+      return "idle";
     } finally {
       running = false;
     }
   }
 
+  async function poll() {
+    await runNext();
+  }
+
   return {
+    runNext,
+    /**
+     * Process queued jobs back to back until the queue is empty or a limit
+     * is hit, then return how many were processed. For runtimes with no
+     * long-lived process (a cron-triggered route or scheduled function),
+     * where `start()`'s interval would never fire.
+     */
+    async drain({ maxJobs = 10, timeBudgetMs = 50_000 }: DrainOptions = {}): Promise<number> {
+      const startedAt = Date.now();
+      let processed = 0;
+      while (processed < maxJobs && Date.now() - startedAt < timeBudgetMs) {
+        const outcome = await runNext();
+        if (outcome === "lost-claim") continue;
+        if (outcome !== "processed") break;
+        processed++;
+      }
+      return processed;
+    },
     start() {
       if (timer) return;
       emit({ event: "worker.started" }, onEvent);

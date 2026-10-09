@@ -84,6 +84,8 @@ For production or CI, set the variables below directly in your hosting environme
 | `AUTH_GITHUB_SECRET` | GitHub OAuth App client secret |
 | `NETLIFY_CLIENT_ID` | Netlify OAuth App client ID |
 | `NETLIFY_CLIENT_SECRET` | Netlify OAuth App client secret |
+| `CRON_SECRET` | Bearer secret for `POST /api/cron/jobs`, the scheduled job-queue drain. Unset disables the route (503). |
+| `STAGECRAFT_INPROCESS_WORKER` | Set to `false` to stop the in-process job poller (hosts with no long-lived process). Queue is then drained only via `/api/cron/jobs`. |
 
 ---
 
@@ -225,7 +227,12 @@ SET
 WHERE id = '<job-id>';
 ```
 
-The worker will pick it up within 5 seconds.
+The worker will pick it up within 5 seconds. To process it right away (or when the in-process poller is off), drain the queue by hand:
+
+```bash
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<your-domain>/api/cron/jobs
+# → {"ok":true,"processed":1}
+```
 
 ### Re-enqueue all recently failed jobs for a site
 
