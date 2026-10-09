@@ -8,6 +8,7 @@ import {
   handleRepositoriesEvent,
   type InstallationAction,
   type RepositoriesAction,
+  type WebhookDb,
 } from "@/lib/github-webhook-handlers";
 import { verifyGitHubSignature } from "@/lib/github-webhook-signature";
 
@@ -22,6 +23,13 @@ const repositoriesPayloadSchema = z.object({
   repositories_added: z.array(z.object({ name: z.string() })).optional(),
   repositories_removed: z.array(z.object({ name: z.string() })).optional(),
 });
+
+/** Wraps a failed delivery-row insert so it can be told apart from a handler failure. */
+class DeliveryRecordError extends Error {
+  constructor(cause: unknown) {
+    super("delivery record write failed", { cause });
+  }
+}
 
 function ok(body: unknown) {
   return NextResponse.json(body, { status: 200 });
@@ -43,20 +51,6 @@ export async function POST(request: Request) {
     return bad(400, "missing event headers");
   }
 
-  // Idempotency: a unique constraint on (provider, deliveryId) means a
-  // duplicate redelivery throws on insert. We treat that as success.
-  try {
-    await prisma.webhookDelivery.create({
-      data: { provider: "github", deliveryId, eventType: event },
-    });
-  } catch (cause) {
-    const code = (cause as { code?: string })?.code;
-    if (code === "P2002") {
-      return ok({ ok: true, duplicate: true });
-    }
-    return bad(500, "delivery record write failed");
-  }
-
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
@@ -64,27 +58,61 @@ export async function POST(request: Request) {
     return bad(400, "body is not JSON");
   }
 
+  // Validate before touching the database, so a malformed delivery is never
+  // recorded as handled.
+  let run: (db: WebhookDb) => Promise<Response>;
   if (event === "installation") {
     const parsed = installationPayloadSchema.safeParse(payload);
     if (!parsed.success) return bad(400, `invalid installation payload: ${parsed.error.message}`);
-    const result = await handleInstallationEvent(
-      parsed.data.action satisfies InstallationAction,
-      parsed.data.installation.id,
-    );
-    return ok({ ok: true, applied: result.applied, note: result.note });
-  }
-
-  if (event === "installation_repositories") {
+    const action = parsed.data.action satisfies InstallationAction;
+    const installationId = parsed.data.installation.id;
+    run = async (db) => {
+      const result = await handleInstallationEvent(action, installationId, db);
+      return ok({ ok: true, applied: result.applied, note: result.note });
+    };
+  } else if (event === "installation_repositories") {
     const parsed = repositoriesPayloadSchema.safeParse(payload);
     if (!parsed.success) return bad(400, `invalid repositories payload: ${parsed.error.message}`);
     const action = parsed.data.action satisfies RepositoriesAction;
-    const repos = action === "added" ? parsed.data.repositories_added : parsed.data.repositories_removed;
-    const result = await handleRepositoriesEvent(action, parsed.data.installation.id, repos ?? []);
-    return ok({ ok: true, applied: result.applied, note: result.note });
+    const installationId = parsed.data.installation.id;
+    const repos =
+      (action === "added" ? parsed.data.repositories_added : parsed.data.repositories_removed) ?? [];
+    run = async (db) => {
+      const result = await handleRepositoriesEvent(action, installationId, repos, db);
+      return ok({ ok: true, applied: result.applied, note: result.note });
+    };
+  } else {
+    // Unsubscribed events should never arrive (App settings only ask for
+    // `installation` and `installation_repositories`). 200 the unknown
+    // event so GitHub doesn't retry needlessly.
+    run = async () => ok({ ok: true, ignored: event });
   }
 
-  // Unsubscribed events should never arrive (App settings only ask for
-  // `installation` and `installation_repositories`). 200 the unknown
-  // event so GitHub doesn't retry needlessly.
-  return ok({ ok: true, ignored: event });
+  // Idempotency: the delivery row and the handler's writes share one
+  // transaction, so a handler failure rolls the row back and GitHub's
+  // redelivery is processed instead of being skipped as a duplicate. The row
+  // is inserted first: a concurrent copy of the same delivery blocks on the
+  // (provider, deliveryId) unique index until this transaction ends, then
+  // either hits P2002 (we committed) or proceeds (we rolled back).
+  try {
+    return await prisma.$transaction(async (tx) => {
+      try {
+        await tx.webhookDelivery.create({
+          data: { provider: "github", deliveryId, eventType: event },
+        });
+      } catch (cause) {
+        throw new DeliveryRecordError(cause);
+      }
+      return run(tx);
+    });
+  } catch (cause) {
+    if (cause instanceof DeliveryRecordError) {
+      const code = (cause.cause as { code?: string } | null)?.code;
+      if (code === "P2002") {
+        return ok({ ok: true, duplicate: true });
+      }
+      return bad(500, "delivery record write failed");
+    }
+    return bad(500, "webhook handler failed");
+  }
 }

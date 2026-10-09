@@ -1,14 +1,18 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { prismaMock, handleInstallMock, handleReposMock } = vi.hoisted(() => ({
-  prismaMock: {
+const { prismaMock, txMock, handleInstallMock, handleReposMock } = vi.hoisted(() => {
+  const txMock = {
     webhookDelivery: { create: vi.fn() },
     site: { findFirst: vi.fn(), update: vi.fn() },
-  },
-  handleInstallMock: vi.fn(),
-  handleReposMock: vi.fn(),
-}));
+  };
+  return {
+    txMock,
+    prismaMock: { $transaction: vi.fn() },
+    handleInstallMock: vi.fn(),
+    handleReposMock: vi.fn(),
+  };
+});
 
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 vi.mock("@/lib/github-webhook-handlers", () => ({
@@ -21,11 +25,41 @@ import { POST } from "../route";
 const SECRET = "test-webhook-secret";
 const ORIGINAL_ENV = { ...process.env };
 
+// A small stand-in for the database: delivery rows inserted inside a
+// transaction become visible to later requests only if the transaction's
+// callback resolves, and a second insert of the same id fails with P2002.
+let committedDeliveries: Set<string>;
+let stagedDeliveries: string[];
+
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
   process.env.GITHUB_APP_WEBHOOK_SECRET = SECRET;
-  prismaMock.webhookDelivery.create.mockReset();
-  prismaMock.webhookDelivery.create.mockResolvedValue({ id: "wd-1" });
+  committedDeliveries = new Set();
+  stagedDeliveries = [];
+  txMock.webhookDelivery.create.mockReset();
+  txMock.webhookDelivery.create.mockImplementation(
+    async ({ data }: { data: { deliveryId: string } }) => {
+      const id = data.deliveryId;
+      if (committedDeliveries.has(id) || stagedDeliveries.includes(id)) {
+        throw { code: "P2002" };
+      }
+      stagedDeliveries.push(id);
+      return { id: `wd-${id}` };
+    },
+  );
+  prismaMock.$transaction.mockReset();
+  prismaMock.$transaction.mockImplementation(
+    async (fn: (tx: typeof txMock) => Promise<unknown>) => {
+      stagedDeliveries = [];
+      try {
+        const result = await fn(txMock);
+        for (const id of stagedDeliveries) committedDeliveries.add(id);
+        return result;
+      } finally {
+        stagedDeliveries = [];
+      }
+    },
+  );
   handleInstallMock.mockReset();
   handleInstallMock.mockResolvedValue({ applied: true, note: "ok" });
   handleReposMock.mockReset();
@@ -70,7 +104,7 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(401);
-    expect(prismaMock.webhookDelivery.create).not.toHaveBeenCalled();
+    expect(txMock.webhookDelivery.create).not.toHaveBeenCalled();
   });
 
   it("400 when X-GitHub-Event header is missing", async () => {
@@ -88,7 +122,7 @@ describe("POST /api/github/webhook", () => {
   });
 
   it("treats P2002 unique-constraint as a duplicate redelivery (200, applied=false)", async () => {
-    prismaMock.webhookDelivery.create.mockRejectedValueOnce({ code: "P2002" });
+    txMock.webhookDelivery.create.mockRejectedValueOnce({ code: "P2002" });
     const res = await POST(
       buildRequest({
         body: { action: "created", installation: { id: 1 } },
@@ -111,7 +145,7 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(handleInstallMock).toHaveBeenCalledWith("suspend", 42);
+    expect(handleInstallMock).toHaveBeenCalledWith("suspend", 42, txMock);
     const body = await res.json();
     expect(body).toMatchObject({ ok: true, applied: true });
   });
@@ -126,6 +160,7 @@ describe("POST /api/github/webhook", () => {
     );
     expect(res.status).toBe(400);
     expect(handleInstallMock).not.toHaveBeenCalled();
+    expect(txMock.webhookDelivery.create).not.toHaveBeenCalled();
   });
 
   it("dispatches installation_repositories.removed with the right repo list", async () => {
@@ -142,7 +177,7 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(handleReposMock).toHaveBeenCalledWith("removed", 99, [{ name: "site" }]);
+    expect(handleReposMock).toHaveBeenCalledWith("removed", 99, [{ name: "site" }], txMock);
   });
 
   it("dispatches installation_repositories.added with repositories_added", async () => {
@@ -158,7 +193,7 @@ describe("POST /api/github/webhook", () => {
         delivery: "d-repos-added",
       }),
     );
-    expect(handleReposMock).toHaveBeenCalledWith("added", 99, [{ name: "blog" }]);
+    expect(handleReposMock).toHaveBeenCalledWith("added", 99, [{ name: "blog" }], txMock);
   });
 
   it("ignores unsubscribed events with 200 + ignored note", async () => {
@@ -189,7 +224,7 @@ describe("POST /api/github/webhook", () => {
   });
 
   it("500 when delivery record insert fails for a non-unique reason", async () => {
-    prismaMock.webhookDelivery.create.mockRejectedValueOnce(new Error("connection lost"));
+    txMock.webhookDelivery.create.mockRejectedValueOnce(new Error("connection lost"));
     const res = await POST(
       buildRequest({
         body: { action: "created", installation: { id: 1 } },
@@ -198,5 +233,72 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(500);
+  });
+
+  it("500 when the handler throws, without recording the delivery", async () => {
+    handleInstallMock.mockRejectedValueOnce(new Error("db timeout"));
+    const res = await POST(
+      buildRequest({
+        body: { action: "suspend", installation: { id: 42 } },
+        event: "installation",
+        delivery: "d-handler-fail",
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ ok: false, error: "webhook handler failed" });
+    expect(committedDeliveries.has("d-handler-fail")).toBe(false);
+  });
+
+  it("processes the redelivery of a delivery whose handler failed", async () => {
+    const request = () =>
+      buildRequest({
+        body: { action: "suspend", installation: { id: 42 } },
+        event: "installation",
+        delivery: "d-retry",
+      });
+    handleInstallMock.mockRejectedValueOnce(new Error("db timeout"));
+    handleInstallMock.mockResolvedValueOnce({ applied: true, note: "suspended site x" });
+
+    const first = await POST(request());
+    expect(first.status).toBe(500);
+
+    const redelivery = await POST(request());
+    expect(redelivery.status).toBe(200);
+    expect(await redelivery.json()).toMatchObject({ ok: true, applied: true });
+    expect(handleInstallMock).toHaveBeenCalledTimes(2);
+    expect(committedDeliveries.has("d-retry")).toBe(true);
+  });
+
+  it("skips the redelivery of a delivery that was handled", async () => {
+    const request = () =>
+      buildRequest({
+        body: { action: "suspend", installation: { id: 42 } },
+        event: "installation",
+        delivery: "d-done",
+      });
+
+    const first = await POST(request());
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ ok: true, applied: true });
+
+    const redelivery = await POST(request());
+    expect(redelivery.status).toBe(200);
+    expect(await redelivery.json()).toMatchObject({ ok: true, duplicate: true });
+    expect(handleInstallMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the delivery before running the handler", async () => {
+    handleInstallMock.mockImplementationOnce(async () => {
+      expect(stagedDeliveries).toContain("d-order");
+      return { applied: true, note: "ok" };
+    });
+    const res = await POST(
+      buildRequest({
+        body: { action: "suspend", installation: { id: 42 } },
+        event: "installation",
+        delivery: "d-order",
+      }),
+    );
+    expect(res.status).toBe(200);
   });
 });
