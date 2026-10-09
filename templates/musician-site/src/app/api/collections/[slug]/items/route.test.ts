@@ -462,6 +462,29 @@ describe("pages via the generic item routes", () => {
     },
   );
 
+  // A fresh site may not have the prebaked collections' defs on disk
+  // yet; the check still has to refuse their prefixes from the built-in
+  // defs, or the new page would shadow every item route under it.
+  it.each([
+    ["news", "posts"],
+    ["releases", "releases"],
+    ["shows", "tour-dates"],
+  ])(
+    "POST returns 409 for %s when the %s def isn't on disk yet",
+    async (slug, collectionSlug) => {
+      await fs.rm(path.join(TMP_CONTENT_DIR, "collections", collectionSlug), {
+        recursive: true,
+        force: true,
+      });
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      const res = await POST(jsonReq("POST", { slug, values: VALID_VALUES }), ctx("pages"));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(collectionSlug);
+      expect(publishMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("POST returns 409 when a page slug shadows a custom collection's prefix", async () => {
     await writePodcastsDef();
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
