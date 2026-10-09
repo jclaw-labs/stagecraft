@@ -411,6 +411,40 @@ describe("handleMigrateSite — resumable steps", () => {
     expect(steps.crawlSource).not.toHaveProperty("result");
   });
 
+  it("resumes after a lost lease, adopting the repo the first run created instead of failing on 'already exists'", async () => {
+    const { GitHubApiError } = await import("@/lib/integrations/github");
+    const { LeaseLostError } = await import("@stagecraft/queue");
+    let repoCreatedAt = "";
+    // The first run creates the repo, but its lease is reaped (and the job
+    // re-claimed) before it can record the step.
+    mockCreateRepo.mockImplementationOnce(async () => {
+      repoCreatedAt = new Date().toISOString();
+      jobRow = { ...jobRow, startedAt: new Date("2026-10-09T12:10:00Z") };
+      return { owner: "jclaw", name: "stagecraft-site-old-band", defaultBranch: "main" };
+    });
+
+    await expect(handleMigrateSite(makeContext())).rejects.toBeInstanceOf(LeaseLostError);
+    expect(storedSteps().createRepo).toMatchObject({ state: "started", attempts: 1 });
+    expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
+
+    // The re-run (the reaper bumped retryAttempts) gets "already exists".
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockImplementationOnce(async () => ({
+      owner: "jclaw",
+      name: "stagecraft-site-old-band",
+      defaultBranch: "main",
+      createdAt: repoCreatedAt,
+    }));
+
+    const result = await handleMigrateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-old-band");
+    expect(mockCrawlSite).toHaveBeenCalledTimes(1);
+    expect(storedSteps().createRepo).toMatchObject({ state: "completed", attempts: 2 });
+    expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
+  });
+
   it("marks the site error and keeps progress when the last attempt fails", async () => {
     mockPushFiles.mockRejectedValueOnce(new Error("GitHub API error (502)"));
 

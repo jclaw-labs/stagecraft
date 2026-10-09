@@ -1,6 +1,6 @@
 import { prisma } from "@stagecraft/db";
 import type { Prisma } from "@stagecraft/db";
-import type { JobStatus } from "@stagecraft/shared";
+import type { FailureCategory, JobStatus } from "@stagecraft/shared";
 import { MAX_REPAIR_ATTEMPTS } from "./repair";
 import {
   FINISH_RETRY_DELAY_MS,
@@ -16,7 +16,7 @@ export type WorkerEventType =
   | "job.started"
   | "job.completed"
   | "job.failed"
-  | "job.retrying" //   handler threw; re-queued with backoff
+  | "job.retrying" //   handler threw or returned a retryable failure; re-queued with backoff
   | "job.lease_lost" // the run was reaped (or canceled) while this worker held it
   | "jobs.reaped" //    expired leases were returned to the queue or failed
   | "worker.started"
@@ -168,6 +168,12 @@ export function createWorker(options: WorkerOptions) {
       // queued row; the conditional UPDATE lets exactly one win. Matching
       // the attempt counters too means a row that was claimed, failed and
       // re-queued since our read is never run against stale counters.
+      //
+      // The due check repeats the read's filter. The counters alone don't
+      // cover it: Retry setup (POST /api/sites/[siteId]/retry) resets
+      // `retryAttempts` to 0, so between our read and this claim the row can
+      // fail, be retried by hand and be re-queued with backoff by another
+      // run, ending with the counters we read and a `runAt` in the future.
       const claimedAt = new Date();
       const claim = await prisma.siteJob.updateMany({
         where: {
@@ -222,7 +228,7 @@ export function createWorker(options: WorkerOptions) {
         return true;
       }
 
-      // Shared re-queue path for repair passes and thrown-error retries.
+      // Shared re-queue path for repair passes and retries.
       function requeue(data: Prisma.SiteJobUpdateManyMutationInput): Promise<boolean> {
         return finish({ status: QUEUED, startedAt: null, ...data });
       }
@@ -246,6 +252,39 @@ export function createWorker(options: WorkerOptions) {
       // Never keep a process alive just to renew a lease.
       heartbeat.unref?.();
 
+      // Shared retry path for a thrown error and a retryable failure result:
+      // re-queue with backoff while retries remain. Returns false when out of
+      // retries, leaving the caller to fail the job.
+      const { retryAttempts } = job;
+      async function retryWithBackoff(
+        message: string,
+        failureCategory: FailureCategory,
+        durationMs: number
+      ): Promise<boolean> {
+        if (retryAttempts >= MAX_RETRY_ATTEMPTS) return false;
+        const runAt = new Date(Date.now() + retryDelayMs(retryAttempts));
+        const requeued = await requeue({
+          retryAttempts: { increment: 1 },
+          runAt,
+          errorMessage: message,
+          failureCategory,
+        });
+        if (requeued) {
+          emit(
+            {
+              event: "job.retrying",
+              ...jobRef,
+              durationMs,
+              error: message,
+              attempt: retryAttempts + 1,
+              runAt: runAt.toISOString(),
+            },
+            onEvent
+          );
+        }
+        return true;
+      }
+
       const startMs = Date.now();
       let result: JobResult;
       try {
@@ -253,29 +292,7 @@ export function createWorker(options: WorkerOptions) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const durationMs = Date.now() - startMs;
-        if (job.retryAttempts < MAX_RETRY_ATTEMPTS) {
-          const runAt = new Date(Date.now() + retryDelayMs(job.retryAttempts));
-          const requeued = await requeue({
-            retryAttempts: { increment: 1 },
-            runAt,
-            errorMessage: message,
-            failureCategory: "unknown",
-          });
-          if (requeued) {
-            emit(
-              {
-                event: "job.retrying",
-                ...jobRef,
-                durationMs,
-                error: message,
-                attempt: job.retryAttempts + 1,
-                runAt: runAt.toISOString(),
-              },
-              onEvent
-            );
-          }
-          return "processed";
-        }
+        if (await retryWithBackoff(message, "unknown", durationMs)) return "processed";
         const failed = await finish({
           status: FAILED,
           errorMessage: message,
@@ -299,6 +316,11 @@ export function createWorker(options: WorkerOptions) {
           completedAt: new Date(),
         });
         if (completed) emit({ event: "job.completed", ...jobRef, durationMs }, onEvent);
+      } else if (
+        result.retryable &&
+        (await retryWithBackoff(result.message ?? "Unknown error", result.failureCategory ?? "unknown", durationMs))
+      ) {
+        // Re-queued with backoff (or the lease was lost); nothing else to write.
       } else if (result.shouldRepair && job.repairAttempts < MAX_REPAIR_ATTEMPTS) {
         // Bounded repair: re-queue with incremented repair counter
         await requeue({
