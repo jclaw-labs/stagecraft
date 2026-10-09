@@ -17,7 +17,7 @@ const SRC = path.resolve(import.meta.dirname, "..");
 const ADMIN = path.join(SRC, "app", "admin") + path.sep;
 
 const PUCK_CSS_IMPORT =
-  /(?:import|require\()\s*["']@measured\/puck\/(?:puck\.css|no-external\.css|dist\/[^"']+\.css)["']/;
+  /(?:\bimport\b[^"';]*|require\()\s*["']@measured\/puck\/(?:puck\.css|no-external\.css|dist\/[^"']+\.css)["']/;
 
 function sourceFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -67,6 +67,7 @@ describe("puck.css import boundary", () => {
     expect(PUCK_CSS_IMPORT.test('import "@measured/puck/puck.css";')).toBe(true);
     expect(PUCK_CSS_IMPORT.test("import '@measured/puck/no-external.css';")).toBe(true);
     expect(PUCK_CSS_IMPORT.test('import "@measured/puck/dist/index.css";')).toBe(true);
+    expect(PUCK_CSS_IMPORT.test('import styles from "@measured/puck/puck.css";')).toBe(true);
     expect(PUCK_CSS_IMPORT.test('import { Render } from "@measured/puck";')).toBe(false);
     expect(PUCK_CSS_IMPORT.test("// No `@measured/puck/puck.css` here")).toBe(false);
   });
