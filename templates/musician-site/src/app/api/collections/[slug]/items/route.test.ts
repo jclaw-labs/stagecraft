@@ -496,6 +496,23 @@ describe("pages via the generic item routes", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
+  // Create and rename share one 409 order: "slug taken" before
+  // "shadows a prefix". A page that predates the collection whose
+  // prefix it now shadows hits both.
+  it("POST reports a slug that both exists and shadows as taken", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const first = await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    expect(first.status).toBe(200);
+    await writePodcastsDef();
+    publishMock.mockClear();
+    const res = await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('An item with slug "episodes" already exists in collection "pages"');
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
   it("POST checks shadowing only for pages", async () => {
     await writePodcastsDef();
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
@@ -624,6 +641,20 @@ describe("pages via the generic item routes", () => {
     const body = await res.json();
     expect(body.error).toContain("podcasts");
     expect(body.error).toContain("/episodes");
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("PATCH reports a slug that both exists and shadows as taken", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    await writePodcastsDef();
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(renameReq("episodes"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('An item with slug "episodes" already exists in collection "pages"');
     expect(publishMock).not.toHaveBeenCalled();
   });
 

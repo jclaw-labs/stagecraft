@@ -18,6 +18,7 @@ import { TextField } from "@/components/admin/form";
 
 import { suggestSlug } from "@/lib/collections/suggest-slug";
 import type { CollectionDef, Item } from "@/lib/collections";
+import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
 
 export function NewItemClient({
   def,
@@ -55,26 +56,14 @@ export function NewItemClient({
       });
       const body = (await res.json().catch(() => null)) as
         | { ok: true; item: Item }
-        | {
-            ok: false;
-            error?: string;
-            issues?: Array<{ path: string; message: string }>;
-          }
+        | ItemRouteFailureBody
         | null;
       if (!res.ok || !body || !body.ok) {
         // The route returns structured `issues` on a 400 from
-        // per-collection Zod validation. Surface each path/message
-        // pair so the artist can see which field failed and why,
-        // instead of a single opaque "Validation failed" string.
-        const issueMessages =
-          body && "issues" in body && Array.isArray(body.issues) && body.issues.length > 0
-            ? body.issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ")
-            : "";
-        const message =
-          issueMessages ||
-          (body && "error" in body && body.error) ||
-          `Save failed (HTTP ${res.status})`;
-        setErrorMessage(message);
+        // per-collection Zod validation. Name each failing field so
+        // the artist can see which one failed and why, instead of a
+        // single opaque "Validation failed" string.
+        setErrorMessage(saveErrorMessage(res.status, body && !body.ok ? body : null, def.fields));
         setStatus("error");
         return;
       }

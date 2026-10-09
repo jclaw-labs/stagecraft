@@ -201,8 +201,9 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if (collides) {
     return err(409, new ItemExistsError(parsedCollectionSlug.data, parsedNewSlug.data).message);
   }
-  // Same pre-flight as page creation: a renamed page must not take a
-  // slug that shadows a collection's detail URL prefix.
+  // Same pre-flight as page creation, in the same order (collision
+  // first): a renamed page must not take a slug that shadows a
+  // collection's detail URL prefix.
   if (parsedCollectionSlug.data === "pages") {
     const shadowError = await pageSlugShadowError(store, parsedNewSlug.data);
     if (shadowError) return err(409, shadowError);

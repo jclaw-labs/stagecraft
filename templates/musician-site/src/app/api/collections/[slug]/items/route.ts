@@ -92,6 +92,13 @@ export async function POST(request: Request, ctx: Ctx) {
   const parsedItemSlug = slugSchema.safeParse(slugPart);
   if (!parsedItemSlug.success) return err(400, "Body must include a valid slug");
 
+  // Refuse on collision so the artist can't silently overwrite. The
+  // check reads through the draft-aware store. It runs before the
+  // shadow check, the same order as rename (PATCH): a slug that is
+  // both taken and shadowing reports "already exists".
+  const existing = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
+  if (existing) return err(409, new ItemExistsError(parsedSlug.data, parsedItemSlug.data).message);
+
   // A page's slug is its top-level URL, so it must not shadow a
   // collection's detail URL prefix (see `pageSlugShadowError`).
   if (parsedSlug.data === "pages") {
@@ -117,11 +124,6 @@ export async function POST(request: Request, ctx: Ctx) {
     });
   }
   const validated = parseResult.data;
-
-  // Refuse on collision so the artist can't silently overwrite. The
-  // check reads through the draft-aware store.
-  const existing = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
-  if (existing) return err(409, new ItemExistsError(parsedSlug.data, parsedItemSlug.data).message);
 
   // Built + validated in memory; the same bytes go into the commit,
   // the response, and (dev only) the local disk write.
