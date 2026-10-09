@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
-    "build": "next build",
+    "generate": "node scripts/generate-template-bundle.mjs",
+    "dev": "npm run generate && sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
+    "build": "npm run generate && next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "test": "npm run generate && vitest run",
+    "typecheck": "npm run generate && tsc --noEmit",
     "capture:screenshots": "playwright test --config playwright.capture.config.ts",
-    "capture:screenshots:public": "next build && playwright test --config playwright.public-capture.config.ts"
+    "capture:screenshots:public": "npm run build && playwright test --config playwright.public-capture.config.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
