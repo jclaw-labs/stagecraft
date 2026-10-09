@@ -82,6 +82,9 @@ describe("DefaultItemDetail — posts", () => {
     expect(html).toContain("<h1");
     expect(html).toMatch(/<h1[^>]*>Behind the Record<\/h1>/);
     expect(html).not.toContain("behind-the-record");
+    // The title field supplies the heading, so it must not repeat as
+    // the subtitle.
+    expect(html.split("Behind the Record")).toHaveLength(2);
   });
 
   it("shows the formatted date and the category label in field order", () => {
@@ -199,7 +202,8 @@ describe("DefaultItemDetail — tour dates", () => {
   it("uses the venue (slug source) as the heading and city, country as the subtitle", () => {
     const html = render(tourDatesCollectionDef, SHOW);
     expect(html).toMatch(/<h1[^>]*>Mercury Lounge<\/h1>/);
-    expect(html).toContain("New York, United States");
+    // The whole subtitle, so the venue repeating in it fails.
+    expect(html).toMatch(/<p[^>]*>New York, United States<\/p>/);
   });
 
   it("formats the date with weekday and time, then the status label", () => {
@@ -220,7 +224,16 @@ describe("DefaultItemDetail — tour dates", () => {
       ...SHOW,
       values: { ...SHOW.values, [TOUR_DATES_FIELD_IDS.date]: { type: "date", value: "2026-07-15T20:00" } },
     };
-    expect(render(tourDatesCollectionDef, item)).toContain("Wed, July 15, 2026 · 8:00 PM");
+    // Under UTC a naked datetime parses to the same wall clock with or
+    // without the fix, so pin a zone west of UTC for this test only.
+    const savedTz = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      expect(render(tourDatesCollectionDef, item)).toContain("Wed, July 15, 2026 · 8:00 PM");
+    } finally {
+      if (savedTz === undefined) delete process.env.TZ;
+      else process.env.TZ = savedTz;
+    }
   });
 
   it("prints no field keys or item metadata", () => {
