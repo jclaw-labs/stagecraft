@@ -202,7 +202,7 @@ function CollectionBlockItem({
   // field-stack when no specialisation registered.
   const specialised = specialisedRendererFor(sourceDef.slug);
   if (specialised) {
-    return specialised({ item });
+    return specialised({ item, def: sourceDef });
   }
   // No itemTemplate, no specialisation — render a minimal default:
   // every scalar field rendered as plain text + image. Keeps the
@@ -212,9 +212,9 @@ function CollectionBlockItem({
 
 /**
  * Fallback "render every scalar field as plain text" when the
- * source collection has no itemTemplate configured. Used both by
- * Collection blocks iterating items and by the detail-page route
- * for collections whose `detailTemplate` is null.
+ * source collection has no itemTemplate configured and no specialised
+ * renderer. (Detail pages without a `detailTemplate` use
+ * `DefaultItemDetail` in `./item-detail.tsx` instead.)
  */
 function DefaultItemRender({
   item,
@@ -231,10 +231,8 @@ function DefaultItemRender({
 }
 
 /**
- * The inner default body — shared between the in-block iteration
- * fallback and the detail-page no-template fallback. Each call site
- * wraps it with its own outer chrome (heading, page-level spacing,
- * etc.).
+ * The inner default body of `DefaultItemRender`, the in-block
+ * iteration fallback.
  *
  * Renders `image` values as `<picture>` (so photo / cover-art / store
  * collections aren't visually empty out of the box), `url` values as

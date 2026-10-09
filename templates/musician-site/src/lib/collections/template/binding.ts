@@ -21,6 +21,7 @@ import type { Data as PuckData } from "@measured/puck";
 import { z } from "zod";
 
 import type { ImageMetadata } from "../../image-types";
+import { selectOptionLabel } from "../accessors";
 
 import type {
   Bindable,
@@ -217,7 +218,7 @@ function formatBoundString(
     if (fieldType !== "select") return raw;
     const field = itemDef?.fields.find((f) => f.id === fieldId);
     if (field?.type !== "select") return raw;
-    return field.options?.find((o) => o.value === raw)?.label ?? raw;
+    return selectOptionLabel(field, raw);
   }
   // Date presets (year / weekday-day / full).
   if (fieldType !== "date") return raw;

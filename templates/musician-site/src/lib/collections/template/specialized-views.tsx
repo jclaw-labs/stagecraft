@@ -44,7 +44,8 @@ import {
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
-import type { Item } from "../schema";
+import { itemDetailUrl } from "../routing";
+import type { CollectionDef, Item } from "../schema";
 
 // ---------------------------------------------------------------------------
 // Photo tile — Image + optional caption
@@ -396,9 +397,10 @@ function releaseMetaLine(releaseType: string, releaseDate: string): string {
  * `[data-collection-view="releases"]` grid. Ports the bespoke ReleasesList
  * card: square cover (themed gradient placeholder when no art) + title +
  * type · year meta + description. Cover cropping is the shared
- * `[data-release-cover]` CSS.
+ * `[data-release-cover]` CSS. Cover + title link to the release's detail
+ * page when the collection has one.
  */
-function ReleaseTile({ item }: { item: Item }): ReactNode {
+function ReleaseTile({ item, def }: SpecialisedRendererArgs): ReactNode {
   const cover = getImageOrNull(item, RELEASES_FIELD_IDS.coverImage);
   const title = getTextOrNull(item, RELEASES_FIELD_IDS.title) ?? "";
   const releaseType = getSelectOrNull(item, RELEASES_FIELD_IDS.releaseType) ?? "";
@@ -407,14 +409,16 @@ function ReleaseTile({ item }: { item: Item }): ReactNode {
   const meta = releaseMetaLine(releaseType, releaseDate);
   return (
     <article>
-      <div data-release-cover>
-        {cover ? (
-          <Image image={cover} sizes="(max-width: 768px) 50vw, 25vw" />
-        ) : (
-          <div aria-hidden style={tileCoverPlaceholderStyle} />
-        )}
-      </div>
-      <h3 style={tileTitleStyle}>{title}</h3>
+      <CardLink href={itemDetailUrl(def, item.slug)}>
+        <div data-release-cover>
+          {cover ? (
+            <Image image={cover} sizes="(max-width: 768px) 50vw, 25vw" />
+          ) : (
+            <div aria-hidden style={tileCoverPlaceholderStyle} />
+          )}
+        </div>
+        <h3 style={tileTitleStyle}>{title}</h3>
+      </CardLink>
       {meta ? <p style={tileMetaStyle}>{meta}</p> : null}
       {description ? <p style={tileBodyStyle}>{description}</p> : null}
     </article>
@@ -456,9 +460,10 @@ function postMetaLine(category: string, publishedAt: string): string {
  * `[data-collection-view="posts"]` grid. Ports the bespoke PostsList card:
  * 16:9 cover (themed gradient placeholder when no image) + title +
  * category · date meta + summary. Cover cropping is the shared
- * `[data-post-cover]` CSS.
+ * `[data-post-cover]` CSS. Cover + title link to the post's detail page when
+ * the collection has one.
  */
-function PostTile({ item }: { item: Item }): ReactNode {
+function PostTile({ item, def }: SpecialisedRendererArgs): ReactNode {
   const cover = getImageOrNull(item, POSTS_FIELD_IDS.coverImage);
   const title = getTextOrNull(item, POSTS_FIELD_IDS.title) ?? "";
   const category = getSelectOrNull(item, POSTS_FIELD_IDS.category) ?? "";
@@ -467,17 +472,34 @@ function PostTile({ item }: { item: Item }): ReactNode {
   const meta = postMetaLine(category, publishedAt);
   return (
     <article>
-      <div data-post-cover>
-        {cover ? (
-          <Image image={cover} sizes="(max-width: 768px) 100vw, 33vw" />
-        ) : (
-          <div aria-hidden style={tileCoverPlaceholderStyle} />
-        )}
-      </div>
-      <h3 style={tilePostTitleStyle}>{title}</h3>
+      <CardLink href={itemDetailUrl(def, item.slug)}>
+        <div data-post-cover>
+          {cover ? (
+            <Image image={cover} sizes="(max-width: 768px) 100vw, 33vw" />
+          ) : (
+            <div aria-hidden style={tileCoverPlaceholderStyle} />
+          )}
+        </div>
+        <h3 style={tilePostTitleStyle}>{title}</h3>
+      </CardLink>
       {meta ? <p style={tileMetaStyle}>{meta}</p> : null}
       {summary ? <p style={tileBodyStyle}>{summary}</p> : null}
     </article>
+  );
+}
+
+/**
+ * Wraps a card's cover + title in a link to the item's detail page.
+ * Renders the children bare when the collection has no detail pages
+ * (`detailUrlPrefix: null`), so the card degrades to its unlinked form.
+ * Colour / underline rules are the `[data-card-link]` CSS in globals.css.
+ */
+function CardLink({ href, children }: { href: string | null; children: ReactNode }): ReactNode {
+  if (!href) return children;
+  return (
+    <a href={href} data-card-link>
+      {children}
+    </a>
   );
 }
 
@@ -506,7 +528,9 @@ const tileBodyStyle: CSSProperties = { ...tileMetaStyle, lineHeight: "var(--line
 // DefaultItemRender. Adding a new specialisation: register here.
 // ---------------------------------------------------------------------------
 
-export type SpecialisedRenderer = (args: { item: Item }) => ReactNode;
+/** `def` is the source collection's live def — the cards read its `detailUrlPrefix`. */
+export type SpecialisedRendererArgs = { item: Item; def: CollectionDef };
+export type SpecialisedRenderer = (args: SpecialisedRendererArgs) => ReactNode;
 
 export const SPECIALISED_RENDERERS: Readonly<Record<string, SpecialisedRenderer>> =
   Object.freeze({

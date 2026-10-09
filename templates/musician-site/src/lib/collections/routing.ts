@@ -107,6 +107,20 @@ export function resolveCollectionItemUrl(
   return null;
 }
 
+/**
+ * The public detail URL for one item — the inverse of
+ * `resolveCollectionItemUrl`. `null` when the collection has no detail
+ * pages (no `detailUrlPrefix`, or a singleton). A Pages-style `/` prefix
+ * yields `/<slug>`.
+ */
+export function itemDetailUrl(
+  def: Pick<CollectionDef, "detailUrlPrefix" | "isSingleton">,
+  itemSlug: string,
+): string | null {
+  if (def.isSingleton || def.detailUrlPrefix === null) return null;
+  return `${def.detailUrlPrefix.replace(/\/+$/, "")}/${itemSlug}`;
+}
+
 // ---------------------------------------------------------------------------
 // Build / startup conflict detection
 // ---------------------------------------------------------------------------

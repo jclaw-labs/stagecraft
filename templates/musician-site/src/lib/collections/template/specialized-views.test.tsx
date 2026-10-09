@@ -29,6 +29,13 @@ import {
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
 import type { Item } from "../schema";
+import {
+  photosCollectionDef,
+  postsCollectionDef,
+  releasesCollectionDef,
+  tourDatesCollectionDef,
+  videosCollectionDef,
+} from "../seeds";
 import { asImageId, type ImageMetadata } from "@/lib/image-types";
 
 const TS = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
@@ -130,7 +137,7 @@ function photoItem(opts: { image?: typeof IMAGE_FIXTURE | null; caption?: string
 
 function renderPhoto(item: Item): string {
   const PhotoTile = specialisedRendererFor("photos")!;
-  return renderToStaticMarkup(<>{PhotoTile({ item })}</>);
+  return renderToStaticMarkup(<>{PhotoTile({ item, def: photosCollectionDef })}</>);
 }
 
 describe("PhotoTile", () => {
@@ -204,7 +211,7 @@ describe("PhotoTile", () => {
   it("renders null when no image is present (no broken anchor)", () => {
     const item = { id: "i", slug: "p1", ...TS, values: {} } satisfies Item;
     const PhotoTile = specialisedRendererFor("photos")!;
-    expect(PhotoTile({ item })).toBeNull();
+    expect(PhotoTile({ item, def: photosCollectionDef })).toBeNull();
   });
 
   // Two-layer caption / credit model: per-item fields override
@@ -262,7 +269,7 @@ function videoItem(opts: {
 
 function renderVideo(item: Item): string {
   const VideoTile = specialisedRendererFor("videos")!;
-  return renderToStaticMarkup(<>{VideoTile({ item })}</>);
+  return renderToStaticMarkup(<>{VideoTile({ item, def: videosCollectionDef })}</>);
 }
 
 describe("VideoTile", () => {
@@ -339,7 +346,7 @@ describe("VideoTile", () => {
       },
     } satisfies Item;
     const VideoTile = specialisedRendererFor("videos")!;
-    expect(VideoTile({ item })).toBeNull();
+    expect(VideoTile({ item, def: videosCollectionDef })).toBeNull();
   });
 
   it("uses a source-specific title fallback when title is unset (a11y)", () => {
@@ -365,7 +372,7 @@ describe("VideoTile", () => {
           },
         },
       };
-      return renderToStaticMarkup(<>{specialisedRendererFor("videos")!({ item })}</>);
+      return renderToStaticMarkup(<>{specialisedRendererFor("videos")!({ item, def: videosCollectionDef })}</>);
     };
     expect(renderWithoutTitle("youtube")).toContain('title="YouTube video"');
     expect(renderWithoutTitle("vimeo")).toContain('title="Vimeo video"');
@@ -506,7 +513,7 @@ function tourDateItem(
 
 function renderTourDate(item: Item): string {
   const TourDateRow = specialisedRendererFor("tour-dates")!;
-  return renderToStaticMarkup(<>{TourDateRow({ item })}</>);
+  return renderToStaticMarkup(<>{TourDateRow({ item, def: tourDatesCollectionDef })}</>);
 }
 
 describe("TourDateRow", () => {
@@ -568,7 +575,7 @@ function releaseItem(
 }
 
 function renderRelease(item: Item): string {
-  return renderToStaticMarkup(<>{specialisedRendererFor("releases")!({ item })}</>);
+  return renderToStaticMarkup(<>{specialisedRendererFor("releases")!({ item, def: releasesCollectionDef })}</>);
 }
 
 describe("ReleaseTile", () => {
@@ -621,7 +628,7 @@ function postItem(
 }
 
 function renderPost(item: Item): string {
-  return renderToStaticMarkup(<>{specialisedRendererFor("posts")!({ item })}</>);
+  return renderToStaticMarkup(<>{specialisedRendererFor("posts")!({ item, def: postsCollectionDef })}</>);
 }
 
 describe("PostTile", () => {
@@ -715,5 +722,48 @@ describe("CollectionBlockRender — empty state", () => {
       </>,
     );
     expect(html).toContain('data-collection-view="store-items"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card → detail-page links
+// ---------------------------------------------------------------------------
+
+describe("card links to detail pages", () => {
+  it("links a release card's cover + title to /releases/<slug>", () => {
+    const html = renderRelease(releaseItem({ title: "Halflight", description: "Four tracks." }));
+    expect(html).toMatch(/<a href="\/releases\/r1" data-card-link[^>]*>.*data-release-cover.*Halflight<\/h3><\/a>/);
+    // The description stays outside the link.
+    expect(html).toMatch(/<\/a><p[^>]*>Four tracks\.<\/p>/);
+  });
+
+  it("links a post card's cover + title to /news/<slug>", () => {
+    const html = renderPost(postItem({ title: "On the Road" }));
+    expect(html).toMatch(/<a href="\/news\/p1" data-card-link[^>]*>.*data-post-cover.*On the Road<\/h3><\/a>/);
+  });
+
+  it("follows the collection's live prefix, not a hard-coded one", () => {
+    const def = { ...postsCollectionDef, detailUrlPrefix: "/journal" };
+    const html = renderToStaticMarkup(
+      <>{specialisedRendererFor("posts")!({ item: postItem({ title: "X" }), def })}</>,
+    );
+    expect(html).toContain('href="/journal/p1"');
+  });
+
+  it("leaves the card unlinked when the collection has no detail pages", () => {
+    const def = { ...releasesCollectionDef, detailUrlPrefix: null };
+    const html = renderToStaticMarkup(
+      <>{specialisedRendererFor("releases")!({ item: releaseItem({ title: "X" }), def })}</>,
+    );
+    expect(html).not.toContain("<a ");
+    expect(html).toContain("X</h3>");
+  });
+
+  it("keeps tour-date rows linking to tickets, not to /shows/<slug>", () => {
+    const html = renderTourDate(
+      tourDateItem({ date: "2026-08-01", venue: "V", ticketUrl: "https://tix.example/v" }),
+    );
+    expect(html).toContain('href="https://tix.example/v"');
+    expect(html).not.toContain("/shows/");
   });
 });

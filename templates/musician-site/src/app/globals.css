@@ -166,6 +166,26 @@
   display: block;
 }
 
+/* Default collection-item detail page (item-detail.tsx) — the cover and
+   any further images scale to their frame, which caps their width. */
+[data-item-detail-cover] picture,
+[data-item-detail-cover] img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Release / post cards link their cover + title to the item's detail
+   page; the link keeps the card's own text colour. */
+[data-card-link] {
+  color: inherit;
+  text-decoration: none;
+}
+[data-card-link]:hover h3,
+[data-card-link]:focus-visible h3 {
+  text-decoration: underline;
+}
+
 /* Tour-dates list — rows stack in normal block flow (no grid). Each row
    carries its own bottom rule (set inline in specialized-views.tsx's
    TourDateRow); drop it on the last row so the list doesn't end on a rule. */
