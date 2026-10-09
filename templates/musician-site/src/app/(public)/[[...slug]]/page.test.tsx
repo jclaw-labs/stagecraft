@@ -86,6 +86,22 @@ describe("public catch-all — generateStaticParams", () => {
     ]);
   });
 
+  it("lists every page when the pages collection def isn't on disk yet", async () => {
+    // A repo without a committed `pages/_collection.json`: the def is
+    // written by the first content read, which must land before the
+    // defs are listed.
+    await seedSite({ pageSlugs: ["home", "about"] });
+    await fs.rm(path.join(TMP_CONTENT_DIR, "collections", "pages", "_collection.json"));
+    __resetBootstrapCacheForTests();
+    expect(urls(await generateStaticParams())).toEqual([
+      "/",
+      "/about",
+      "/home",
+      "/shows/mercury-lounge",
+      "/shows/the-earl",
+    ]);
+  });
+
   it("throws on a routing conflict, so the build fails instead of the live site", async () => {
     // A Page slugged `shows` shadows the tour-dates `/shows` prefix.
     await seedSite({ pageSlugs: ["home", "shows"] });

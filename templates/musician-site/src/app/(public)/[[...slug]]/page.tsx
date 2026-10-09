@@ -47,10 +47,10 @@ import { buildUnifiedPublicConfig } from "@/puck/unified-config";
 // (slugs + defs) and read the site / header singletons. React.cache()
 // dedupes those reads within a single request lifecycle — both
 // `generateMetadata` (which runs first) and the page render share the
-// same cached call results. Module-level memoisation would be wrong
-// here because the on-disk state can change between requests (the
-// admin writes definitions / items; tests reset state). React.cache()
-// is request-scoped: stale data can't leak across requests.
+// same cached call results. The route is prerendered, so in production
+// these reads run at build time. Module-level memoisation would still be
+// wrong: `next dev` re-reads content per request and tests reset it
+// between cases. React.cache() is scoped to one render.
 // ---------------------------------------------------------------------------
 
 // Public-renderer reads always hit the FS snapshot of `main` — visitors
@@ -102,9 +102,12 @@ export const dynamicParams = false;
  */
 export async function generateStaticParams(): Promise<{ slug: string[] }[]> {
   const store = getFsReadStore();
-  const [allDefs, pageSlugs, rootPageSlug] = await Promise.all([
+  // `listPageSlugs` writes any missing prebaked collection defs, so it
+  // has to finish before the defs are read; otherwise a repo without a
+  // committed `pages/_collection.json` drops every page from the set.
+  const pageSlugs = await listPageSlugs(store);
+  const [allDefs, rootPageSlug] = await Promise.all([
     cachedAllDefs(),
-    listPageSlugs(store),
     cachedResolveRootPageSlug(),
   ]);
   assertCollectionRouting(allDefs, pageSlugs);
