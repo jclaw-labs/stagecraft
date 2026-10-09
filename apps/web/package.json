@@ -8,6 +8,7 @@
     "dev": "npm run generate && sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
     "build": "npm run generate && next build",
     "build:worker": "opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .open-next/dist",
+    "deploy:worker": "opennextjs-cloudflare build && wrangler deploy",
     "start": "next start",
     "lint": "eslint .",
     "test": "npm run generate && vitest run",

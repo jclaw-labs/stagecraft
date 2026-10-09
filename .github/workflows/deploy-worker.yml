@@ -1,0 +1,79 @@
+name: Deploy Worker
+
+# Deploys apps/web as the `stagecraft` Cloudflare Worker to its workers.dev
+# preview URL (#324). wrangler.jsonc has no routes or custom domains, so this
+# never touches stagecraft.website, which stays on Netlify until #312.
+#
+# Runs after CI passes on a push to main, or by hand from main
+# (Actions > Deploy Worker > Run workflow).
+#
+# One-time setup (repo admin): add repository secrets CLOUDFLARE_API_TOKEN
+# (an API token with "Workers Scripts: Edit" on the account) and
+# CLOUDFLARE_ACCOUNT_ID. Set the Worker secrets first (docs/runbook.md,
+# "Cloudflare Worker"); the deploy doesn't touch them. Until both repository
+# secrets exist, the job skips with a notice instead of failing.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to workers.dev
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Check Cloudflare credentials
+        id: gate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; skipping the Worker deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # workflow_run checks out the default branch by default; deploy the
+      # commit CI actually passed instead.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - if: steps.gate.outputs.ready == 'true'
+        run: npm ci
+
+      - if: steps.gate.outputs.ready == 'true'
+        run: npm run db:generate
+
+      - name: Build and deploy
+        if: steps.gate.outputs.ready == 'true'
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        run: npm run deploy:worker
