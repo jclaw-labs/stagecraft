@@ -74,16 +74,30 @@ function getAppCredentials(): { appId: string; privateKey: string } {
 }
 
 /**
+ * Repository and permission limits for an installation token. GitHub sends
+ * `repositoryNames` as the `repositories` field of
+ * `POST /app/installations/{id}/access_tokens`, and refuses to mint when the
+ * installation can't reach a named repo or doesn't hold a named permission.
+ */
+export type InstallationTokenScope = {
+  repositoryNames: string[];
+  permissions: Record<string, "read" | "write">;
+};
+
+/**
  * Mint a GitHub installation access token for the given installation id.
- * Returns the token + ISO expiry. Throws GitHubAppMisconfiguredError when
+ * Returns the token + ISO expiry. Without `scope` the token covers every
+ * repo and permission the installation holds; pass one whenever the token
+ * leaves the platform. Throws GitHubAppMisconfiguredError when
  * GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY are unset.
  */
 export async function mintInstallationToken(
   installationId: number,
+  scope?: InstallationTokenScope,
 ): Promise<InstallationToken> {
   const { appId, privateKey } = getAppCredentials();
   const auth = createAppAuth({ appId, privateKey, installationId });
-  const result = await auth({ type: "installation" });
+  const result = await auth({ type: "installation", ...scope });
 
   return {
     token: result.token,
