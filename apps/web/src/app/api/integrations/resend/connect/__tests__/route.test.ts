@@ -22,6 +22,13 @@ vi.mock("@/lib/integrations/resend", () => ({ validateResendToken: validateMock 
 
 import { POST, DELETE } from "../route";
 import { signVerificationToken } from "@/lib/resend-verification";
+import { randomBytes } from "node:crypto";
+import {
+  CREDENTIALS_KEY_ENV,
+  decryptCredential,
+  isEncryptedCredential,
+  resetCredentialCryptoForTests,
+} from "@/lib/credential-crypto";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -149,6 +156,22 @@ describe("POST /api/integrations/resend/connect", () => {
       where: { id: "user-1" },
       data: { email: "artist@example.com" },
     });
+  });
+
+  it("stores the API key encrypted when a credentials key is set", async () => {
+    process.env[CREDENTIALS_KEY_ENV] = `k1:${randomBytes(32).toString("base64")}`;
+    resetCredentialCryptoForTests();
+    const verificationToken = await makeVerificationToken({ code: "424242" });
+    const res = await POST(
+      buildRequest({ token: "re_secret", verificationToken, code: "424242" }),
+    );
+    expect(res.status).toBe(200);
+
+    const { update, create } = prismaMock.integrationAccount.upsert.mock.calls[0][0];
+    expect(isEncryptedCredential(create.accessToken)).toBe(true);
+    expect(update.accessToken).toBe(create.accessToken);
+    expect(await decryptCredential(create.accessToken)).toBe("re_secret");
+    expect(validateMock).toHaveBeenCalledWith("re_secret");
   });
 });
 

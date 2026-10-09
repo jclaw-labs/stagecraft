@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
+import { encryptCredential } from "@/lib/credential-crypto";
 import { validateVercelToken } from "@/lib/integrations/vercel";
 import { prisma } from "@stagecraft/db";
 
@@ -55,12 +56,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const storedToken = await encryptCredential(token);
   await prisma.integrationAccount.upsert({
     where: {
       userId_provider: { userId: session.user.id, provider: "vercel" },
     },
     update: {
-      accessToken: token,
+      accessToken: storedToken,
       providerAccountId: user.userId,
       metadata: { username: user.username, teamId: teamId ?? null },
       updatedAt: new Date(),
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
       provider: "vercel",
       providerAccountId: user.userId,
-      accessToken: token,
+      accessToken: storedToken,
       metadata: { username: user.username, teamId: teamId ?? null },
     },
   });
