@@ -166,7 +166,7 @@ describe("validateCollectionRouting", () => {
 });
 
 // ---------------------------------------------------------------------------
-// findShadowingPrefix (pre-flight helper for POST /api/pages)
+// findShadowingPrefix (pre-flight helper for page creation)
 // ---------------------------------------------------------------------------
 
 describe("findShadowingPrefix", () => {

@@ -40,15 +40,14 @@ import {
   prepareItemFileWrite,
   type CollectionDef,
   type Item,
-  type ReadStore,
 } from "./collections";
 import { writeJsonAtomic } from "./fs-helpers";
 import {
   DraftSavedPublishError,
   isPlatformConfigured,
-  publish,
   PublishError,
   readEnv,
+  saveAndPublish,
   saveToDraft,
   type Env,
   type PublishArgs,
@@ -105,7 +104,7 @@ export async function saveContent(
   }
   if (publishTo === "draft") return saveToDraft(publishArgs);
   try {
-    return await publish(publishArgs);
+    return await saveAndPublish(publishArgs);
   } catch (cause) {
     if (cause instanceof DraftSavedPublishError) {
       return {
@@ -178,37 +177,4 @@ export function planItemWrite(
     target: { kind: "collection-item", collectionSlug, itemSlug, data: value },
     writeLocal: () => writeJsonAtomic(file, value),
   };
-}
-
-/**
- * Save a page from the Puck editor's `onPublish` handler: build the
- * pages item in memory (preserving id / createdAt / showInNav from the
- * draft-aware `store`), then save it through `saveContent`. A
- * `PublishError` propagates — `/api/publish` maps it to a failure
- * response; there is no "saved locally" fallback.
- */
-export async function publishPage(args: {
-  pageSlug: string;
-  /** Legacy PuckData shape: `{ content, root: { props: {...} } }`. */
-  data: unknown;
-  authorEmail: string;
-  authorName?: string;
-  /** Draft-aware store used to look up the existing item's identity. */
-  store: ReadStore;
-}): Promise<PublishResult> {
-  const { buildPageItem } = await import("./content");
-  const { pagesCollectionDef } = await import("./collections/seeds");
-  const page = await buildPageItem(
-    args.pageSlug,
-    args.data as Parameters<typeof buildPageItem>[1],
-    args.store,
-  );
-  const planned = planItemWrite("pages", args.pageSlug, page, pagesCollectionDef);
-  return saveContent({
-    targets: [planned.target],
-    writeLocal: planned.writeLocal,
-    authorEmail: args.authorEmail,
-    authorName: args.authorName,
-    commitSubject: `Update ${args.pageSlug}`,
-  });
 }

@@ -44,13 +44,11 @@ src/
                             Pages list (drag handle + eye toggle per row).
       appearance/page.tsx   Colors + typography form
     api/
-      publish/              Per-page publish (back-compat)
       publish-status/       Vercel/Netlify deploy state proxy
       upload-image/         sharp-based image processor + dedup
-      pages/                GET list, POST create
-      pages/[slug]/         DELETE
       collections/[slug]/items/             generic CRUD for any collection
-      collections/[slug]/items/[itemSlug]/  per-item GET / PUT / DELETE
+                                            (pages included)
+      collections/[slug]/items/[itemSlug]/  per-item GET / PUT / PATCH / DELETE
       collections/[slug]/order/             PUT: write `_order.json`
   components/
     Image.tsx               Public <picture> renderer for ImageMetadata
@@ -74,8 +72,11 @@ src/
                             contentDir, localPathForRepoPath,
                             readJson, writeJson, unlinkIfExists,
                             readdirFiltered, stringifyContent, isNotFound
-    content.ts              Read/write helpers for pages + singletons +
+    content.ts              Read helpers for pages + singletons +
                             multi-page summary listings
+    page-data.ts            Puck page shape (`PageData`), `emptyPageData`,
+                            `pageValuesForSave` (client-safe)
+    save-content.ts         `saveContent`: the one admin save path
     site-config-types.ts    Zod schemas for site / header / appearance
                             singletons and pages list contract
     collections/            ADR-009 Collection abstraction (foundation
@@ -366,20 +367,21 @@ before the GitHub call.
 
 Endpoints:
 
-- `POST /api/publish` — single-page publish from the Puck editor's
-  `onPublish` (back-compat path; takes `{ pageSlug, data }`).
-- `POST /api/pages` — create a new empty page. Kept alongside the
-  generic `POST /api/collections/pages/items` because it has a
-  Pages-specific slug-collision guard + a friendlier "Create page X"
-  commit message; the generic endpoint takes a full item payload and
-  doesn't pre-check slug uniqueness.
-- `DELETE /api/pages/[slug]` — delete a page (removes the file +
-  commits a tree entry with `sha: null` via `commitFiles`). Kept
-  alongside the generic `DELETE /api/collections/pages/items/<slug>`
-  for the same commit-message reason.
+- `POST /api/collections/<slug>/items` — create an item. The Pages
+  panel creates pages here (`{ slug, values }`, values built from
+  `emptyPageData`). For `pages` it also refuses a slug that would
+  shadow a collection's detail URL prefix (409).
 - `PUT /api/collections/<slug>/items/<itemSlug>` — write any
-  collection item (used by both the generic editor and the three
-  custom singleton panels; `itemSlug=_singleton` for singletons).
+  collection item (used by the generic editor, the three custom
+  singleton panels with `itemSlug=_singleton`, and the page editor).
+  The page editor's Puck "Publish" button only saves: it reads the
+  page item, merges the editor's content over it with
+  `pageValuesForSave`, and PUTs it to the draft branch.
+- `DELETE /api/collections/<slug>/items/<itemSlug>` — delete an item
+  (the Pages panel's delete).
+- Draft commits for pages read "Create / Update / Delete page <slug>";
+  other collections use "<verb> <collection>/<item>"
+  (`itemCommitSubject` in `src/lib/collections/commit-subject.ts`).
 - `PUT /api/collections/<slug>/order` — write a collection's
   `_order.json` (used by the Pages panel's drag-reorder). Validates
   every slug in the requested order against on-disk items; phantoms
@@ -392,11 +394,9 @@ to the draft branch and **nothing is written to the server's disk** (it
 is read-only or discarded on serverless hosts); a failed commit is
 never `ok: true`. The content save routes answer it with
 `saveFailureResponse` — `{ ok: false, code, error }`, 502 (409 for
-`concurrent-edit`, 503 for `no-platform-configured`). `/api/publish`
-(the Puck page save) keeps its own envelope and maps the code through
-`publishErrorHttpStatus` (500 for `github-failed`, 502 for
-`broker-rejected`, 409 for `concurrent-edit`). The two welcome routes
-publish to `main` as well: when the draft commit lands but the publish
+`concurrent-edit`, 503 for `no-platform-configured`). The two welcome
+routes save with `publishTo: "main"` (`saveAndPublish` in
+`src/lib/publish.ts`), so they publish to `main` as well: when the draft commit lands but the publish
 to `main` fails, the save stands, so they answer `ok: true,
 published: false, publishWarning` rather than a failure.
 

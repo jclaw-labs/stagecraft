@@ -6,7 +6,7 @@
  *
  * Drives the real collection store against an isolated tmp content
  * dir (so writes actually land) and mocks only `getSession` + the
- * `publish` round-trip — mirroring the sibling collections-items
+ * `saveAndPublish` round-trip — mirroring the sibling collections-items
  * route tests.
  */
 
@@ -21,7 +21,7 @@ vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
 vi.mock("@/lib/publish", async () => {
   const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
-  return { ...actual, publish: publishMock };
+  return { ...actual, saveAndPublish: publishMock };
 });
 
 import { POST } from "./route";

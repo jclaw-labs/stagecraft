@@ -55,7 +55,7 @@ export class PublishError extends Error {
 }
 
 /**
- * Thrown by `publish()` when the change was committed to the draft
+ * Thrown by `saveAndPublish()` when the change was committed to the draft
  * branch but publishing that draft to `main` then failed. The save
  * itself persisted (the draft-aware store already reads it), so callers
  * must not report it as a failed save — and a retry of the same request
@@ -336,18 +336,16 @@ async function writeLocal(targets: PublishTarget[]): Promise<PublishResult> {
 }
 
 /**
- * Save + immediate publish (PR 1 of ADR-010's rollout). Kept as a
- * back-compat shim for callers that haven't yet been migrated to
- * separate Save and Publish flows. Internally: `saveToDraft` followed
- * by `publishDraftToMain`. Both flows are independently exported so
- * new callers can compose them directly.
+ * Save the targets to the draft branch, then publish the draft to
+ * `main` in the same call: `saveToDraft` followed by
+ * `publishDraftToMain`. Most admin saves stop at `saveToDraft`; this is
+ * for the one-shot flows (the welcome wizard) that go live straight away.
  *
- * Returns the squash commit's SHA on `main` (the deploy trigger) —
- * preserves the v1 contract.
+ * Returns the squash commit's SHA on `main` (the deploy trigger).
  */
-export async function publish(args: PublishArgs): Promise<PublishResult> {
+export async function saveAndPublish(args: PublishArgs): Promise<PublishResult> {
   if (args.targets.length === 0) {
-    throw new PublishError("github-failed", "publish: no targets supplied");
+    throw new PublishError("github-failed", "saveAndPublish: no targets supplied");
   }
   const env = readEnv();
   if (!isPlatformConfigured(env)) {
@@ -359,7 +357,7 @@ export async function publish(args: PublishArgs): Promise<PublishResult> {
     return saveResult;
   }
   // Strip the extra `alreadyInSync` field from publishDraftToMain's
-  // return so back-compat callers see exactly the v1 PublishResult
+  // return so callers see exactly the PublishResult
   // shape. The publishDraftToMain result type is widened
   // (PublishResult & { alreadyInSync }); narrowing here keeps the
   // type contract honest.
@@ -536,7 +534,7 @@ export { commitToDraft as _commitToDraft };
  * Returns the new draft commit's SHA. The caller doesn't normally need
  * to poll a deploy for this — no deploy fires.
  *
- * Dev fallback: writes to local disk like `publish()` does (no
+ * Dev fallback: writes to local disk like `saveAndPublish()` does (no
  * branches in dev). The mode/commitSha pair stays the same shape.
  */
 export async function saveToDraft(args: PublishArgs): Promise<PublishResult> {
@@ -829,6 +827,3 @@ export async function discardDraft(args: {
     alreadyInSync: reset.alreadyInSync,
   };
 }
-
-// `publishPage` (the Puck editor's onPublish save) lives in
-// `./save-content` alongside the other admin save paths (issue #345).

@@ -13,7 +13,8 @@ import {
 } from "@/puck/collection-view-editor";
 import { BLOCK_DESCRIPTIONS } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
-import type { PageData } from "@/lib/content";
+import type { Item } from "@/lib/collections/schema";
+import { pageValuesForSave, type PageData } from "@/lib/page-data";
 
 import {
   type CategoryConfig,
@@ -36,25 +37,26 @@ type Props = {
 /**
  * Save lifecycle for the page editor (ADR-010 PR 3):
  *
- *   idle → publishing → saved
- *                    ↘ error(message)
+ *   idle → saving → saved
+ *               ↘ error(message)
  *
- * "publishing" = the /api/publish round-trip (broker → draft commit).
- * "saved"      = saved to the `draft` branch. The deploy doesn't
- *                fire from here; the artist hits "Publish changes" in
- *                the AdminShell to promote draft → main, at which
- *                point the deploy status surfaces in the sidebar
- *                button via `useDeployStatus`.
- *
- * No deploy polling on this path — the page editor's save is purely
- * to draft, and `useDeployStatus` lives in the sidebar Publish
- * button where the deploy actually fires.
+ * Puck's header button is labelled "Publish", but it only saves: the
+ * page goes to the `draft` branch through the generic collection item
+ * route. The deploy doesn't fire from here; the artist hits "Publish
+ * changes" in the AdminShell to promote draft → main, at which point
+ * the deploy status surfaces in the sidebar button via
+ * `useDeployStatus`.
  */
-type PublishState =
+type SaveState =
   | { status: "idle" }
-  | { status: "publishing" }
+  | { status: "saving" }
   | { status: "saved" }
   | { status: "error"; message: string };
+
+type ItemResponse =
+  | { ok: true; item: { values: Item["values"] } }
+  | { ok: false; error?: string }
+  | null;
 
 export function Editor({ initialData, pageSlug, email, embeddableCollections }: Props) {
   // Page editor's unified config (ADR-015 step 5): chrome blocks + the generic
@@ -65,9 +67,9 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
     () => buildUnifiedEditorConfig(embeddableCollections),
     [embeddableCollections],
   );
-  const [publishState, setPublishState] = useState<PublishState>({ status: "idle" });
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   // Puck doesn't surface dirty state to wrappers; track it ourselves
-  // via onChange. Reset on successful publish (the saved data becomes
+  // via onChange. Reset on a successful save (the saved data becomes
   // the new baseline).
   const [isDirty, setIsDirty] = useState(false);
   useBeforeUnloadIfDirty(isDirty);
@@ -75,44 +77,44 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
   // component list. Trimmed + lowercased before compare.
   const [drawerFilter, setDrawerFilter] = useState("");
 
-  const onPublish = useCallback(
+  // Puck's `onPublish` (the header's "Publish" button). Reads the
+  // page's current item so the save keeps fields the editor doesn't
+  // own (nav visibility from the Pages panel), then PUTs the merged
+  // values. Saves to the draft branch; nothing is published.
+  const savePageToDraft = useCallback(
     async (data: PageData) => {
-      setPublishState({ status: "publishing" });
+      setSaveState({ status: "saving" });
+      const itemUrl = `/api/collections/pages/items/${encodeURIComponent(pageSlug)}`;
+      const fail = (res: Response, body: ItemResponse) => {
+        const message =
+          (body && "error" in body && body.error) ||
+          `Publish failed (HTTP ${res.status})`;
+        setSaveState({ status: "error", message });
+      };
       try {
-        const res = await fetch("/api/publish", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pageSlug, data }),
-        });
-        const body = (await res.json().catch(() => null)) as
-          | { ok: true; commitSha: string | null }
-          | { ok: false; error?: string }
-          | null;
-        if (!res.ok) {
-          const message =
-            (body && "error" in body && body.error) ||
-            `Publish failed (HTTP ${res.status})`;
-          setPublishState({ status: "error", message });
-          throw new Error(message);
+        const getRes = await fetch(itemUrl, { cache: "no-store" });
+        const current = (await getRes.json().catch(() => null)) as ItemResponse;
+        if (!getRes.ok || !current || !current.ok) {
+          fail(getRes, current);
+          return;
         }
-        // Post-ADR-010 PR 3: /api/publish saves to the draft branch
-        // without triggering a deploy. The artist explicitly hits
-        // Publish (in the AdminShell) to promote draft → main, which
-        // is when the deploy fires. No polling here — there's no
-        // deploy in flight from this save. Indicate "Saved" via the
-        // pill regardless of dev vs prod (both paths persisted the
-        // change; only the storage layer differs).
-        setPublishState({ status: "saved" });
+        const res = await fetch(itemUrl, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ values: pageValuesForSave(data, current.item.values) }),
+        });
+        const body = (await res.json().catch(() => null)) as ItemResponse;
+        if (!res.ok || !body || !body.ok) {
+          fail(res, body);
+          return;
+        }
+        setSaveState({ status: "saved" });
         setIsDirty(false);
       } catch (cause) {
-        setPublishState((current) =>
-          current.status === "error"
-            ? current
-            : {
-                status: "error",
-                message: cause instanceof Error ? cause.message : "Publish failed",
-              },
-        );
+        setSaveState({
+          status: "error",
+          message: cause instanceof Error ? cause.message : "Publish failed",
+        });
       }
     },
     [pageSlug],
@@ -122,7 +124,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
     <Puck
       config={config}
       data={initialData}
-      onPublish={onPublish}
+      onPublish={savePageToDraft}
       onChange={() => setIsDirty(true)}
       overrides={{
         drawer: ({ children }) => {
@@ -212,7 +214,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
             >
               /{pageSlug}
             </span>
-            <PublishStatusPill state={publishState} />
+            <SaveStatusPill state={saveState} />
             {children}
             <AdminAccountButton email={email} />
           </>
@@ -222,7 +224,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
   );
 }
 
-function PublishStatusPill({ state }: { state: PublishState }) {
+function SaveStatusPill({ state }: { state: SaveState }) {
   const base = {
     display: "inline-flex" as const,
     alignItems: "center",
@@ -237,7 +239,7 @@ function PublishStatusPill({ state }: { state: PublishState }) {
   switch (state.status) {
     case "idle":
       return null;
-    case "publishing":
+    case "saving":
       return (
         <span
           role="status"
