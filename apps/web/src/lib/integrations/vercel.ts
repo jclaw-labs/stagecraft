@@ -71,6 +71,8 @@ interface VercelProjectResult {
   productionUrl: string;
   /** URL to the Vercel dashboard for this project */
   adminUrl: string;
+  /** When Vercel created the project (epoch ms) */
+  createdAt?: number;
 }
 
 async function getVercelToken(userId: string): Promise<string> {
@@ -215,6 +217,7 @@ interface VercelProjectResponse {
   id: string;
   name: string;
   accountId?: string;
+  createdAt?: number;
   targets?: { production?: { alias?: string[] } };
 }
 
@@ -250,6 +253,7 @@ async function toProjectResult(
     teamSlug,
     productionUrl,
     adminUrl,
+    ...(typeof data.createdAt === "number" ? { createdAt: data.createdAt } : {}),
   };
 }
 

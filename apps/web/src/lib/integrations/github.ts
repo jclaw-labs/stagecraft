@@ -17,6 +17,8 @@ interface CreateRepoResult {
   htmlUrl: string;
   cloneUrl: string;
   defaultBranch: string;
+  /** When GitHub created the repo (ISO 8601). */
+  createdAt?: string;
 }
 
 interface PushFileEntry {
@@ -113,6 +115,7 @@ function toRepoResult(data: {
   html_url: string;
   clone_url: string;
   default_branch: string;
+  created_at?: string;
 }): CreateRepoResult {
   return {
     id: data.id,
@@ -122,6 +125,7 @@ function toRepoResult(data: {
     htmlUrl: data.html_url,
     cloneUrl: data.clone_url,
     defaultBranch: data.default_branch,
+    ...(data.created_at ? { createdAt: data.created_at } : {}),
   };
 }
 

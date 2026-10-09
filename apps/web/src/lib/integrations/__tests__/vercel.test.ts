@@ -276,7 +276,7 @@ describe("findProject", () => {
     mockFetch((url) => {
       if (url.includes("/v9/projects/")) {
         expect(url).toBe("https://api.vercel.com/v9/projects/stagecraft-site-x?teamId=team_1");
-        return { status: 200, body: { id: "prj_1", name: "stagecraft-site-x" } };
+        return { status: 200, body: { id: "prj_1", name: "stagecraft-site-x", createdAt: 1760007605000 } };
       }
       if (url.includes("/v2/teams/")) return { status: 200, body: { slug: "my-team" } };
       throw new Error(`unexpected ${url}`);
@@ -291,6 +291,7 @@ describe("findProject", () => {
       teamSlug: "my-team",
       productionUrl: "https://stagecraft-site-x.vercel.app",
       adminUrl: "https://vercel.com/my-team/stagecraft-site-x",
+      createdAt: 1760007605000,
     });
   });
 

@@ -85,7 +85,7 @@ const { GitHubApiError } = await import("@/lib/integrations/github");
  */
 let jobRow: { status: string; startedAt: Date | null; resultPayload: unknown };
 
-type StepRecords = Record<string, { state: string; attempts: number; result?: unknown }>;
+type StepRecords = Record<string, { state: string; attempts: number; startedAt?: string; result?: unknown }>;
 
 function storedSteps(): StepRecords {
   return ((jobRow.resultPayload as { steps?: StepRecords } | null)?.steps ?? {}) as StepRecords;
@@ -95,6 +95,9 @@ function storedSteps(): StepRecords {
 function seedSteps(steps: StepRecords) {
   jobRow.resultPayload = { steps };
 }
+
+/** When a seeded step's first attempt started, for the adopt-by-creation-time checks. */
+const STEP_STARTED_AT = "2026-10-09T11:00:00.000Z";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -197,6 +200,7 @@ describe("handleCreateSite — common preconditions", () => {
     const result = await handleCreateSite(makeContext({ requestPayload: {} }));
     expect(result.success).toBe(false);
     expect(result.message).toContain("Missing required payload");
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
   });
 
   it("marks site as error when no deploy-target integration is connected", async () => {
@@ -592,7 +596,7 @@ describe("handleCreateSite — resumable steps", () => {
     await expect(handleCreateSite(makeContext())).rejects.toThrow("Netlify 503");
     // Still `creating` while the worker retries.
     expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
-    expect(storedSteps().createHostProject).toEqual({ state: "started", attempts: 1 });
+    expect(storedSteps().createHostProject).toMatchObject({ state: "started", attempts: 1 });
 
     const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
 
@@ -619,15 +623,29 @@ describe("handleCreateSite — resumable steps", () => {
   });
 
   it("adopts the repo an interrupted createRepo already made", async () => {
-    seedSteps({ createRepo: { state: "started", attempts: 1 } });
+    seedSteps({ createRepo: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT } });
     mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
-    mockGetOwnRepo.mockResolvedValueOnce(REPO_RESULT);
+    mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, createdAt: "2026-10-09T11:00:05Z" });
 
     const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
 
     expect(result.success).toBe(true);
     expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music");
     expect(storedSteps().createRepo).toMatchObject({ state: "completed", attempts: 2 });
+  });
+
+  it("doesn't adopt a same-named repo that predates the step (retry after a first-attempt 422)", async () => {
+    // The first attempt failed on "name already exists" for a repo that was
+    // never this job's; the retry sees the step as interrupted.
+    seedSteps({ createRepo: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT } });
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, createdAt: "2025-01-01T00:00:00Z" });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("name already exists");
+    expect(mockPushFiles).not.toHaveBeenCalled();
   });
 
   it("adopts the Vercel project an interrupted createHostProject already made", async () => {
@@ -641,15 +659,71 @@ describe("handleCreateSite — resumable steps", () => {
       pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
       findInstallation: { state: "completed", attempts: 1, result: null },
       mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
-      createHostProject: { state: "started", attempts: 1 },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
     });
-    mockFindVercelProject.mockResolvedValueOnce(VERCEL_PROJECT_RESULT);
+    mockFindVercelProject.mockResolvedValueOnce({ ...VERCEL_PROJECT_RESULT, createdAt: Date.parse("2026-10-09T11:00:05Z") });
 
     const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
 
     expect(result.success).toBe(true);
     expect(mockCreateVercelProject).not.toHaveBeenCalled();
     expect(mockSetVercelEnvVars).toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_abc123" }));
+  });
+
+  it("creates a new Vercel project rather than adopting a same-named one that predates the step", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "vercel", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindVercelProject.mockResolvedValueOnce({ ...VERCEL_PROJECT_RESULT, projectId: "prj_old", createdAt: Date.parse("2025-01-01T00:00:00Z") });
+
+    await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(mockCreateVercelProject).toHaveBeenCalled();
+    expect(mockSetVercelEnvVars).not.toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_old" }));
+  });
+
+  it("overwrites the Netlify env vars when resuming an interrupted setEnv", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: 129023518 },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: true } },
+      createHostProject: {
+        state: "completed",
+        attempts: 1,
+        result: {
+          deployTarget: "netlify",
+          productionUrl: NETLIFY_SITE_RESULT.sslUrl,
+          adminUrl: NETLIFY_SITE_RESULT.adminUrl,
+          netlifySiteId: "netlify-123",
+        },
+      },
+      setEnv: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockSetNetlifyEnvVars).toHaveBeenCalledWith(
+      "user-1",
+      "netlify-123",
+      expect.objectContaining({ STAGECRAFT_BROKER_SECRET: expect.any(String) }),
+      { replace: true },
+    );
   });
 
   it("mints a fresh broker secret when resuming after the mint step but before setEnv", async () => {

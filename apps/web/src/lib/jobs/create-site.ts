@@ -107,14 +107,29 @@ function hostProjectName(slug: string): string {
   return `stagecraft-site-${slug}`;
 }
 
+/** Clock skew allowed between us and a provider when comparing creation times. */
+const ADOPT_CLOCK_SKEW_MS = 2 * 60_000;
+
+/**
+ * Whether a resource found by name was created by an earlier attempt of
+ * the step that started at `since`, rather than before it (someone else's,
+ * or left from an earlier site). Unknown creation time never matches.
+ */
+function createdSince(createdAt: string | number | undefined, since: Date | null): boolean {
+  if (!since || createdAt === undefined) return false;
+  const created = new Date(createdAt).getTime();
+  return Number.isFinite(created) && created >= since.getTime() - ADOPT_CLOCK_SKEW_MS;
+}
+
 function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
 /**
  * Create the Netlify site, linked to the repo when Netlify's GitHub App can
- * be found. When `adopt` is set (an earlier run may have created it), an
- * existing site with the same name is returned instead of creating another.
+ * be found. When `adoptSince` is set (an earlier attempt that started then
+ * may have created it), an existing site with the same name created since
+ * then is returned instead of creating another.
  */
 async function createNetlifyHost(args: {
   userId: string;
@@ -122,12 +137,12 @@ async function createNetlifyHost(args: {
   repoOwner: string;
   repoName: string;
   repoBranch: string;
-  adopt?: boolean;
+  adoptSince?: Date | null;
 }): Promise<HostProject> {
   const name = hostProjectName(args.slug);
-  if (args.adopt) {
+  if (args.adoptSince) {
     const existing = await findNetlifySite(args.userId, `${name}.netlify.app`);
-    if (existing) {
+    if (existing && createdSince(existing.createdAt, args.adoptSince)) {
       return {
         deployTarget: "netlify",
         productionUrl: existing.sslUrl,
@@ -177,9 +192,16 @@ async function createNetlifyHost(args: {
 }
 
 /** Set the runtime env vars on a Netlify site. Returns a warning instead of throwing. */
-async function provisionNetlifyEnv(userId: string, netlifySiteId: string, envVars: Record<string, string>): Promise<string | undefined> {
+async function provisionNetlifyEnv(
+  userId: string,
+  netlifySiteId: string,
+  envVars: Record<string, string>,
+  // An earlier attempt may have set them already (with a broker secret
+  // whose hash this run has since replaced), so overwrite rather than add.
+  replace = false,
+): Promise<string | undefined> {
   try {
-    await setNetlifyEnvVars(userId, netlifySiteId, envVars);
+    await setNetlifyEnvVars(userId, netlifySiteId, envVars, { replace });
     return undefined;
   } catch (cause) {
     return errorMessage(cause, "Failed to provision Netlify env vars");
@@ -198,9 +220,9 @@ async function vercelTeamId(userId: string): Promise<string | undefined> {
 }
 
 /**
- * Create the Vercel project linked to the repo. When `adopt` is set (an
- * earlier run may have created it), an existing project with the same name
- * is returned instead. Throws VercelGitHubAppNotInstalledError when Vercel's
+ * Create the Vercel project linked to the repo. When `adoptSince` is set
+ * (an earlier attempt that started then may have created it), an existing
+ * project with the same name created since then is returned instead. Throws VercelGitHubAppNotInstalledError when Vercel's
  * GitHub App is missing.
  */
 async function createVercelHost(args: {
@@ -208,13 +230,14 @@ async function createVercelHost(args: {
   slug: string;
   repoOwner: string;
   repoName: string;
-  adopt?: boolean;
+  adoptSince?: Date | null;
 }): Promise<HostProject> {
   const teamId = await vercelTeamId(args.userId);
   const name = hostProjectName(args.slug);
 
+  const existing = args.adoptSince ? await findVercelProject(args.userId, name, teamId) : null;
   const project =
-    (args.adopt ? await findVercelProject(args.userId, name, teamId) : null) ??
+    (existing && createdSince(existing.createdAt, args.adoptSince ?? null) ? existing : null) ??
     (await createVercelProject({
       userId: args.userId,
       name,
@@ -372,9 +395,10 @@ async function runCreateSiteSteps(
 
   // 1. Create the GitHub repo. If an earlier run started this step but
   //    didn't record it, the repo may exist already: adopt it rather than
-  //    failing on "name already exists".
+  //    failing on "name already exists", but only if it was created since
+  //    that run started. An older repo with the name isn't this job's.
   const repoName = hostProjectName(slug);
-  const repo = await runner.run<RepoStepResult>("createRepo", async ({ interrupted }) => {
+  const repo = await runner.run<RepoStepResult>("createRepo", async ({ interrupted, firstStartedAt }) => {
     let created;
     try {
       created = await createRepo({
@@ -384,7 +408,8 @@ async function runCreateSiteSteps(
       });
     } catch (cause) {
       const nameTaken = cause instanceof GitHubApiError && cause.status === 422;
-      const adopted = nameTaken && interrupted ? await getOwnRepo(userId, repoName) : null;
+      const existing = nameTaken && interrupted ? await getOwnRepo(userId, repoName) : null;
+      const adopted = existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
       if (!adopted) throw nameTaken ? new PermanentCreateSiteError(errorMessage(cause, "")) : cause;
       created = adopted;
     }
@@ -477,8 +502,8 @@ async function runCreateSiteSteps(
   // 5. Create the deploy project on the chosen target, linked to the repo.
   //    Its ids go on the Site right away so deleting the site cleans it up
   //    even if a later step fails.
-  const host = await runner.run<HostProject>("createHostProject", async ({ interrupted }) => {
-    const repoArgs = { userId, slug, repoOwner: repo.owner, repoName: repo.name, adopt: interrupted };
+  const host = await runner.run<HostProject>("createHostProject", async ({ firstStartedAt }) => {
+    const repoArgs = { userId, slug, repoOwner: repo.owner, repoName: repo.name, adoptSince: firstStartedAt };
     const project =
       deployTarget === "vercel"
         ? await createVercelHost(repoArgs)
@@ -512,7 +537,7 @@ async function runCreateSiteSteps(
   //     provisioned when the artist has a custom verified sender (future)
   //   - MAGIC_LINK_SIGNING_SECRET — derived from STAGECRAFT_BROKER_SECRET
   //     via HKDF inside the template's auth.ts (see deriveMagicLinkSecret)
-  const env = await runner.run("setEnv", async () => {
+  const env = await runner.run("setEnv", async ({ interrupted }) => {
     // The plaintext secret is never stored, so a run that resumed after
     // step 4 mints a fresh one here; its hash replaces the earlier one.
     if (installationId !== null && brokerSecret === null) {
@@ -534,7 +559,7 @@ async function runCreateSiteSteps(
     const warning =
       host.deployTarget === "vercel"
         ? await provisionVercelEnv(userId, host.vercelProjectId!, host.vercelTeamId, envVars)
-        : await provisionNetlifyEnv(userId, host.netlifySiteId!, envVars);
+        : await provisionNetlifyEnv(userId, host.netlifySiteId!, envVars, interrupted);
     return { warning: warning ?? null };
   });
 
@@ -576,6 +601,8 @@ async function runCreateSiteSteps(
 export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
   const payload = ctx.job.requestPayload as unknown as CreateSitePayload;
   if (!payload?.slug || !payload?.name) {
+    // Not retryable, so don't leave the site showing `creating`.
+    await prisma.site.update({ where: { id: ctx.job.siteId }, data: { status: "error" } });
     return { success: false, message: "Missing required payload fields: name, slug" };
   }
 

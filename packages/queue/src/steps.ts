@@ -29,6 +29,8 @@ export interface StepRecord {
   state: StepState;
   /** Runs that have started this step, this one included. */
   attempts: number;
+  /** When the first of those runs started it (ISO 8601). */
+  startedAt?: string;
   /** What the step returned, once it completed. */
   result?: Prisma.JsonValue;
   completedAt?: string;
@@ -44,6 +46,14 @@ export interface StepContext {
    * something use this to look for the earlier result before creating again.
    */
   interrupted: boolean;
+  /**
+   * When the first attempt at this step started, if an earlier attempt
+   * exists (null on a first attempt). "Interrupted" includes an attempt
+   * that failed cleanly before creating anything, so a step that adopts an
+   * existing resource by name checks it was created at or after this time:
+   * one that predates the step belongs to someone else.
+   */
+  firstStartedAt: Date | null;
 }
 
 export interface StepRunner {
@@ -119,14 +129,22 @@ export async function createStepRunner(jobId: string): Promise<StepRunner> {
       const prior = steps[name];
       if (prior?.state === "completed") return (prior.result ?? null) as T;
 
-      steps[name] = { state: "started", attempts: (prior?.attempts ?? 0) + 1 };
+      const startedAt = prior ? prior.startedAt : new Date().toISOString();
+      steps[name] = {
+        state: "started",
+        attempts: (prior?.attempts ?? 0) + 1,
+        ...(startedAt ? { startedAt } : {}),
+      };
       await persist();
 
-      const result = await fn({ interrupted: prior !== undefined });
+      const result = await fn({
+        interrupted: prior !== undefined,
+        firstStartedAt: prior?.startedAt ? new Date(prior.startedAt) : null,
+      });
 
       steps[name] = {
+        ...steps[name],
         state: "completed",
-        attempts: steps[name].attempts,
         result,
         completedAt: new Date().toISOString(),
       };

@@ -112,12 +112,18 @@ describe("GitHub integration", () => {
             html_url: "https://github.com/jclaw/my-site",
             clone_url: "https://github.com/jclaw/my-site.git",
             default_branch: "main",
+            created_at: "2026-10-09T11:00:05Z",
           }),
         );
 
       const repo = await getOwnRepo("user-1", "my-site");
 
-      expect(repo).toMatchObject({ owner: "jclaw", name: "my-site", defaultBranch: "main" });
+      expect(repo).toMatchObject({
+        owner: "jclaw",
+        name: "my-site",
+        defaultBranch: "main",
+        createdAt: "2026-10-09T11:00:05Z",
+      });
       expect(mockFetch.mock.calls[1][0]).toBe("https://api.github.com/repos/jclaw/my-site");
     });
 

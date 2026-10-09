@@ -40,11 +40,15 @@ describe("createStepRunner", () => {
     const result = await runner.run("createRepo", fn);
 
     expect(result).toEqual({ owner: "jclaw" });
-    expect(fn).toHaveBeenCalledWith({ interrupted: false });
+    expect(fn).toHaveBeenCalledWith({ interrupted: false, firstStartedAt: null });
     expect(mockUpdateMany).toHaveBeenCalledTimes(2);
     const [started, completed] = mockUpdateMany.mock.calls.map(([args]) => args);
     expect(started.where).toEqual({ id: "job-1", status: "running", startedAt: STARTED_AT });
-    expect(started.data.resultPayload.steps.createRepo).toEqual({ state: "started", attempts: 1 });
+    expect(started.data.resultPayload.steps.createRepo).toEqual({
+      state: "started",
+      attempts: 1,
+      startedAt: expect.any(String),
+    });
     expect(completed.data.resultPayload.steps.createRepo).toMatchObject({
       state: "completed",
       attempts: 1,
@@ -68,14 +72,28 @@ describe("createStepRunner", () => {
   });
 
   it("re-runs a step an earlier run started but never finished, flagged as interrupted", async () => {
+    const firstStart = "2026-10-09T11:00:00.000Z";
+    mockFindUnique.mockResolvedValue(
+      row({ steps: { pushTemplate: { state: "started", attempts: 1, startedAt: firstStart } } }),
+    );
+    const runner = await createStepRunner("job-1");
+    const fn = vi.fn().mockResolvedValue("sha");
+
+    await runner.run("pushTemplate", fn);
+
+    expect(fn).toHaveBeenCalledWith({ interrupted: true, firstStartedAt: new Date(firstStart) });
+    // The first attempt's start time is kept across attempts.
+    expect(lastWrittenSteps().pushTemplate).toMatchObject({ state: "completed", attempts: 2, startedAt: firstStart });
+  });
+
+  it("passes no first start time for a record written without one", async () => {
     mockFindUnique.mockResolvedValue(row({ steps: { pushTemplate: { state: "started", attempts: 1 } } }));
     const runner = await createStepRunner("job-1");
     const fn = vi.fn().mockResolvedValue("sha");
 
     await runner.run("pushTemplate", fn);
 
-    expect(fn).toHaveBeenCalledWith({ interrupted: true });
-    expect(lastWrittenSteps().pushTemplate).toMatchObject({ state: "completed", attempts: 2 });
+    expect(fn).toHaveBeenCalledWith({ interrupted: true, firstStartedAt: null });
   });
 
   it("leaves a failed step recorded as started and rethrows", async () => {
@@ -87,7 +105,11 @@ describe("createStepRunner", () => {
     );
 
     expect(mockUpdateMany).toHaveBeenCalledTimes(1);
-    expect(lastWrittenSteps().createHostProject).toEqual({ state: "started", attempts: 1 });
+    expect(lastWrittenSteps().createHostProject).toEqual({
+      state: "started",
+      attempts: 1,
+      startedAt: expect.any(String),
+    });
     expect(runner.isCompleted("createHostProject")).toBe(false);
   });
 
