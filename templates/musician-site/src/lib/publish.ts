@@ -55,6 +55,24 @@ export class PublishError extends Error {
 }
 
 /**
+ * Thrown by `publish()` when the change was committed to the draft
+ * branch but publishing that draft to `main` then failed. The save
+ * itself persisted (the draft-aware store already reads it), so callers
+ * must not report it as a failed save — and a retry of the same request
+ * would see the change as already applied. `publishFailure` is the
+ * `publishDraftToMain` error; `code` / `message` mirror it.
+ */
+export class DraftSavedPublishError extends PublishError {
+  constructor(
+    public draftCommitSha: string | null,
+    public publishFailure: PublishError,
+  ) {
+    super(publishFailure.code, publishFailure.message);
+    this.name = "DraftSavedPublishError";
+  }
+}
+
+/**
  * Targets the publish flow can write. Each target maps to a known
  * repo path under `src/content/collections/<slug>/...`. Item payloads
  * are validated against the collection's dynamic schema at the API-
@@ -345,11 +363,23 @@ export async function publish(args: PublishArgs): Promise<PublishResult> {
   // shape. The publishDraftToMain result type is widened
   // (PublishResult & { alreadyInSync }); narrowing here keeps the
   // type contract honest.
-  const publishResult = await publishDraftToMain({
-    authorEmail: args.authorEmail,
-    authorName: args.authorName,
-    commitSubject: args.commitSubject,
-  });
+  //
+  // The draft commit above has landed by now, so a failure from here on
+  // is "saved, not published" — `DraftSavedPublishError`, not a plain
+  // `PublishError` that would read as a failed save.
+  let publishResult: PublishDraftToMainResult;
+  try {
+    publishResult = await publishDraftToMain({
+      authorEmail: args.authorEmail,
+      authorName: args.authorName,
+      commitSubject: args.commitSubject,
+    });
+  } catch (cause) {
+    if (cause instanceof PublishError) {
+      throw new DraftSavedPublishError(saveResult.commitSha, cause);
+    }
+    throw cause;
+  }
   return { commitSha: publishResult.commitSha, mode: publishResult.mode };
 }
 

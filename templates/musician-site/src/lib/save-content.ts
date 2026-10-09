@@ -15,9 +15,19 @@
  *     Nothing touches local disk. A failed commit is a failed save:
  *     the route answers with `saveFailureResponse` (502, or 409 for a
  *     concurrent edit), never `ok: true`.
- *   - **Platform not configured (dev)** — local disk *is* the content
- *     store, so the route's `writeLocal` runs before the (local-mode)
- *     publish call.
+ *   - **Platform not configured, dev build** (`NODE_ENV !==
+ *     "production"`) — local disk *is* the content store, so the
+ *     route's `writeLocal` runs before the (local-mode) publish call,
+ *     which writes the same targets to disk again.
+ *   - **Platform not configured, production build** — a deployed site
+ *     whose broker secret / site id was never set. Its disk is not a
+ *     content store either, so the save is refused
+ *     (`no-platform-configured`, 503) instead of being written to disk
+ *     and reported as saved.
+ *   - **`publishTo: "main"`, draft commit landed, publish to main
+ *     failed** — the change is saved (on the draft), so this is not a
+ *     failed save: `saveContent` resolves with `publishWarning` set and
+ *     the route answers `ok: true, published: false`.
  *
  * "Platform configured" is `isPlatformConfigured()` from `./publish`:
  * both `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` are set, which
@@ -34,6 +44,7 @@ import {
 } from "./collections";
 import { writeJsonAtomic } from "./fs-helpers";
 import {
+  DraftSavedPublishError,
   isPlatformConfigured,
   publish,
   PublishError,
@@ -60,30 +71,66 @@ export type SaveContentArgs = PublishArgs & {
   publishTo?: "draft" | "main";
 };
 
+export type SaveContentResult = PublishResult & {
+  /**
+   * `publishTo: "main"` only: set when the draft commit landed but
+   * publishing it to `main` failed. The change is saved (the editor
+   * reads the draft) and still pending publish; the message says so.
+   */
+  publishWarning?: string;
+};
+
+/** Shown when a deployed (production) build has no platform config. */
+export const NOT_CONNECTED_MESSAGE =
+  "This site isn't connected to Stagecraft yet, so it can't save changes. " +
+  "Set STAGECRAFT_SITE_ID and STAGECRAFT_BROKER_SECRET on your deploy target.";
+
 /**
  * Persist one admin save. Writes locally only in dev; in production
  * commits the in-memory targets and lets any `PublishError` propagate
- * so the route can turn it into a failure response.
+ * so the route can turn it into a failure response. A production build
+ * without platform config throws `no-platform-configured` before
+ * touching disk.
  */
 export async function saveContent(
   args: SaveContentArgs,
   env: Env = readEnv(),
-): Promise<PublishResult> {
+): Promise<SaveContentResult> {
   const { writeLocal, publishTo = "draft", ...publishArgs } = args;
   if (!isPlatformConfigured(env)) {
+    if (process.env.NODE_ENV === "production") {
+      throw new PublishError("no-platform-configured", NOT_CONNECTED_MESSAGE);
+    }
     await writeLocal();
   }
-  return publishTo === "main" ? publish(publishArgs) : saveToDraft(publishArgs);
+  if (publishTo === "draft") return saveToDraft(publishArgs);
+  try {
+    return await publish(publishArgs);
+  } catch (cause) {
+    if (cause instanceof DraftSavedPublishError) {
+      return {
+        commitSha: cause.draftCommitSha,
+        mode: "github",
+        publishWarning:
+          "Saved to your draft, but publishing to the live site failed " +
+          `(${cause.message}). Publish your pending changes from the admin bar to retry.`,
+      };
+    }
+    throw cause;
+  }
 }
 
 /**
  * HTTP status for a save whose commit failed. A stale-ref race is
- * recoverable client-side (reload + retry) so it's a 409; anything
- * else means the upstream (broker / GitHub) didn't take the change,
- * which is a 502.
+ * recoverable client-side (reload + retry) so it's a 409; a production
+ * build with no platform config can't save at all until it's
+ * configured (503); anything else means the upstream (broker / GitHub)
+ * didn't take the change, which is a 502.
  */
-export function saveFailureStatus(code: PublishError["code"]): 409 | 502 {
-  return code === "concurrent-edit" ? 409 : 502;
+export function saveFailureStatus(code: PublishError["code"]): 409 | 502 | 503 {
+  if (code === "concurrent-edit") return 409;
+  if (code === "no-platform-configured") return 503;
+  return 502;
 }
 
 /**

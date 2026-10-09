@@ -22,7 +22,9 @@
  * All targets go through `saveContent` (publishing to main) in one call
  * so the entire onboarding lands as one commit ("Complete welcome
  * wizard"). Local disk is written in dev only; in production a failed
- * commit is a failed request.
+ * draft commit is a failed request, while a draft commit that landed
+ * but couldn't be published to main answers `ok: true, published:
+ * false, publishWarning` (the wizard is complete on the draft).
  */
 
 import { NextResponse } from "next/server";
@@ -233,8 +235,12 @@ export async function POST(request: Request) {
   // welcome wizard re-runs on next visit, and the next attempt's
   // writes overwrite anything that did succeed. Set the flag first
   // and a partial failure strands the artist on an empty Pages list
-  // with no path back into the wizard. (The production commit is
-  // all-or-nothing, so order doesn't matter there.)
+  // with no path back into the wizard. (In production every target
+  // goes into one draft commit, so order doesn't matter there. That
+  // draft commit is then published to main as a second step; if only
+  // that step fails, the wizard *is* complete on the draft, so the
+  // route answers ok + `publishWarning` rather than "Save failed" —
+  // a retry would get 409 from the guard above.)
   // ---------------------------------------------------------------
   const site = planItemWrite("site", SINGLETON_ITEM_SLUG, siteItem, siteCollectionDef);
   const appearance = planItemWrite(
@@ -285,6 +291,9 @@ export async function POST(request: Request) {
       ok: true,
       mode: result.mode,
       commitSha: result.commitSha,
+      ...(result.publishWarning
+        ? { published: false, publishWarning: result.publishWarning }
+        : {}),
     });
   } catch (cause) {
     if (cause instanceof PublishError) return saveFailureResponse(cause);

@@ -37,6 +37,7 @@ vi.mock("./git-commit", async () => {
 
 import {
   __resetPublishTokenCacheForTests,
+  DraftSavedPublishError,
   discardDraft,
   fetchPublishToken,
   isPlatformConfigured,
@@ -424,6 +425,40 @@ describe("publish — multi-target API", () => {
     // there. (The draft commit has the same subject plus [skip ci].)
     const squashMessage = squashBranchIntoMock.mock.calls[0][0].message as string;
     expect(squashMessage).toMatch(/^Custom subject line/);
+  });
+});
+
+describe("publish — draft committed, squash to main fails", () => {
+  const TARGET = {
+    kind: "collection-item" as const,
+    collectionSlug: "pages",
+    itemSlug: TEST_SLUG,
+    data: { id: "i", ...TS, values: {} },
+  };
+
+  it("throws DraftSavedPublishError carrying the draft SHA", async () => {
+    configurePlatform();
+    commitFilesMock.mockResolvedValue("draft-sha");
+    squashBranchIntoMock.mockRejectedValue(new Error("GitHub 500"));
+
+    const error = await publish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(DraftSavedPublishError);
+    expect(error).toBeInstanceOf(PublishError);
+    expect(error.draftCommitSha).toBe("draft-sha");
+    expect(error.code).toBe("github-failed");
+    expect(error.message).toMatch(/squash draft → main: Error: GitHub 500/);
+  });
+
+  it("a failed draft commit stays a plain PublishError (nothing was saved)", async () => {
+    configurePlatform();
+    commitFilesMock.mockRejectedValue(new Error("GitHub 500"));
+
+    const error = await publish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(PublishError);
+    expect(error).not.toBeInstanceOf(DraftSavedPublishError);
+    expect(squashBranchIntoMock).not.toHaveBeenCalled();
   });
 });
 

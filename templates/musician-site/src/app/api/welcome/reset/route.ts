@@ -169,6 +169,12 @@ export async function POST(request: Request) {
       mode: result.mode,
       commitSha: result.commitSha,
       itemsDeleted: deleteTargets.length,
+      // Draft reset landed, publish to main didn't: the reset stands
+      // (a retry would fail the artist-name check against the reset
+      // draft), so say what happened instead of "Save failed".
+      ...(result.publishWarning
+        ? { published: false, publishWarning: result.publishWarning }
+        : {}),
     });
   } catch (cause) {
     if (cause instanceof PublishError) return saveFailureResponse(cause);

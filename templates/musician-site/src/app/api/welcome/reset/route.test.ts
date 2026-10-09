@@ -217,6 +217,48 @@ describe("POST /api/welcome/reset — platform configured (issue #345)", () => {
     const after = await readSingleton("site", siteCollectionDef);
     expect(siteConfigFromItem(after).hasCompletedFirstRun).toBe(true);
   });
+
+  it("draft reset landed but publish to main failed: ok with publishWarning, not 'Save failed'", async () => {
+    const { DraftSavedPublishError, PublishError } = await import("@/lib/publish");
+    publishMock.mockRejectedValue(
+      new DraftSavedPublishError(
+        "draft-sha",
+        new PublishError("github-failed", "squash draft → main: boom"),
+      ),
+    );
+
+    const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      published: false,
+      mode: "github",
+      commitSha: "draft-sha",
+      itemsDeleted: 0,
+    });
+    expect(body.publishWarning).toMatch(/^Saved to your draft, but publishing to the live site failed/);
+    expect(JSON.stringify(body)).not.toMatch(/Save failed/);
+  });
+});
+
+describe("POST /api/welcome/reset — production build, platform not configured", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns 503 and leaves local disk untouched", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const before = await readSingleton("site", siteCollectionDef);
+
+    const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, code: "no-platform-configured" });
+    expect(body.error).toMatch(/isn't connected to Stagecraft/);
+    expect(publishMock).not.toHaveBeenCalled();
+    expect(await readSingleton("site", siteCollectionDef)).toEqual(before);
+  });
 });
 
 describe("POST /api/welcome/reset — platform not configured (dev)", () => {

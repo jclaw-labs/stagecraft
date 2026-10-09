@@ -19,7 +19,7 @@ import {
   saveFailureResponse,
   saveFailureStatus,
 } from "./save-content";
-import { PublishError, type Env } from "./publish";
+import { DraftSavedPublishError, PublishError, type Env } from "./publish";
 import { getFsReadStore, readItem, type Item } from "./collections";
 import { pagesCollectionDef } from "./collections/seeds";
 import { tourDateItem, tourDatesDef as makeTourDatesDef } from "./collections/test-fixtures";
@@ -60,6 +60,7 @@ beforeEach(async () => {
 afterEach(() => {
   delete process.env.STAGECRAFT_SITE_ID;
   delete process.env.STAGECRAFT_BROKER_SECRET;
+  vi.unstubAllEnvs();
 });
 
 describe("saveContent", () => {
@@ -124,6 +125,59 @@ describe("saveContent", () => {
     expect(saveToDraftMock).not.toHaveBeenCalled();
   });
 
+  it("publishTo: 'main', squash fails after the draft commit: resolves with publishWarning, not a failure", async () => {
+    publishMock.mockRejectedValue(
+      new DraftSavedPublishError(
+        "draft-sha",
+        new PublishError("github-failed", "squash draft → main: boom"),
+      ),
+    );
+    const result = await saveContent(
+      { ...ARGS, writeLocal: async () => {}, publishTo: "main" },
+      PROD_ENV,
+    );
+    expect(result).toMatchObject({ commitSha: "draft-sha", mode: "github" });
+    expect(result.publishWarning).toMatch(/^Saved to your draft, but publishing to the live site failed/);
+    expect(result.publishWarning).toContain("squash draft → main: boom");
+  });
+
+  it("publishTo: 'main', draft commit fails: still a failed save", async () => {
+    publishMock.mockRejectedValue(new PublishError("github-failed", "commit to draft: boom"));
+    const error = await saveContent(
+      { ...ARGS, writeLocal: async () => {}, publishTo: "main" },
+      PROD_ENV,
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(PublishError);
+    expect(error.message).toBe("commit to draft: boom");
+  });
+
+  it("production build without platform config: refuses before any write", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const writeLocal = vi.fn(async () => {});
+    const error = await saveContent({ ...ARGS, writeLocal }, DEV_ENV).catch((e) => e);
+    expect(error).toBeInstanceOf(PublishError);
+    expect(error.code).toBe("no-platform-configured");
+    expect(error.message).toMatch(/isn't connected to Stagecraft/);
+    expect(writeLocal).not.toHaveBeenCalled();
+    expect(saveToDraftMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("production build with platform config: commits as usual", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const result = await saveContent({ ...ARGS, writeLocal: async () => {} }, PROD_ENV);
+    expect(result).toEqual({ commitSha: "draft-sha", mode: "github" });
+  });
+
+  it("development build without platform config: still writes locally", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const writeLocal = vi.fn(async () => {});
+    saveToDraftMock.mockResolvedValue({ commitSha: null, mode: "local" });
+    const result = await saveContent({ ...ARGS, writeLocal }, DEV_ENV);
+    expect(result).toEqual({ commitSha: null, mode: "local" });
+    expect(writeLocal).toHaveBeenCalledTimes(1);
+  });
+
   it("reads the platform config from the environment by default", async () => {
     process.env.STAGECRAFT_SITE_ID = "site_1";
     process.env.STAGECRAFT_BROKER_SECRET = "secret";
@@ -138,14 +192,16 @@ describe("saveFailureStatus", () => {
     expect(saveFailureStatus("concurrent-edit")).toBe(409);
   });
 
-  it.each([
-    "broker-unreachable",
-    "broker-rejected",
-    "github-failed",
-    "no-platform-configured",
-  ] as const)("maps %s to 502", (code) => {
-    expect(saveFailureStatus(code)).toBe(502);
+  it("maps no-platform-configured to 503", () => {
+    expect(saveFailureStatus("no-platform-configured")).toBe(503);
   });
+
+  it.each(["broker-unreachable", "broker-rejected", "github-failed"] as const)(
+    "maps %s to 502",
+    (code) => {
+      expect(saveFailureStatus(code)).toBe(502);
+    },
+  );
 });
 
 describe("saveFailureResponse", () => {

@@ -389,10 +389,22 @@ Save semantics (`src/lib/save-content.ts`): every settings/page
 mutation builds and validates its files in memory and saves them with
 `saveContent`. With the platform configured, the files are committed
 to the draft branch and **nothing is written to the server's disk** (it
-is read-only or discarded on serverless hosts); a failed commit returns
-`{ ok: false, code, error }` with 502 (409 for `concurrent-edit`), never
-`ok: true`. Without the platform (dev), the route's local write runs
-instead — local disk is the content store there.
+is read-only or discarded on serverless hosts); a failed commit is
+never `ok: true`. The content save routes answer it with
+`saveFailureResponse` — `{ ok: false, code, error }`, 502 (409 for
+`concurrent-edit`, 503 for `no-platform-configured`). `/api/publish`
+(the Puck page save) keeps its own envelope and maps the code through
+`publishErrorHttpStatus` (500 for `github-failed`, 502 for
+`broker-rejected`, 409 for `concurrent-edit`). The two welcome routes
+publish to `main` as well: when the draft commit lands but the publish
+to `main` fails, the save stands, so they answer `ok: true,
+published: false, publishWarning` rather than a failure.
+
+Without the platform in a dev build (`NODE_ENV !== "production"`),
+local disk is the content store: the route's local write runs, and
+then the publish layer's local mode writes the same targets to disk
+again. A production build without the platform refuses the save
+(503 `no-platform-configured`) instead of writing to disk.
 
 **Local-write atomicity.** Content writes go through
 `writeJsonAtomic` (per-file: write to tmp sibling, then `rename` into
