@@ -1,5 +1,12 @@
 import { Render } from "@measured/puck";
-import "@measured/puck/puck.css";
+// No `@measured/puck/puck.css` here: it is the editor's stylesheet. The
+// server `<Render>` emits no Puck class names (drop zones are bare
+// fragments, slots a plain `<div>` carrying only the block's own
+// className / style), so nothing in it applies to a public page. Loading it
+// here cost visitors a ~55 KB download plus a third-party `@import` of
+// Inter from rsms.me, and its `:root` block overrode our
+// `--line-height-base` token with an unresolvable value. The admin editors
+// import it themselves (see `src/app/editor-css-boundary.test.ts`).
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
