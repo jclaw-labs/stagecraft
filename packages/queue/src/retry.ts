@@ -47,6 +47,11 @@ export const RETRY_MAX_DELAY_MS = 10 * 60_000;
 /**
  * Backoff before the next run of a job that has already been retried
  * `retryAttempts` times: 30s, 60s, 120s, … capped at RETRY_MAX_DELAY_MS.
+ *
+ * With MAX_RETRY_ATTEMPTS = 2 the worker only ever calls this with 0 or 1,
+ * so only 30s and 60s are used. The input guard, the exponent clamp and the
+ * RETRY_MAX_DELAY_MS cap are unreachable today; they keep the function
+ * correct if the retry budget is raised.
  */
 export function retryDelayMs(retryAttempts: number): number {
   const attempts = Number.isNaN(retryAttempts) ? 0 : Math.max(0, Math.floor(retryAttempts));
