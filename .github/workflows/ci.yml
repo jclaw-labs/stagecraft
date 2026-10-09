@@ -37,6 +37,16 @@ jobs:
 
       - run: npm run build
 
+      # Cloudflare Worker build (#311): OpenNext bundles the app, then a
+      # wrangler --dry-run bundles the Worker entry and prints its compressed
+      # size (limit 3 MB free / 10 MB paid). Nothing is deployed and no
+      # Cloudflare credentials are used. The Netlify build above is unchanged.
+      - name: Cloudflare Worker build (no deploy)
+        working-directory: apps/web
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: npm run build:worker
+
   security-audit:
     name: Dependency audit (npm)
     runs-on: ubuntu-latest

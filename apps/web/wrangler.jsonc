@@ -1,0 +1,22 @@
+// Cloudflare Worker config for the platform app, built with
+// `npm run build:worker` (OpenNext). Nothing deploys from this repo yet:
+// secrets, the preview deploy and CI deploy are tracked in #324.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "stagecraft",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    // No long-lived process on Workers: the Cron Trigger below drains the
+    // job queue through POST /api/cron/jobs (see cloudflare/scheduled.ts).
+    "STAGECRAFT_INPROCESS_WORKER": "false"
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}
