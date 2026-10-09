@@ -124,6 +124,21 @@
   --space-32: calc(8rem * var(--space-scale, 1));
 }
 
+/* Public-site box model. The header and footer are full-bleed
+   (`width: 100%`) with their own padding, so the browser's default 8px
+   body margin and content-box sizing pushed them past the viewport and
+   made every public page scroll sideways (#388). Scoped to the public
+   site so the admin and Puck chrome keep their current box model. */
+body:has(> .stagecraft-site) {
+  margin: 0;
+}
+.stagecraft-site,
+.stagecraft-site *,
+.stagecraft-site *::before,
+.stagecraft-site *::after {
+  box-sizing: border-box;
+}
+
 /* Editor spinner — used by /admin's Puck publish-status pill. Defined
    globally because the spinner element lives inside Puck's chrome
    (overrides.headerActions), which doesn't accept scoped CSS modules. */
