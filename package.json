@@ -10,7 +10,8 @@
     "setup": "docker compose up -d && npm install && npm run db:migrate",
     "build": "turbo build",
     "lint": "turbo lint",
-    "test": "turbo test",
+    "test": "turbo test && npm run test:scripts",
+    "test:scripts": "vitest run --dir scripts",
     "typecheck": "turbo typecheck",
     "db:migrate": "npm run migrate --workspace=@stagecraft/db",
     "db:generate": "npm run generate --workspace=@stagecraft/db",
@@ -18,11 +19,13 @@
     "db:studio": "npm run studio --workspace=@stagecraft/db",
     "db:psql": "bash scripts/db-psql.sh",
     "db:psql:prod": "bash scripts/db-psql.sh NEON_DATABASE_URL",
-    "db:migrate:prod": "bash scripts/db-migrate-prod.sh"
+    "db:migrate:prod": "bash scripts/db-migrate-prod.sh",
+    "audit:gate": "node scripts/audit-gate.mjs . templates/musician-site claude/skills/crawl-artist-site"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.3"
   },
   "packageManager": "npm@10.9.2",
   "engines": {
