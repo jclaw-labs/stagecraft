@@ -270,6 +270,27 @@ describe("runNext", () => {
     expect(mockFinish).not.toHaveBeenCalled();
   });
 
+  it("doesn't claim a row that was re-queued with backoff since the read, even with the counters it read", async () => {
+    // Read: queued, one retry spent, due. Since then the row ran, failed for
+    // good, was reset by Retry setup (retryAttempts back to 0) and re-queued
+    // with backoff by another run, so the counters match again but `runAt`
+    // is in the future. Only the claim's due check tells the two apart.
+    const row = { id: "job-1", status: "queued", retryAttempts: 1, repairAttempts: 0, runAt: new Date(Date.now() + 60_000) };
+    mockFindFirst.mockResolvedValueOnce(makeJob({ retryAttempts: 1 }));
+    mockClaim.mockImplementationOnce(async ({ where }: UpdateManyArgs) => {
+      const { OR: due, ...fields } = where as { OR?: Array<{ runAt: null | { lte: Date } }> };
+      const fieldsMatch = Object.entries(fields).every(([key, value]) => row[key as keyof typeof row] === value);
+      const dueMatches =
+        !due || due.some((c) => (c.runAt === null ? row.runAt === null : row.runAt !== null && row.runAt <= c.runAt.lte));
+      return { count: fieldsMatch && dueMatches ? 1 : 0 };
+    });
+    const handler = vi.fn();
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.runNext()).resolves.toBe("lost-claim");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("claims with a lease of JOB_LEASE_MS from the claim time", async () => {
     mockFindFirst.mockResolvedValueOnce(makeJob());
     const worker = createWorker({ handlers: { create_site: vi.fn().mockResolvedValue({ success: true }) } });
@@ -631,6 +652,124 @@ describe("retrying thrown errors", () => {
     expect(mockFinish).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "failed", errorMessage: "Unknown error" }) })
     );
+  });
+});
+
+describe("retrying failure results", () => {
+  beforeEach(resetMocks);
+
+  it("re-queues a retryable failure with backoff, keeping its message and category", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-09T12:00:00Z"));
+      mockFindFirst.mockResolvedValueOnce(makeJob({ retryAttempts: 1 }));
+      const events: WorkerEvent[] = [];
+      const handler = vi.fn().mockResolvedValue({
+        success: false,
+        retryable: true,
+        message: "GitHub API error (502)",
+        failureCategory: "github_api_error",
+        data: { partial: true },
+      });
+      const worker = createWorker({ handlers: { create_site: handler }, onEvent: (e) => events.push(e) });
+
+      await expect(worker.runNext()).resolves.toBe("processed");
+
+      const expectedRunAt = new Date(Date.now() + RETRY_BASE_DELAY_MS * 2);
+      expect(mockFinish).toHaveBeenCalledTimes(1);
+      expect(mockFinish).toHaveBeenCalledWith({
+        where: ownedWhere(),
+        data: {
+          status: "queued",
+          startedAt: null,
+          lockedUntil: null,
+          retryAttempts: { increment: 1 },
+          runAt: expectedRunAt,
+          errorMessage: "GitHub API error (502)",
+          failureCategory: "github_api_error",
+        },
+      });
+      expect(events.find((e) => e.event === "job.retrying")).toMatchObject({
+        attempt: 2,
+        runAt: expectedRunAt.toISOString(),
+        error: "GitHub API error (502)",
+      });
+      expect(events.map((e) => e.event)).not.toContain("job.failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a retryable failure once retries are exhausted", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob({ retryAttempts: MAX_RETRY_ATTEMPTS }));
+    const events: WorkerEvent[] = [];
+    const handler = vi.fn().mockResolvedValue({
+      success: false,
+      retryable: true,
+      message: "GitHub API error (502)",
+      failureCategory: "github_api_error",
+      data: { steps: {} },
+    });
+    const worker = createWorker({ handlers: { create_site: handler }, onEvent: (e) => events.push(e) });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledTimes(1);
+    expect(mockFinish).toHaveBeenCalledWith({
+      where: ownedWhere(),
+      data: expect.objectContaining({
+        status: "failed",
+        resultPayload: { steps: {} },
+        errorMessage: "GitHub API error (502)",
+        failureCategory: "github_api_error",
+      }),
+    });
+    expect(mockFinish.mock.calls[0][0].data).not.toHaveProperty("retryAttempts");
+    expect(events.map((e) => e.event)).not.toContain("job.retrying");
+  });
+
+  it("falls back to a repair pass when a retryable failure is out of retries", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob({ retryAttempts: MAX_RETRY_ATTEMPTS }));
+    const handler = vi.fn().mockResolvedValue({ success: false, retryable: true, shouldRepair: true, message: "bad build" });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledWith({
+      where: ownedWhere(),
+      data: expect.objectContaining({ status: "queued", repairAttempts: { increment: 1 } }),
+    });
+    expect(mockFinish.mock.calls[0][0].data).not.toHaveProperty("retryAttempts");
+  });
+
+  it("retries before repairing while retries remain", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    const handler = vi.fn().mockResolvedValue({ success: false, retryable: true, shouldRepair: true, message: "bad build" });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledTimes(1);
+    expect(mockFinish).toHaveBeenCalledWith({
+      where: ownedWhere(),
+      data: expect.objectContaining({ status: "queued", retryAttempts: { increment: 1 } }),
+    });
+    expect(mockFinish.mock.calls[0][0].data).not.toHaveProperty("repairAttempts");
+  });
+
+  it("writes nothing else when the lease was lost before the retry's requeue", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish.mockResolvedValueOnce({ count: 0 });
+    const events: WorkerEvent[] = [];
+    const handler = vi.fn().mockResolvedValue({ success: false, retryable: true, shouldRepair: true, message: "bad build" });
+    const worker = createWorker({ handlers: { create_site: handler }, onEvent: (e) => events.push(e) });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledTimes(1);
+    const names = events.map((e) => e.event);
+    expect(names.filter((n) => n === "job.lease_lost")).toHaveLength(1);
+    expect(names).not.toContain("job.retrying");
   });
 });
 

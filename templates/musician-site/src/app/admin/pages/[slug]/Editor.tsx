@@ -21,7 +21,7 @@ import {
   computeCategoryVisibility,
   isVisibilityDispatchTrivial,
 } from "./drawer-visibility";
-import { type ItemRouteFailureBody, saveErrorMessage } from "./save-error";
+import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
 
 type Props = {
   initialData: PageData;
@@ -86,7 +86,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
     async (data: PageData) => {
       setSaveState({ status: "saving" });
       const itemUrl = `/api/collections/pages/items/${encodeURIComponent(pageSlug)}`;
-      // A rejected save names its first validation issue (e.g. which
+      // A rejected save names its validation issues (e.g. which
       // required field is missing), labelled with the GET's def fields.
       let fields: CollectionDef["fields"] = [];
       const fail = (res: Response, body: ItemResponse) => {

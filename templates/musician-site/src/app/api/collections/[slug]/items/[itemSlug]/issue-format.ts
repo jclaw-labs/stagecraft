@@ -7,8 +7,9 @@
  * parse fails, the route returns a 400 carrying
  * `{ ok: false, error: "Validation failed", issues: [...] }` — same
  * shape the schema editor's 409 uses for `item-invalid-under-new-
- * schema`. The clients (`NewItemClient`, `ItemEditorClient`) render
- * the issue list inline.
+ * schema`. The clients (`NewItemClient`, `ItemEditorClient`, the page
+ * editor) render the issue list with `saveErrorMessage` from
+ * `@/lib/collections/save-error`, which owns the client-safe types.
  *
  * Without this normalisation, the routes used to return
  * `{ ok: false, error: "Validation failed: ZodError: [...]" }` —
@@ -18,11 +19,7 @@
 
 import type { z } from "zod";
 
-export type ItemRouteIssue = {
-  /** Dot-separated Zod path inside the item file. */
-  path: string;
-  message: string;
-};
+import type { ItemRouteIssue } from "@/lib/collections/save-error";
 
 export function zodIssuesToStructured(
   issues: ReadonlyArray<z.ZodIssue>,

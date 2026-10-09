@@ -882,11 +882,19 @@ clean cutover beats a feature flag.
 
 The legacy save routes (`/api/publish`, `/api/pages`,
 `/api/save-config`) were kept for back-compat at first and have since
-been removed (#373). Every admin save now goes through the generic
-collection routes: `POST /api/collections/<slug>/items` to create,
+been removed (#373). Admin saves now go through the generic
+collection routes. Item content uses
+`POST /api/collections/<slug>/items` to create,
 `PUT` / `PATCH` / `DELETE /api/collections/<slug>/items/<itemSlug>`
 to save, rename and delete, and `PUT /api/collections/<slug>/order`
-for manual ordering.
+for manual ordering. Collection-level edits have their own routes:
+`POST /api/collections` creates a collection,
+`PUT /api/collections/<slug>/schema` saves a schema change (with any
+item migrations), and `PUT /api/collections/<slug>/template/<kind>`
+saves a template. Outside the collection routes,
+`POST /api/upload-image` commits uploaded images and the welcome
+wizard (`/api/welcome/complete`, `/api/welcome/reset`) writes its
+seed content.
 
 ### 14. Goal 2 (navigation menu into Pages) folded in
 

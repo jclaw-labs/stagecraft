@@ -15,6 +15,7 @@ import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 
 import type { CollectionDef, Item } from "@/lib/collections";
+import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
 
 export function ItemEditorClient({
   def,
@@ -54,25 +55,13 @@ export function ItemEditorClient({
       );
       const body = (await res.json().catch(() => null)) as
         | { ok: true; item: Item }
-        | {
-            ok: false;
-            error?: string;
-            issues?: Array<{ path: string; message: string }>;
-          }
+        | ItemRouteFailureBody
         | null;
       if (!res.ok || !body || !body.ok) {
         // The route returns structured `issues` on a 400 from
-        // per-collection Zod validation — surface each field's path
-        // and message instead of a single opaque error string.
-        const issueMessages =
-          body && "issues" in body && Array.isArray(body.issues) && body.issues.length > 0
-            ? body.issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ")
-            : "";
-        const message =
-          issueMessages ||
-          (body && "error" in body && body.error) ||
-          `Save failed (HTTP ${res.status})`;
-        setErrorMessage(message);
+        // per-collection Zod validation — name each failing field
+        // instead of a single opaque error string.
+        setErrorMessage(saveErrorMessage(res.status, body && !body.ok ? body : null, def.fields));
         setStatus("error");
         return;
       }
@@ -84,7 +73,7 @@ export function ItemEditorClient({
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");
     }
-  }, [collectionSlug, itemSlug, item]);
+  }, [collectionSlug, itemSlug, item, def.fields]);
 
   return (
     <main
