@@ -582,4 +582,74 @@ describe("pages via the generic item routes", () => {
       expect.objectContaining({ commitSubject: `Rename page ${TEST_SLUG} → tour-2027` }),
     );
   });
+
+  function renameReq(newSlug: string) {
+    return new Request("https://x", { method: "PATCH", body: JSON.stringify({ newSlug }) });
+  }
+
+  it.each([
+    ["news", "posts", "/news"],
+    ["releases", "releases", "/releases"],
+    ["shows", "tour-dates", "/shows"],
+  ])(
+    "PATCH returns 409 when renaming a page to %s would shadow the %s collection's prefix",
+    async (newSlug, collectionSlug, prefix) => {
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+      publishMock.mockClear();
+      const res = await PATCH_ITEM(renameReq(newSlug), ctx("pages", TEST_SLUG));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain(collectionSlug);
+      expect(body.error).toContain(prefix);
+      expect(publishMock).not.toHaveBeenCalled();
+      // The page stays where it was.
+      await expect(
+        fs.access(path.join(TMP_CONTENT_DIR, "collections/pages/items", `${TEST_SLUG}.json`)),
+      ).resolves.toBeUndefined();
+      await expect(
+        fs.access(path.join(TMP_CONTENT_DIR, "collections/pages/items", `${newSlug}.json`)),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("PATCH returns 409 when renaming a page onto a custom collection's prefix", async () => {
+    await writePodcastsDef();
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(renameReq("episodes"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("podcasts");
+    expect(body.error).toContain("/episodes");
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("PATCH allows renaming a page to a slug that shadows no prefix", async () => {
+    await writePodcastsDef();
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(renameReq("press"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, newSlug: "press" });
+    expect(publishMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("PATCH checks shadowing only for pages", async () => {
+    await writePodcastsDef();
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(
+      jsonReq("POST", { slug: "pilot", values: { f_title: { type: "text", value: "Pilot" } } }),
+      ctx("podcasts"),
+    );
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(renameReq("news"), ctx("podcasts", "pilot"));
+    expect(res.status).toBe(200);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ commitSubject: "Rename podcasts/pilot → news" }),
+    );
+  });
 });

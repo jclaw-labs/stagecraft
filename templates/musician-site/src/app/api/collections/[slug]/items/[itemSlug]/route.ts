@@ -24,6 +24,7 @@ import {
   slugSchema,
   writeOrder,
 } from "@/lib/collections";
+import { pageSlugShadowError } from "@/lib/collections/page-slug-shadow";
 import { PublishError, type PublishTarget } from "@/lib/publish";
 import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 
@@ -199,6 +200,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
   const collides = await store.readItem(parsedCollectionSlug.data, parsedNewSlug.data, def);
   if (collides) {
     return err(409, new ItemExistsError(parsedCollectionSlug.data, parsedNewSlug.data).message);
+  }
+  // Same pre-flight as page creation: a renamed page must not take a
+  // slug that shadows a collection's detail URL prefix.
+  if (parsedCollectionSlug.data === "pages") {
+    const shadowError = await pageSlugShadowError(store, parsedNewSlug.data);
+    if (shadowError) return err(409, shadowError);
   }
   const planned = planItemWrite(
     parsedCollectionSlug.data,

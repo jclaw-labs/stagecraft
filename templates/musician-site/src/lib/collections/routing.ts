@@ -203,16 +203,16 @@ export function validateCollectionRouting(
 }
 
 /**
- * Single-slug shadowing check, used by page creation
- * (`POST /api/collections/pages/items`) to reject a proposed slug BEFORE
- * it lands on disk. Returns the offending collection's slug + prefix
- * if `pageSlug` would shadow a non-Pages collection's prefix root,
- * `null` otherwise.
+ * Single-slug shadowing check, used by page creation and rename
+ * (via `pageSlugShadowError` in `page-slug-shadow.ts`) to reject a
+ * proposed slug BEFORE it lands on disk. Returns the offending
+ * collection's slug + prefix if `pageSlug` would shadow a non-Pages
+ * collection's prefix root, `null` otherwise.
  *
  * The full `validateCollectionRouting` runs at request time and
  * surfaces every conflict in the registry; this helper is the
  * pre-flight version for the single-slug case so the editor can fail
- * a creation attempt with a useful 409 instead of letting the new
+ * a create or rename with a useful 409 instead of letting the new
  * page render the entire site unreachable.
  */
 export function findShadowingPrefix(
