@@ -7,9 +7,13 @@
  *
  * - Plaintext values are encrypted in the row-bound `enc:v2:` format.
  * - Legacy `enc:v1:` values (encrypted, but not bound to their row) are
- *   decrypted and re-encrypted as v2 under the current key. With
- *   STAGECRAFT_CREDENTIALS_ACCEPT_V1=false they can't be decrypted, so they
- *   are reported as undecryptable and left as they are.
+ *   decrypted and re-encrypted as v2 under the current key, but only with
+ *   `--upgrade-v1`. Without it they are reported as undecryptable and left
+ *   as they are, so a v1 copy pasted into another row after the v1 cut-off
+ *   isn't re-bound to that row by a later run (a `--rotate`, a re-run)
+ *   whatever the operator's shell has for STAGECRAFT_CREDENTIALS_ACCEPT_V1.
+ *   With `--upgrade-v1`, STAGECRAFT_CREDENTIALS_ACCEPT_V1=false still
+ *   refuses them.
  * - `enc:v2:` values are left alone, unless `--rotate` is given and they are
  *   under an older key, in which case they are re-encrypted with the
  *   current one, after which that old key can be dropped from
@@ -31,7 +35,7 @@
  * (plus STAGECRAFT_CREDENTIALS_OLD_KEYS if any) exported with the deployed
  * values (docs/runbook.md §9 shows how without putting them in history):
  *
- *   npx tsx apps/web/scripts/encrypt-credentials.ts [--dry-run] [--rotate]
+ *   npx tsx apps/web/scripts/encrypt-credentials.ts [--dry-run] [--rotate] [--upgrade-v1]
  */
 import { pathToFileURL } from "node:url";
 import type { PrismaClient } from "@stagecraft/db";
@@ -57,6 +61,8 @@ export type CredentialStore = Pick<PrismaClient, "account" | "integrationAccount
 export interface BackfillOptions {
   dryRun?: boolean;
   rotate?: boolean;
+  /** Re-encrypt legacy v1 values as v2. Off by default: see the file comment. */
+  upgradeV1?: boolean;
   batchSize?: number;
   log?: (line: string) => void;
 }
@@ -116,6 +122,7 @@ async function planRow<C extends AccountTokenColumn | IntegrationTokenColumn>(
   fieldFor: (column: C) => CredentialField | null,
   currentKeyId: string,
   rotate: boolean,
+  upgradeV1: boolean,
   stats: TableStats,
   report: (line: string) => void,
 ): Promise<RowPlan<C> | null> {
@@ -133,6 +140,12 @@ async function planRow<C extends AccountTokenColumn | IntegrationTokenColumn>(
     let plaintext: string;
     try {
       const format = credentialFormat(value);
+      if (format === "v1" && !upgradeV1) {
+        // Checked before decrypting: an unbound v1 value decrypts in any row.
+        stats.undecryptable++;
+        report(`${row.id}.${column}: legacy v1 value, not upgraded without --upgrade-v1 (docs/runbook.md §9)`);
+        continue;
+      }
       plaintext = await decryptCredential(value, field);
       if (format === "plaintext") {
         kind = "valuesEncrypted";
@@ -186,6 +199,7 @@ async function backfillTable<
         (column) => fieldFor(row, column),
         currentKeyId,
         options.rotate ?? false,
+        options.upgradeV1 ?? false,
         stats,
         (line) => log(`${name} ${line}`),
       );
@@ -214,7 +228,8 @@ async function backfillTable<
 
 /**
  * Bring every credential in `Account` and `IntegrationAccount` to v2:
- * encrypt plaintext, upgrade v1, and with `rotate` re-key old v2 values.
+ * encrypt plaintext, with `upgradeV1` upgrade v1, and with `rotate` re-key
+ * old v2 values.
  */
 export async function encryptStoredCredentials(
   db: CredentialStore,
@@ -301,16 +316,19 @@ export function assertAllDecryptable(stats: BackfillStats): void {
 
 /** CLI entry point: parse flags, run the backfill against `@stagecraft/db`, fail on undecryptable values. */
 export async function main(argv: string[]): Promise<void> {
-  const known = new Set(["--dry-run", "--rotate"]);
+  const known = new Set(["--dry-run", "--rotate", "--upgrade-v1"]);
   const unknown = argv.filter((arg) => !known.has(arg));
   if (unknown.length > 0) {
-    throw new Error(`Unknown argument(s): ${unknown.join(" ")}. Usage: [--dry-run] [--rotate]`);
+    throw new Error(
+      `Unknown argument(s): ${unknown.join(" ")}. Usage: [--dry-run] [--rotate] [--upgrade-v1]`,
+    );
   }
   const { prisma } = await import("@stagecraft/db");
   try {
     const stats = await encryptStoredCredentials(prisma, {
       dryRun: argv.includes("--dry-run"),
       rotate: argv.includes("--rotate"),
+      upgradeV1: argv.includes("--upgrade-v1"),
       log: (line) => console.log(line),
     });
     assertAllDecryptable(stats);

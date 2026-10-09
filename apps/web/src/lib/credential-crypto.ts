@@ -17,8 +17,9 @@
  * so a ciphertext copied into another user's row, another provider's row
  * or another column fails the tag check instead of decrypting. v1 values
  * (written before #370) carry no row binding: while they are accepted they
- * decrypt in any row, exactly as before. The backfill script upgrades them
- * to v2, after which `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` refuses v1 on
+ * decrypt in any row, exactly as before. The backfill script, run with
+ * `--upgrade-v1`, upgrades them to v2, after which
+ * `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` refuses v1 on
  * read, so an old v1 ciphertext (from a dump, or the database's history)
  * pasted into a row no longer decrypts. Until then the row binding covers
  * only values written as v2.

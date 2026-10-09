@@ -154,7 +154,7 @@ describe("encryptStoredCredentials", () => {
     ).rejects.toThrow(/failed to decrypt/);
   });
 
-  it("upgrades v1 values to v2 under the current key, without --rotate", async () => {
+  it("upgrades v1 values to v2 under the current key with --upgrade-v1, without --rotate", async () => {
     const v1Access = encryptV1ForTests("gho_old", KEY_A);
     const v1Integration = encryptV1ForTests("ghp_old", KEY_A);
     const { db, account, integrationAccount } = makeDb(
@@ -162,7 +162,7 @@ describe("encryptStoredCredentials", () => {
       [integrationRow("int1", { accessToken: v1Integration })],
     );
 
-    const stats = await encryptStoredCredentials(db);
+    const stats = await encryptStoredCredentials(db, { upgradeV1: true });
 
     expect(stats.account).toEqual({ ...ZERO, rowsScanned: 1, valuesUpgraded: 1 });
     expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, valuesUpgraded: 1 });
@@ -183,7 +183,7 @@ describe("encryptStoredCredentials", () => {
     vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, KEY_A);
     const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: v1 })]);
 
-    await encryptStoredCredentials(db);
+    await encryptStoredCredentials(db, { upgradeV1: true });
 
     const upgraded = integrationAccount.store[0].accessToken!;
     expect(credentialFormat(upgraded)).toBe("v2");
@@ -196,7 +196,7 @@ describe("encryptStoredCredentials", () => {
       [accountRow("acc1", "42", { access_token: "gho_1", refresh_token: encryptV1ForTests("r", KEY_A) })],
       [integrationRow("int1", { accessToken: "ghp_x" })],
     );
-    await encryptStoredCredentials(db);
+    await encryptStoredCredentials(db, { upgradeV1: true });
     const afterFirst = JSON.stringify([account.store, integrationAccount.store]);
     account.updateMany.mockClear();
     integrationAccount.updateMany.mockClear();
@@ -283,7 +283,7 @@ describe("encryptStoredCredentials", () => {
       return result;
     });
 
-    const stats = await encryptStoredCredentials(db);
+    const stats = await encryptStoredCredentials(db, { upgradeV1: true });
 
     expect(stats.integrationAccount.conflicts).toBe(1);
     expect(stats.integrationAccount.valuesEncrypted).toBe(0);
@@ -299,7 +299,11 @@ describe("encryptStoredCredentials", () => {
     );
     const lines: string[] = [];
 
-    const stats = await encryptStoredCredentials(db, { dryRun: true, log: (line) => lines.push(line) });
+    const stats = await encryptStoredCredentials(db, {
+      dryRun: true,
+      upgradeV1: true,
+      log: (line) => lines.push(line),
+    });
 
     expect(stats.integrationAccount.valuesEncrypted).toBe(1);
     expect(stats.integrationAccount.valuesUpgraded).toBe(1);
@@ -403,8 +407,41 @@ describe("encryptStoredCredentials", () => {
   });
 });
 
+describe("encryptStoredCredentials without --upgrade-v1", () => {
+  it("doesn't re-bind a v1 copy pasted into another row during a --rotate, with the flag unset in the shell", async () => {
+    // The victim's v1 value from a pre-backfill dump, written under the old key.
+    const victimsV1 = encryptV1ForTests("re_victim", KEY_A);
+    vi.stubEnv(CREDENTIALS_KEY_ENV, newKey("b"));
+    vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, KEY_A);
+    const { db, integrationAccount } = makeDb(
+      [],
+      [integrationRow("attacker", { accessToken: victimsV1 }, "resend")],
+    );
+    const lines: string[] = [];
+
+    const stats = await encryptStoredCredentials(db, { rotate: true, log: (line) => lines.push(line) });
+
+    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, undecryptable: 1 });
+    expect(integrationAccount.store[0].accessToken).toBe(victimsV1);
+    expect(integrationAccount.updateMany).not.toHaveBeenCalled();
+    expect(lines).toContainEqual(
+      expect.stringContaining("IntegrationAccount attacker.accessToken: legacy v1 value, not upgraded without --upgrade-v1"),
+    );
+    expect(() => assertAllDecryptable(stats)).toThrow(/could not be decrypted/);
+  });
+
+  it("lists a v1 value on a dry run too", async () => {
+    const v1 = encryptV1ForTests("r", KEY_A);
+    const { db } = makeDb([], [integrationRow("int1", { accessToken: v1, refreshToken: "plain" })]);
+
+    const stats = await encryptStoredCredentials(db, { dryRun: true });
+
+    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, valuesEncrypted: 1, undecryptable: 1 });
+  });
+});
+
 describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () => {
-  it("doesn't upgrade a v1 value: it lists it as undecryptable and leaves it", async () => {
+  it("doesn't upgrade a v1 value even with --upgrade-v1: it lists it as undecryptable and leaves it", async () => {
     vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "false");
     const v1 = encryptV1ForTests("ghp_old", KEY_A);
     const { db, integrationAccount } = makeDb(
@@ -413,7 +450,7 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
     );
     const lines: string[] = [];
 
-    const stats = await encryptStoredCredentials(db, { log: (line) => lines.push(line) });
+    const stats = await encryptStoredCredentials(db, { upgradeV1: true, log: (line) => lines.push(line) });
 
     expect(stats.integrationAccount).toEqual({
       ...ZERO,
@@ -478,6 +515,21 @@ describe("main", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await expect(main([])).resolves.toBeUndefined();
+  });
+
+  it("upgrades v1 values only when given --upgrade-v1", async () => {
+    const v1 = encryptV1ForTests("ghp_old", KEY_A);
+    const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: v1 })]);
+    mockDb.prisma = { ...db, $disconnect: vi.fn(async () => {}) };
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(main(["--rotate"])).rejects.toThrow(/^1 stored value\(s\) could not be decrypted/);
+    expect(integrationAccount.store[0].accessToken).toBe(v1);
+
+    await expect(main(["--upgrade-v1"])).resolves.toBeUndefined();
+    const upgraded = integrationAccount.store[0].accessToken!;
+    expect(credentialFormat(upgraded)).toBe("v2");
+    expect(await decryptCredential(upgraded, integrationField("int1"))).toBe("ghp_old");
   });
 
   it("rejects unknown flags before touching the database", async () => {
