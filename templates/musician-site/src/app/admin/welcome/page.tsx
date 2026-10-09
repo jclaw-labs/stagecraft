@@ -9,6 +9,13 @@ import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
 import { WelcomeWizard } from "./WelcomeWizard";
 
 /**
+ * Gate on the first-run flag per request. When the build-time content
+ * had finished the wizard, `next build` prerendered this route as a
+ * fixed redirect to /admin/pages, so a reset site couldn't reach it.
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * First-run welcome wizard (PR 7 — Hybrid). Four steps drive the site
  * singleton, the appearance singleton (primary color), the header
  * singleton (wordmark), and create the first page. Sample tour dates

@@ -6,6 +6,7 @@
  * Uses an isolated tmpdir content dir, matching layout.test.tsx.
  */
 
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -66,8 +67,22 @@ describe("root not-found", () => {
     expect(html).toContain('class="stagecraft-site"');
     // Appearance tokens are injected, so the 404 picks up the theme.
     expect(html).toContain("--color-background:");
+    expect(html).toContain("<h1");
     expect(html).toContain("404");
     expect(html).toContain("This page could not be found.");
+    expect(html).toContain('href="/"');
+  });
+
+  it("renders its own body, not Next's internal 404 UI", () => {
+    const source = readFileSync(path.join(import.meta.dirname, "not-found.tsx"), "utf-8");
+    expect(source).not.toMatch(/from\s+["']next\/dist\//);
+  });
+
+  it("styles the body with tokens only, no raw colours or sizes", async () => {
+    const html = await renderNotFound();
+    const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
+    expect(main).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(main).not.toMatch(/\d(px|rem|em)\b/);
   });
 
   it("uses the site title and description for the tab", async () => {
