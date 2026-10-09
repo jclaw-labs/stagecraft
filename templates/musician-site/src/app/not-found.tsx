@@ -26,7 +26,12 @@ export default function NotFound() {
     <PublicLayout>
       <main
         style={{
-          minHeight: "100vh",
+          // Fill the viewport without scrolling: border-box keeps the
+          // padding inside the height, and the subtraction leaves room
+          // for the body's UA default margin (8px each side, which is
+          // --space-2), so the page is exactly one screen tall.
+          boxSizing: "border-box",
+          minHeight: "calc(100vh - 2 * var(--space-2))",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",

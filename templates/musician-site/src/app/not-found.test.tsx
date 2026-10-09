@@ -85,6 +85,13 @@ describe("root not-found", () => {
     expect(main).not.toMatch(/\d(px|rem|em)\b/);
   });
 
+  it("keeps its padding and the body margin inside one viewport height", async () => {
+    const html = await renderNotFound();
+    const main = html.slice(html.indexOf("<main"), html.indexOf(">", html.indexOf("<main")));
+    expect(main).toContain("box-sizing:border-box");
+    expect(main).toContain("min-height:calc(100vh - 2 * var(--space-2))");
+  });
+
   it("uses the site title and description for the tab", async () => {
     const meta = await generateMetadata();
     expect(meta.title).toBe("Test Artist — Official");
