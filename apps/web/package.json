@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "generate": "tsx scripts/bundle-template.ts",
-    "predev": "npm run generate",
     "dev": "sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
-    "prebuild": "npm run generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -16,7 +14,7 @@
     "pretypecheck": "npm run generate",
     "typecheck": "tsc --noEmit",
     "capture:screenshots": "playwright test --config playwright.capture.config.ts",
-    "capture:screenshots:public": "npm run build && playwright test --config playwright.public-capture.config.ts"
+    "capture:screenshots:public": "next build && playwright test --config playwright.public-capture.config.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
