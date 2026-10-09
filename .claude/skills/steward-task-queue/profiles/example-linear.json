@@ -1,0 +1,182 @@
+{
+  "schema_version": 2,
+  "backend": "linear",
+  "cadence_minutes": {
+    "steward": 30,
+    "worker": 30,
+    "reviewer": 30,
+    "merge_monitor": 30
+  },
+  "ready_supply": {
+    "minimum": 5,
+    "target_minimum": 10,
+    "target_maximum": 12
+  },
+  "ready_audit_batch": 10,
+  "queue": {
+    "states": [
+      "Triage",
+      "Waiting for input",
+      "Ready",
+      "In progress",
+      "Needs review",
+      "Under review",
+      "Ready to merge"
+    ]
+  },
+  "priority": {
+    "values": [
+      "Urgent",
+      "High",
+      "Medium",
+      "Low"
+    ]
+  },
+  "tracker": {
+    "team_id": "00000000-0000-4000-8000-000000000000",
+    "team_key": "EXAMPLE",
+    "team_name": "Example",
+    "project_id": null,
+    "transport": [
+      "mcp",
+      "graphql"
+    ],
+    "statuses": {
+      "Triage": "00000000-0000-4000-8000-000000000001",
+      "Waiting for input": "00000000-0000-4000-8000-000000000002",
+      "Ready": "00000000-0000-4000-8000-000000000003",
+      "In progress": "00000000-0000-4000-8000-000000000004",
+      "Needs review": "00000000-0000-4000-8000-000000000005",
+      "Under review": "00000000-0000-4000-8000-000000000006",
+      "Ready to merge": "00000000-0000-4000-8000-000000000007"
+    },
+    "status_names": {
+      "Triage": "Triage",
+      "Waiting for input": "Waiting for input",
+      "Ready": "Ready",
+      "In progress": "In progress",
+      "Needs review": "Needs review",
+      "Under review": "Under review",
+      "Ready to merge": "Ready to merge"
+    },
+    "status_types": {
+      "Triage": "triage",
+      "Waiting for input": "unstarted",
+      "Ready": "unstarted",
+      "In progress": "started",
+      "Needs review": "started",
+      "Under review": "started",
+      "Ready to merge": "started"
+    },
+    "priorities": {
+      "Urgent": 1,
+      "High": 2,
+      "Medium": 3,
+      "Low": 4
+    },
+    "blockers": {
+      "storage": "relations",
+      "relation_type": "blocks",
+      "read_direction": "inverse"
+    },
+    "queue_metadata": {
+      "storage": "comments-log",
+      "encoding": "comments-log-v1",
+      "marker": "<!-- task-queue-event -->",
+      "order_by": "createdAt",
+      "server_order": "descending",
+      "include_archived": true,
+      "archive_field": "archivedAt",
+      "events": {
+        "claim_cycle": "claim-cycle",
+        "claim_cycle_activate": "claim-cycle-activate",
+        "claim_marker": "claim-marker",
+        "claim": "claim",
+        "touches": "touches"
+      }
+    },
+    "claim_protocol": {
+      "preflight": "linear-profile",
+      "generation_source": "claim-cycle",
+      "generation_activation_source": "claim-cycle-activate",
+      "generation_predecessor": "claim-cycle.predecessor",
+      "generation_arbitration": "earliest-activation",
+      "generation_states": {
+        "In progress": "Ready",
+        "Under review": "Needs review"
+      },
+      "transition_policy": "cooperative-two-phase-predecessor-chain",
+      "marker_source": "claim-marker",
+      "claim_source": "claim",
+      "claim_scope": "held-state-generation",
+      "touches_source": "touches",
+      "settlement": "task-queue-settle"
+    }
+  },
+  "writes": {
+    "transport": [
+      "mcp",
+      "graphql"
+    ],
+    "mutation_capability": {
+      "supported": true,
+      "history_policy": "cooperative-immutable-event-writers",
+      "hard_delete_detection": "unsupported",
+      "queue_transition_policy": "steward-only-two-phase"
+    },
+    "statuses": "native",
+    "priorities": "native",
+    "blockers": {
+      "storage": "relations",
+      "mutation": "issueRelationCreate",
+      "relation_type": "blocks",
+      "issue_id": "blocker",
+      "related_issue_id": "blocked"
+    },
+    "queue_metadata": {
+      "storage": "comments-log",
+      "mutation": "commentCreate",
+      "semantics": "append-only",
+      "encoding": "comments-log-v1",
+      "omit_input_fields": [
+        "id",
+        "createdAt"
+      ],
+      "verify": "re-read-comment"
+    },
+    "close": {
+      "supported": true,
+      "statuses": {
+        "completed": "00000000-0000-4000-8000-000000000101",
+        "not_planned": "00000000-0000-4000-8000-000000000103"
+      },
+      "status_names": {
+        "completed": "Done",
+        "not_planned": "Canceled"
+      },
+      "status_types": {
+        "completed": "completed",
+        "not_planned": "canceled"
+      },
+      "duplicate": {
+        "mutation": "issueRelationCreate",
+        "relation_type": "duplicate",
+        "issue_id": "duplicate",
+        "related_issue_id": "canonical",
+        "canonical_target": "required",
+        "resulting_status": {
+          "id": "00000000-0000-4000-8000-000000000102",
+          "name": "Duplicate",
+          "type": "duplicate",
+          "managed": "system"
+        },
+        "verify": [
+          "relation",
+          "status"
+        ]
+      }
+    }
+  },
+  "ci_exceptions": [],
+  "hints": []
+}

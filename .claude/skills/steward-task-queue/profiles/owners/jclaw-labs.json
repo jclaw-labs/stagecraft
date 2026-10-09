@@ -1,0 +1,76 @@
+{
+  "schema_version": 2,
+  "backend": "github-issues",
+  "cadence_minutes": {
+    "steward": 30,
+    "worker": 30,
+    "reviewer": 30,
+    "merge_monitor": 30
+  },
+  "ready_supply": {
+    "minimum": 5,
+    "target_minimum": 10,
+    "target_maximum": 12
+  },
+  "ready_audit_batch": 10,
+  "queue": {
+    "states": [
+      "Triage",
+      "Waiting for input",
+      "Ready",
+      "In progress",
+      "Needs review",
+      "Under review",
+      "Ready to merge"
+    ]
+  },
+  "priority": {
+    "values": [
+      "Urgent",
+      "High",
+      "Medium",
+      "Low"
+    ]
+  },
+  "tracker": {
+    "repository": "jclaw-labs/{repository}",
+    "api_version": "2026-03-10",
+    "fields": {
+      "priority": 47131523,
+      "queue": 47135033,
+      "blocked_by": 47135117,
+      "touches": 47135126,
+      "claim": 47135143
+    },
+    "values_endpoint": "/repos/{owner}/{repo}/issues/{number}/issue-field-values",
+    "close_reasons": [
+      "completed",
+      "duplicate",
+      "not_planned"
+    ]
+  },
+  "writes": {
+    "comment_prefix": "[Agent]",
+    "field_values": {
+      "set": {
+        "method": "POST",
+        "endpoint": "/repos/{owner}/{repo}/issues/{number}/issue-field-values",
+        "body_key": "issue_field_values",
+        "semantics": "additive"
+      },
+      "clear": {
+        "method": "DELETE",
+        "endpoint": "/repos/{owner}/{repo}/issues/{number}/issue-field-values/{field_id}",
+        "semantics": "single-field"
+      }
+    }
+  },
+  "ci_exceptions": [
+    {
+      "provider": "github-actions",
+      "condition": "zero-step failure caused by an account-level billing block",
+      "action": "report as external and judge the code from valid evidence"
+    }
+  ],
+  "hints": []
+}

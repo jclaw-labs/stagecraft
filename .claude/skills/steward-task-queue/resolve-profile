@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Print the path of the queue-stewardship profile for a repository.
+
+A repository-specific profile at profiles/<owner>--<repository>.json wins.
+Otherwise an owner-wide profile at profiles/owners/<owner>.json is
+instantiated for the repository and written to --output.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+TEMPLATE = "{repository}"
+REMOTE = re.compile(
+    r"(?:github\.com[:/]|/git/)([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
+)
+NAME = re.compile(r"[^/\s{}]+")
+
+
+def fail(message: str) -> NoReturn:
+    print(f"profile: {message}", file=sys.stderr)
+    raise SystemExit(64)
+
+
+def repository_from_remote() -> str:
+    try:
+        url = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        fail("no --repository given and no git origin remote to read")
+    match = REMOTE.search(url)
+    if match is None:
+        fail(f"cannot read owner/repository from origin {url}")
+    return f"{match.group(1)}/{match.group(2)}"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="resolve-profile")
+    parser.add_argument("--repository")
+    parser.add_argument("--output")
+    args = parser.parse_args()
+
+    repository = args.repository or repository_from_remote()
+    parts = repository.split("/")
+    if len(parts) != 2 or not all(NAME.fullmatch(part) for part in parts):
+        fail("repository must be owner/repo")
+    owner, name = parts
+
+    profiles = Path(__file__).with_name("profiles")
+    specific = profiles / f"{owner}--{name}.json"
+    if specific.is_file():
+        print(specific)
+        return
+
+    default = profiles / "owners" / f"{owner}.json"
+    if not default.is_file():
+        fail(f"no profile for {repository}: neither {specific} nor {default}")
+    if not args.output:
+        fail(f"{default} is owner-wide; pass --output for the resolved copy")
+    try:
+        profile = json.loads(default.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail(f"cannot read {default}: {error}")
+    tracker = profile.get("tracker")
+    expected = f"{owner}/{TEMPLATE}"
+    if not isinstance(tracker, dict) or tracker.get("repository") != expected:
+        fail(f"{default} tracker.repository must be {expected}")
+    tracker["repository"] = repository
+    output = Path(args.output)
+    output.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    print(output)
+
+
+if __name__ == "__main__":
+    main()

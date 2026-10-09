@@ -15,10 +15,12 @@ packages/
 templates/
   musician-site/         Next.js + Puck template (per ADR-007)
 claude/
-  skills/           Repo-scoped skills (e.g. create-pr, artist-site-pipeline)
+  skills/           Repo-only tooling skills (crawl-artist-site)
+.claude/skills/     Agent skills vendored from local-config (do not edit here)
 docs/
   adr/              Architecture decision records
   specs/            Product and technical specs
+  screenshots/      PR screenshot convention (README.md)
   runbook.md        Ops + env setup
 ```
 
@@ -143,8 +145,7 @@ artist-site admin) must embed screenshots from a public gist, since this
 repo is private and in-tree / `raw.githubusercontent.com` URLs don't
 render anonymously.
 
-Full workflow in the `create-pr` skill at
-`claude/skills/create-pr/SKILL.md`: capture → upload to gist → embed
+Full workflow in `docs/screenshots/README.md`: capture → upload to gist → embed
 in PR body → verify URLs return 200. Refactor-only or backend-only
 PRs may omit screenshots — note this explicitly in the PR body.
 
@@ -152,7 +153,7 @@ PRs may omit screenshots — note this explicitly in the PR body.
 there is no rendered UI you cannot screenshot.** A Chromium build ships
 at `/opt/pw-browsers` (`PLAYWRIGHT_BROWSERS_PATH`), auto-detected by
 `apps/web/capture/chromium.ts`, so a cloud session can always render the
-app. Two capture paths, both detailed in the create-pr skill — pick by
+app. Two capture paths, both detailed in `docs/screenshots/README.md` — pick by
 what the PR touches:
 
 - **Public / static pages** (marketing site `/`, `/examples`, …; public

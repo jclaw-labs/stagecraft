@@ -8,7 +8,12 @@ dist/
 *.tsbuildinfo
 .vercel
 .netlify
-.claude/
+# Local Claude Code state stays untracked; the agent toolkit vendored by
+# local-config's bin/sync-project is committed.
+.claude/*
+!.claude/skills/
+!.claude/toolkit.manifest
+!.claude/verify-toolkit
 
 # Playwright capture auth state (seeded session cookie — local only)
 apps/web/capture/.auth/
