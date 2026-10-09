@@ -1,6 +1,6 @@
 import { prisma } from "@stagecraft/db";
 import type { JobContext, JobResult } from "@stagecraft/queue";
-import type { BlueprintType } from "@stagecraft/shared";
+import { connectedProviders, type BlueprintType, type IntegrationProvider } from "@stagecraft/shared";
 
 import { generateBrokerSecret } from "@/lib/broker-secret";
 import { createRepo, deleteRepo, findGithubAppInstallation, pushFiles } from "@/lib/integrations/github";
@@ -39,15 +39,13 @@ interface CreateSitePayload {
  */
 export async function pickDeployTarget(userId: string): Promise<"netlify" | "vercel"> {
   const integrations = await prisma.integrationAccount.findMany({
-    where: { userId, provider: { in: ["netlify", "vercel"] } },
+    where: { userId, provider: { in: ["netlify", "vercel"] satisfies IntegrationProvider[] } },
     select: { provider: true, metadata: true },
   });
+  const connected = connectedProviders(integrations);
 
-  const hasVercel = integrations.some((i) => i.provider === "vercel");
-  if (hasVercel) return "vercel";
-
-  const hasNetlify = integrations.some((i) => i.provider === "netlify");
-  if (hasNetlify) return "netlify";
+  if (connected.has("vercel")) return "vercel";
+  if (connected.has("netlify")) return "netlify";
 
   throw new Error("No deploy-target integration connected (Vercel or Netlify required)");
 }

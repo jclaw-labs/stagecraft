@@ -4,12 +4,9 @@ import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import StatusBadge, { type BadgeTone } from "@/components/StatusBadge";
-import type { SiteStatus } from "@stagecraft/shared";
+import type { JobStatus, JobType, SiteStatus } from "@stagecraft/shared";
 
 import styles from "./site-detail.module.css";
-
-type JobType = "create_site" | "edit_site" | "migrate_site" | "repair_site" | "deploy_config";
-type JobStatus = "queued" | "running" | "completed" | "failed" | "awaiting_review" | "canceled";
 
 interface MigrationReportItem {
   label: string;
