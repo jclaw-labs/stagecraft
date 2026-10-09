@@ -27,13 +27,9 @@ export default function NotFound() {
       <main
         style={{
           // One viewport tall, with border-box keeping the padding inside
-          // that height at any theme density. The page still scrolls by
-          // the body's UA margin (8px each side) because nothing resets
-          // it: AppearanceStyles' `.stagecraft-site body` selector never
-          // matches, since <body> is never inside the wrapper. That same
-          // margin is the light frame around every public page, and #388
-          // owns the fix (a `body:has(> .stagecraft-site)` rule). Once it
-          // lands, this height is exact, with no margin arithmetic here.
+          // that height at any theme density. globals.css resets the body
+          // margin on public pages (`body:has(> .stagecraft-site)`, #388),
+          // so this is exactly one viewport with no margin arithmetic.
           boxSizing: "border-box",
           minHeight: "100vh",
           display: "flex",

@@ -248,7 +248,7 @@ export function AppearanceStyles({ appearance }: Props) {
       --footer-bg: ${footer.bg};
       --footer-text: ${footer.text};
     }
-    .stagecraft-site, .stagecraft-site body {
+    .stagecraft-site {
       background: var(--color-background);
       color: var(--color-text);
       font-family: var(--font-body);

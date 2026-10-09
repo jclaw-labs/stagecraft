@@ -79,4 +79,20 @@ test.describe("public pages have no horizontal overflow", () => {
 
     expect(overflowing).toEqual([]);
   });
+
+  test("the body is edge to edge and takes the theme background", async ({ page }) => {
+    await page.goto("/");
+    const body = await page.evaluate(() => {
+      const style = getComputedStyle(document.body);
+      const wrapper = document.querySelector(".stagecraft-site");
+      return {
+        margin: style.margin,
+        background: style.backgroundColor,
+        theme: wrapper ? getComputedStyle(wrapper).backgroundColor : null,
+      };
+    });
+    expect(body.margin).toBe("0px");
+    expect(body.theme).not.toBeNull();
+    expect(body.background).toBe(body.theme);
+  });
 });
