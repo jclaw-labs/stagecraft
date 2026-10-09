@@ -140,7 +140,7 @@ describe("<Editor> save", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("names the first validation issue when the save is rejected", async () => {
+  it("names the failing field when the save is rejected", async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse(200, {

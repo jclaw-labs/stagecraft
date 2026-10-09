@@ -25,7 +25,7 @@ import { PREBAKED_COLLECTIONS } from "./seeds";
  * (so artist-added custom collections participate), supplemented by
  * any prebaked entry that isn't on disk yet.
  */
-export async function loadKnownCollectionDefs(store: ReadStore): Promise<CollectionDef[]> {
+async function loadKnownCollectionDefs(store: ReadStore): Promise<CollectionDef[]> {
   const onDiskSlugs = await store.listCollectionSlugs();
   const onDiskDefs = (
     await Promise.all(onDiskSlugs.map((s) => store.readCollectionDef(s)))

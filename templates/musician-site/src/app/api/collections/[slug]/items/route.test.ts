@@ -167,6 +167,20 @@ describe("POST /api/collections/[slug]/items", () => {
     expect(res.status).toBe(409);
   });
 
+  it("reports a taken slug before validating values", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    // Missing required title: on a fresh slug this would be a 400.
+    const res = await POST(
+      jsonReq("POST", {
+        slug: TEST_SLUG,
+        values: { [PAGES_FIELD_IDS.body]: { type: "puckContent", value: { content: [], root: { props: {} } } } },
+      }),
+      ctx("pages"),
+    );
+    expect(res.status).toBe(409);
+  });
+
   it("rejects values that fail the per-collection schema", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     // Missing required title.
@@ -496,6 +510,23 @@ describe("pages via the generic item routes", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
+  // Create and rename share one 409 order: "slug taken" before
+  // "shadows a prefix". A page that predates the collection whose
+  // prefix it now shadows hits both.
+  it("POST reports a slug that both exists and shadows as taken", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const first = await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    expect(first.status).toBe(200);
+    await writePodcastsDef();
+    publishMock.mockClear();
+    const res = await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('An item with slug "episodes" already exists in collection "pages"');
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
   it("POST checks shadowing only for pages", async () => {
     await writePodcastsDef();
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
@@ -624,6 +655,20 @@ describe("pages via the generic item routes", () => {
     const body = await res.json();
     expect(body.error).toContain("podcasts");
     expect(body.error).toContain("/episodes");
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("PATCH reports a slug that both exists and shadows as taken", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    await writePodcastsDef();
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(renameReq("episodes"), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('An item with slug "episodes" already exists in collection "pages"');
     expect(publishMock).not.toHaveBeenCalled();
   });
 
