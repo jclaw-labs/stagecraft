@@ -1,0 +1,26 @@
+{
+  "$comment": "High/critical npm advisories that the CI audit gate (scripts/audit-gate.mjs) tolerates. Every entry needs a reason and the condition that removes it. Entries apply only to the listed projects (paths relative to the repo root). The gate warns when an entry no longer matches anything, so delete it then. Do not add `overrides` to dodge an advisory that next or prisma pins (#315).",
+  "entries": [
+    {
+      "package": "braces",
+      "advisories": ["GHSA-vfj7-8cjw-p6xm"],
+      "projects": [".", "templates/musician-site"],
+      "reason": "Every published braces release (<=3.0.3) is affected and no fixed version exists. Dev-only: reached through eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch, so it never ships in a build.",
+      "removeWhen": "braces publishes a fixed release (then `npm audit fix`), or the lint chain stops depending on fast-glob/micromatch."
+    },
+    {
+      "package": "postcss",
+      "advisories": ["GHSA-6g55-p6wh-862q", "GHSA-r28c-9q8g-f849"],
+      "projects": [".", "templates/musician-site"],
+      "reason": "next 15.5.x pins postcss to exactly 8.4.31 (both high advisories cover <=8.5.17; its moderate ones are below the gate and not listed). Our own postcss copies are already patched; only next's bundled copy is affected, and npm's only fix is next 16 (a major upgrade).",
+      "removeWhen": "Both projects are on next 16 (or a next 15 release that unpins postcss to >=8.5.18)."
+    },
+    {
+      "package": "deepmerge-ts",
+      "advisories": ["GHSA-ggr8-5vv4-36mx"],
+      "projects": ["."],
+      "reason": "@prisma/config pins deepmerge-ts 7.1.5 (<8.0.0 is affected), including in the latest prisma release. npm's only 'fix' is downgrading prisma to 6.12.0.",
+      "removeWhen": "A prisma release depends on deepmerge-ts >=8.0.0 and the root is upgraded to it."
+    }
+  ]
+}
