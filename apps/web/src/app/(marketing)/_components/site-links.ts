@@ -3,7 +3,7 @@
 
 // TODO: confirm the public repository URL / visibility before launch — the
 // "open source" pitch links here from the nav, footer, and homepage CTAs.
-export const GITHUB_URL = "https://github.com/Stagecraft-Web/stagecraft";
+export const GITHUB_URL = "https://github.com/jclaw-labs/stagecraft";
 
 export const SIGN_IN_HREF = "/login";
 
