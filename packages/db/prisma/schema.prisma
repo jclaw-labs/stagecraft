@@ -161,6 +161,14 @@ model SiteJob {
   errorMessage    String?   @db.Text
   failureCategory String?   // github_api_error | netlify_deploy_error | validation_error | ai_error | timeout | unknown
   repairAttempts  Int       @default(0)
+  // Failed runs (handler threw, or its lease expired) that were retried.
+  // Bounded by MAX_RETRY_ATTEMPTS in @stagecraft/queue.
+  retryAttempts   Int       @default(0)
+  // Earliest time a queued job may be claimed (retry backoff). Null = now.
+  runAt           DateTime?
+  // Lease held by the worker running this job. A `running` row whose
+  // lease has passed is returned to `queued` by the worker's reaper.
+  lockedUntil     DateTime?
   startedAt       DateTime?
   completedAt     DateTime?
   createdAt       DateTime  @default(now())

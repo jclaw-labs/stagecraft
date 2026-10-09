@@ -56,11 +56,14 @@ This document is for engineers and support staff operating the Stagecraft platfo
 
 ```
 queued  ──►  running  ──►  completed
-                     └──►  failed
-                     └──►  awaiting_review
+  ▲                  └──►  failed
+  │                  └──►  awaiting_review
+  └──── retry / repair / expired lease ──┘
 ```
 
-The worker polls the `SiteJob` table every 5 seconds for the oldest `queued` job and processes it. All state transitions are reflected in the database immediately.
+The worker polls the `SiteJob` table every 5 seconds for the oldest `queued` job whose `runAt` (retry backoff) has passed and processes it. All state transitions are reflected in the database immediately.
+
+A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
 
 ---
 
@@ -153,20 +156,35 @@ psql "$DATABASE_URL" -c "SELECT 1"
 
 **Symptom:** A `SiteJob` row has `status = "running"` and `startedAt` is more than a few minutes ago, but `completedAt` is null.
 
-**Cause:** The worker process crashed while a job was in flight.
+**Cause:** The worker process crashed, or its serverless invocation was frozen, while a job was in flight.
+
+**Automatic recovery:** Usually none needed. Every claim takes a 5-minute lease (`lockedUntil`) that the worker renews every minute while the handler runs. When a worker dies the renewals stop, and the next poll from any worker (the in-process poller or `POST /api/cron/jobs`) finds the lapsed lease and:
+
+- returns the job to `queued` with `retryAttempts` incremented, `errorMessage = 'Lease expired: …'` and `failureCategory = 'timeout'`, if it has retries left (fewer than 2 so far); or
+- marks it `failed` with the same message once retries are used up, so a job that kills its worker every time can't loop forever.
+
+So a job stuck past `lockedUntil` clears on the next poll; if nothing is polling (in-process worker off and no cron), trigger a drain:
+
+```bash
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<your-domain>/api/cron/jobs
+```
+
+If the old worker turns out to be alive after all (a frozen invocation that thaws), its late result is discarded: post-claim writes only apply while the row is still `running` with the `startedAt` that worker stamped. It logs `job.lease_lost`.
 
 **Diagnosis:**
 ```sql
-SELECT id, type, status, "startedAt", "createdAt"
+SELECT id, type, status, "startedAt", "lockedUntil", "retryAttempts", "createdAt"
 FROM "SiteJob"
 WHERE status = 'running'
 ORDER BY "startedAt";
 ```
 
-**Recovery:** Reset the job to `queued` so the worker picks it up again:
+Rows with `"lockedUntil"` in the future are held by a live worker; leave them alone. Rows with a **null** `"lockedUntil"` are never reaped automatically: they were claimed by a worker deployed before leases existed, or are `create_site` rows the sites API runs synchronously (those have no queue handler and must not be re-queued; cancel them instead, see [Section 5](#cancel-a-stuck-job)).
+
+**Manual fallback:** Reset the job to `queued` so the worker picks it up again:
 ```sql
 UPDATE "SiteJob"
-SET status = 'queued', "startedAt" = NULL
+SET status = 'queued', "startedAt" = NULL, "lockedUntil" = NULL, "runAt" = NULL
 WHERE id = '<job-id>';
 ```
 
@@ -176,9 +194,11 @@ WHERE id = '<job-id>';
 
 **Symptom:** A `SiteJob` row has `status = "failed"` and `errorMessage` indicates a transient or external error.
 
+The worker already retried it: a handler that throws is re-run up to 2 times with backoff before the job is failed, so `"retryAttempts" = 2` on a failed row means the error persisted across three runs.
+
 **Diagnosis:**
 ```sql
-SELECT id, type, "errorMessage", "createdAt", "completedAt"
+SELECT id, type, "errorMessage", "retryAttempts", "createdAt", "completedAt"
 FROM "SiteJob"
 WHERE status = 'failed'
 ORDER BY "completedAt" DESC
@@ -230,9 +250,14 @@ SET
   status       = 'queued',
   "startedAt"  = NULL,
   "completedAt" = NULL,
-  "errorMessage" = NULL
+  "errorMessage" = NULL,
+  "retryAttempts" = 0,
+  "runAt"      = NULL,
+  "lockedUntil" = NULL
 WHERE id = '<job-id>';
 ```
+
+Resetting `"retryAttempts"` gives the job its automatic retries back; leave it out to allow a single run only.
 
 The worker will pick it up within 5 seconds. To process it right away (or when the in-process poller is off), drain the queue by hand:
 
@@ -245,7 +270,8 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<your-domain>/api/c
 
 ```sql
 UPDATE "SiteJob"
-SET status = 'queued', "startedAt" = NULL, "completedAt" = NULL, "errorMessage" = NULL
+SET status = 'queued', "startedAt" = NULL, "completedAt" = NULL, "errorMessage" = NULL,
+    "retryAttempts" = 0, "runAt" = NULL, "lockedUntil" = NULL
 WHERE "siteId" = '<site-id>'
   AND status = 'failed'
   AND "createdAt" > NOW() - INTERVAL '1 day';
@@ -255,7 +281,7 @@ WHERE "siteId" = '<site-id>'
 
 ```sql
 UPDATE "SiteJob"
-SET status = 'canceled', "completedAt" = NOW()
+SET status = 'canceled', "completedAt" = NOW(), "lockedUntil" = NULL
 WHERE id = '<job-id>';
 ```
 
