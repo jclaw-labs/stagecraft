@@ -38,6 +38,10 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success')
+    env:
+      # The commit CI passed (workflow_run) or the dispatched commit. The gate
+      # and the checkout both read it from here so they can't drift apart.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Check credentials and that the commit is still main
         id: gate
@@ -45,27 +49,27 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
-          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          # Runs under bash -e, so an API failure fails the step rather than
+          # deploying or skipping on an empty SHA.
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; skipping the Worker deploy."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          if [ "$DEPLOY_SHA" != "$main_sha" ]; then
+            ready=false
+          elif [ "$DEPLOY_SHA" != "$main_sha" ]; then
             echo "::notice::$DEPLOY_SHA is no longer the tip of main ($main_sha); skipping the Worker deploy so an older commit doesn't replace a newer one."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
+            ready=false
           else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            ready=true
           fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
       # workflow_run checks out the default branch by default; deploy the
       # commit CI actually passed instead.
       - uses: actions/checkout@v4
         if: steps.gate.outputs.ready == 'true'
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.DEPLOY_SHA }}
 
       - uses: actions/setup-node@v4
         if: steps.gate.outputs.ready == 'true'
