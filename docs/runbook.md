@@ -89,7 +89,7 @@ For production or CI, set the variables below directly in your hosting environme
 
 | Variable | Description |
 |---|---|
-| `DATABASE_DRIVER` | How Prisma connects. Unset: a `*.neon.tech` `DATABASE_URL` uses the Neon driver adapter (WebSockets) when the runtime has a global `WebSocket`, anything else uses Prisma's built-in TCP engine. `engine` forces the built-in engine (rollback switch); `neon` forces the adapter. |
+| `DATABASE_DRIVER` | How Prisma connects. Unset, empty or `engine`: Prisma's built-in TCP engine, whatever the `DATABASE_URL` host. `neon`: opt in to the Neon driver adapter (WebSockets), needed on Cloudflare Workers; it requires `DATABASE_URL` and a global `WebSocket` (Node 22+ or Workers) and fails at startup without them. Any other value fails at startup. |
 
 ---
 
