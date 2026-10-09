@@ -224,7 +224,9 @@ describe("POST /api/github/webhook", () => {
   });
 
   it("500 when delivery record insert fails for a non-unique reason", async () => {
-    txMock.webhookDelivery.create.mockRejectedValueOnce(new Error("connection lost"));
+    const failure = new Error("connection lost");
+    txMock.webhookDelivery.create.mockRejectedValueOnce(failure);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(
       buildRequest({
         body: { action: "created", installation: { id: 1 } },
@@ -233,10 +235,14 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(500);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("d-fail"), failure);
+    logged.mockRestore();
   });
 
   it("500 when the handler throws, without recording the delivery", async () => {
-    handleInstallMock.mockRejectedValueOnce(new Error("db timeout"));
+    const failure = new Error("db timeout");
+    handleInstallMock.mockRejectedValueOnce(failure);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(
       buildRequest({
         body: { action: "suspend", installation: { id: 42 } },
@@ -245,8 +251,10 @@ describe("POST /api/github/webhook", () => {
       }),
     );
     expect(res.status).toBe(500);
-    expect(await res.json()).toMatchObject({ ok: false, error: "webhook handler failed" });
+    expect(await res.json()).toMatchObject({ ok: false, error: "webhook processing failed" });
     expect(committedDeliveries.has("d-handler-fail")).toBe(false);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("d-handler-fail"), failure);
+    logged.mockRestore();
   });
 
   it("processes the redelivery of a delivery whose handler failed", async () => {

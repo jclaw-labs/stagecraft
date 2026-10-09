@@ -111,8 +111,12 @@ export async function POST(request: Request) {
       if (code === "P2002") {
         return ok({ ok: true, duplicate: true });
       }
+      console.error(`GitHub webhook ${deliveryId} (${event}) delivery record failed:`, cause.cause);
       return bad(500, "delivery record write failed");
     }
-    return bad(500, "webhook handler failed");
+    // GitHub doesn't redeliver failed App webhooks on its own, so this log
+    // is how anyone learns a delivery needs redelivering by hand.
+    console.error(`GitHub webhook ${deliveryId} (${event}) failed:`, cause);
+    return bad(500, "webhook processing failed");
   }
 }
