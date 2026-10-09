@@ -65,11 +65,13 @@ queued  ──►  running  ──►  completed
 
 The worker polls the `SiteJob` table every 5 seconds for the oldest `queued` job whose `runAt` (retry backoff) has passed and processes it. All state transitions are reflected in the database immediately.
 
-A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. `migrate_site` catches its own errors and returns a failure instead of throwing, so its errors are usually not retried automatically; it is re-run when its lease is lost, or in the rare case that it throws anyway (for example, when its own write of the site's error status fails). See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
+A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. `create_site` and `migrate_site` share their provisioning steps (`apps/web/src/lib/jobs/provision-site.ts`): a transient error is thrown and retried, and a re-run resumes at the step that failed. A missing precondition (no verified email, deploy target or Resend; a source site with no pages; a repo name already taken) fails the job on the first run. See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
 
 `create_site` (queued by `POST /api/sites`) runs as named steps: `createRepo`, `pushTemplate`, `findInstallation`, `mintBrokerSecret`, `createHostProject`, `setEnv`. Each step's state and result are recorded under `resultPayload.steps` as it runs, so a retried run, a run after an expired lease, or a manual retry skips the finished steps and resumes at the first unfinished one. Transient errors are thrown for the worker to retry; the site stays `creating` meanwhile. Once retries are spent, or for a missing precondition (no verified email, no deploy target or Resend connected, repo name taken), the site goes to `error` and the job to `failed`. The site page then offers **Retry setup**, which calls `POST /api/sites/<id>/retry` to re-queue the same job with its progress. A retry adopts a repo, Netlify site or Vercel project with the expected name only when it was created after the step's first attempt started (2 minutes of clock skew allowed). So if the job failed on "repo name taken", or refuses a resource it made itself because of a larger clock skew, delete or rename the existing one before retrying. When Vercel's GitHub App is missing, the job fails with `failureCategory = 'vercel_github_app_missing'` and keeps the repo, and the site page links to the App install before the retry.
 
-On hosts with the in-process poller (Netlify), the sites API also runs one queued job right after its response (Next's `after()`), since a function frozen after its response can't be relied on to poll.
+`migrate_site` (queued by `POST /api/migrations`) runs a `crawlSource` step, which stores the crawled content, and then the same steps, pushing that content over the template. Its retries and failures work the same way, but **Retry setup** and its route only re-queue `create_site` jobs today.
+
+On hosts with the in-process poller (Netlify), `POST /api/sites`, the retry route and `POST /api/migrations` also run one queued job right after their response (Next's `after()`), since a function frozen after its response can't be relied on to poll.
 
 ---
 
@@ -204,7 +206,7 @@ WHERE id = '<job-id>';
 
 **Symptom:** A `SiteJob` row has `status = "failed"` and `errorMessage` indicates a transient or external error.
 
-`"retryAttempts"` counts automatic re-runs. A job gets at most 2 automatic re-runs in total, shared between two causes: a handler that throws is re-queued with backoff (30s, then 60s), and a job whose lease expired is re-queued by the reaper to run immediately. `migrate_site` reports its errors without throwing, so a failed `migrate_site` row usually has `"retryAttempts" = 0`: it ran once and was not retried. A non-zero value means earlier runs were lost (lease expired) or threw.
+`"retryAttempts"` counts automatic re-runs. A job gets at most 2 automatic re-runs in total, shared between two causes: a handler that throws is re-queued with backoff (30s, then 60s), and a job whose lease expired is re-queued by the reaper to run immediately. A failed `create_site` or `migrate_site` row with `"retryAttempts" = 0` failed on something retrying can't fix: a missing precondition, or Vercel's GitHub App not installed. Its `"resultPayload"->'steps'` shows which steps finished.
 
 **Diagnosis:**
 ```sql

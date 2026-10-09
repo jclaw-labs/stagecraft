@@ -1,25 +1,18 @@
-import { prisma } from "@stagecraft/db";
+import type { Prisma } from "@stagecraft/db";
 import type { JobContext, JobResult } from "@stagecraft/queue";
 import type { BlueprintType } from "@stagecraft/shared";
 
-import { generateBrokerSecret } from "@/lib/broker-secret";
-import { createRepo, findGithubAppInstallation, pushFiles } from "@/lib/integrations/github";
-import { findAppInstallationForOwner } from "@/lib/github-app-token";
-import { getResendCredentials } from "@/lib/integrations/resend";
 import { crawlSite } from "@/lib/migration/crawler";
 import { mapToMusicianSite } from "@/lib/migration/musician-site-mapper";
-import { buildMigrationReport } from "@/lib/migration/report";
-import { readTemplateFiles } from "@/lib/template-reader";
+import { buildMigrationReport, type MigrationReport } from "@/lib/migration/report";
+import type { TemplateFile } from "@/lib/template-reader";
 import {
-  buildSiteScaffoldFiles,
-  buildDependabotAutoMergeWorkflow,
-  SITE_AUTOMERGE_WORKFLOW_PATH,
-  templateVersionFromFiles,
-} from "@/lib/site-scaffold";
-// Reuse create-site's prod-proven deploy path so a migrated site is
-// provisioned exactly like a created one (same musician-site template, same
-// Netlify/Vercel + env-var handling). Only the content differs.
-import { pickDeployTarget, deployToNetlify, deployToVercel } from "@/lib/jobs/create-site";
+  checkProvisionPreconditions,
+  PermanentProvisionError,
+  PROVISION_STEPS,
+  provisionSite,
+  runProvisionJob,
+} from "./provision-site";
 
 interface MigrateSitePayload {
   url: string;
@@ -28,191 +21,83 @@ interface MigrateSitePayload {
   blueprintType: BlueprintType;
 }
 
+/**
+ * The migrate_site steps, in order: crawl the source site, then the shared
+ * provisioning steps. Recorded on the job like create_site's, so a retried
+ * run resumes at the step that failed.
+ */
+export const MIGRATE_SITE_STEPS = ["crawlSource", ...PROVISION_STEPS] as const;
+
+/**
+ * The `crawlSource` step's result: the content to push over the template
+ * and the report shown on the site page. Stored so a resumed run pushes the
+ * same content instead of crawling again.
+ */
+type CrawlResult = { files: TemplateFile[]; report: MigrationReport };
+
+/**
+ * The migrate_site job handler, run by the job queue (see lib/jobs/worker.ts).
+ *
+ * Crawls the source site and maps it onto musician-site content files, then
+ * provisions the site through `provisionSite` exactly like create_site, with
+ * those files as the content overlay. Retries and failures are handled by
+ * `runProvisionJob`.
+ */
 export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
-  const payload = ctx.job.requestPayload as unknown as MigrateSitePayload;
+  return runProvisionJob<MigrateSitePayload>(ctx, {
+    requiredFields: ["url", "name", "slug"],
+    unknownErrorMessage: "Unknown error during migration",
+    run: async (runner) => {
+      const { url, name, slug } = ctx.job.requestPayload as unknown as MigrateSitePayload;
+      const userId = ctx.job.userId;
+      // Checked before crawling, so a missing integration fails fast.
+      const preconditions = await checkProvisionPreconditions(userId, "migrating");
 
-  if (!payload?.url || !payload?.name || !payload?.slug) {
-    return { success: false, message: "Missing required payload fields: url, name, slug" };
-  }
+      const crawl = (await runner.run("crawlSource", async () => {
+        const extracted = await crawlSite(url);
+        if (extracted.pages.length === 0) {
+          throw new PermanentProvisionError(
+            `Could not fetch any pages from ${url}. The site may be unavailable or block automated access.`,
+          );
+        }
+        const mapped = mapToMusicianSite(extracted, name);
+        const result: CrawlResult = {
+          files: mapped.files.map((f) => ({ path: f.path, content: f.content })),
+          report: buildMigrationReport(extracted, mapped, name),
+        };
+        return result as unknown as Prisma.JsonObject;
+      })) as unknown as CrawlResult;
 
-  const { url, name, slug } = payload;
-  const userId = ctx.job.userId;
-  const siteId = ctx.job.siteId;
-
-  try {
-    // ADMIN_EMAIL for the migrated site = the platform user's verified email
-    // (set during Resend connect). Same gate as create-site.
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (!user?.email) {
-      throw new Error("User has no verified email — connect Resend at /settings to set it");
-    }
-
-    // ── Step 1: Crawl source site ────────────────────────────────────────────
-    const extracted = await crawlSite(url);
-    if (extracted.pages.length === 0) {
-      return {
-        success: false,
-        message: `Could not fetch any pages from ${url}. The site may be unavailable or block automated access.`,
-        failureCategory: "unknown",
-      };
-    }
-
-    // ── Step 2: Map crawled content into musician-site overlay files ──────────
-    const mapped = mapToMusicianSite(extracted, name);
-    const report = buildMigrationReport(extracted, mapped, name);
-
-    const deployTarget = await pickDeployTarget(userId);
-
-    // ── Step 3: Create GitHub repo ───────────────────────────────────────────
-    const repoName = `stagecraft-site-${slug}`;
-    const repo = await createRepo({
-      userId,
-      name: repoName,
-      description: `${name} — musician website powered by Stagecraft (migrated)`,
-    });
-
-    await prisma.site.update({
-      where: { id: siteId },
-      data: {
-        githubRepoOwner: repo.owner,
-        githubRepoName: repo.name,
-        githubDefaultBranch: repo.defaultBranch,
-        deployTarget,
-      },
-    });
-
-    // ── Step 4: Push the musician-site template, overlaid with the crawled
-    //    content + the platform scaffold (Dependabot config + template stamp).
-    const templateFiles = await readTemplateFiles();
-    const mappedPaths = new Set(mapped.files.map((f) => f.path));
-    const files = [
-      ...templateFiles.filter((f) => !mappedPaths.has(f.path)),
-      ...mapped.files.map((f) => ({ path: f.path, content: f.content })),
-      ...buildSiteScaffoldFiles({
-        template: "musician-site",
-        templateVersion: templateVersionFromFiles(templateFiles),
-      }),
-    ];
-    await pushFiles(userId, repo.owner, repo.name, repo.defaultBranch, files, `Migrate site from ${url}`);
-
-    // Auto-merge workflow in its own commit — see create-site.ts. Best-effort:
-    // .github/workflows/ needs the `workflow` OAuth scope, and the migrated
-    // site is already pushed, so a missing scope shouldn't fail the migration.
-    try {
-      await pushFiles(
+      const site = await provisionSite({
+        runner,
+        siteId: ctx.job.siteId,
         userId,
-        repo.owner,
-        repo.name,
-        repo.defaultBranch,
-        [{ path: SITE_AUTOMERGE_WORKFLOW_PATH, content: buildDependabotAutoMergeWorkflow() }],
-        "Add Dependabot auto-merge workflow",
-      );
-    } catch (cause) {
-      console.warn(
-        "[migrate-site] auto-merge workflow push failed (missing `workflow` scope?); site migrated without it",
-        {
-          siteId,
-          owner: repo.owner,
-          name: repo.name,
-          error: cause instanceof Error ? cause.message : String(cause),
-        },
-      );
-    }
-
-    // ── Step 5: Provision the broker secret upfront (mirrors create-site) ─────
-    let stagecraftInstallationId = await findGithubAppInstallation(userId, "stagecraft-bot", repo.owner);
-    if (stagecraftInstallationId === null) {
-      try {
-        stagecraftInstallationId = await findAppInstallationForOwner(repo.owner);
-      } catch {
-        // App credentials not configured — skip.
-      }
-    }
-    const brokerSecret = stagecraftInstallationId !== null ? generateBrokerSecret() : null;
-    if (brokerSecret) {
-      await prisma.site.update({
-        where: { id: siteId },
-        data: { githubInstallationId: stagecraftInstallationId, brokerSecretHash: brokerSecret.hash },
+        name,
+        slug,
+        preconditions,
+        contentOverlay: crawl.files,
+        repoDescription: `${name} — musician website powered by Stagecraft (migrated)`,
+        commitMessage: `Migrate site from ${url}`,
       });
-    }
 
-    // ── Step 6: Resend creds + runtime env vars (mirrors create-site) ─────────
-    const resend = await getResendCredentials(userId);
-    if (!resend) {
-      throw new Error("Resend account not connected — connect Resend at /settings before migrating a site");
-    }
-
-    const envVars: Record<string, string> = {
-      ADMIN_EMAIL: user.email,
-      STAGECRAFT_SITE_ID: siteId,
-      RESEND_API_KEY: resend.apiKey,
-      ...(brokerSecret ? { STAGECRAFT_BROKER_SECRET: brokerSecret.plaintext } : {}),
-    };
-
-    // ── Step 7: Deploy on the chosen target (reused from create-site) ─────────
-    const deploy =
-      deployTarget === "vercel"
-        ? await deployToVercel({ userId, siteId, slug, repoOwner: repo.owner, repoName: repo.name, envVars })
-        : await deployToNetlify({
-            userId,
-            siteId,
-            slug,
-            repoOwner: repo.owner,
-            repoName: repo.name,
-            repoBranch: repo.defaultBranch,
-            envVars,
-          });
-
-    // ── Step 8: Mark site active with target-specific metadata ────────────────
-    await prisma.site.update({
-      where: { id: siteId },
-      data: {
-        productionUrl: deploy.productionUrl,
-        status: "active",
-        ...(deploy.netlifySiteId
-          ? { netlifySiteId: deploy.netlifySiteId, netlifyAdminUrl: deploy.adminUrl }
-          : {}),
-        ...(deploy.vercelProjectId
-          ? {
-              vercelProjectId: deploy.vercelProjectId,
-              vercelProjectName: deploy.vercelProjectName,
-              vercelTeamId: deploy.vercelTeamId,
-              vercelTeamSlug: deploy.vercelTeamSlug,
-            }
-          : {}),
-      },
-    });
-
-    return {
-      success: true,
-      data: {
-        deployTarget,
-        sourceUrl: url,
-        githubUrl: `https://github.com/${repo.owner}/${repo.name}`,
-        adminUrl: deploy.adminUrl,
-        productionUrl: deploy.productionUrl,
-        pagesCrawled: extracted.pages.length,
-        pagesMapped: report.pagesMapped,
-        overallConfidence: report.overallConfidence,
-        report: report as unknown as Record<string, unknown>,
-        ...(deploy.netlifySiteId ? { netlifySiteId: deploy.netlifySiteId, netlifyAdminUrl: deploy.adminUrl } : {}),
-        ...(deploy.vercelProjectId
-          ? { vercelProjectId: deploy.vercelProjectId, vercelProjectName: deploy.vercelProjectName }
-          : {}),
-        ...(deploy.netlifyLinkUrl ? { netlifyLinkUrl: deploy.netlifyLinkUrl } : {}),
-        ...(deploy.envWarning ? { envWarning: deploy.envWarning } : {}),
-      },
-    };
-  } catch (error) {
-    await prisma.site.update({
-      where: { id: siteId },
-      data: { status: "error" },
-    });
-
-    const message = error instanceof Error ? error.message : "Unknown error during migration";
-    return { success: false, message };
-  }
+      const { report } = crawl;
+      // The crawled files only matter for resuming pushTemplate, and the
+      // report is already below. Drop the crawl result from the finished job,
+      // whose payload GET /api/sites/[siteId] returns on every poll.
+      const steps = runner.progress();
+      delete steps.crawlSource?.result;
+      return {
+        success: true,
+        data: {
+          ...site,
+          sourceUrl: url,
+          pagesCrawled: report.pagesCrawled,
+          pagesMapped: report.pagesMapped,
+          overallConfidence: report.overallConfidence,
+          report: report as unknown as Record<string, unknown>,
+          steps,
+        },
+      };
+    },
+  });
 }
