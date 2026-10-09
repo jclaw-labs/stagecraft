@@ -15,6 +15,17 @@ describe("prismaClientOptions", () => {
     expect(options.adapter).toBeInstanceOf(PrismaNeon);
   });
 
+  it("passes DATABASE_URL to the Neon adapter", () => {
+    const options = prismaClientOptions(
+      { DATABASE_URL: NEON_URL, DATABASE_DRIVER: "neon" },
+      true,
+    );
+    // PrismaNeon keeps its constructor argument on `config` (private in the
+    // .d.ts, readable at runtime). If that field is renamed this fails loudly
+    // rather than passing silently.
+    expect(options.adapter).toMatchObject({ config: { connectionString: NEON_URL } });
+  });
+
   it("uses no adapter for a Neon URL when DATABASE_DRIVER is unset", () => {
     const options = prismaClientOptions({ DATABASE_URL: NEON_URL }, true);
     expect(options).not.toHaveProperty("adapter");
