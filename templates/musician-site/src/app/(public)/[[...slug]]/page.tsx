@@ -89,7 +89,7 @@ type Props = {
 // public URL is prerendered at build time. Anything not listed by
 // `generateStaticParams` 404s rather than rendering on demand, through
 // the themed root `app/not-found.tsx`.
-// `/admin` and `/api` live outside this route and stay dynamic.
+// `/admin` and `/api` live outside this route and build as before.
 // ---------------------------------------------------------------------------
 
 export const dynamicParams = false;
