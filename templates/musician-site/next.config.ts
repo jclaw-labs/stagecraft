@@ -32,6 +32,15 @@ const monorepoRoot = detectMonorepoRoot();
 const config: NextConfig = {
   reactStrictMode: true,
   ...(monorepoRoot ? { outputFileTracingRoot: monorepoRoot } : {}),
+  experimental: {
+    /**
+     * Serve unmatched URLs from `src/app/global-not-found.tsx`. A root
+     * `app/not-found.tsx` would go into the RSC payload of every route,
+     * admin included, and the public 404 renders the artist's theme
+     * (#390). Experimental in Next 15.4+.
+     */
+    globalNotFound: true,
+  },
   /**
    * Response headers applied to specific static paths.
    *

@@ -33,6 +33,10 @@ src/
       [[...slug]]/page.tsx  Catch-all for every public URL:
                               /         → splash page or 'home'
                               /<slug>   → src/content/pages/<slug>.json
+      not-found.tsx         Themed 404 body
+    global-not-found.tsx    404 for unmatched URLs, in the public layout.
+                            No root not-found.tsx: Next would put it in
+                            every admin response's RSC payload.
     admin/
       page.tsx              Redirects to /admin/pages
       login/page.tsx        Magic-link sign-in form
@@ -264,8 +268,9 @@ values (colors, fonts, spacing, sizes, radii, shadows) come from CSS
 custom properties — no hardcoded hex, sizes, or weights in CSS, in
 inline `style={...}` props, or in HTML returned from route handlers.
 
-The token set is defined at `src/app/globals.css` (imported once from
-`src/app/layout.tsx`). Naming follows the shared prefix conventions
+The token set is defined at `src/app/globals.css` (imported from
+`src/app/layout.tsx`, and from `src/app/global-not-found.tsx`, which
+bypasses the root layout). Naming follows the shared prefix conventions
 (`--color-*`, `--font-size-*`, `--font-weight-*`, `--space-*`,
 `--radius-*`) so it stays consistent with `apps/web/`.
 
@@ -294,6 +299,7 @@ server against an isolated content directory.
 | `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state) and `seedCompletedSite` (post-wizard state). Specs call these from `beforeEach`. |
 | `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |
 | `e2e/reset.spec.ts`           | Three-stage danger-zone confirm (idle → warned → confirming) + the type-to-confirm gating + the post-reset return to `/admin/welcome`. |
+| `e2e/not-found.spec.ts`       | Admin HTML and RSC payloads carry no public layout or theme; unknown admin and public URLs get their own 404s with status 404. |
 
 **Adding a new spec.** New admin surfaces follow the same pattern:
 `beforeEach` calls one of the seed helpers to put the dev server's

@@ -4,9 +4,9 @@ import Link from "next/link";
  * 404 for `/admin/*`: a `notFound()` from any admin page, and any admin
  * URL no route serves (via the `[...unknown]` catch-all beside it).
  *
- * Without this, those fell through to the root `not-found.tsx`, which
- * renders inside the public layout and so carried the artist's theme
- * and site title. This uses the admin's neutral tokens and the same
+ * Without this, those fell through to the public 404, which renders
+ * inside the public layout and so carries the artist's theme and site
+ * title. This uses the admin's neutral tokens and the same
  * minimal frame as `/admin/login`. The tab keeps the root layout's
  * title, like every other admin page.
  */
