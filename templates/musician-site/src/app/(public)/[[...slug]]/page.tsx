@@ -8,14 +8,14 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
 import {
-  describeRoutingConflict,
+  assertCollectionRouting,
   getFsReadStore,
   listCollectionSlugs,
+  listPublicRouteSegments,
   readCollectionDef,
   readItem,
   resolveCollectionItemUrl,
   slugSchema,
-  validateCollectionRouting,
   type CollectionDef,
   type Item,
 } from "@/lib/collections";
@@ -47,10 +47,10 @@ import { buildUnifiedPublicConfig } from "@/puck/unified-config";
 // (slugs + defs) and read the site / header singletons. React.cache()
 // dedupes those reads within a single request lifecycle — both
 // `generateMetadata` (which runs first) and the page render share the
-// same cached call results. Module-level memoisation would be wrong
-// here because the on-disk state can change between requests (the
-// admin writes definitions / items; tests reset state). React.cache()
-// is request-scoped: stale data can't leak across requests.
+// same cached call results. The route is prerendered, so in production
+// these reads run at build time. Module-level memoisation would still be
+// wrong: `next dev` re-reads content per request and tests reset it
+// between cases. React.cache() is scoped to one render.
 // ---------------------------------------------------------------------------
 
 // Public-renderer reads always hit the FS snapshot of `main` — visitors
@@ -82,19 +82,55 @@ type Props = {
   params: Promise<{ slug?: string[] }>;
 };
 
+// ---------------------------------------------------------------------------
+// Static generation
+//
+// Content only changes through a commit + redeploy (ADR-007), so every
+// public URL is prerendered at build time. Anything not listed by
+// `generateStaticParams` 404s rather than rendering on demand, through
+// the themed root `app/not-found.tsx`.
+// `/admin` and `/api` live outside this route and build as before.
+// ---------------------------------------------------------------------------
+
+export const dynamicParams = false;
+
+/**
+ * Every page plus every collection item with a detail URL (ADR-009 §8).
+ * Runs the routing-conflict check first, so a conflict fails
+ * `next build` with the structured message instead of reaching the
+ * live site.
+ */
+export async function generateStaticParams(): Promise<{ slug: string[] }[]> {
+  const store = getFsReadStore();
+  // `listPageSlugs` writes any missing prebaked collection defs, so it
+  // has to finish before the defs are read; otherwise a repo without a
+  // committed `pages/_collection.json` drops every page from the set.
+  const pageSlugs = await listPageSlugs(store);
+  const [allDefs, rootPageSlug] = await Promise.all([
+    cachedAllDefs(),
+    cachedResolveRootPageSlug(),
+  ]);
+  assertCollectionRouting(allDefs, pageSlugs);
+
+  const routable = allDefs.filter((d) => !d.isSingleton && d.detailUrlPrefix !== null);
+  const itemSlugs = await Promise.all(routable.map((d) => store.listItemSlugs(d.slug)));
+  const itemSlugsByCollection = new Map(routable.map((d, i) => [d.slug, itemSlugs[i]]));
+
+  return listPublicRouteSegments(allDefs, itemSlugsByCollection, rootPageSlug !== null).map(
+    (slug) => ({ slug }),
+  );
+}
+
 /**
  * Catch-all renderer for every public URL.
  *
- * Dispatch (ADR-009 §8):
+ * Dispatch (ADR-009 §8). Routing conflicts are already ruled out by
+ * `generateStaticParams`, which fails the build on one.
  *
- *   1. `validateCollectionRouting` runs first — catches a Page slug
- *      shadowing a collection prefix or two collections claiming
- *      the same prefix. Both can corrupt the public site silently
- *      if allowed.
- *   2. `resolveCollectionItemUrl` matches the URL against every
+ *   1. `resolveCollectionItemUrl` matches the URL against every
  *      collection's `detailUrlPrefix` (longest-prefix-first). A
  *      non-Pages match renders the collection's `detailTemplate`.
- *   3. Pages fall through to the legacy `readPageOrNull` flow,
+ *   2. Pages fall through to the legacy `readPageOrNull` flow,
  *      which renders via the page-specific `puckConfig` (root
  *      props + `puckContent` body). Pages don't have a
  *      `detailTemplate` — the page body IS the page, with no
@@ -106,22 +142,6 @@ export default async function CatchAllPage({ params }: Props) {
   const { slug: segments } = await params;
 
   const allDefs = await cachedAllDefs();
-
-  // Routing-conflict check. Only the page slug list is needed here
-  // (the conflict check doesn't care about titles or body content),
-  // so we read slugs only instead of the heavier `listPageSummaries`
-  // which loads every page's `puckContent` body just to extract the
-  // title.
-  const pageSlugs = await listPageSlugs(getFsReadStore());
-  const conflicts = validateCollectionRouting(allDefs, pageSlugs);
-  if (conflicts.length > 0) {
-    // A configuration error in the artist's repo. Fail loudly with a
-    // structured message; falling through to 404 would hide the real
-    // problem from whoever's debugging.
-    throw new Error(
-      `Collection-routing conflict:\n${conflicts.map(describeRoutingConflict).join("\n")}`,
-    );
-  }
 
   const segs = segments ?? [];
   const itemUrl = resolveCollectionItemUrl(segs, allDefs);

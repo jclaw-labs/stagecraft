@@ -15,20 +15,24 @@
  * for non-Pages collections; the artist creates a Page with a
  * Collection block to fill that role.
  *
- * Two pure functions in this module:
+ * The pure functions in this module:
  *
- *   - `resolveCollectionItemUrl(segments, defs)` — request-time
- *     routing. Given the URL segments and the collection registry,
- *     return the collection + item-slug pair (or null for no match).
+ *   - `resolveCollectionItemUrl(segments, defs)` — dispatch. Given the
+ *     URL segments and the collection registry, return the collection
+ *     + item-slug pair (or null for no match).
  *
- *   - `validateCollectionRouting(defs, pageSlugs)` — build / startup
- *     time. Checks for two error classes:
+ *   - `listPublicRouteSegments(...)` — the inverse, used by the
+ *     catch-all's `generateStaticParams`: every URL the public site
+ *     prerenders at build time.
+ *
+ *   - `validateCollectionRouting(defs, pageSlugs)` — checks for two
+ *     error classes:
  *       - Multiple collections claiming the same `detailUrlPrefix`
  *       - A Page slug colliding with another collection's prefix root
  *
- * Both classes can corrupt the public site if allowed at runtime, so
- * the catch-all route calls `validateCollectionRouting` on first
- * request and fails loudly if conflicts exist.
+ * Both classes can corrupt the public site if allowed, so the
+ * catch-all's `generateStaticParams` calls `assertCollectionRouting`
+ * and a conflict fails `next build` instead of the live site.
  */
 
 import type { CollectionDef } from "./schema";
@@ -203,13 +207,61 @@ export function validateCollectionRouting(
 }
 
 /**
+ * Throw if the registry has any routing conflict, with every conflict
+ * described in the message. The public catch-all calls this from
+ * `generateStaticParams`, so a conflict fails `next build` with a
+ * structured error rather than turning every public page into a 500.
+ */
+export function assertCollectionRouting(
+  defs: ReadonlyArray<CollectionDef>,
+  pageSlugs: ReadonlyArray<string>,
+): void {
+  const conflicts = validateCollectionRouting(defs, pageSlugs);
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Collection-routing conflict:\n${conflicts.map(describeRoutingConflict).join("\n")}`,
+    );
+  }
+}
+
+/**
+ * Every public URL to prerender, as catch-all segment arrays: `[]` for
+ * the root (when a page owns it), then each item of every collection
+ * with detail pages, Pages included.
+ *
+ * A URL is kept only when `resolveCollectionItemUrl` dispatches it back
+ * to the same item, so the prerendered set can't drift from what the
+ * renderer serves (e.g. a nested prefix shadowed by a longer one).
+ */
+export function listPublicRouteSegments(
+  defs: ReadonlyArray<CollectionDef>,
+  itemSlugsByCollection: ReadonlyMap<string, ReadonlyArray<string>>,
+  hasRootPage: boolean,
+): string[][] {
+  const routes: string[][] = hasRootPage ? [[]] : [];
+  const seen = new Set<string>();
+  for (const def of defs) {
+    for (const itemSlug of itemSlugsByCollection.get(def.slug) ?? []) {
+      const url = itemDetailUrl(def, itemSlug);
+      if (url === null || seen.has(url)) continue;
+      const segments = url.split("/").filter(Boolean);
+      const resolved = resolveCollectionItemUrl(segments, defs);
+      if (resolved?.collectionSlug !== def.slug || resolved.itemSlug !== itemSlug) continue;
+      seen.add(url);
+      routes.push(segments);
+    }
+  }
+  return routes;
+}
+
+/**
  * Single-slug shadowing check, used by page creation and rename
  * (via `pageSlugShadowError` in `page-slug-shadow.ts`) to reject a
  * proposed slug BEFORE it lands on disk. Returns the offending
  * collection's slug + prefix if `pageSlug` would shadow a non-Pages
  * collection's prefix root, `null` otherwise.
  *
- * The full `validateCollectionRouting` runs at request time and
+ * The full `validateCollectionRouting` runs at build time and
  * surfaces every conflict in the registry; this helper is the
  * pre-flight version for the single-slug case so the editor can fail
  * a create or rename with a useful 409 instead of letting the new
