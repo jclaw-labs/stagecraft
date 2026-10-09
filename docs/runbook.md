@@ -381,6 +381,7 @@ The Worker has no long-lived process, so `wrangler.jsonc` sets `STAGECRAFT_INPRO
 | `STAGECRAFT_CREDENTIALS_KEY` | yes | Encrypts and decrypts stored integration credentials (`apps/web/src/lib/credential-crypto.ts`). Must be the same value as on Netlify whenever both read the same database. Unset, sign-in and the connect flows fail (the Worker runs with `NODE_ENV=production`) and encrypted tokens can't be read. See [§9](#9-credential-encryption) |
 | `STAGECRAFT_CREDENTIALS_OLD_KEYS` | no | Retired credential keys, decrypt only. Same value as on Netlify ([§9](#rotating-the-key)) |
 | `STAGECRAFT_CREDENTIALS_REQUIRED` | no | `false` lets writes store plaintext with no key set. Leave unset ([§9](#when-the-key-is-missing)) |
+| `STAGECRAFT_CREDENTIALS_ACCEPT_V1` | no | `false` refuses legacy, row-unbound `enc:v1:` credentials. Set once the backfill has left none, same value as on Netlify ([§9](#first-rollout), step 5) |
 | `GITHUB_APP_INSTALLATION_ID_NETLIFY` | no | Fallback installation id when `/user/installations` can't find the Netlify app |
 | `GITHUB_APP_INSTALLATION_ID_STAGECRAFT_BOT` | no | Same fallback for `stagecraft-bot` |
 
@@ -434,7 +435,7 @@ The app writes encrypted values as `enc:v2:<keyId>:<iv>:<tag>:<ciphertext>`. A v
 
 The app also still reads:
 
-- `enc:v1:` values, written before v2 existed. They decrypt as before but aren't bound to a row. The backfill below upgrades them to v2.
+- `enc:v1:` values, written before v2 existed. They decrypt as before but aren't bound to a row, so a v1 value copied into another row (from the live database, a dump, or the database's history) decrypts there too. The backfill below upgrades them to v2, and setting `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` afterwards makes the app refuse v1 values ([step 5](#first-rollout)). Only from then on is every stored credential bound to its row.
 - Values with no `enc:` prefix, as legacy plaintext, so rows written before the key was set keep working until the backfill encrypts them.
 
 A value with any other `enc:` version is refused, never treated as plaintext.
@@ -468,6 +469,22 @@ With `STAGECRAFT_CREDENTIALS_KEY` unset, what a credential write does depends on
 Separately, setting `STAGECRAFT_CREDENTIALS_OLD_KEYS` without `STAGECRAFT_CREDENTIALS_KEY` always fails writes, whatever the flag says: that is a rotation done halfway, not a host that hasn't been given a key yet.
 
 Reads don't depend on any of this: legacy plaintext rows read with or without a key, and encrypted ones need their key.
+
+### Checking a key's shape
+
+Before deploying a build from issue #370 or later with an existing key, check that the key, and every entry of `STAGECRAFT_CREDENTIALS_OLD_KEYS`, has the strict shape above. The v1-only build (issue #354) accepted any encoding that decoded to 32 bytes, such as base64url or base64 without the trailing `=`; this build rejects those, and a rejected key fails every encrypted credential read and write on that host. Read the deployed value (from 1Password) at a hidden prompt, as in [Setting the variables for the backfill](#setting-the-variables-for-the-backfill), then:
+
+```bash
+[[ "$STAGECRAFT_CREDENTIALS_KEY" =~ ^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9+/]{43}=$ ]] && echo ok
+```
+
+If it doesn't print `ok`, re-encode the same 32 bytes as standard base64 under the same key id. The bytes don't change, so values already encrypted under it still decrypt:
+
+```bash
+node -e 'const s=process.env.STAGECRAFT_CREDENTIALS_KEY.trim();const i=s.indexOf(":");const b=Buffer.from(s.slice(i+1),"base64");if(i<1||b.length!==32){console.error("not <id>:<32 bytes>");process.exit(1)}console.log(s.slice(0,i)+":"+b.toString("base64"))'
+```
+
+Put the printed value in 1Password and set it on both hosts in place of the old one (with the build that is already deployed, which reads either form), and re-run the check on it, before deploying this build.
 
 ### Setting the variables for the backfill
 
@@ -510,11 +527,15 @@ Alternatively, keep them in a file outside the repo created with `umask 077` (or
       OR (id_token IS NOT NULL AND id_token NOT LIKE 'enc:v2:%');
    ```
 
+5. **Stop accepting v1.** Once both counts are 0 on every database the hosts read, set `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` on Netlify (site environment variables, then redeploy) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_ACCEPT_V1`, [§8](#worker-secrets)). From then on the app refuses `enc:v1:` values, so an old v1 ciphertext pasted into a row no longer decrypts, and the row binding covers every stored credential. Unset (the default) or `true` keeps accepting them; any other value refuses them. A v1 value that turns up later (a restore from an older backup, say) fails to read with an error naming the flag, and the backfill lists it as undecryptable and leaves it: have that user reconnect.
+
+   Until this step, the binding protects only values written as v2. Someone with database write access could have copied a v1 value into their own row before the backfill ran, and the backfill would then have re-encrypted that copy as v2 bound to their row. If database write access may have been exposed before step 5, have users reconnect their integrations, or revoke and reissue the tokens with the providers, so the stored tokens are new ones.
+
 After step 3, don't remove the key or roll the app back to a build from before encryption: either would send ciphertext to GitHub, Netlify, Vercel and Resend, and every integration call would fail until the key is restored. Once any v2 value exists, don't roll back to a build that only knows v1 (from before issue #370) either; it takes `enc:v2:` values for plaintext and sends them to the provider.
 
 #### Upgrading from v1
 
-If the v1-only build (issue #354) is already deployed with a key, the key stays as it is. Deploy this build to both hosts (new writes become v2 straight away, and v1 values keep reading), then run steps 3 and 4 to upgrade the stored v1 values.
+If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails on both hosts. Then deploy this build to both hosts (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, and finish with step 5.
 
 ### Rotating the key
 

@@ -16,8 +16,12 @@
  * also binds the row and column the value belongs to (`CredentialField`),
  * so a ciphertext copied into another user's row, another provider's row
  * or another column fails the tag check instead of decrypting. v1 values
- * (written before #370) carry no row binding; they still decrypt anywhere,
- * exactly as before, until the backfill script upgrades them to v2.
+ * (written before #370) carry no row binding: while they are accepted they
+ * decrypt in any row, exactly as before. The backfill script upgrades them
+ * to v2, after which `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` refuses v1 on
+ * read, so an old v1 ciphertext (from a dump, or the database's history)
+ * pasted into a row no longer decrypts. Until then the row binding covers
+ * only values written as v2.
  *
  * The key id travels with the value, so keys rotate without a flag day:
  * `STAGECRAFT_CREDENTIALS_KEY` is the current key (encrypts and decrypts),
@@ -44,6 +48,7 @@ import type { IntegrationProvider } from "@stagecraft/shared";
 export const CREDENTIALS_KEY_ENV = "STAGECRAFT_CREDENTIALS_KEY";
 export const CREDENTIALS_OLD_KEYS_ENV = "STAGECRAFT_CREDENTIALS_OLD_KEYS";
 export const CREDENTIALS_REQUIRED_ENV = "STAGECRAFT_CREDENTIALS_REQUIRED";
+export const CREDENTIALS_ACCEPT_V1_ENV = "STAGECRAFT_CREDENTIALS_ACCEPT_V1";
 
 /** The token columns of NextAuth's `Account` that hold credentials. */
 export const ACCOUNT_TOKEN_COLUMNS = ["access_token", "refresh_token", "id_token"] as const;
@@ -177,17 +182,37 @@ function getKeyring(): Promise<Keyring> {
 }
 
 /**
+ * A "true" / "false" flag (any case, trimmed); `defaultValue` when unset or
+ * empty. Any other value throws, so a typo can't flip a safety switch.
+ */
+function booleanFlag(envName: string, defaultValue: () => boolean): boolean {
+  const raw = process.env[envName]?.trim().toLowerCase() ?? "";
+  if (raw === "") return defaultValue();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${envName} must be "true" or "false"`);
+}
+
+/**
  * Whether a missing `STAGECRAFT_CREDENTIALS_KEY` makes writes fail instead
  * of storing plaintext. `STAGECRAFT_CREDENTIALS_REQUIRED` set to "true" or
  * "false" decides; unset (or empty), it is on exactly when NODE_ENV is
  * "production". Any other value throws, so a typo can't turn it off.
  */
 export function credentialsRequired(): boolean {
-  const raw = process.env[CREDENTIALS_REQUIRED_ENV]?.trim().toLowerCase() ?? "";
-  if (raw === "") return process.env.NODE_ENV === "production";
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  throw new Error(`${CREDENTIALS_REQUIRED_ENV} must be "true" or "false"`);
+  return booleanFlag(CREDENTIALS_REQUIRED_ENV, () => process.env.NODE_ENV === "production");
+}
+
+/**
+ * Whether legacy, row-unbound `enc:v1:` values still decrypt.
+ * `STAGECRAFT_CREDENTIALS_ACCEPT_V1` set to "true" or "false" decides;
+ * unset (or empty), they do, so a deploy doesn't break before the backfill
+ * has upgraded them. Set it to "false" once no v1 values are left (runbook
+ * §9): only then is every stored credential bound to its row. Any other
+ * value throws, which refuses v1 reads rather than accepting them.
+ */
+export function credentialsAcceptV1(): boolean {
+  return booleanFlag(CREDENTIALS_ACCEPT_V1_ENV, () => true);
 }
 
 /**
@@ -292,12 +317,19 @@ export async function encryptCredential(plaintext: string, field: CredentialFiel
 /**
  * Decrypt the credential stored in `field`. Legacy plaintext (no `enc:`
  * prefix) is returned unchanged and v1 values decrypt without the row
- * binding. Throws when an encrypted value can't be decrypted, including a
- * v2 value that was written for a different row or column.
+ * binding, unless `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` refuses them.
+ * Throws when an encrypted value can't be decrypted, including a v2 value
+ * that was written for a different row or column.
  */
 export async function decryptCredential(stored: string, field: CredentialField): Promise<string> {
   const format = credentialFormat(stored);
   if (format === "plaintext") return stored;
+  if (format === "v1" && !credentialsAcceptV1()) {
+    throw new Error(
+      `Stored credential is in the legacy v1 format, which is not bound to its row; ` +
+        `${CREDENTIALS_ACCEPT_V1_ENV}=false refuses it. Have the user reconnect (docs/runbook.md §9).`,
+    );
+  }
   const parts = stored.slice(V1_PREFIX.length).split(":");
   if (parts.length !== 4) {
     throw new Error("Stored credential is malformed");

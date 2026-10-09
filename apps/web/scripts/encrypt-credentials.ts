@@ -7,7 +7,9 @@
  *
  * - Plaintext values are encrypted in the row-bound `enc:v2:` format.
  * - Legacy `enc:v1:` values (encrypted, but not bound to their row) are
- *   decrypted and re-encrypted as v2 under the current key.
+ *   decrypted and re-encrypted as v2 under the current key. With
+ *   STAGECRAFT_CREDENTIALS_ACCEPT_V1=false they can't be decrypted, so they
+ *   are reported as undecryptable and left as they are.
  * - `enc:v2:` values are left alone, unless `--rotate` is given and they are
  *   under an older key, in which case they are re-encrypted with the
  *   current one, after which that old key can be dropped from

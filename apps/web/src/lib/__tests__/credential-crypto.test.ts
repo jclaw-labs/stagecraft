@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CREDENTIALS_ACCEPT_V1_ENV,
   CREDENTIALS_KEY_ENV,
   CREDENTIALS_OLD_KEYS_ENV,
   CREDENTIALS_REQUIRED_ENV,
   credentialBinding,
   credentialFormat,
   credentialKeyId,
+  credentialsAcceptV1,
   credentialsRequired,
   currentCredentialKeyId,
   decryptCredential,
@@ -36,6 +38,7 @@ beforeEach(() => {
   vi.stubEnv(CREDENTIALS_KEY_ENV, KEY_A);
   vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, "");
   vi.stubEnv(CREDENTIALS_REQUIRED_ENV, "");
+  vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "");
   vi.stubEnv("NODE_ENV", "test");
 });
 
@@ -191,6 +194,51 @@ describe("legacy v1 values", () => {
     await expect(decryptCredential(`enc:v2:${keyId}:${iv}:${tag}:${ct}`, GITHUB)).rejects.toThrow(
       /failed to decrypt/,
     );
+  });
+});
+
+describe(`legacy v1 values with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () => {
+  beforeEach(() => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "false");
+  });
+
+  it("are refused, in their own row and in a row they were copied into", async () => {
+    const v1 = encryptV1ForTests("ghp_old", KEY_A);
+    await expect(decryptCredential(v1, GITHUB)).rejects.toThrow(CREDENTIALS_ACCEPT_V1_ENV);
+    await expect(
+      decryptCredential(v1, integrationCredentialField("user-2", "vercel")),
+    ).rejects.toThrow(/legacy v1 format/);
+    await expect(decryptOptionalCredential(v1, GITHUB)).rejects.toThrow(/legacy v1 format/);
+  });
+
+  it("leave v2 values and legacy plaintext readable", async () => {
+    const v2 = await encryptCredential("ghp_new", GITHUB);
+    expect(await decryptCredential(v2, GITHUB)).toBe("ghp_new");
+    expect(await decryptCredential("ghp_plain", GITHUB)).toBe("ghp_plain");
+  });
+
+  it("refuses v1 on a typo too, rather than reading it", async () => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "flase");
+    const v1 = encryptV1ForTests("ghp_old", KEY_A);
+    await expect(decryptCredential(v1, GITHUB)).rejects.toThrow(CREDENTIALS_ACCEPT_V1_ENV);
+  });
+});
+
+describe("credentialsAcceptV1", () => {
+  it.each([
+    ["", true],
+    ["true", true],
+    [" TRUE ", true],
+    ["false", false],
+    [" False\n", false],
+  ])("%j is %s", (flag, expected) => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, flag);
+    expect(credentialsAcceptV1()).toBe(expected);
+  });
+
+  it.each(["0", "no", "off"])("throws on %j rather than guessing", (flag) => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, flag);
+    expect(() => credentialsAcceptV1()).toThrow(CREDENTIALS_ACCEPT_V1_ENV);
   });
 });
 

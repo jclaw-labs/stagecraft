@@ -15,12 +15,14 @@ const { prismaMock } = vi.hoisted(() => ({
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 
 import {
+  CREDENTIALS_ACCEPT_V1_ENV,
   CREDENTIALS_KEY_ENV,
   encryptCredential,
   integrationCredentialField,
   resetCredentialCryptoForTests,
 } from "../../credential-crypto";
 import type { IntegrationProvider } from "@stagecraft/shared";
+import { encryptV1ForTests } from "../../__tests__/credential-test-helpers";
 import { findGithubAppInstallation } from "../github";
 import { triggerBuild } from "../netlify";
 import { getResendCredentials } from "../resend";
@@ -44,9 +46,12 @@ async function storeToken(plaintext: string, provider: IntegrationProvider, user
   });
 }
 
+const KEY = `k1:${randomBytes(32).toString("base64")}`;
+
 beforeEach(() => {
   resetCredentialCryptoForTests();
-  vi.stubEnv(CREDENTIALS_KEY_ENV, `k1:${randomBytes(32).toString("base64")}`);
+  vi.stubEnv(CREDENTIALS_KEY_ENV, KEY);
+  vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "");
   prismaMock.integrationAccount.findUnique.mockReset();
 });
 
@@ -101,6 +106,18 @@ describe("stored token read sites", () => {
     stubFetch(null, 204);
     await expect(deleteProject("user-1", "prj_abc")).rejects.toThrow(/failed to decrypt/);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it(`reads an unbound v1 value until ${CREDENTIALS_ACCEPT_V1_ENV}=false, then refuses it`, async () => {
+    // A v1 value carries no row binding, so this could be another user's key.
+    prismaMock.integrationAccount.findUnique.mockResolvedValue({
+      accessToken: encryptV1ForTests("re_someone_elses", KEY),
+      metadata: {},
+    });
+    expect(await getResendCredentials("user-1")).toEqual({ apiKey: "re_someone_elses" });
+
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "false");
+    await expect(getResendCredentials("user-1")).rejects.toThrow(/legacy v1 format/);
   });
 
   it("refuses to call the provider with a token it can't decrypt", async () => {

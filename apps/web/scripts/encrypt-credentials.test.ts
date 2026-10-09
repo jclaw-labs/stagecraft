@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CREDENTIALS_ACCEPT_V1_ENV,
   CREDENTIALS_KEY_ENV,
   CREDENTIALS_OLD_KEYS_ENV,
   credentialFormat,
@@ -114,6 +115,7 @@ beforeEach(() => {
   resetCredentialCryptoForTests();
   vi.stubEnv(CREDENTIALS_KEY_ENV, KEY_A);
   vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, "");
+  vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "");
 });
 
 afterEach(() => {
@@ -316,18 +318,32 @@ describe("encryptStoredCredentials", () => {
 
   it("re-encrypts v2 values under an old key with --rotate only", async () => {
     const underA = await encryptCredential("tok", integrationField("int1"));
-    vi.stubEnv(CREDENTIALS_KEY_ENV, newKey("b"));
+    const KEY_B = newKey("b");
+    vi.stubEnv(CREDENTIALS_KEY_ENV, KEY_B);
     vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, KEY_A);
-    const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: underA })]);
+    const underB = await encryptCredential("tok-b", integrationField("int2"));
+    const { db, integrationAccount } = makeDb(
+      [],
+      [
+        integrationRow("int1", { accessToken: underA }),
+        integrationRow("int2", { accessToken: underB }),
+      ],
+    );
 
     await encryptStoredCredentials(db);
     expect(integrationAccount.store[0].accessToken).toBe(underA);
 
+    integrationAccount.updateMany.mockClear();
     const stats = await encryptStoredCredentials(db, { rotate: true });
     expect(stats.integrationAccount.valuesRotated).toBe(1);
     const rotated = integrationAccount.store[0].accessToken!;
     expect(credentialKeyId(rotated)).toBe("b");
     expect(await decryptCredential(rotated, integrationField("int1"))).toBe("tok");
+    // A value already under the current key is left exactly as it was.
+    expect(stats.integrationAccount.valuesAlreadyEncrypted).toBe(1);
+    expect(integrationAccount.store[1].accessToken).toBe(underB);
+    expect(integrationAccount.updateMany).toHaveBeenCalledTimes(1);
+    expect(integrationAccount.updateMany.mock.calls[0][0].where.id).toBe("int1");
   });
 
   it("with --rotate, skips a value it can't decrypt, names its row and rotates the rest", async () => {
@@ -384,6 +400,33 @@ describe("encryptStoredCredentials", () => {
     expect(
       await decryptCredential(account.store[0].refresh_token!, accountField("42", "refresh_token")),
     ).toBe("plain");
+  });
+});
+
+describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () => {
+  it("doesn't upgrade a v1 value: it lists it as undecryptable and leaves it", async () => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "false");
+    const v1 = encryptV1ForTests("ghp_old", KEY_A);
+    const { db, integrationAccount } = makeDb(
+      [],
+      [integrationRow("int1", { accessToken: v1, refreshToken: "plain" })],
+    );
+    const lines: string[] = [];
+
+    const stats = await encryptStoredCredentials(db, { log: (line) => lines.push(line) });
+
+    expect(stats.integrationAccount).toEqual({
+      ...ZERO,
+      rowsScanned: 1,
+      valuesEncrypted: 1,
+      undecryptable: 1,
+    });
+    expect(integrationAccount.store[0].accessToken).toBe(v1);
+    expect(lines).toContainEqual(
+      expect.stringContaining(`IntegrationAccount int1.accessToken: cannot decrypt`),
+    );
+    expect(lines).toContainEqual(expect.stringContaining(CREDENTIALS_ACCEPT_V1_ENV));
+    expect(() => assertAllDecryptable(stats)).toThrow(/could not be decrypted/);
   });
 });
 
