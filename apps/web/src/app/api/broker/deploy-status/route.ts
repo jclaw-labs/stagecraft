@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@stagecraft/db";
+import { extractBearer } from "@stagecraft/shared";
 
 import { brokerSecretMatches } from "@/lib/broker-secret";
 import { getLatestDeploy as getNetlifyLatestDeploy } from "@/lib/integrations/netlify";
@@ -14,12 +15,6 @@ import {
 function err(status: number, code: DeployStatusBrokerErrorCode, message?: string) {
   const body: DeployStatusBrokerError = { ok: false, code, error: message };
   return NextResponse.json(body, { status });
-}
-
-function extractBearer(header: string | null): string | null {
-  if (!header) return null;
-  const m = header.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : null;
 }
 
 /**
