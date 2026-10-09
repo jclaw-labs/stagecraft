@@ -101,14 +101,72 @@ export async function createSite(options: CreateSiteOptions): Promise<NetlifySit
 }
 
 /**
+ * Look up a site by id or by its `<name>.netlify.app` domain. Returns null
+ * when it doesn't exist. Used to adopt a site that an earlier, interrupted
+ * run of the same create_site job created before it could record the
+ * result. `linked` is false when the site has no repo attached (the
+ * manual-link fallback).
+ */
+export async function findSite(
+  userId: string,
+  siteIdOrDomain: string,
+): Promise<(NetlifySiteResult & { linked: boolean; createdAt?: string }) | null> {
+  const token = await getNetlifyToken(userId);
+  const res = await fetch(
+    `https://api.netlify.com/api/v1/sites/${encodeURIComponent(siteIdOrDomain)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Netlify API error (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as {
+    id: string;
+    name: string;
+    url: string;
+    admin_url: string;
+    ssl_url: string;
+    build_settings?: { repo_path?: string | null } | null;
+    created_at?: string;
+  };
+  return {
+    siteId: data.id,
+    siteName: data.name,
+    url: data.url,
+    adminUrl: data.admin_url,
+    sslUrl: data.ssl_url,
+    linked: Boolean(data.build_settings?.repo_path),
+    ...(data.created_at ? { createdAt: data.created_at } : {}),
+  };
+}
+
+/**
  * Set environment variables on a Netlify site.
  */
 export async function setEnvVars(
   userId: string,
   siteId: string,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  options: { replace?: boolean } = {},
 ): Promise<void> {
   const token = await getNetlifyToken(userId);
+
+  // The bulk POST only creates: it fails on a key the site already has. With
+  // `replace`, delete each key first (a 404 means it wasn't set) so the new
+  // values land.
+  if (options.replace) {
+    for (const key of Object.keys(vars)) {
+      const res = await fetch(
+        `https://api.netlify.com/api/v1/accounts/me/env/${encodeURIComponent(key)}?site_id=${siteId}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok && res.status !== 404) {
+        const body = await res.text();
+        throw new Error(`Netlify API error (${res.status}): ${body}`);
+      }
+    }
+  }
 
   const envArray = Object.entries(vars).map(([key, value]) => ({
     key,

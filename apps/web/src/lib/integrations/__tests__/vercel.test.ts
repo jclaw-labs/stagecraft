@@ -13,6 +13,7 @@ vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 import {
   validateVercelToken,
   createProject,
+  findProject,
   setEnvVars,
   triggerDeployment,
   deleteProject,
@@ -267,6 +268,41 @@ describe("createProject", () => {
     }
     expect(caught).not.toBeInstanceOf(VercelGitHubAppNotInstalledError);
     expect((caught as Error).message).toMatch(/Vercel API error \(400\)/);
+  });
+});
+
+describe("findProject", () => {
+  it("returns the project by name, shaped like createProject's result", async () => {
+    mockFetch((url) => {
+      if (url.includes("/v9/projects/")) {
+        expect(url).toBe("https://api.vercel.com/v9/projects/stagecraft-site-x?teamId=team_1");
+        return { status: 200, body: { id: "prj_1", name: "stagecraft-site-x", createdAt: 1760007605000 } };
+      }
+      if (url.includes("/v2/teams/")) return { status: 200, body: { slug: "my-team" } };
+      throw new Error(`unexpected ${url}`);
+    });
+
+    const project = await findProject("user-1", "stagecraft-site-x", "team_1");
+
+    expect(project).toEqual({
+      projectId: "prj_1",
+      projectName: "stagecraft-site-x",
+      teamId: "team_1",
+      teamSlug: "my-team",
+      productionUrl: "https://stagecraft-site-x.vercel.app",
+      adminUrl: "https://vercel.com/my-team/stagecraft-site-x",
+      createdAt: 1760007605000,
+    });
+  });
+
+  it("returns null when no project has that name", async () => {
+    mockFetch(() => ({ status: 404, body: { error: { code: "not_found" } } }));
+    expect(await findProject("user-1", "missing")).toBeNull();
+  });
+
+  it("throws on other errors", async () => {
+    mockFetch(() => ({ status: 500, body: "boom" }));
+    await expect(findProject("user-1", "x")).rejects.toThrow("Vercel API error (500)");
   });
 });
 

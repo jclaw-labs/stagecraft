@@ -7,9 +7,12 @@ const mockSiteFindUnique = vi.fn();
 const mockUserFindUnique = vi.fn();
 const mockIntegrationFindUnique = vi.fn();
 const mockIntegrationFindMany = vi.fn();
+const mockJobFindUnique = vi.fn();
+const mockJobUpdateMany = vi.fn();
 
 vi.mock("@stagecraft/db", () => ({
   prisma: {
+    siteJob: { findUnique: mockJobFindUnique, updateMany: mockJobUpdateMany },
     site: { update: mockSiteUpdate, delete: mockSiteDelete, findUnique: mockSiteFindUnique },
     user: { findUnique: mockUserFindUnique },
     integrationAccount: {
@@ -23,21 +26,30 @@ const mockCreateRepo = vi.fn();
 const mockDeleteRepo = vi.fn();
 const mockPushFiles = vi.fn();
 const mockFindGithubAppInstallation = vi.fn();
-vi.mock("@/lib/integrations/github", () => ({
-  createRepo: mockCreateRepo,
-  deleteRepo: mockDeleteRepo,
-  pushFiles: mockPushFiles,
-  findGithubAppInstallation: mockFindGithubAppInstallation,
-}));
+const mockGetOwnRepo = vi.fn();
+vi.mock("@/lib/integrations/github", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/integrations/github")>();
+  return {
+    GitHubApiError: actual.GitHubApiError,
+    createRepo: mockCreateRepo,
+    deleteRepo: mockDeleteRepo,
+    getOwnRepo: mockGetOwnRepo,
+    pushFiles: mockPushFiles,
+    findGithubAppInstallation: mockFindGithubAppInstallation,
+  };
+});
 
 const mockCreateNetlifySite = vi.fn();
+const mockFindNetlifySite = vi.fn();
 const mockSetNetlifyEnvVars = vi.fn();
 vi.mock("@/lib/integrations/netlify", () => ({
   createSite: mockCreateNetlifySite,
+  findSite: mockFindNetlifySite,
   setEnvVars: mockSetNetlifyEnvVars,
 }));
 
 const mockCreateVercelProject = vi.fn();
+const mockFindVercelProject = vi.fn();
 const mockSetVercelEnvVars = vi.fn();
 const mockTriggerVercelDeployment = vi.fn();
 vi.mock("@/lib/integrations/vercel", async (importOriginal) => {
@@ -45,6 +57,7 @@ vi.mock("@/lib/integrations/vercel", async (importOriginal) => {
   return {
     ...actual,
     createProject: mockCreateVercelProject,
+    findProject: mockFindVercelProject,
     setEnvVars: mockSetVercelEnvVars,
     triggerDeployment: mockTriggerVercelDeployment,
   };
@@ -61,7 +74,30 @@ vi.mock("@/lib/template-reader", () => ({
   readTemplateFiles: mockReadTemplateFiles,
 }));
 
-const { handleCreateSite } = await import("../jobs/create-site");
+const { handleCreateSite, CREATE_SITE_STEPS } = await import("../jobs/create-site");
+const { LeaseLostError, MAX_RETRY_ATTEMPTS } = await import("@stagecraft/queue");
+const { GitHubApiError } = await import("@/lib/integrations/github");
+
+/**
+ * The job row the step runner reads and writes. Persists across
+ * handleCreateSite calls within a test, the way the database does across
+ * runs of the same job.
+ */
+let jobRow: { status: string; startedAt: Date | null; resultPayload: unknown };
+
+type StepRecords = Record<string, { state: string; attempts: number; startedAt?: string; result?: unknown }>;
+
+function storedSteps(): StepRecords {
+  return ((jobRow.resultPayload as { steps?: StepRecords } | null)?.steps ?? {}) as StepRecords;
+}
+
+/** Seed progress an earlier run left behind. */
+function seedSteps(steps: StepRecords) {
+  jobRow.resultPayload = { steps };
+}
+
+/** When a seeded step's first attempt started, for the adopt-by-creation-time checks. */
+const STEP_STARTED_AT = "2026-10-09T11:00:00.000Z";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -116,6 +152,16 @@ const VERCEL_PROJECT_RESULT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  jobRow = { status: "running", startedAt: new Date("2026-10-09T12:00:00Z"), resultPayload: null };
+  mockJobFindUnique.mockImplementation(async () => ({ ...jobRow }));
+  mockJobUpdateMany.mockImplementation(async ({ where, data }) => {
+    if (where.status !== jobRow.status || where.startedAt !== jobRow.startedAt) return { count: 0 };
+    jobRow = { ...jobRow, ...data };
+    return { count: 1 };
+  });
+  mockFindNetlifySite.mockResolvedValue(null);
+  mockFindVercelProject.mockResolvedValue(null);
+  mockGetOwnRepo.mockResolvedValue(null);
   process.env = {
     ...ORIGINAL_ENV,
     AUTH_URL: "https://stagecraft.test",
@@ -134,7 +180,7 @@ beforeEach(() => {
   mockTriggerVercelDeployment.mockResolvedValue({ deploymentId: "dpl_test" });
   mockGetResendCredentials.mockResolvedValue({ apiKey: "re_test" });
   mockCreateRepo.mockResolvedValue(REPO_RESULT);
-  mockPushFiles.mockResolvedValue({ commitSha: "abc123" });
+  mockPushFiles.mockResolvedValue({ commitSha: "abc123", changed: true });
   // Default: Netlify's GitHub App is installed on the artist's account
   // (15980838); the Stagecraft bot App is not (null) so existing tests
   // continue to exercise the post-/create install-callback path.
@@ -154,6 +200,7 @@ describe("handleCreateSite — common preconditions", () => {
     const result = await handleCreateSite(makeContext({ requestPayload: {} }));
     expect(result.success).toBe(false);
     expect(result.message).toContain("Missing required payload");
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
   });
 
   it("marks site as error when no deploy-target integration is connected", async () => {
@@ -164,11 +211,14 @@ describe("handleCreateSite — common preconditions", () => {
     expect(mockCreateRepo).not.toHaveBeenCalled();
   });
 
-  it("marks site as error when GitHub repo creation fails", async () => {
-    mockCreateRepo.mockRejectedValueOnce(new Error("name already exists"));
+  it("fails without retrying when the repo name is already taken on a first attempt", async () => {
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
     const result = await handleCreateSite(makeContext());
     expect(result.success).toBe(false);
-    expect(result.message).toBe("name already exists");
+    expect(result.message).toContain("name already exists");
+    // Not an earlier run's repo, so it isn't adopted.
+    expect(mockGetOwnRepo).not.toHaveBeenCalled();
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
   });
 });
 
@@ -206,17 +256,21 @@ describe("handleCreateSite — Netlify path (only Netlify connected)", () => {
       data: expect.objectContaining({
         githubRepoOwner: "jclaw",
         githubRepoName: "sarah-chen-music",
-        deployTarget: "netlify",
       }),
     });
+    // Project ids land as soon as the project exists, so deleting the site
+    // cleans it up even if a later step fails.
     expect(mockSiteUpdate).toHaveBeenCalledWith({
       where: { id: "site-1" },
       data: expect.objectContaining({
+        deployTarget: "netlify",
         netlifySiteId: "netlify-123",
         netlifyAdminUrl: NETLIFY_SITE_RESULT.adminUrl,
-        productionUrl: NETLIFY_SITE_RESULT.sslUrl,
-        status: "active",
       }),
+    });
+    expect(mockSiteUpdate).toHaveBeenLastCalledWith({
+      where: { id: "site-1" },
+      data: { productionUrl: NETLIFY_SITE_RESULT.sslUrl, status: "active" },
     });
   });
 
@@ -294,10 +348,10 @@ describe("handleCreateSite — Netlify path (only Netlify connected)", () => {
     });
   });
 
-  it("marks site as error when Netlify project creation fails (no fallback recovery)", async () => {
+  it("marks site as error when Netlify project creation fails on the last attempt (no fallback recovery)", async () => {
     mockCreateNetlifySite.mockRejectedValue(new Error("Netlify quota exceeded"));
 
-    const result = await handleCreateSite(makeContext());
+    const result = await handleCreateSite(makeContext({ retryAttempts: MAX_RETRY_ATTEMPTS }));
 
     expect(result.success).toBe(false);
     expect(result.message).toBe("Netlify quota exceeded");
@@ -333,17 +387,14 @@ describe("handleCreateSite — Vercel path (Vercel connected)", () => {
       where: { id: "site-1" },
       data: expect.objectContaining({
         deployTarget: "vercel",
-      }),
-    });
-    expect(mockSiteUpdate).toHaveBeenCalledWith({
-      where: { id: "site-1" },
-      data: expect.objectContaining({
         vercelProjectId: "prj_abc123",
         vercelProjectName: "stagecraft-site-sarah-chen-music",
         vercelTeamId: null,
-        productionUrl: VERCEL_PROJECT_RESULT.productionUrl,
-        status: "active",
       }),
+    });
+    expect(mockSiteUpdate).toHaveBeenLastCalledWith({
+      where: { id: "site-1" },
+      data: { productionUrl: VERCEL_PROJECT_RESULT.productionUrl, status: "active" },
     });
   });
 
@@ -395,10 +446,10 @@ describe("handleCreateSite — Vercel path (Vercel connected)", () => {
     });
   });
 
-  it("marks site as error when Vercel project creation fails", async () => {
+  it("marks site as error when Vercel project creation fails on the last attempt", async () => {
     mockCreateVercelProject.mockRejectedValue(new Error("Vercel name conflict"));
 
-    const result = await handleCreateSite(makeContext());
+    const result = await handleCreateSite(makeContext({ retryAttempts: MAX_RETRY_ATTEMPTS }));
 
     expect(result.success).toBe(false);
     expect(result.message).toBe("Vercel name conflict");
@@ -426,16 +477,12 @@ describe("handleCreateSite — Vercel path (Vercel connected)", () => {
   });
 });
 
-describe("handleCreateSite — Vercel GitHub App not installed (rollback)", () => {
+describe("handleCreateSite — Vercel GitHub App not installed", () => {
   beforeEach(() => {
     mockIntegrationFindMany.mockResolvedValue([{ provider: "vercel", metadata: null }]);
-    mockSiteFindUnique.mockResolvedValue({
-      githubRepoOwner: "jclaw",
-      githubRepoName: "sarah-chen-music",
-    });
   });
 
-  it("deletes the GitHub repo + Site row + returns vercel_github_app_missing with installUrl", async () => {
+  it("fails with vercel_github_app_missing + installUrl, marks the site error and keeps the repo", async () => {
     const { VercelGitHubAppNotInstalledError } = await import("@/lib/integrations/vercel");
     mockCreateVercelProject.mockRejectedValueOnce(new VercelGitHubAppNotInstalledError());
 
@@ -445,61 +492,332 @@ describe("handleCreateSite — Vercel GitHub App not installed (rollback)", () =
     expect(result.failureCategory).toBe("vercel_github_app_missing");
     expect(result.data).toMatchObject({
       installUrl: "https://github.com/apps/vercel/installations/new",
+      steps: {
+        createRepo: { state: "completed" },
+        pushTemplate: { state: "completed" },
+        createHostProject: { state: "started" },
+      },
     });
-    expect(mockDeleteRepo).toHaveBeenCalledWith("user-1", "jclaw", "sarah-chen-music");
-    expect(mockSiteDelete).toHaveBeenCalledWith({ where: { id: "site-1" } });
-    // The repo+site got rolled back, so we should NOT have called the
-    // generic "mark site as error" branch (which would leave a row).
-    expect(mockSiteUpdate).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: "error" } }),
-    );
-  });
-
-  it("still deletes the Site row when deleteRepo throws (best-effort GH cleanup)", async () => {
-    // Real-world: GitHub may rate-limit, OAuth scope may have been
-    // revoked between createRepo and the rollback. The Stagecraft slug
-    // must still free up so the artist can retry on the same name.
-    const { VercelGitHubAppNotInstalledError } = await import("@/lib/integrations/vercel");
-    mockCreateVercelProject.mockRejectedValueOnce(new VercelGitHubAppNotInstalledError());
-    mockDeleteRepo.mockRejectedValueOnce(new Error("GitHub API error (403)"));
-
-    const result = await handleCreateSite(makeContext());
-
-    expect(result.success).toBe(false);
-    expect(result.failureCategory).toBe("vercel_github_app_missing");
-    expect(mockSiteDelete).toHaveBeenCalledWith({ where: { id: "site-1" } });
-  });
-
-  it("skips deleteRepo when no githubRepo is on file yet (Vercel failed before repo creation finished)", async () => {
-    mockSiteFindUnique.mockResolvedValueOnce({
-      githubRepoOwner: null,
-      githubRepoName: null,
-    });
-    const { VercelGitHubAppNotInstalledError } = await import("@/lib/integrations/vercel");
-    mockCreateVercelProject.mockRejectedValueOnce(new VercelGitHubAppNotInstalledError());
-
-    const result = await handleCreateSite(makeContext());
-
-    expect(result.success).toBe(false);
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
+    // The repo stays so a retry can pick up at createHostProject.
     expect(mockDeleteRepo).not.toHaveBeenCalled();
-    expect(mockSiteDelete).toHaveBeenCalledWith({ where: { id: "site-1" } });
+    expect(mockSiteDelete).not.toHaveBeenCalled();
   });
 
-  it("falls through to generic 'error' status for non-Vercel-app failures", async () => {
+  it("a retry after installing the App resumes at createHostProject", async () => {
+    const { VercelGitHubAppNotInstalledError } = await import("@/lib/integrations/vercel");
+    mockCreateVercelProject.mockRejectedValueOnce(new VercelGitHubAppNotInstalledError());
+    const failed = await handleCreateSite(makeContext());
+    // The worker stores the failure's data as the job's resultPayload.
+    jobRow.resultPayload = failed.data;
+
+    const result = await handleCreateSite(makeContext());
+
+    expect(result.success).toBe(true);
+    expect(mockCreateRepo).toHaveBeenCalledTimes(1);
+    expect(mockPushFiles).toHaveBeenCalledTimes(2); // main + workflow, first run only
+    expect(mockFindVercelProject).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music", undefined);
+    expect(mockCreateVercelProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("other Vercel failures on the last attempt mark the site error without the install hint", async () => {
     mockCreateVercelProject.mockRejectedValueOnce(new Error("Vercel quota exceeded"));
 
-    const result = await handleCreateSite(makeContext());
+    const result = await handleCreateSite(makeContext({ retryAttempts: MAX_RETRY_ATTEMPTS }));
 
     expect(result.success).toBe(false);
-    expect(result.failureCategory).not.toBe("vercel_github_app_missing");
+    expect(result.failureCategory).toBeUndefined();
     expect(mockSiteUpdate).toHaveBeenCalledWith({
       where: { id: "site-1" },
       data: { status: "error" },
     });
-    // No rollback for unknown errors — the row is preserved so the user
-    // can see what failed and the platform retains the audit trail.
-    expect(mockSiteDelete).not.toHaveBeenCalled();
-    expect(mockDeleteRepo).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleCreateSite — resumable steps", () => {
+  it("records every step, in order, on the job and in the result", async () => {
+    const result = await handleCreateSite(makeContext());
+
+    expect(result.success).toBe(true);
+    expect(Object.keys(storedSteps())).toEqual([...CREATE_SITE_STEPS]);
+    for (const step of CREATE_SITE_STEPS) {
+      expect(storedSteps()[step]).toMatchObject({ state: "completed", attempts: 1 });
+    }
+    expect(storedSteps().createRepo.result).toEqual({
+      owner: "jclaw",
+      name: "sarah-chen-music",
+      defaultBranch: "main",
+    });
+    expect((result.data as { steps: StepRecords }).steps).toEqual(storedSteps());
+  });
+
+  it("never stores the broker secret's plaintext", async () => {
+    mockFindGithubAppInstallation.mockImplementation(async (_uid, slug) =>
+      slug === "stagecraft-bot" ? 129023518 : null,
+    );
+
+    await handleCreateSite(makeContext());
+
+    const plaintext = mockSetNetlifyEnvVars.mock.calls[0][2].STAGECRAFT_BROKER_SECRET as string;
+    expect(plaintext).toMatch(/^scbs_/);
+    expect(JSON.stringify(jobRow.resultPayload)).not.toContain(plaintext);
+    expect(JSON.stringify(jobRow.resultPayload)).not.toContain("re_test");
+  });
+
+  it("skips steps an earlier run completed", async () => {
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+    });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateRepo).not.toHaveBeenCalled();
+    expect(mockPushFiles).not.toHaveBeenCalled();
+    expect(mockFindGithubAppInstallation).not.toHaveBeenCalledWith("user-1", "stagecraft-bot", "jclaw");
+    expect(mockCreateNetlifySite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo: expect.objectContaining({ repo_path: "jclaw/sarah-chen-music" }),
+      }),
+    );
+  });
+
+  it("a mid-flow failure is thrown for a retry, and the next run resumes from the failed step", async () => {
+    mockCreateNetlifySite
+      .mockRejectedValueOnce(new Error("Netlify 503")) // linked create
+      .mockRejectedValueOnce(new Error("Netlify 503")); // unlinked fallback
+
+    await expect(handleCreateSite(makeContext())).rejects.toThrow("Netlify 503");
+    // Still `creating` while the worker retries.
+    expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
+    expect(storedSteps().createHostProject).toMatchObject({ state: "started", attempts: 1 });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateRepo).toHaveBeenCalledTimes(1);
+    expect(mockPushFiles).toHaveBeenCalledTimes(2);
+    // The interrupted step first looks for a site the failed run may have made.
+    expect(mockFindNetlifySite).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music.netlify.app");
+    expect(storedSteps().createHostProject).toMatchObject({ state: "completed", attempts: 2 });
+  });
+
+  it("marks the site error and keeps progress when the last attempt fails", async () => {
+    mockSetNetlifyEnvVars.mockResolvedValue(undefined);
+    mockPushFiles.mockRejectedValueOnce(new Error("GitHub API error (502)"));
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: MAX_RETRY_ATTEMPTS }));
+
+    expect(result.success).toBe(false);
+    expect(result.message).toBe("GitHub API error (502)");
+    expect(result.data).toMatchObject({
+      steps: { createRepo: { state: "completed" }, pushTemplate: { state: "started" } },
+    });
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
+  });
+
+  it("adopts the repo an interrupted createRepo already made", async () => {
+    seedSteps({ createRepo: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT } });
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, createdAt: "2026-10-09T11:00:05Z" });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music");
+    expect(storedSteps().createRepo).toMatchObject({ state: "completed", attempts: 2 });
+  });
+
+  it("doesn't adopt a same-named repo that predates the step (retry after a first-attempt 422)", async () => {
+    // The first attempt failed on "name already exists" for a repo that was
+    // never this job's; the retry sees the step as interrupted.
+    seedSteps({ createRepo: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT } });
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, createdAt: "2025-01-01T00:00:00Z" });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("name already exists");
+    expect(mockPushFiles).not.toHaveBeenCalled();
+  });
+
+  it("adopts the Vercel project an interrupted createHostProject already made", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "vercel", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindVercelProject.mockResolvedValueOnce({ ...VERCEL_PROJECT_RESULT, createdAt: Date.parse("2026-10-09T11:00:05Z") });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateVercelProject).not.toHaveBeenCalled();
+    expect(mockSetVercelEnvVars).toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_abc123" }));
+  });
+
+  it("creates a new Vercel project rather than adopting a same-named one that predates the step", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "vercel", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindVercelProject.mockResolvedValueOnce({ ...VERCEL_PROJECT_RESULT, projectId: "prj_old", createdAt: Date.parse("2025-01-01T00:00:00Z") });
+
+    await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(mockCreateVercelProject).toHaveBeenCalled();
+    expect(mockSetVercelEnvVars).not.toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_old" }));
+  });
+
+  it("adopts the Netlify site an interrupted createHostProject already made", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindNetlifySite.mockResolvedValueOnce({ ...NETLIFY_SITE_RESULT, linked: true, createdAt: "2026-10-09T11:00:05Z" });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateNetlifySite).not.toHaveBeenCalled();
+  });
+
+  it("creates a new Netlify site rather than adopting a same-named one that predates the step", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindNetlifySite.mockResolvedValueOnce({ ...NETLIFY_SITE_RESULT, linked: true, createdAt: "2025-01-01T00:00:00Z" });
+
+    await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(mockCreateNetlifySite).toHaveBeenCalled();
+  });
+
+  it("overwrites the Netlify env vars when resuming an interrupted setEnv", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: 129023518 },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: true } },
+      createHostProject: {
+        state: "completed",
+        attempts: 1,
+        result: {
+          deployTarget: "netlify",
+          productionUrl: NETLIFY_SITE_RESULT.sslUrl,
+          adminUrl: NETLIFY_SITE_RESULT.adminUrl,
+          netlifySiteId: "netlify-123",
+        },
+      },
+      setEnv: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockSetNetlifyEnvVars).toHaveBeenCalledWith(
+      "user-1",
+      "netlify-123",
+      expect.objectContaining({ STAGECRAFT_BROKER_SECRET: expect.any(String) }),
+      { replace: true },
+    );
+  });
+
+  it("mints a fresh broker secret when resuming after the mint step but before setEnv", async () => {
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: 129023518 },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: true } },
+      createHostProject: {
+        state: "completed",
+        attempts: 1,
+        result: {
+          deployTarget: "netlify",
+          productionUrl: NETLIFY_SITE_RESULT.sslUrl,
+          adminUrl: NETLIFY_SITE_RESULT.adminUrl,
+          netlifySiteId: "netlify-123",
+        },
+      },
+    });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateNetlifySite).not.toHaveBeenCalled();
+    const envVars = mockSetNetlifyEnvVars.mock.calls[0][2];
+    expect(envVars.STAGECRAFT_BROKER_SECRET).toMatch(/^scbs_[0-9a-f]{64}$/);
+    expect(mockSiteUpdate).toHaveBeenCalledWith({
+      where: { id: "site-1" },
+      data: { githubInstallationId: 129023518, brokerSecretHash: expect.stringMatching(/^[0-9a-f]{64}$/) },
+    });
+  });
+
+  it("stops without touching the site when the run no longer owns the job", async () => {
+    jobRow.status = "canceled";
+
+    await expect(handleCreateSite(makeContext())).rejects.toBeInstanceOf(LeaseLostError);
+    expect(mockCreateRepo).not.toHaveBeenCalled();
+    expect(mockSiteUpdate).not.toHaveBeenCalled();
+  });
+
+  it("stops at the next step boundary when the lease is lost mid-run", async () => {
+    mockCreateRepo.mockImplementationOnce(async () => {
+      jobRow.startedAt = new Date("2026-10-09T12:10:00Z"); // reaped and re-claimed elsewhere
+      return REPO_RESULT;
+    });
+
+    await expect(handleCreateSite(makeContext())).rejects.toBeInstanceOf(LeaseLostError);
+    expect(mockPushFiles).not.toHaveBeenCalled();
+    expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
   });
 });
 
