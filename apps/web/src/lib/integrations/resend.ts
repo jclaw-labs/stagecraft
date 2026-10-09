@@ -1,5 +1,5 @@
 import { prisma } from "@stagecraft/db";
-import { decryptCredential } from "../credential-crypto";
+import { decryptCredential, integrationCredentialField } from "../credential-crypto";
 
 /**
  * Resend integration — each artist connects their own Resend account at
@@ -109,7 +109,12 @@ export async function getResendCredentials(userId: string): Promise<ResendCreden
     where: { userId_provider: { userId, provider: "resend" } },
   });
   if (!integration?.accessToken) return null;
-  return { apiKey: await decryptCredential(integration.accessToken) };
+  return {
+    apiKey: await decryptCredential(
+      integration.accessToken,
+      integrationCredentialField(userId, "resend", "accessToken"),
+    ),
+  };
 }
 
 /**

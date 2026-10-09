@@ -17,8 +17,10 @@ vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 import {
   CREDENTIALS_KEY_ENV,
   encryptCredential,
+  integrationCredentialField,
   resetCredentialCryptoForTests,
 } from "../../credential-crypto";
+import type { IntegrationProvider } from "@stagecraft/shared";
 import { findGithubAppInstallation } from "../github";
 import { triggerBuild } from "../netlify";
 import { getResendCredentials } from "../resend";
@@ -35,9 +37,9 @@ function stubFetch(body: unknown, status = 200) {
   }) as unknown as typeof fetch;
 }
 
-async function storeToken(plaintext: string) {
+async function storeToken(plaintext: string, provider: IntegrationProvider, userId = "user-1") {
   prismaMock.integrationAccount.findUnique.mockResolvedValue({
-    accessToken: await encryptCredential(plaintext),
+    accessToken: await encryptCredential(plaintext, integrationCredentialField(userId, provider)),
     metadata: {},
   });
 }
@@ -55,28 +57,28 @@ afterEach(() => {
 
 describe("stored token read sites", () => {
   it("GitHub: sends the decrypted OAuth token", async () => {
-    await storeToken("ghp_secret");
+    await storeToken("ghp_secret", "github");
     stubFetch({ installations: [] });
     await findGithubAppInstallation("user-1", "netlify", "jclaw");
     expect(authHeaders).toEqual(["Bearer ghp_secret"]);
   });
 
   it("Netlify: sends the decrypted OAuth token", async () => {
-    await storeToken("netlify_secret");
+    await storeToken("netlify_secret", "netlify");
     stubFetch({ id: "build-1" });
     await triggerBuild("user-1", "site-1");
     expect(authHeaders).toEqual(["Bearer netlify_secret"]);
   });
 
   it("Vercel: sends the decrypted personal access token", async () => {
-    await storeToken("vercel_secret");
+    await storeToken("vercel_secret", "vercel");
     stubFetch(null, 204);
     await deleteProject("user-1", "prj_abc");
     expect(authHeaders).toEqual(["Bearer vercel_secret"]);
   });
 
   it("Resend: returns the decrypted API key", async () => {
-    await storeToken("re_secret");
+    await storeToken("re_secret", "resend");
     expect(await getResendCredentials("user-1")).toEqual({ apiKey: "re_secret" });
   });
 
@@ -87,8 +89,22 @@ describe("stored token read sites", () => {
     expect(authHeaders).toEqual(["Bearer ghp_legacy"]);
   });
 
+  it("refuses a token copied from another user's row", async () => {
+    await storeToken("vercel_secret", "vercel", "user-2");
+    stubFetch(null, 204);
+    await expect(deleteProject("user-1", "prj_abc")).rejects.toThrow(/failed to decrypt/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a token copied from another provider's row", async () => {
+    await storeToken("netlify_secret", "netlify");
+    stubFetch(null, 204);
+    await expect(deleteProject("user-1", "prj_abc")).rejects.toThrow(/failed to decrypt/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("refuses to call the provider with a token it can't decrypt", async () => {
-    await storeToken("vercel_secret");
+    await storeToken("vercel_secret", "vercel");
     vi.stubEnv(CREDENTIALS_KEY_ENV, `k2:${randomBytes(32).toString("base64")}`);
     stubFetch(null, 204);
     await expect(deleteProject("user-1", "prj_abc")).rejects.toThrow(/not configured/);

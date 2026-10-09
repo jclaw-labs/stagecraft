@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
-import { encryptCredential } from "@/lib/credential-crypto";
+import { encryptCredential, integrationCredentialField } from "@/lib/credential-crypto";
 import { validateVercelToken } from "@/lib/integrations/vercel";
 import { prisma } from "@stagecraft/db";
 
@@ -56,7 +56,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const storedToken = await encryptCredential(token);
+  const storedToken = await encryptCredential(
+    token,
+    integrationCredentialField(session.user.id, "vercel", "accessToken"),
+  );
   await prisma.integrationAccount.upsert({
     where: {
       userId_provider: { userId: session.user.id, provider: "vercel" },

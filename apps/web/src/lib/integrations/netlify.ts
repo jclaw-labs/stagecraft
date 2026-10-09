@@ -1,5 +1,5 @@
 import { prisma } from "@stagecraft/db";
-import { decryptCredential } from "../credential-crypto";
+import { decryptCredential, integrationCredentialField } from "../credential-crypto";
 
 interface CreateSiteOptions {
   userId: string;
@@ -42,7 +42,10 @@ async function getNetlifyToken(userId: string): Promise<string> {
     throw new Error("Netlify account not connected");
   }
 
-  return decryptCredential(integration.accessToken);
+  return decryptCredential(
+    integration.accessToken,
+    integrationCredentialField(userId, "netlify", "accessToken"),
+  );
 }
 
 async function netlifyApi(token: string, path: string, options?: RequestInit) {

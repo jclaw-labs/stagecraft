@@ -7,32 +7,88 @@
  * both on Node 20+ (Netlify) and on Cloudflare Workers, so the same code
  * runs on either host.
  *
- * Stored format (all segments base64url, no padding):
+ * Stored formats (all segments after the key id base64url, no padding):
  *
- *   enc:v1:<keyId>:<iv>:<tag>:<ciphertext>
+ *   enc:v2:<keyId>:<iv>:<tag>:<ciphertext>   written today
+ *   enc:v1:<keyId>:<iv>:<tag>:<ciphertext>   legacy, read only
+ *
+ * Both bind the version and key id into the GCM additional data (AAD). v2
+ * also binds the row and column the value belongs to (`CredentialField`),
+ * so a ciphertext copied into another user's row, another provider's row
+ * or another column fails the tag check instead of decrypting. v1 values
+ * (written before #370) carry no row binding; they still decrypt anywhere,
+ * exactly as before, until the backfill script upgrades them to v2.
  *
  * The key id travels with the value, so keys rotate without a flag day:
  * `STAGECRAFT_CREDENTIALS_KEY` is the current key (encrypts and decrypts),
  * `STAGECRAFT_CREDENTIALS_OLD_KEYS` holds retired keys that only decrypt.
- * Each key is written `<keyId>:<base64 of 32 random bytes>`; old keys are
- * comma-separated.
+ * Each key is written `<keyId>:<base64 of 32 random bytes>` (standard
+ * base64, 44 characters ending in `=`); old keys are comma-separated.
  *
  * Rollout rules:
  * - Values without the `enc:` prefix are legacy plaintext and are returned
  *   unchanged by `decryptCredential`, so reads keep working until the
  *   backfill script (`apps/web/scripts/encrypt-credentials.ts`) has run.
- * - With no current key set, `encryptCredential` returns the plaintext and
- *   logs one warning per process, so a deploy that lands before the secret
- *   doesn't break sign-in or the connect flows.
+ * - With no current key set, `encryptCredential` refuses to write when
+ *   credentials are required (`STAGECRAFT_CREDENTIALS_REQUIRED`, on by
+ *   default when NODE_ENV is "production"), or when old keys are set
+ *   without a current one (a half-done rotation). Otherwise (development,
+ *   tests, or an explicit `STAGECRAFT_CREDENTIALS_REQUIRED=false`) it
+ *   returns the plaintext and logs one warning per process.
  * - A value that *is* encrypted but can't be decrypted (unknown key id,
- *   wrong key, tampered bytes) throws. Never hand ciphertext to a provider.
+ *   wrong key, tampered bytes, wrong row) throws. Never hand ciphertext to
+ *   a provider.
  */
+import type { IntegrationProvider } from "@stagecraft/shared";
 
 export const CREDENTIALS_KEY_ENV = "STAGECRAFT_CREDENTIALS_KEY";
 export const CREDENTIALS_OLD_KEYS_ENV = "STAGECRAFT_CREDENTIALS_OLD_KEYS";
+export const CREDENTIALS_REQUIRED_ENV = "STAGECRAFT_CREDENTIALS_REQUIRED";
 
-const PREFIX = "enc:v1:";
+/** The token columns of NextAuth's `Account` that hold credentials. */
+export const ACCOUNT_TOKEN_COLUMNS = ["access_token", "refresh_token", "id_token"] as const;
+export type AccountTokenColumn = (typeof ACCOUNT_TOKEN_COLUMNS)[number];
+
+/** The token columns of `IntegrationAccount` that hold credentials. */
+export const INTEGRATION_TOKEN_COLUMNS = ["accessToken", "refreshToken"] as const;
+export type IntegrationTokenColumn = (typeof INTEGRATION_TOKEN_COLUMNS)[number];
+
+/**
+ * One credential column of one `Account` row, named by the row's unique key
+ * (`provider`, `providerAccountId`), which NextAuth knows before the row
+ * exists. `provider` is NextAuth's provider id as it stores it; the app
+ * doesn't own that set, so it stays a string.
+ */
+export interface AccountCredentialField {
+  table: "Account";
+  provider: string;
+  providerAccountId: string;
+  column: AccountTokenColumn;
+}
+
+/**
+ * One credential column of one `IntegrationAccount` row, named by the row's
+ * unique key (`userId`, `provider`).
+ */
+export interface IntegrationCredentialField {
+  table: "IntegrationAccount";
+  userId: string;
+  provider: IntegrationProvider;
+  column: IntegrationTokenColumn;
+}
+
+/** Where a stored credential lives; v2 ciphertexts are bound to it. */
+export type CredentialField = AccountCredentialField | IntegrationCredentialField;
+
+/** The storage format of a credential column's value. */
+export type CredentialFormat = "plaintext" | "v1" | "v2";
+
+const ENCRYPTED_PREFIX = "enc:";
+const V1_PREFIX = "enc:v1:";
+const V2_PREFIX = "enc:v2:";
 const KEY_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+/** Standard base64 of exactly 32 bytes: 43 characters and one `=` of padding. */
+const KEY_MATERIAL_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -58,6 +114,12 @@ function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(Buffer.from(value, "base64url"));
 }
 
+/**
+ * Parse `<keyId>:<base64 key>`. The key material must be canonical standard
+ * base64 of exactly 32 bytes; Buffer's own decoder would silently skip stray
+ * characters, so a mangled secret could otherwise decode to a different key.
+ * Errors name the env var and key id, never the material.
+ */
 async function parseKey(spec: string, envName: string): Promise<CredentialKey> {
   const separator = spec.indexOf(":");
   const id = separator === -1 ? "" : spec.slice(0, separator).trim();
@@ -67,9 +129,15 @@ async function parseKey(spec: string, envName: string): Promise<CredentialKey> {
       `${envName} must be "<keyId>:<base64 key>" with a keyId of letters, digits, "_" or "-"`,
     );
   }
+  if (!KEY_MATERIAL_PATTERN.test(material)) {
+    throw new Error(
+      `${envName} key "${id}" must be the standard base64 of ${KEY_BYTES} bytes ` +
+        `(44 characters of A-Z, a-z, 0-9, "+" or "/", ending in "=")`,
+    );
+  }
   const raw = new Uint8Array(Buffer.from(material, "base64"));
-  if (raw.length !== KEY_BYTES) {
-    throw new Error(`${envName} key "${id}" must decode to ${KEY_BYTES} bytes, got ${raw.length}`);
+  if (raw.length !== KEY_BYTES || Buffer.from(raw).toString("base64") !== material) {
+    throw new Error(`${envName} key "${id}" is not canonical base64 of ${KEY_BYTES} bytes`);
   }
   const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, [
     "encrypt",
@@ -108,26 +176,91 @@ function getKeyring(): Promise<Keyring> {
   return cachedKeyring.keyring;
 }
 
-function additionalData(keyId: string): Uint8Array<ArrayBuffer> {
-  // Binds the ciphertext to its version and key id, so neither can be
-  // swapped without the tag check failing.
-  return new TextEncoder().encode(`${PREFIX}${keyId}`);
-}
-
-/** True when `value` is in the encrypted storage format. */
-export function isEncryptedCredential(value: string): boolean {
-  return value.startsWith(PREFIX);
+/**
+ * Whether a missing `STAGECRAFT_CREDENTIALS_KEY` makes writes fail instead
+ * of storing plaintext. `STAGECRAFT_CREDENTIALS_REQUIRED` set to "true" or
+ * "false" decides; unset (or empty), it is on exactly when NODE_ENV is
+ * "production". Any other value throws, so a typo can't turn it off.
+ */
+export function credentialsRequired(): boolean {
+  const raw = process.env[CREDENTIALS_REQUIRED_ENV]?.trim().toLowerCase() ?? "";
+  if (raw === "") return process.env.NODE_ENV === "production";
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${CREDENTIALS_REQUIRED_ENV} must be "true" or "false"`);
 }
 
 /**
- * Encrypt a credential for storage. Already-encrypted values are returned
- * unchanged. With no current key configured, returns the plaintext and
- * warns once (see the module comment).
+ * The row binding v2 puts in the AAD: the table, the row's unique key and
+ * the column, JSON-encoded so no id can be crafted to collide with another.
  */
-export async function encryptCredential(plaintext: string): Promise<string> {
-  if (isEncryptedCredential(plaintext)) return plaintext;
-  const { current } = await getKeyring();
+export function credentialBinding(field: CredentialField): string {
+  switch (field.table) {
+    case "Account":
+      return JSON.stringify(["Account", field.provider, field.providerAccountId, field.column]);
+    case "IntegrationAccount":
+      return JSON.stringify(["IntegrationAccount", field.userId, field.provider, field.column]);
+  }
+}
+
+function additionalData(format: "v1" | "v2", keyId: string, field: CredentialField): Uint8Array<ArrayBuffer> {
+  // v1 (unchanged since #366) binds only the version and key id. v2 adds
+  // the row binding, so a value moved to another row or column fails.
+  const aad =
+    format === "v1" ? `${V1_PREFIX}${keyId}` : `${V2_PREFIX}${keyId}:${credentialBinding(field)}`;
+  return new TextEncoder().encode(aad);
+}
+
+/** The `IntegrationAccount` field for `userId`'s `provider` row. */
+export function integrationCredentialField(
+  userId: string,
+  provider: IntegrationProvider,
+  column: IntegrationTokenColumn = "accessToken",
+): IntegrationCredentialField {
+  return { table: "IntegrationAccount", userId, provider, column };
+}
+
+/** True when `value` is encrypted (any `enc:` version, known or not). */
+export function isEncryptedCredential(value: string): boolean {
+  return value.startsWith(ENCRYPTED_PREFIX);
+}
+
+/**
+ * The storage format of a stored value. Throws on an `enc:` value of a
+ * version this code doesn't know, rather than calling it plaintext.
+ */
+export function credentialFormat(stored: string): CredentialFormat {
+  if (!isEncryptedCredential(stored)) return "plaintext";
+  if (stored.startsWith(V1_PREFIX)) return "v1";
+  if (stored.startsWith(V2_PREFIX)) return "v2";
+  throw new Error("Stored credential has an unsupported format version");
+}
+
+/**
+ * Encrypt a credential for storage in `field`, in the v2 format. With no
+ * current key configured, throws or returns the plaintext with a one-time
+ * warning (see the module comment). Throws on a value that already looks
+ * encrypted: that is never a real credential, and storing it verbatim would
+ * let a copied (unbound v1) ciphertext in through a connect form.
+ */
+export async function encryptCredential(plaintext: string, field: CredentialField): Promise<string> {
+  if (isEncryptedCredential(plaintext)) {
+    throw new Error("Refusing to encrypt a value that is already in the encrypted format");
+  }
+  const { current, byId } = await getKeyring();
   if (!current) {
+    if (byId.size > 0) {
+      throw new Error(
+        `${CREDENTIALS_OLD_KEYS_ENV} is set but ${CREDENTIALS_KEY_ENV} is not; refusing to store ` +
+          `a credential in plaintext. Set ${CREDENTIALS_KEY_ENV} (docs/runbook.md §9).`,
+      );
+    }
+    if (credentialsRequired()) {
+      throw new Error(
+        `${CREDENTIALS_KEY_ENV} is not set; refusing to store a credential in plaintext ` +
+          `(${CREDENTIALS_REQUIRED_ENV} is on, the default in production). See docs/runbook.md §9.`,
+      );
+    }
     if (!warnedMissingKey) {
       warnedMissingKey = true;
       console.warn(
@@ -140,7 +273,12 @@ export async function encryptCredential(plaintext: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const sealed = new Uint8Array(
     await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv, additionalData: additionalData(current.id), tagLength: TAG_BYTES * 8 },
+      {
+        name: "AES-GCM",
+        iv,
+        additionalData: additionalData("v2", current.id, field),
+        tagLength: TAG_BYTES * 8,
+      },
       current.key,
       new TextEncoder().encode(plaintext),
     ),
@@ -148,16 +286,19 @@ export async function encryptCredential(plaintext: string): Promise<string> {
   // WebCrypto appends the tag to the ciphertext; store it as its own segment.
   const ciphertext = sealed.subarray(0, sealed.length - TAG_BYTES);
   const tag = sealed.subarray(sealed.length - TAG_BYTES);
-  return `${PREFIX}${current.id}:${toBase64Url(iv)}:${toBase64Url(tag)}:${toBase64Url(ciphertext)}`;
+  return `${V2_PREFIX}${current.id}:${toBase64Url(iv)}:${toBase64Url(tag)}:${toBase64Url(ciphertext)}`;
 }
 
 /**
- * Decrypt a stored credential. Legacy plaintext (no `enc:` prefix) is
- * returned unchanged. Throws when an encrypted value can't be decrypted.
+ * Decrypt the credential stored in `field`. Legacy plaintext (no `enc:`
+ * prefix) is returned unchanged and v1 values decrypt without the row
+ * binding. Throws when an encrypted value can't be decrypted, including a
+ * v2 value that was written for a different row or column.
  */
-export async function decryptCredential(stored: string): Promise<string> {
-  if (!isEncryptedCredential(stored)) return stored;
-  const parts = stored.slice(PREFIX.length).split(":");
+export async function decryptCredential(stored: string, field: CredentialField): Promise<string> {
+  const format = credentialFormat(stored);
+  if (format === "plaintext") return stored;
+  const parts = stored.slice(V1_PREFIX.length).split(":");
   if (parts.length !== 4) {
     throw new Error("Stored credential is malformed");
   }
@@ -182,12 +323,20 @@ export async function decryptCredential(stored: string): Promise<string> {
   let plaintext: ArrayBuffer;
   try {
     plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv, additionalData: additionalData(keyId), tagLength: TAG_BYTES * 8 },
+      {
+        name: "AES-GCM",
+        iv,
+        additionalData: additionalData(format, keyId, field),
+        tagLength: TAG_BYTES * 8,
+      },
       key,
       sealed,
     );
   } catch {
-    throw new Error(`Stored credential failed to decrypt with key "${keyId}"`);
+    throw new Error(
+      `Stored credential failed to decrypt with key "${keyId}" ` +
+        `(wrong key, altered value, or a value moved from another row or column)`,
+    );
   }
   return new TextDecoder().decode(plaintext);
 }
@@ -199,24 +348,26 @@ export async function currentCredentialKeyId(): Promise<string | null> {
 
 /** Id of the key an encrypted value was written with; null for plaintext. */
 export function credentialKeyId(stored: string): string | null {
-  if (!isEncryptedCredential(stored)) return null;
-  return stored.slice(PREFIX.length).split(":")[0] ?? null;
+  if (credentialFormat(stored) === "plaintext") return null;
+  return stored.slice(V1_PREFIX.length).split(":")[0] ?? null;
 }
 
 /** `encryptCredential` that passes `null` / `undefined` through. */
 export async function encryptOptionalCredential<T extends string | null | undefined>(
   value: T,
+  field: CredentialField,
 ): Promise<T> {
   if (value === null || value === undefined) return value;
-  return (await encryptCredential(value)) as T;
+  return (await encryptCredential(value, field)) as T;
 }
 
 /** `decryptCredential` that passes `null` / `undefined` through. */
 export async function decryptOptionalCredential<T extends string | null | undefined>(
   value: T,
+  field: CredentialField,
 ): Promise<T> {
   if (value === null || value === undefined) return value;
-  return (await decryptCredential(value)) as T;
+  return (await decryptCredential(value, field)) as T;
 }
 
 /** Test hook: forget the cached keys and the one-time warning. */
