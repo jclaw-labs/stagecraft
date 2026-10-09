@@ -13,17 +13,14 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { dynamicParams, generateStaticParams } from "./page";
-import {
-  getFsReadStore,
-  writeCollectionDef,
-  writeItem,
-  type CollectionDef,
-} from "@/lib/collections";
+import { writeCollectionDef, writeItem, type CollectionDef } from "@/lib/collections";
+import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
+import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { tourDateItem, tourDatesDef } from "@/lib/collections/test-fixtures";
-import { __resetBootstrapCacheForTests, emptyPageData, writePage } from "@/lib/content";
+import { __resetBootstrapCacheForTests } from "@/lib/content";
+import { emptyPageData } from "@/lib/page-data";
 
 let TMP_CONTENT_DIR: string;
-const store = getFsReadStore();
 
 beforeAll(async () => {
   TMP_CONTENT_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "stagecraft-catch-all-"));
@@ -41,7 +38,7 @@ beforeEach(async () => {
 
 async function seedSite(opts: { pageSlugs: string[]; tourDefOverride?: Partial<CollectionDef> }) {
   for (const slug of opts.pageSlugs) {
-    await writePage(slug, emptyPageData(slug), store);
+    await writeItem("pages", slug, pageDataToItem(slug, emptyPageData(slug)), pagesCollectionDef);
   }
   const def = { ...tourDatesDef(), ...opts.tourDefOverride };
   await writeCollectionDef("tour-dates", def);
@@ -91,7 +88,9 @@ describe("public catch-all — generateStaticParams", () => {
     // written by the first content read, which must land before the
     // defs are listed.
     await seedSite({ pageSlugs: ["home", "about"] });
-    await fs.rm(path.join(TMP_CONTENT_DIR, "collections", "pages", "_collection.json"));
+    await fs.rm(path.join(TMP_CONTENT_DIR, "collections", "pages", "_collection.json"), {
+      force: true,
+    });
     __resetBootstrapCacheForTests();
     expect(urls(await generateStaticParams())).toEqual([
       "/",

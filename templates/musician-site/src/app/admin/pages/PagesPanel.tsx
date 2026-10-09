@@ -9,6 +9,8 @@ import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
 import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
 import { pendingItemSlugs } from "@/lib/draft-changes-filter";
 import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
+import { pageDataToItemValues } from "@/lib/collections/migrate-from-legacy-values";
+import { emptyPageData } from "@/lib/page-data";
 import {
   PAGE_SLUG_PATTERN,
   reorderPagesBefore,
@@ -188,13 +190,16 @@ export function PagesPanel({ initialPages }: Props) {
     if (!canCreate) return;
     setIsCreating(true);
     try {
-      const res = await fetch("/api/pages", {
+      const res = await fetch("/api/collections/pages/items", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug: effectiveSlug, title: newTitle.trim() }),
+        body: JSON.stringify({
+          slug: effectiveSlug,
+          values: pageDataToItemValues(emptyPageData(newTitle.trim())),
+        }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; slug: string }
+        | { ok: true; item: { slug: string } }
         | { ok: false; error: string }
         | null;
       if (!res.ok || !body || !body.ok) {
@@ -206,7 +211,7 @@ export function PagesPanel({ initialPages }: Props) {
       setPages((current) => [
         ...current,
         {
-          slug: body.slug,
+          slug: body.item.slug,
           title: newTitle.trim(),
           isSplashPage: false,
           isHiddenFromNav: false,
@@ -227,7 +232,7 @@ export function PagesPanel({ initialPages }: Props) {
     if (!window.confirm(`Delete page "${slug}"? This cannot be undone.`)) return;
     setDeletingSlug(slug);
     try {
-      const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, {
+      const res = await fetch(`/api/collections/pages/items/${encodeURIComponent(slug)}`, {
         method: "DELETE",
       });
       if (!res.ok) {

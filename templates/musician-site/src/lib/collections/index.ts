@@ -13,3 +13,4 @@ export * from "./accessors";
 export * from "./schema-changes";
 export * from "./routing";
 export * from "./sort-key";
+export * from "./commit-subject";

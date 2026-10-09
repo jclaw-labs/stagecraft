@@ -1,29 +1,21 @@
 /**
- * Read/write helpers for pages and singletons.
+ * Read helpers for pages and singletons.
  *
- * As of ADR-009 PR 3, storage lives under
- * `src/content/collections/{pages,site,header,appearance}/` with each
- * surface modelled as a `CollectionDef` (`./collections/seeds.ts`).
- * This module is the compatibility layer between the old
- * `PageData` / `SiteConfig` / `HeaderConfig` / `Appearance` API that
- * the admin UI + public renderer still call, and the new item store.
+ * Storage lives under `src/content/collections/{pages,site,header,appearance}/`
+ * with each surface modelled as a `CollectionDef` (`./collections/seeds.ts`).
+ * This module reads items from the store and converts them back to the
+ * `PageData` / `SiteConfig` / `HeaderConfig` / `Appearance` shapes the
+ * public renderer and admin pages consume, using the converters in
+ * `./collections/migrate-from-legacy.ts`.
  *
- * The translation goes both ways:
+ * Writes don't go through here: every admin save builds its item in
+ * memory and commits it through `saveContent` (`./save-content.ts`),
+ * and pages save through the generic `/api/collections/pages/...` routes.
  *
- *   - read paths fetch an `Item`, run it through the converters in
- *     `./collections/migrate-from-legacy.ts`, return the legacy shape.
- *   - write paths take the legacy shape, convert to an `Item`, write
- *     through the collection store.
- *
- * `pageOrder` and `hiddenFromNav` on `SiteConfig` are now derived from
- * the pages collection (`items/_order.json` and each page's
- * `showInNav` field). Writing them through `writeSiteConfig` routes
- * to those locations transparently.
+ * `pageOrder` and `hiddenFromNav` on `SiteConfig` are derived from the
+ * pages collection (`items/_order.json` and each page's `showInNav`
+ * field).
  */
-
-import type { Data } from "@measured/puck";
-
-import type { BlockProps } from "@/puck/config";
 
 import {
   pagesCollectionDef,
@@ -37,20 +29,15 @@ import {
   appearanceFromItem,
   headerConfigFromItem,
   pageDataFromItem,
-  pageDataToItem,
-  pageDataToItemValues,
   siteConfigFromItem,
 } from "./collections/migrate-from-legacy";
 import {
   collectionDefRepoPath,
-  deleteItem,
-  generateItemId,
   itemRepoPath,
   orderRepoPath,
   readCollectionDef,
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
-  writeItem,
   type ReadStore,
 } from "./collections";
 import { imageMetadataSchema, type ImageMetadata } from "./image-types";
@@ -67,8 +54,7 @@ import {
   type SiteConfig,
 } from "./site-config-types";
 import { contentDir, purgeOrphanTmps } from "./fs-helpers";
-
-export type PageData = Data<BlockProps>;
+import type { PageData } from "./page-data";
 
 // ---------------------------------------------------------------------------
 // Repo paths used by the publish layer (relative to repo root)
@@ -163,13 +149,6 @@ export class PageNotFoundError extends Error {
   }
 }
 
-export class PageExistsError extends Error {
-  constructor(public slug: string) {
-    super(`A page with slug "${slug}" already exists`);
-    this.name = "PageExistsError";
-  }
-}
-
 export async function readPage(slug: string, store: ReadStore): Promise<PageData> {
   pageSlugSchema.parse(slug);
   await ensurePrebakedCollections();
@@ -188,53 +167,6 @@ export async function readPageOrNull(
     if (cause instanceof PageNotFoundError) return null;
     throw cause;
   }
-}
-
-export async function writePage(
-  slug: string,
-  data: PageData,
-  store: ReadStore,
-): Promise<void> {
-  await ensurePrebakedCollections();
-  const item = await buildPageItem(slug, data, store);
-  await writeItem("pages", slug, item, pagesCollectionDef);
-}
-
-/**
- * Build the pages-collection item for `data` in memory, without
- * touching disk. Shared by `writePage` (dev / local writes) and the
- * save routes that commit straight to the draft branch in production
- * (issue #345).
- */
-export async function buildPageItem(
-  slug: string,
-  data: PageData,
-  store: ReadStore,
-): Promise<import("./collections/schema").Item> {
-  pageSlugSchema.parse(slug);
-  // Preserve the existing id + createdAt + showInNav across updates
-  // so the collection model's stable-identity contract holds and the
-  // page's nav-visibility isn't reset on every save. Reads through
-  // the passed `store` so a write triggered on a fresh container
-  // still sees the artist's draft-branch state.
-  const existing = await store.readItem("pages", slug, pagesCollectionDef);
-  const showInNav = readShowInNav(existing) ?? true;
-  return pageDataToItem(slug, data, {
-    id: existing?.id ?? generateItemId(),
-    createdAt: existing?.createdAt,
-    showInNav,
-  });
-}
-
-function readShowInNav(item: import("./collections/schema").Item | null): boolean | null {
-  if (!item) return null;
-  const v = item.values[PAGES_FIELD_IDS.showInNav];
-  return v && v.type === "boolean" ? v.value : null;
-}
-
-export async function deletePage(slug: string): Promise<void> {
-  pageSlugSchema.parse(slug);
-  await deleteItem("pages", slug);
 }
 
 export async function listPageSlugs(store: ReadStore): Promise<string[]> {
@@ -316,27 +248,6 @@ export async function resolveRootPageSlug(store: ReadStore): Promise<string | nu
   return summaries[0]?.slug ?? null;
 }
 
-/**
- * Build the starter content for a new page. The shape stays
- * Puck-flavoured for the editor's onPublish handler.
- */
-export function emptyPageData(title: string): PageData {
-  return {
-    content: [
-      {
-        type: "Heading",
-        props: {
-          id: `heading-${Date.now()}`,
-          text: title,
-          level: "h1",
-          textAlign: "start",
-        },
-      },
-    ],
-    root: { props: { title, isSplashPage: false, isFooterHidden: false } },
-  } as PageData;
-}
-
 // ---------------------------------------------------------------------------
 // Site singleton
 // ---------------------------------------------------------------------------
@@ -383,17 +294,3 @@ export async function readAppearance(store: ReadStore): Promise<Appearance> {
 // ---------------------------------------------------------------------------
 
 export { DEFAULT_APPEARANCE, DEFAULT_HEADER_CONFIG, DEFAULT_SITE_CONFIG };
-
-// ---------------------------------------------------------------------------
-// Surface the helpers used by per-build conversion paths (pageDataToItem
-// etc.) so callers don't have to know about the migrate-from-legacy
-// module. The value-only conversion helpers
-// (`{site,header,appearance}ConfigToItemValues`) are no longer re-
-// exported here — the custom singleton panels import them directly
-// from `collections/migrate-from-legacy-values` (client-bundle-safe).
-// ---------------------------------------------------------------------------
-
-export {
-  pageDataToItem,
-  pageDataToItemValues,
-};

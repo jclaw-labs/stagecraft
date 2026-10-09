@@ -6,7 +6,7 @@
  * mis-fired POST can't wipe a site by accident.
  *
  * Drives the real store against a tmp content dir; mocks `getSession`
- * + the `publish` round-trip.
+ * + the `saveAndPublish` round-trip.
  */
 
 import fs from "node:fs/promises";
@@ -20,7 +20,7 @@ vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
 vi.mock("@/lib/publish", async () => {
   const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
-  return { ...actual, publish: publishMock };
+  return { ...actual, saveAndPublish: publishMock };
 });
 
 import { POST } from "./route";

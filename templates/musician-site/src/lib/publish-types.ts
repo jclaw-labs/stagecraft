@@ -25,19 +25,6 @@ export const publishTokenResponseSchema = z.object({
 });
 export type PublishTokenResponse = z.infer<typeof publishTokenResponseSchema>;
 
-/** Request body sent from the editor to /api/publish on the artist site. */
-export const publishRequestSchema = z.object({
-  pageSlug: z.string().min(1).regex(/^[a-z0-9][a-z0-9-]*$/),
-  data: z.unknown(),
-});
-export type PublishRequest = z.infer<typeof publishRequestSchema>;
-
-export const publishResponseSchema = z.object({
-  ok: z.literal(true),
-  commitSha: z.string().nullable(),
-});
-export type PublishResponse = z.infer<typeof publishResponseSchema>;
-
 export const publishErrorSchema = z.object({
   ok: z.literal(false),
   error: z.string(),
@@ -59,19 +46,18 @@ export type PublishError = z.infer<typeof publishErrorSchema>;
 
 /**
  * Map a `PublishError` code to the HTTP status the failure-response
- * routes should return. Centralises the mapping so the three routes
- * that emit structured failures (`/api/publish`, `/api/publish-draft`,
- * `/api/upload-image`) can't drift apart on which code is which
- * status.
+ * routes should return. Centralises the mapping so the routes that
+ * emit structured failures (`/api/publish-draft`,
+ * `/api/publish-selected`, `/api/upload-image`) can't drift apart on
+ * which code is which status.
  *
  * - `broker-rejected` → 502 (upstream said no)
  * - `concurrent-edit` → 409 (recoverable client-side: refresh + retry)
  * - everything else  → 500 (generic server-side failure)
  *
- * `/api/publish` (the Puck page save) uses this mapping. The other
- * content save routes use `saveFailureStatus` in `save-content.ts`
- * instead: a save whose commit fails didn't persist anywhere, so it's
- * an upstream failure (502, or 409 / 503) rather than a generic 500.
+ * Content save routes (including the page editor's save) use
+ * `saveFailureStatus` in `save-content.ts` instead: a save whose commit
+ * fails didn't persist anywhere, so it's an upstream failure (502, or 409 / 503) rather than a generic 500.
  */
 export function publishErrorHttpStatus(code: PublishError["code"]): number {
   switch (code) {

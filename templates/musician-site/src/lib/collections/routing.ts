@@ -255,8 +255,8 @@ export function listPublicRouteSegments(
 }
 
 /**
- * Single-slug shadowing check, intended for `POST /api/pages` (and
- * any other create-a-page surface) to reject a proposed slug BEFORE
+ * Single-slug shadowing check, used by page creation
+ * (`POST /api/collections/pages/items`) to reject a proposed slug BEFORE
  * it lands on disk. Returns the offending collection's slug + prefix
  * if `pageSlug` would shadow a non-Pages collection's prefix root,
  * `null` otherwise.

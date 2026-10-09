@@ -5,8 +5,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import {
   __resetBootstrapCacheForTests,
-  deletePage,
-  emptyPageData,
   extractPageRootProps,
   listPageSummaries,
   PageNotFoundError,
@@ -16,13 +14,13 @@ import {
   readPageOrNull,
   readSiteConfig,
   resolveRootPageSlug,
-  writePage,
-  type PageData,
 } from "./content";
+import { emptyPageData, type PageData } from "./page-data";
 import {
   PAGES_FIELD_IDS,
   appearanceCollectionDef,
   headerCollectionDef,
+  pagesCollectionDef,
   siteCollectionDef,
 } from "./collections/seeds";
 import {
@@ -35,6 +33,7 @@ import {
 } from "./collections";
 
 const store = getFsReadStore();
+import { pageDataToItem } from "./collections/migrate-from-legacy";
 import {
   appearanceToItemValues,
   headerConfigToItemValues,
@@ -101,7 +100,6 @@ async function setHiddenFromNavLegacy(hiddenSlugs: readonly string[]) {
   // legacy `siteConfig.hiddenFromNav` and now need to reach the same
   // on-disk state.
   const { listItemSlugs, readItem } = await import("./collections");
-  const { pagesCollectionDef } = await import("./collections/seeds");
   const hidden = new Set(hiddenSlugs);
   const slugs = await listItemSlugs("pages");
   for (const slug of slugs) {
@@ -190,29 +188,10 @@ afterEach(async () => {
 
 async function createPage(slug: string, data: PageData) {
   createdSlugs.add(slug);
-  await writePage(slug, data, store);
+  await writeItem("pages", slug, pageDataToItem(slug, data), pagesCollectionDef);
 }
 
-describe("emptyPageData", () => {
-  it("includes a heading and root props with the title", () => {
-    const data = emptyPageData("Hello");
-    expect(data.content).toHaveLength(1);
-    expect(data.content[0].type).toBe("Heading");
-    expect((data.content[0].props as { text: string }).text).toBe("Hello");
-    expect((data.root as { props: { title: string } }).props.title).toBe("Hello");
-  });
-
-  it("defaults root flags to false", () => {
-    const data = emptyPageData("Hello");
-    const props = (data.root as {
-      props: { isSplashPage: boolean; isFooterHidden: boolean };
-    }).props;
-    expect(props.isSplashPage).toBe(false);
-    expect(props.isFooterHidden).toBe(false);
-  });
-});
-
-describe("readPage / writePage", () => {
+describe("readPage", () => {
   it("round-trips a page through disk", async () => {
     const slug = testSlug("round-trip");
     const data = emptyPageData("My Page");
@@ -233,23 +212,6 @@ describe("readPage / writePage", () => {
 
   it("rejects an invalid slug", async () => {
     await expect(readPage("UPPER", store)).rejects.toThrow();
-    await expect(writePage("UPPER", emptyPageData("x"), store)).rejects.toThrow();
-  });
-});
-
-describe("deletePage", () => {
-  it("removes the file when it exists", async () => {
-    const slug = testSlug("delete-me");
-    await createPage(slug, emptyPageData("Delete Me"));
-    expect(await readPageOrNull(slug, store)).not.toBeNull();
-
-    await deletePage(slug);
-    expect(await readPageOrNull(slug, store)).toBeNull();
-    createdSlugs.delete(slug);
-  });
-
-  it("is a no-op when the file is already missing", async () => {
-    await expect(deletePage(testSlug("never-existed"))).resolves.toBeUndefined();
   });
 });
 

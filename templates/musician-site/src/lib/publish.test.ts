@@ -41,19 +41,45 @@ import {
   discardDraft,
   fetchPublishToken,
   isPlatformConfigured,
-  publish,
   publishDraftToMain,
   publishSelectedToMain,
   PublishError,
   readEnv,
+  saveAndPublish,
   saveToDraft,
 } from "./publish";
-import { publishPage } from "./save-content";
+import { planItemWrite, saveContent } from "./save-content";
 import { ConcurrentEditError } from "./git-commit";
-import { getFsReadStore } from "./collections";
+import { itemCommitSubject } from "./collections";
+import { pageDataToItem } from "./collections/migrate-from-legacy";
+import { pagesCollectionDef } from "./collections/seeds";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
 
-const store = getFsReadStore();
+/**
+ * A page save the way the generic item route makes one: build the
+ * pages item in memory and save it through `saveContent`, which
+ * commits to the draft branch (or writes local disk in dev).
+ */
+async function savePage(args: {
+  pageSlug: string;
+  data: Parameters<typeof pageDataToItem>[1];
+  authorEmail: string;
+  authorName?: string;
+}) {
+  const planned = planItemWrite(
+    "pages",
+    args.pageSlug,
+    pageDataToItem(args.pageSlug, args.data),
+    pagesCollectionDef,
+  );
+  return saveContent({
+    targets: [planned.target],
+    writeLocal: planned.writeLocal,
+    authorEmail: args.authorEmail,
+    authorName: args.authorName,
+    commitSubject: itemCommitSubject("update", "pages", args.pageSlug),
+  });
+}
 
 /** Spread into in-line item-file literals so tests don't repeat them. */
 const TS = { createdAt: FIXTURE_TIMESTAMP, updatedAt: FIXTURE_TIMESTAMP };
@@ -160,13 +186,12 @@ describe("isPlatformConfigured", () => {
   });
 });
 
-describe("publishPage — dev fallback (no platform configured)", () => {
+describe("page save (saveContent → saveToDraft) — dev fallback (no platform configured)", () => {
   it("writes the page as a collection item and returns mode=local", async () => {
-    const result = await publishPage({
+    const result = await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "Test" } } },
       authorEmail: "a@e.com",
-      store,
     });
     expect(result.mode).toBe("local");
     expect(result.commitSha).toBeNull();
@@ -177,30 +202,28 @@ describe("publishPage — dev fallback (no platform configured)", () => {
   });
 
   it("does not call commitFiles in dev fallback", async () => {
-    await publishPage({
+    await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
-      store,
     });
     expect(commitFilesMock).not.toHaveBeenCalled();
   });
 });
 
-describe("publishPage — broker + GitHub path", () => {
+describe("page save (saveContent → saveToDraft) — broker + GitHub path", () => {
   it("commits the page to draft and does NOT publish to main (ADR-010 PR 3)", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("draft-commit-sha");
 
-    const result = await publishPage({
+    const result = await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "world" } } },
       authorEmail: "artist@example.com",
       authorName: "Real Artist",
-      store,
     });
 
-    // Post-PR 3: publishPage is save-only. The reported SHA is the
+    // A page save is save-only. The reported SHA is the
     // draft commit. squashBranchInto is NOT called — the artist
     // promotes draft → main via the explicit Publish flow.
     expect(result).toEqual({
@@ -228,11 +251,10 @@ describe("publishPage — broker + GitHub path", () => {
   it("ensures the draft branch exists before committing to it", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({
+    await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
-      store,
     });
     expect(ensureBranchExistsMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "draft", fromBranch: "main" }),
@@ -244,11 +266,10 @@ describe("publishPage — broker + GitHub path", () => {
     process.env.ADMIN_EMAILS = "first@example.com, second@example.com";
     commitFilesMock.mockResolvedValue("draft-commit-sha");
 
-    await publishPage({
+    await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "second@example.com",
-      store,
     });
 
     const branch = commitFilesMock.mock.calls[0][0].branch as string;
@@ -265,11 +286,10 @@ describe("publishPage — broker + GitHub path", () => {
     process.env.ADMIN_EMAIL = "solo@example.com";
     commitFilesMock.mockResolvedValue("sha");
 
-    await publishPage({
+    await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "solo@example.com",
-      store,
     });
 
     expect(commitFilesMock).toHaveBeenCalledWith(
@@ -280,11 +300,10 @@ describe("publishPage — broker + GitHub path", () => {
   it("appends [skip ci] to the draft commit message (deploy gate)", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({
+    await savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
-      store,
     });
     const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
     expect(draftMessage).toContain("[skip ci]");
@@ -295,7 +314,7 @@ describe("publishPage — broker + GitHub path", () => {
   it("forwards Authorization Bearer secret to the broker", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
+    await savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toBe("https://platform.example.com/api/publish-token");
     expect(fetchCall[1].headers.authorization).toBe("Bearer broker-secret");
@@ -306,7 +325,7 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     process.env.STAGECRAFT_PLATFORM_URL = "https://platform.example.com/";
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
+    await savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toBe("https://platform.example.com/api/publish-token");
   });
@@ -315,21 +334,21 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) as unknown as typeof fetch;
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
+      savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
     ).rejects.toMatchObject({ code: "broker-unreachable" });
   });
 
   it("throws broker-rejected when broker returns non-200", async () => {
     configurePlatform({ ok: false, status: 401, body: { ok: false } });
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
+      savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
     ).rejects.toBeInstanceOf(PublishError);
   });
 
   it("throws broker-rejected when broker response is malformed", async () => {
     configurePlatform({ body: { ok: true, token: "x" } }); // missing repo + expiresAt
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
+      savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
     ).rejects.toMatchObject({ code: "broker-rejected" });
   });
 
@@ -337,7 +356,7 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     commitFilesMock.mockRejectedValue(new Error("ref not found"));
     await expect(
-      publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store }),
+      savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" }),
     ).rejects.toMatchObject({ code: "github-failed" });
   });
 
@@ -356,11 +375,10 @@ describe("publishPage — broker + GitHub path", () => {
       new Error("stale 422"),
     );
     commitFilesMock.mockRejectedValue(inner);
-    const promise = publishPage({
+    const promise = savePage({
       pageSlug: TEST_SLUG,
       data: { content: [], root: { props: { title: "x" } } },
       authorEmail: "a@e.com",
-      store,
     });
     await expect(promise).rejects.toBeInstanceOf(PublishError);
     await expect(promise).rejects.toMatchObject({ code: "concurrent-edit" });
@@ -375,12 +393,12 @@ describe("publishPage — broker + GitHub path", () => {
   it("includes a Stagecraft-Publish-Id trailer in the commit message", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
+    await savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
     // Post-PR 3: trailer lives on the draft commit (save event).
     // The squash commit is created later by the explicit Publish flow
-    // and isn't reached by publishPage anymore.
+    // and isn't reached by a page save.
     const draftMessage = commitFilesMock.mock.calls[0][0].message as string;
-    expect(draftMessage).toMatch(/^Update publish-test/);
+    expect(draftMessage).toMatch(/^Update page publish-test/);
     expect(draftMessage).toMatch(/Stagecraft-Publish-Id: [0-9a-f-]{36}/);
   });
 
@@ -388,10 +406,10 @@ describe("publishPage — broker + GitHub path", () => {
     configurePlatform();
     process.env.SITE_GIT_BRANCH = "develop";
     commitFilesMock.mockResolvedValue("sha");
-    await publishPage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com", store });
+    await savePage({ pageSlug: TEST_SLUG, data: { content: [], root: { props: { title: "x" } } }, authorEmail: "a@e.com" });
     // Save still targets `draft`; the override changes only the
     // branch draft is based on (and what publishDraftToMain would
-    // squash into, which publishPage no longer triggers).
+    // squash into, which a page save doesn't trigger).
     expect(commitFilesMock.mock.calls[0][0].branch).toBe("draft");
     expect(ensureBranchExistsMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "draft", fromBranch: "develop" }),
@@ -399,17 +417,17 @@ describe("publishPage — broker + GitHub path", () => {
   });
 });
 
-describe("publish — multi-target API", () => {
+describe("saveAndPublish — multi-target API", () => {
   it("rejects empty target list", async () => {
     await expect(
-      publish({ targets: [], authorEmail: "a@e.com" }),
+      saveAndPublish({ targets: [], authorEmail: "a@e.com" }),
     ).rejects.toBeInstanceOf(PublishError);
   });
 
   it("custom commitSubject overrides the auto summary", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         {
           kind: "collection-item",
@@ -428,7 +446,7 @@ describe("publish — multi-target API", () => {
   });
 });
 
-describe("publish — draft committed, squash to main fails", () => {
+describe("saveAndPublish — draft committed, squash to main fails", () => {
   const TARGET = {
     kind: "collection-item" as const,
     collectionSlug: "pages",
@@ -441,7 +459,7 @@ describe("publish — draft committed, squash to main fails", () => {
     commitFilesMock.mockResolvedValue("draft-sha");
     squashBranchIntoMock.mockRejectedValue(new Error("GitHub 500"));
 
-    const error = await publish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
+    const error = await saveAndPublish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
 
     expect(error).toBeInstanceOf(DraftSavedPublishError);
     expect(error).toBeInstanceOf(PublishError);
@@ -454,7 +472,7 @@ describe("publish — draft committed, squash to main fails", () => {
     configurePlatform();
     commitFilesMock.mockRejectedValue(new Error("GitHub 500"));
 
-    const error = await publish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
+    const error = await saveAndPublish({ targets: [TARGET], authorEmail: "a@e.com" }).catch((e) => e);
 
     expect(error).toBeInstanceOf(PublishError);
     expect(error).not.toBeInstanceOf(DraftSavedPublishError);
@@ -466,11 +484,11 @@ describe("publish — draft committed, squash to main fails", () => {
 // Collection target kinds (ADR-009)
 // ---------------------------------------------------------------------------
 
-describe("publish — collection target kinds", () => {
+describe("saveAndPublish — collection target kinds", () => {
   it("collection-def writes to <slug>/_collection.json in github mode", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("commit-sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         { kind: "collection-def", collectionSlug: "tour-dates", data: tourDatesDef() },
       ],
@@ -491,7 +509,7 @@ describe("publish — collection target kinds", () => {
     bad.slugSourceFieldId = null;
     bad.defaultSort = null;
     await expect(
-      publish({
+      saveAndPublish({
         targets: [{ kind: "collection-def", collectionSlug: "tour-dates", data: bad }],
         authorEmail: "a@e.com",
       }),
@@ -503,7 +521,7 @@ describe("publish — collection target kinds", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await expect(
-      publish({
+      saveAndPublish({
         targets: [
           {
             kind: "collection-def",
@@ -520,7 +538,7 @@ describe("publish — collection target kinds", () => {
   it("collection-item writes to items/<itemSlug>.json", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("commit-sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         {
           kind: "collection-item",
@@ -541,7 +559,7 @@ describe("publish — collection target kinds", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await expect(
-      publish({
+      saveAndPublish({
         targets: [
           {
             kind: "collection-item",
@@ -560,7 +578,7 @@ describe("publish — collection target kinds", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await expect(
-      publish({
+      saveAndPublish({
         targets: [
           {
             kind: "collection-item",
@@ -578,7 +596,7 @@ describe("publish — collection target kinds", () => {
   it("delete-collection-item adds to deletePaths instead of writes", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("commit-sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         {
           kind: "delete-collection-item",
@@ -598,7 +616,7 @@ describe("publish — collection target kinds", () => {
   it("collection-order writes the order list to items/_order.json", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("commit-sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         {
           kind: "collection-order",
@@ -617,7 +635,7 @@ describe("publish — collection target kinds", () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
     await expect(
-      publish({
+      saveAndPublish({
         targets: [
           {
             kind: "collection-order",
@@ -633,7 +651,7 @@ describe("publish — collection target kinds", () => {
 
   it("dev fallback writes collection-def, items, and order to disk", async () => {
     // No platform configuration → local writes.
-    await publish({
+    await saveAndPublish({
       targets: [
         { kind: "collection-def", collectionSlug: "tour-dates", data: tourDatesDef() },
         {
@@ -677,7 +695,7 @@ describe("publish — collection target kinds", () => {
   it("summariseTargets covers each collection target kind", async () => {
     configurePlatform();
     commitFilesMock.mockResolvedValue("sha");
-    await publish({
+    await saveAndPublish({
       targets: [
         { kind: "collection-def", collectionSlug: "tour-dates", data: tourDatesDef() },
         {
