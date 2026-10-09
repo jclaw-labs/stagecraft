@@ -50,17 +50,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Runs under bash -e, so an API failure fails the step rather than
-          # deploying or skipping on an empty SHA.
-          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; skipping the Worker deploy."
             ready=false
-          elif [ "$DEPLOY_SHA" != "$main_sha" ]; then
-            echo "::notice::$DEPLOY_SHA is no longer the tip of main ($main_sha); skipping the Worker deploy so an older commit doesn't replace a newer one."
-            ready=false
           else
-            ready=true
+            # Only looked up once credentials exist, so a missing-secrets run
+            # still skips without calling the API. Runs under bash -e, so an
+            # API failure fails the step rather than deploying or skipping on
+            # an empty SHA.
+            main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+            if [ "$DEPLOY_SHA" != "$main_sha" ]; then
+              echo "::notice::$DEPLOY_SHA is no longer the tip of main ($main_sha); skipping the Worker deploy so an older commit doesn't replace a newer one."
+              ready=false
+            else
+              ready=true
+            fi
           fi
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
