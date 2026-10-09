@@ -51,6 +51,9 @@ const RUNNING: JobStatus = "running";
 const COMPLETED: JobStatus = "completed";
 const FAILED: JobStatus = "failed";
 
+export const FINISH_RETRY_AMBIGUOUS_MESSAGE =
+  "Retried result write matched no row: an earlier attempt may have landed, or the lease was lost";
+
 export const LEASE_EXPIRED_MESSAGE = "Lease expired: the worker stopped before the job finished";
 
 function emit(event: WorkerEvent, onEvent?: (e: WorkerEvent) => void): void {
@@ -199,7 +202,8 @@ export function createWorker(options: WorkerOptions) {
         // and marks a working site as errored). The write is conditional on
         // `owned`, so repeating it can't clobber a newer run.
         let res: Prisma.BatchPayload;
-        for (let attempt = 1; ; attempt++) {
+        let attempt = 1;
+        for (; ; attempt++) {
           try {
             res = await prisma.siteJob.updateMany({ where: owned, data: { ...data, lockedUntil: null } });
             break;
@@ -209,7 +213,10 @@ export function createWorker(options: WorkerOptions) {
           }
         }
         if (res.count === 0) {
-          emit({ event: "job.lease_lost", ...jobRef }, onEvent);
+          // After a failed attempt, a 0-row match may mean that attempt
+          // landed and only its response was lost, not that the lease went.
+          const error = attempt > 1 ? FINISH_RETRY_AMBIGUOUS_MESSAGE : undefined;
+          emit({ event: "job.lease_lost", ...jobRef, ...(error && { error }) }, onEvent);
           return false;
         }
         return true;

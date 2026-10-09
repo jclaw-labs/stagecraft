@@ -33,7 +33,7 @@ vi.mock("@stagecraft/db", () => ({
   },
 }));
 
-const { createWorker, reapExpiredLeases, LEASE_EXPIRED_MESSAGE } = await import("../worker");
+const { createWorker, reapExpiredLeases, FINISH_RETRY_AMBIGUOUS_MESSAGE, LEASE_EXPIRED_MESSAGE } = await import("../worker");
 const {
   FINISH_RETRY_DELAY_MS,
   FINISH_WRITE_ATTEMPTS,
@@ -316,6 +316,7 @@ describe("runNext", () => {
     const names = events.map((e) => e.event);
     expect(names).toContain("job.lease_lost");
     expect(names).not.toContain("job.completed");
+    expect(events.find((e) => e.event === "job.lease_lost")?.error).toBeUndefined();
   });
 });
 
@@ -347,6 +348,22 @@ describe("terminal write", () => {
       expect(args).toEqual({ where: ownedWhere(), data: expect.objectContaining({ status: "completed" }) });
     }
     expect(events.map((e) => e.event)).toContain("job.completed");
+  });
+
+  it("flags a lease_lost after a retry as possibly an earlier attempt landing", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ count: 0 });
+    const events: WorkerEvent[] = [];
+    const worker = createWorker({
+      handlers: { create_site: vi.fn().mockResolvedValue({ success: true }) },
+      onEvent: (e) => events.push(e),
+    });
+
+    const outcome = worker.runNext();
+    await vi.advanceTimersByTimeAsync(FINISH_RETRY_DELAY_MS);
+
+    await expect(outcome).resolves.toBe("processed");
+    expect(events.find((e) => e.event === "job.lease_lost")?.error).toBe(FINISH_RETRY_AMBIGUOUS_MESSAGE);
   });
 
   it("waits longer before each further attempt", async () => {
