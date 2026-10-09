@@ -11,3 +11,5 @@ export {
 } from "./retry";
 export type { JobHandler, JobContext, JobResult } from "./types";
 export type { WorkerEvent, WorkerEventType, RunNextOutcome, DrainOptions } from "./worker";
+export { createStepRunner, readStepProgress, LeaseLostError } from "./steps";
+export type { StepRunner, StepContext, StepProgress, StepRecord, StepState } from "./steps";

@@ -101,6 +101,45 @@ export async function createSite(options: CreateSiteOptions): Promise<NetlifySit
 }
 
 /**
+ * Look up a site by id or by its `<name>.netlify.app` domain. Returns null
+ * when it doesn't exist. Used to adopt a site that an earlier, interrupted
+ * run of the same create_site job created before it could record the
+ * result. `linked` is false when the site has no repo attached (the
+ * manual-link fallback).
+ */
+export async function findSite(
+  userId: string,
+  siteIdOrDomain: string,
+): Promise<(NetlifySiteResult & { linked: boolean }) | null> {
+  const token = await getNetlifyToken(userId);
+  const res = await fetch(
+    `https://api.netlify.com/api/v1/sites/${encodeURIComponent(siteIdOrDomain)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Netlify API error (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as {
+    id: string;
+    name: string;
+    url: string;
+    admin_url: string;
+    ssl_url: string;
+    build_settings?: { repo_path?: string | null } | null;
+  };
+  return {
+    siteId: data.id,
+    siteName: data.name,
+    url: data.url,
+    adminUrl: data.admin_url,
+    sslUrl: data.ssl_url,
+    linked: Boolean(data.build_settings?.repo_path),
+  };
+}
+
+/**
  * Set environment variables on a Netlify site.
  */
 export async function setEnvVars(

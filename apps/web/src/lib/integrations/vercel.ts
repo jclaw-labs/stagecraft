@@ -208,13 +208,21 @@ export async function createProject(
     throw new Error(`Vercel API error (${res.status}): ${body}`);
   }
 
-  const data = (await res.json()) as {
-    id: string;
-    name: string;
-    accountId?: string;
-    targets?: { production?: { alias?: string[] } };
-  };
+  return toProjectResult(token, (await res.json()) as VercelProjectResponse, options.teamId);
+}
 
+interface VercelProjectResponse {
+  id: string;
+  name: string;
+  accountId?: string;
+  targets?: { production?: { alias?: string[] } };
+}
+
+async function toProjectResult(
+  token: string,
+  data: VercelProjectResponse,
+  requestedTeamId: string | undefined,
+): Promise<VercelProjectResult> {
   // Vercel's primary alias is usually `<name>.vercel.app` for personal
   // projects; teams use a slightly different domain shape. Fall back to
   // constructing it if the response doesn't include one yet (fresh
@@ -229,7 +237,7 @@ export async function createProject(
   // accountId isn't a valid path segment. Northstar accounts always
   // return an accountId; older personal accounts may not (in which case
   // the URL is just `vercel.com/<project>`).
-  const teamId = options.teamId ?? data.accountId ?? null;
+  const teamId = requestedTeamId ?? data.accountId ?? null;
   const teamSlug = teamId ? await getTeamSlug(token, teamId).catch(() => null) : null;
   const adminUrl = teamSlug
     ? `https://vercel.com/${teamSlug}/${data.name}`
@@ -243,6 +251,31 @@ export async function createProject(
     productionUrl,
     adminUrl,
   };
+}
+
+/**
+ * Look up a project by name (or id). Returns null when it doesn't exist.
+ * Used to adopt a project that an earlier, interrupted run of the same
+ * create_site job created before it could record the result.
+ */
+export async function findProject(
+  userId: string,
+  nameOrId: string,
+  teamId?: string,
+): Promise<VercelProjectResult | null> {
+  const token = await getVercelToken(userId);
+  const url = new URL(`${VERCEL_API}/v9/projects/${encodeURIComponent(nameOrId)}`);
+  if (teamId) url.searchParams.set("teamId", teamId);
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Vercel API error (${res.status}): ${body}`);
+  }
+  return toProjectResult(token, (await res.json()) as VercelProjectResponse, teamId);
 }
 
 interface SetEnvVarsOptions {

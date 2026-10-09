@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { handleCreateSite } from "@/lib/jobs/create-site";
+import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
 import { prisma } from "@stagecraft/db";
+import { enqueue } from "@stagecraft/queue";
 import { connectedProviders } from "@stagecraft/shared";
-import type { JobContext } from "@stagecraft/queue";
 
 const DEFAULT_BLUEPRINT = "solo-artist";
 
@@ -86,76 +86,32 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Run create_site synchronously inside this request handler.
-  //
-  // The previous design enqueued a SiteJob and let a poll-based worker
-  // process it. That doesn't work on Netlify Functions: each Lambda
-  // invocation freezes when the HTTP handler returns, so any awaits in
-  // a "background" job get abandoned and the SiteJob stays in `running`
-  // forever. Awaiting directly here blocks the request for ~5-10s but
-  // the outcome is deterministic.
-  //
-  // The SiteJob row is still created (status starts at `running`) for
-  // audit + compatibility with the existing dashboard, then updated
-  // with the result before the response is returned.
-  const job = await prisma.siteJob.create({
-    data: {
+  // Provisioning runs in the job queue, not in this request: it makes a few
+  // dozen calls to GitHub and the deploy target, which would hold the
+  // request open and, on Workers, count against its subrequest limit. The
+  // site page polls the site (and its latest job) until it leaves
+  // `creating`. See handleCreateSite for the resumable steps.
+  let job;
+  try {
+    job = await enqueue({
       siteId: site.id,
       userId: session.user.id,
       type: "create_site",
-      status: "running",
-      requestPayload: {
-        name,
-        slug,
-        blueprintType: DEFAULT_BLUEPRINT,
-      },
-      startedAt: new Date(),
-    },
-  });
-
-  const ctx: JobContext = { job };
-  const result = await handleCreateSite(ctx);
-
-  await prisma.siteJob.update({
-    where: { id: job.id },
-    data: {
-      status: result.success ? "completed" : "failed",
-      completedAt: new Date(),
-      // Prisma's InputJsonValue requires plain JSON shapes; result.data
-      // is Record<string, unknown> from the JobResult type.
-      resultPayload: result.data
-        ? (result.data as Record<string, unknown> as object)
-        : undefined,
-      errorMessage: result.message ?? null,
-      failureCategory: result.failureCategory ?? null,
-    },
-  });
-
-  if (result.failureCategory === "vercel_github_app_missing") {
-    return NextResponse.json(
-      {
-        error: result.message,
-        failureCategory: result.failureCategory,
-        installUrl: result.data?.installUrl,
-      },
-      { status: 400 },
-    );
+      payload: { name, slug, blueprintType: DEFAULT_BLUEPRINT },
+    });
+  } catch (cause) {
+    // Without a job nothing would ever move the site out of `creating`, so
+    // drop it (freeing the slug) and let the artist try again.
+    await prisma.site.delete({ where: { id: site.id } }).catch(() => undefined);
+    console.error("[POST /api/sites] enqueue failed", {
+      siteId: site.id,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
+    return NextResponse.json({ error: "Could not start site creation. Please try again." }, { status: 500 });
   }
+  drainAfterResponse();
 
-  // Re-read the site so the response reflects whatever handleCreateSite
-  // wrote during the run (githubRepoOwner/Name, netlifySiteId,
-  // productionUrl, status transitioning to active or error).
-  const finalSite = await prisma.site.findUnique({ where: { id: site.id } });
-
-  return NextResponse.json(
-    {
-      site: finalSite,
-      jobId: job.id,
-      jobResult: result,
-      ...(result.success ? {} : { error: result.message }),
-    },
-    { status: result.success ? 201 : 500 },
-  );
+  return NextResponse.json({ site, jobId: job.id }, { status: 201 });
 }
 
 export async function GET() {

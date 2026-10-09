@@ -1,19 +1,19 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, prismaMock, handleCreateSiteMock } = vi.hoisted(() => ({
+const { authMock, prismaMock, drainAfterResponseMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
   prismaMock: {
     integrationAccount: { findMany: vi.fn() },
-    site: { findUnique: vi.fn(), create: vi.fn(), findMany: vi.fn() },
+    site: { findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), findMany: vi.fn() },
     siteJob: { create: vi.fn(), update: vi.fn() },
   },
-  handleCreateSiteMock: vi.fn(),
+  drainAfterResponseMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
-vi.mock("@/lib/jobs/create-site", () => ({ handleCreateSite: handleCreateSiteMock }));
+vi.mock("@/lib/jobs/worker", () => ({ drainAfterResponse: drainAfterResponseMock }));
 
 import { POST } from "../route";
 
@@ -30,9 +30,11 @@ beforeEach(() => {
   prismaMock.integrationAccount.findMany.mockReset();
   prismaMock.site.findUnique.mockReset();
   prismaMock.site.create.mockReset();
+  prismaMock.site.delete.mockReset();
+  prismaMock.site.delete.mockResolvedValue({});
   prismaMock.siteJob.create.mockReset();
   prismaMock.siteJob.update.mockReset();
-  handleCreateSiteMock.mockReset();
+  drainAfterResponseMock.mockReset();
 
   // Reasonable defaults for the success path
   authMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -48,7 +50,7 @@ beforeEach(() => {
     siteId: "site-1",
     userId: "user-1",
     type: "create_site",
-    status: "running",
+    status: "queued",
   });
   prismaMock.siteJob.update.mockResolvedValue({});
 });
@@ -58,13 +60,13 @@ describe("POST /api/sites", () => {
     authMock.mockResolvedValue(null);
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
     expect(res.status).toBe(401);
-    expect(handleCreateSiteMock).not.toHaveBeenCalled();
+    expect(prismaMock.siteJob.create).not.toHaveBeenCalled();
   });
 
   it("400 when name is missing", async () => {
     const res = await POST(buildRequest({}));
     expect(res.status).toBe(400);
-    expect(handleCreateSiteMock).not.toHaveBeenCalled();
+    expect(prismaMock.siteJob.create).not.toHaveBeenCalled();
   });
 
   it("400 when name is too short", async () => {
@@ -114,132 +116,60 @@ describe("POST /api/sites", () => {
       { provider: "vercel" },
       { provider: "resend" },
     ]);
-    handleCreateSiteMock.mockResolvedValue({ success: true, data: { deployTarget: "vercel" } });
-    prismaMock.site.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "site-1", status: "active" });
 
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
     expect(res.status).toBe(201);
-    expect(handleCreateSiteMock).toHaveBeenCalledTimes(1);
+    expect(prismaMock.siteJob.create).toHaveBeenCalledTimes(1);
   });
 
   it("409 when slug is taken", async () => {
     prismaMock.site.findUnique.mockResolvedValueOnce({ id: "existing" });
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
     expect(res.status).toBe(409);
+    expect(prismaMock.site.create).not.toHaveBeenCalled();
+    expect(prismaMock.siteJob.create).not.toHaveBeenCalled();
   });
 
-  it("201 success: runs handleCreateSite synchronously, marks SiteJob completed, returns final Site", async () => {
-    handleCreateSiteMock.mockResolvedValue({
-      success: true,
-      data: {
-        githubUrl: "https://github.com/jclaw/stagecraft-site-sarah-chen",
-        netlifyAdminUrl: "https://app.netlify.com/sites/...",
-        netlifySiteId: "netlify-1",
-      },
-    });
-    // After handleCreateSite ran, the Site row has been updated with
-    // status=active and Netlify metadata. Mock the second findUnique to
-    // return that updated row.
-    prismaMock.site.findUnique
-      .mockResolvedValueOnce(null) // slug-uniqueness check
-      .mockResolvedValueOnce({
-        id: "site-1",
-        status: "active",
-        productionUrl: "https://sarah-chen.netlify.app",
-        netlifySiteId: "netlify-1",
-      });
-
+  it("201 success: creates the site in `creating`, queues a create_site job and returns at once", async () => {
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
 
     expect(res.status).toBe(201);
-    expect(handleCreateSiteMock).toHaveBeenCalledTimes(1);
-    expect(handleCreateSiteMock).toHaveBeenCalledWith({
-      job: expect.objectContaining({ id: "job-1", siteId: "site-1" }),
+    expect(prismaMock.site.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: "user-1", name: "Sarah Chen", slug: "sarah-chen", status: "creating" }),
     });
-
-    expect(prismaMock.siteJob.update).toHaveBeenCalledWith({
-      where: { id: "job-1" },
-      data: expect.objectContaining({
-        status: "completed",
-        completedAt: expect.any(Date),
-        errorMessage: null,
-      }),
+    expect(prismaMock.siteJob.create).toHaveBeenCalledWith({
+      data: {
+        siteId: "site-1",
+        userId: "user-1",
+        type: "create_site",
+        status: "queued",
+        requestPayload: { name: "Sarah Chen", slug: "sarah-chen", blueprintType: "solo-artist" },
+      },
     });
+    // Provisioning runs in the queue, never inside this request.
+    expect(prismaMock.siteJob.update).not.toHaveBeenCalled();
+    expect(drainAfterResponseMock).toHaveBeenCalledTimes(1);
 
-    const body = (await res.json()) as {
-      site: { id: string; status: string };
-      jobId: string;
-      jobResult: { success: boolean };
-    };
-    expect(body.site.status).toBe("active");
-    expect(body.jobId).toBe("job-1");
-    expect(body.jobResult.success).toBe(true);
+    const body = (await res.json()) as { site: { id: string }; jobId: string };
+    expect(body).toEqual({ site: { id: "site-1", name: "Sarah Chen" }, jobId: "job-1" });
   });
 
-  it("500 failure: marks SiteJob failed with error message, response body includes jobResult.message", async () => {
-    handleCreateSiteMock.mockResolvedValue({
-      success: false,
-      message: "Netlify quota exceeded",
-      failureCategory: "netlify_deploy_error",
+  it("trims the name before validating and storing it", async () => {
+    await POST(buildRequest({ name: "  Sarah Chen  " }));
+    expect(prismaMock.site.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ name: "Sarah Chen", slug: "sarah-chen" }),
     });
-    prismaMock.site.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: "site-1", status: "error" });
+  });
+
+  it("500 when enqueueing fails, and drops the site so it isn't stuck in `creating`", async () => {
+    prismaMock.siteJob.create.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
 
     expect(res.status).toBe(500);
-    expect(prismaMock.siteJob.update).toHaveBeenCalledWith({
-      where: { id: "job-1" },
-      data: expect.objectContaining({
-        status: "failed",
-        completedAt: expect.any(Date),
-        errorMessage: "Netlify quota exceeded",
-        failureCategory: "netlify_deploy_error",
-      }),
-    });
-
-    const body = (await res.json()) as {
-      site: { status: string };
-      jobResult: { success: boolean; message: string };
-    };
-    expect(body.site.status).toBe("error");
-    expect(body.jobResult.success).toBe(false);
-    expect(body.jobResult.message).toBe("Netlify quota exceeded");
-  });
-
-  it("returns 400 + installUrl when handleCreateSite reports vercel_github_app_missing", async () => {
-    // The /create UI keys off failureCategory + installUrl in the
-    // response to render a clickable "Install Vercel's GitHub App"
-    // CTA instead of the raw error JSON.
-    handleCreateSiteMock.mockResolvedValue({
-      success: false,
-      message:
-        "Vercel can't link this repo until you install Vercel's GitHub App on your GitHub account.",
-      failureCategory: "vercel_github_app_missing",
-      data: { installUrl: "https://github.com/apps/vercel/installations/new" },
-    });
-
-    const res = await POST(buildRequest({ name: "Sarah Chen" }));
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: string;
-      failureCategory: string;
-      installUrl: string;
-    };
-    expect(body.failureCategory).toBe("vercel_github_app_missing");
-    expect(body.installUrl).toBe("https://github.com/apps/vercel/installations/new");
-
-    // Job row still gets recorded as failed for the audit trail, even
-    // though the site row itself was rolled back inside handleCreateSite.
-    expect(prismaMock.siteJob.update).toHaveBeenCalledWith({
-      where: { id: "job-1" },
-      data: expect.objectContaining({
-        status: "failed",
-        failureCategory: "vercel_github_app_missing",
-      }),
-    });
+    expect((await res.json()) as { error: string }).toMatchObject({ error: expect.stringContaining("try again") });
+    expect(prismaMock.site.delete).toHaveBeenCalledWith({ where: { id: "site-1" } });
+    expect(drainAfterResponseMock).not.toHaveBeenCalled();
   });
 });

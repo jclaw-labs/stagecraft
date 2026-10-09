@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import StatusBadge, { type BadgeTone } from "@/components/StatusBadge";
-import type { JobStatus, JobType, SiteStatus } from "@stagecraft/shared";
+import type { FailureCategory, JobStatus, JobType, SiteStatus } from "@stagecraft/shared";
 
 import styles from "./site-detail.module.css";
 
@@ -35,12 +35,19 @@ interface MigrateJobResult {
   report?: MigrationReport;
 }
 
+/** The parts of a failed create_site job's result the page reads. */
+interface CreateJobFailure {
+  /** Set when failureCategory is "vercel_github_app_missing". */
+  installUrl?: string;
+}
+
 interface SiteJob {
   id: string;
   type: JobType;
   status: JobStatus;
   errorMessage?: string;
-  resultPayload?: MigrateJobResult;
+  failureCategory?: FailureCategory | null;
+  resultPayload?: MigrateJobResult & CreateJobFailure;
   createdAt: string;
   completedAt?: string;
 }
@@ -95,6 +102,8 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -238,6 +247,24 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
     }
   }
 
+  async function handleRetrySetup() {
+    setIsRetrying(true);
+    setRetryError("");
+    try {
+      const res = await fetch(`/api/sites/${siteId}/retry`, { method: "POST" });
+      if (res.ok) {
+        // Polling stopped when the site left `creating`; reload to resume it.
+        window.location.reload();
+        return;
+      }
+      const data = (await res.json()) as { error?: string };
+      setRetryError(data.error || "Could not retry setup");
+    } catch {
+      setRetryError("Could not retry setup");
+    }
+    setIsRetrying(false);
+  }
+
   async function handleDelete() {
     if (deleteConfirmName !== site!.name) return;
     setIsDeleting(true);
@@ -264,6 +291,15 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const isError = site.status === "error" || site.status === "deploy_failed";
   const isArchived = site.status === "archived";
   const isActive = site.status === "active";
+
+  // A create_site job that failed can be re-queued; it resumes at the step
+  // that failed (see POST /api/sites/[siteId]/retry).
+  const canRetrySetup =
+    site.status === "error" && latestJob?.type === "create_site" && latestJob.status === "failed";
+  const vercelInstallUrl =
+    latestJob?.failureCategory === "vercel_github_app_missing"
+      ? latestJob.resultPayload?.installUrl ?? null
+      : null;
 
   const migrationJob = site.jobs.find((j) => j.type === "migrate_site" && j.status === "completed");
   const migrationReport = migrationJob?.resultPayload?.report ?? null;
@@ -351,6 +387,30 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
             />
           )}
         </div>
+
+        {canRetrySetup && (
+          <div className={`${styles.notice} ${styles.noticeInfo}`}>
+            <strong className={styles.noticeTitle}>
+              {vercelInstallUrl ? "Install Vercel\u2019s GitHub App, then retry" : "Retry setup"}
+            </strong>
+            <p className={styles.noticeText}>
+              {vercelInstallUrl
+                ? "Vercel needs its GitHub App on your GitHub account to link this site\u2019s repository. Setup picks up where it stopped, so your repository isn\u2019t created again."
+                : "Setup picks up where it stopped. Steps that already finished aren\u2019t repeated."}
+            </p>
+            {retryError && <p className={styles.noticeText}>{retryError}</p>}
+            <div className={styles.headActions}>
+              {vercelInstallUrl && (
+                <Button href={vercelInstallUrl} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
+                  Install Vercel&rsquo;s GitHub App
+                </Button>
+              )}
+              <Button onClick={handleRetrySetup} isDisabled={isRetrying} size="sm">
+                {isRetrying ? "Retrying\u2026" : "Retry setup"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {!isArchived && !site.githubInstallationId && (
           <div className={`${styles.notice} ${styles.noticeInfo}`}>

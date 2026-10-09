@@ -11,7 +11,7 @@ vi.mock("@stagecraft/db", () => ({
 
 vi.stubGlobal("fetch", mockFetch);
 
-const { createSite, setEnvVars, triggerBuild } = await import("../integrations/netlify");
+const { createSite, findSite, setEnvVars, triggerBuild } = await import("../integrations/netlify");
 
 describe("Netlify integration", () => {
   beforeEach(() => {
@@ -89,6 +89,54 @@ describe("Netlify integration", () => {
       await expect(
         createSite({ userId: "user-1", name: "test" })
       ).rejects.toThrow("Netlify account not connected");
+    });
+  });
+
+  describe("findSite", () => {
+    function siteResponse(buildSettings: unknown) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "netlify-site-id",
+          name: "my-site",
+          url: "http://my-site.netlify.app",
+          admin_url: "https://app.netlify.com/sites/my-site",
+          ssl_url: "https://my-site.netlify.app",
+          build_settings: buildSettings,
+        }),
+      };
+    }
+
+    it("returns a linked site by domain", async () => {
+      mockFetch.mockResolvedValueOnce(siteResponse({ repo_path: "jclaw/my-site" }));
+
+      const site = await findSite("user-1", "my-site.netlify.app");
+
+      expect(mockFetch.mock.calls[0][0]).toBe("https://api.netlify.com/api/v1/sites/my-site.netlify.app");
+      expect(site).toEqual({
+        siteId: "netlify-site-id",
+        siteName: "my-site",
+        url: "http://my-site.netlify.app",
+        adminUrl: "https://app.netlify.com/sites/my-site",
+        sslUrl: "https://my-site.netlify.app",
+        linked: true,
+      });
+    });
+
+    it("reports an unlinked site (the manual-link fallback)", async () => {
+      mockFetch.mockResolvedValueOnce(siteResponse({}));
+      expect((await findSite("user-1", "my-site.netlify.app"))?.linked).toBe(false);
+    });
+
+    it("returns null when the site doesn't exist", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, text: async () => "Not Found" });
+      expect(await findSite("user-1", "missing.netlify.app")).toBeNull();
+    });
+
+    it("throws on other errors", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "boom" });
+      await expect(findSite("user-1", "x.netlify.app")).rejects.toThrow("Netlify API error (500)");
     });
   });
 

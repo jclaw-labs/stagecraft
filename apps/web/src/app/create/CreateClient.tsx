@@ -10,10 +10,10 @@ import styles from "./create.module.css";
 
 type Mode = "choose" | "scratch" | "recreate" | "creating";
 
-// Open-loop progress messages — the actual /create flow runs these in order
-// (createRepo → pushFiles → deploy provision → setEnvVars → finalize) and
-// each step takes a few seconds. See lib/progress-steps.ts for context on
-// why this is time-based rather than backend-driven.
+// Open-loop progress messages, shown while the POST is in flight. The work
+// itself (createRepo → pushFiles → deploy provision → setEnvVars → finalize)
+// runs in the job queue once POST /api/sites returns, and the site page
+// tracks it. See lib/progress-steps.ts for why this is time-based.
 const PROGRESS_STEPS = [
   "Creating GitHub repository…",
   "Pushing template files…",
@@ -30,7 +30,6 @@ export default function CreateClient() {
   const [siteName, setSiteName] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [error, setError] = useState("");
-  const [installUrl, setInstallUrl] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [progressIndex, setProgressIndex] = useState(0);
 
@@ -52,7 +51,6 @@ export default function CreateClient() {
 
   async function handleCreateFromScratch() {
     setError("");
-    setInstallUrl(null);
     setIsCreating(true);
     setMode("creating");
 
@@ -67,7 +65,6 @@ export default function CreateClient() {
 
       if (!res.ok) {
         setError(data.error ?? "Failed to create site");
-        if (data.installUrl) setInstallUrl(data.installUrl);
         setMode("scratch");
         setIsCreating(false);
         return;
@@ -135,19 +132,6 @@ export default function CreateClient() {
       {error && (
         <div className={`${styles.banner} ${styles.bannerError}`}>
           <p>{error}</p>
-          {installUrl && (
-            <p style={{ margin: "var(--space-2) 0 0" }}>
-              <a
-                href={installUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.bannerLink}
-              >
-                Install Vercel&rsquo;s GitHub App
-              </a>
-              , then try again.
-            </p>
-          )}
         </div>
       )}
 

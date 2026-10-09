@@ -33,7 +33,6 @@
 }
 .bannerError { background: var(--color-error-bg); color: var(--color-error); }
 .bannerError p { margin: 0; }
-.bannerLink { font-weight: var(--font-weight-semibold); color: inherit; }
 
 .lead { color: var(--color-text-muted); margin: 0 0 var(--space-5); }
 
