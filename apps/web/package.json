@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "test": "npm run generate && vitest run",
     "typecheck": "npm run generate && tsc --noEmit",
-    "capture:screenshots": "playwright test --config playwright.capture.config.ts",
+    "capture:screenshots": "npm run generate && playwright test --config playwright.capture.config.ts",
     "capture:screenshots:public": "npm run build && playwright test --config playwright.public-capture.config.ts"
   },
   "dependencies": {
