@@ -19,12 +19,14 @@ import {
   publishTokenErrorSchema,
   publishTokenResponseSchema,
 } from "@/lib/publish-token-types";
+import { clearSiteTokenCache } from "@/lib/site-installation-token";
 
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   prismaMock.site.findUnique.mockReset();
   mintMock.mockReset();
+  clearSiteTokenCache();
   process.env = { ...ORIGINAL_ENV };
 });
 
@@ -144,14 +146,39 @@ describe("POST /api/publish-token", () => {
     expect(parsed.repo).toEqual({ owner: "artist", name: "site" });
   });
 
-  it("uses the installation id from the Site row", async () => {
+  it("mints for the Site row's installation, scoped to its repo", async () => {
     const { plaintext, hash } = generateBrokerSecret();
     prismaMock.site.findUnique.mockResolvedValue(
       makeSite({ brokerSecretHash: hash, githubInstallationId: 99999 }),
     );
     mintMock.mockResolvedValue({ token: "t", expiresAt: "2099-01-01T00:00:00.000Z" });
     await POST(buildRequest({ bearer: plaintext, body: { siteId: "site-1" } }));
-    expect(mintMock).toHaveBeenCalledWith(99999);
+    expect(mintMock).toHaveBeenCalledWith(99999, {
+      repositoryNames: ["site"],
+      permissions: { contents: "write", metadata: "read" },
+    });
+  });
+
+  it("serves a repeat request from the cache", async () => {
+    const { plaintext, hash } = generateBrokerSecret();
+    prismaMock.site.findUnique.mockResolvedValue(makeSite({ brokerSecretHash: hash }));
+    mintMock.mockResolvedValue({ token: "ghs_cached", expiresAt: "2099-01-01T00:00:00.000Z" });
+
+    await POST(buildRequest({ bearer: plaintext, body: { siteId: "site-1" } }));
+    const res = await POST(buildRequest({ bearer: plaintext, body: { siteId: "site-1" } }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).token).toBe("ghs_cached");
+    expect(mintMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("500 with internal when minting fails for another reason", async () => {
+    const { plaintext, hash } = generateBrokerSecret();
+    prismaMock.site.findUnique.mockResolvedValue(makeSite({ brokerSecretHash: hash }));
+    mintMock.mockRejectedValue(new Error("422 repository not in installation"));
+    const res = await POST(buildRequest({ bearer: plaintext, body: { siteId: "site-1" } }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).code).toBe("internal");
   });
 
   it("rejects a different site's secret (no cross-site reuse)", async () => {

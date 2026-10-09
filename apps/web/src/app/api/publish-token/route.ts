@@ -4,12 +4,13 @@ import { prisma } from "@stagecraft/db";
 import { extractBearer } from "@stagecraft/shared";
 
 import { brokerSecretMatches } from "@/lib/broker-secret";
-import { GitHubAppMisconfiguredError, mintInstallationToken } from "@/lib/github-app-token";
+import { GitHubAppMisconfiguredError } from "@/lib/github-app-token";
 import {
   type PublishTokenError,
   type PublishTokenErrorCode,
   publishTokenRequestSchema,
 } from "@/lib/publish-token-types";
+import { getSiteInstallationToken } from "@/lib/site-installation-token";
 
 function err(status: number, code: PublishTokenErrorCode, message?: string) {
   const body: PublishTokenError = { ok: false, code, error: message };
@@ -53,7 +54,11 @@ export async function POST(request: Request) {
 
   let token;
   try {
-    token = await mintInstallationToken(site.githubInstallationId);
+    token = await getSiteInstallationToken({
+      siteId: site.id,
+      installationId: site.githubInstallationId,
+      repoName: site.githubRepoName,
+    });
   } catch (cause) {
     if (cause instanceof GitHubAppMisconfiguredError) {
       return err(500, "github-app-misconfigured", cause.message);
