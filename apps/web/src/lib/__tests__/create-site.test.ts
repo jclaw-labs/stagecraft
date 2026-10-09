@@ -691,6 +691,47 @@ describe("handleCreateSite — resumable steps", () => {
     expect(mockSetVercelEnvVars).not.toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_old" }));
   });
 
+  it("adopts the Netlify site an interrupted createHostProject already made", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindNetlifySite.mockResolvedValueOnce({ ...NETLIFY_SITE_RESULT, linked: true, createdAt: "2026-10-09T11:00:05Z" });
+
+    const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(result.success).toBe(true);
+    expect(mockCreateNetlifySite).not.toHaveBeenCalled();
+  });
+
+  it("creates a new Netlify site rather than adopting a same-named one that predates the step", async () => {
+    mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
+    seedSteps({
+      createRepo: {
+        state: "completed",
+        attempts: 1,
+        result: { owner: "jclaw", name: "sarah-chen-music", defaultBranch: "main" },
+      },
+      pushTemplate: { state: "completed", attempts: 1, result: { commitSha: "abc", workflowPushed: true } },
+      findInstallation: { state: "completed", attempts: 1, result: null },
+      mintBrokerSecret: { state: "completed", attempts: 1, result: { minted: false } },
+      createHostProject: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT },
+    });
+    mockFindNetlifySite.mockResolvedValueOnce({ ...NETLIFY_SITE_RESULT, linked: true, createdAt: "2025-01-01T00:00:00Z" });
+
+    await handleCreateSite(makeContext({ retryAttempts: 1 }));
+
+    expect(mockCreateNetlifySite).toHaveBeenCalled();
+  });
+
   it("overwrites the Netlify env vars when resuming an interrupted setEnv", async () => {
     mockIntegrationFindMany.mockResolvedValue([{ provider: "netlify", metadata: null }]);
     seedSteps({
