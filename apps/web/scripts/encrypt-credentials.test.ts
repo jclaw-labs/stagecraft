@@ -394,7 +394,7 @@ describe("encryptStoredCredentials", () => {
       [],
     );
 
-    const stats = await encryptStoredCredentials(db);
+    const stats = await encryptStoredCredentials(db, { upgradeV1: true });
 
     expect(stats.account.undecryptable).toBe(1);
     expect(stats.account.valuesAlreadyEncrypted).toBe(0);
@@ -504,7 +504,7 @@ describe("main", () => {
     mockDb.prisma = { ...db, $disconnect };
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(main([])).rejects.toThrow(/^1 stored value\(s\) could not be decrypted/);
+    await expect(main(["--upgrade-v1"])).rejects.toThrow(/^1 stored value\(s\) could not be decrypted/);
     expect(isEncryptedCredential(integrationAccount.store[1].accessToken!)).toBe(true);
     expect($disconnect).toHaveBeenCalledTimes(1);
   });
