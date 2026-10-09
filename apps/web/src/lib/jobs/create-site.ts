@@ -24,7 +24,7 @@ export const CREATE_SITE_STEPS = PROVISION_STEPS;
  * (POST /api/sites/[siteId]/retry) are handled by `runProvisionJob`.
  */
 export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
-  return runProvisionJob(ctx, {
+  return runProvisionJob<CreateSitePayload>(ctx, {
     requiredFields: ["name", "slug"],
     unknownErrorMessage: "Unknown error during site creation",
     run: async (runner) => {

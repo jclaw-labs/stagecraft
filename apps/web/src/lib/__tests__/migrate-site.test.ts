@@ -405,6 +405,10 @@ describe("handleMigrateSite — resumable steps", () => {
     expect(storedSteps().createHostProject).toMatchObject({ state: "completed", attempts: 2 });
     // The report comes from the stored crawl.
     expect(result.data).toMatchObject({ pagesCrawled: 2, report: expect.objectContaining({ pagesCrawled: 2 }) });
+    // The finished job doesn't keep the crawled files.
+    const steps = (result.data as { steps: StepRecords }).steps;
+    expect(steps.crawlSource).toMatchObject({ state: "completed" });
+    expect(steps.crawlSource).not.toHaveProperty("result");
   });
 
   it("marks the site error and keeps progress when the last attempt fails", async () => {

@@ -89,7 +89,7 @@ export const PROVISION_STEPS = [
 /** A failure retrying won't fix (a missing precondition): fail on the first run. */
 export class PermanentProvisionError extends Error {}
 
-export function errorMessage(cause: unknown, fallback: string): string {
+function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
@@ -576,11 +576,11 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
  * (PermanentProvisionError), the site is marked `error` and the job fails
  * with its step progress kept, so a manual retry resumes from there too.
  */
-export async function runProvisionJob(
+export async function runProvisionJob<P extends object>(
   ctx: JobContext,
   args: {
     /** Payload fields the job can't run without, e.g. ["name", "slug"]. */
-    requiredFields: readonly string[];
+    requiredFields: readonly (keyof P & string)[];
     unknownErrorMessage: string;
     run: (runner: StepRunner) => Promise<JobResult>;
   },

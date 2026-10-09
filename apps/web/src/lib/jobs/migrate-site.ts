@@ -44,7 +44,7 @@ type CrawlResult = { files: TemplateFile[]; report: MigrationReport };
  * `runProvisionJob`.
  */
 export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
-  return runProvisionJob(ctx, {
+  return runProvisionJob<MigrateSitePayload>(ctx, {
     requiredFields: ["url", "name", "slug"],
     unknownErrorMessage: "Unknown error during migration",
     run: async (runner) => {
@@ -81,6 +81,11 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
       });
 
       const { report } = crawl;
+      // The crawled files only matter for resuming pushTemplate, and the
+      // report is already below. Drop the crawl result from the finished job,
+      // whose payload GET /api/sites/[siteId] returns on every poll.
+      const steps = runner.progress();
+      delete steps.crawlSource?.result;
       return {
         success: true,
         data: {
@@ -90,7 +95,7 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
           pagesMapped: report.pagesMapped,
           overallConfidence: report.overallConfidence,
           report: report as unknown as Record<string, unknown>,
-          steps: runner.progress(),
+          steps,
         },
       };
     },
