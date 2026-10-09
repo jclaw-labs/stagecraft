@@ -5,7 +5,9 @@ name: Deploy Worker
 # never touches stagecraft.website, which stays on Netlify until #312.
 #
 # Runs after CI passes on a push to main, or by hand from main
-# (Actions > Deploy Worker > Run workflow).
+# (Actions > Deploy Worker > Run workflow). Either way it deploys only the
+# commit that is still the tip of main, so re-running an older CI run (or an
+# older run of this workflow) skips instead of rolling the preview back to it.
 #
 # One-time setup (repo admin): add repository secrets CLOUDFLARE_API_TOKEN
 # (an API token with "Workers Scripts: Edit" on the account) and
@@ -37,14 +39,22 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success')
     steps:
-      - name: Check Cloudflare credentials
+      - name: Check credentials and that the commit is still main
         id: gate
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; skipping the Worker deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$DEPLOY_SHA" != "$main_sha" ]; then
+            echo "::notice::$DEPLOY_SHA is no longer the tip of main ($main_sha); skipping the Worker deploy so an older commit doesn't replace a newer one."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
