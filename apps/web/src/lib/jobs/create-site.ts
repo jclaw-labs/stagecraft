@@ -1,4 +1,3 @@
-import path from "node:path";
 
 import { prisma } from "@stagecraft/db";
 import type { JobContext, JobResult } from "@stagecraft/queue";
@@ -15,15 +14,13 @@ import {
   triggerDeployment as triggerVercelDeployment,
   VercelGitHubAppNotInstalledError,
 } from "@/lib/integrations/vercel";
-import { readTemplateFiles } from "@/lib/template-reader";
+import { getMusicianSiteTemplateFiles } from "@/lib/musician-site-template";
 import {
   buildSiteScaffoldFiles,
   buildDependabotAutoMergeWorkflow,
   SITE_AUTOMERGE_WORKFLOW_PATH,
   templateVersionFromFiles,
 } from "@/lib/site-scaffold";
-
-const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site");
 
 interface CreateSitePayload {
   name: string;
@@ -245,7 +242,7 @@ export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
     //    site is up), plus the platform scaffold (Dependabot config +
     //    template stamp) so the site keeps its deps current after it
     //    stops tracking the template. See site-scaffold.ts.
-    const templateFiles = await readTemplateFiles(TEMPLATE_DIR);
+    const templateFiles = getMusicianSiteTemplateFiles();
     const files = [
       ...templateFiles,
       ...buildSiteScaffoldFiles({

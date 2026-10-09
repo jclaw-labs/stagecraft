@@ -1,5 +1,3 @@
-import path from "path";
-
 import { prisma } from "@stagecraft/db";
 import type { JobContext, JobResult } from "@stagecraft/queue";
 import type { BlueprintType } from "@stagecraft/shared";
@@ -11,7 +9,7 @@ import { getResendCredentials } from "@/lib/integrations/resend";
 import { crawlSite } from "@/lib/migration/crawler";
 import { mapToMusicianSite } from "@/lib/migration/musician-site-mapper";
 import { buildMigrationReport } from "@/lib/migration/report";
-import { readTemplateFiles } from "@/lib/template-reader";
+import { getMusicianSiteTemplateFiles } from "@/lib/musician-site-template";
 import {
   buildSiteScaffoldFiles,
   buildDependabotAutoMergeWorkflow,
@@ -22,8 +20,6 @@ import {
 // provisioned exactly like a created one (same musician-site template, same
 // Netlify/Vercel + env-var handling). Only the content differs.
 import { pickDeployTarget, deployToNetlify, deployToVercel } from "@/lib/jobs/create-site";
-
-const TEMPLATE_DIR = path.resolve(process.cwd(), "../../templates/musician-site");
 
 interface MigrateSitePayload {
   url: string;
@@ -90,7 +86,7 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
 
     // ── Step 4: Push the musician-site template, overlaid with the crawled
     //    content + the platform scaffold (Dependabot config + template stamp).
-    const templateFiles = await readTemplateFiles(TEMPLATE_DIR);
+    const templateFiles = getMusicianSiteTemplateFiles();
     const mappedPaths = new Set(mapped.files.map((f) => f.path));
     const files = [
       ...templateFiles.filter((f) => !mappedPaths.has(f.path)),

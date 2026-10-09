@@ -28,8 +28,8 @@ vi.mock("@/lib/integrations/resend", () => ({ getResendCredentials: mockGetResen
 const mockCrawlSite = vi.fn();
 vi.mock("@/lib/migration/crawler", () => ({ crawlSite: mockCrawlSite }));
 
-const mockReadTemplateFiles = vi.fn();
-vi.mock("@/lib/template-reader", () => ({ readTemplateFiles: mockReadTemplateFiles }));
+const mockGetTemplateFiles = vi.fn();
+vi.mock("@/lib/musician-site-template", () => ({ getMusicianSiteTemplateFiles: mockGetTemplateFiles }));
 
 const mockPickDeployTarget = vi.fn();
 const mockDeployToNetlify = vi.fn();
@@ -107,7 +107,7 @@ beforeEach(() => {
   mockUserFindUnique.mockResolvedValue({ email: "artist@example.com" });
   mockCrawlSite.mockResolvedValue(EXTRACTED);
   mockCreateRepo.mockResolvedValue({ owner: "jclaw", name: "stagecraft-site-old-band", defaultBranch: "main" });
-  mockReadTemplateFiles.mockResolvedValue([
+  mockGetTemplateFiles.mockReturnValue([
     { path: "package.json", content: JSON.stringify({ name: "musician-site", version: "1.2.3" }) },
     { path: "src/app/(public)/page.tsx", content: "export default function Page() {}" },
     // A demo seed page item the crawled overlay must REPLACE (matching path).

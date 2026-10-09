@@ -56,9 +56,9 @@ vi.mock("@/lib/integrations/resend", () => ({
   RESEND_SANDBOX_FROM: "onboarding@resend.dev",
 }));
 
-const mockReadTemplateFiles = vi.fn().mockResolvedValue([]);
-vi.mock("@/lib/template-reader", () => ({
-  readTemplateFiles: mockReadTemplateFiles,
+const mockGetTemplateFiles = vi.fn().mockReturnValue([]);
+vi.mock("@/lib/musician-site-template", () => ({
+  getMusicianSiteTemplateFiles: mockGetTemplateFiles,
   BINARY_EXTENSIONS: new Set(),
   TEMPLATE_SKIP_DIRS: new Set(),
   TEMPLATE_SKIP_FILES: new Set(),
@@ -608,7 +608,7 @@ describe("handleCreateSite — site scaffold (dependency hygiene)", () => {
   it("ships the Dependabot config + stamp in the main push and the workflow separately", async () => {
     // Stub the template read so we can assert the stamped version flows
     // through from the template's package.json.
-    mockReadTemplateFiles.mockResolvedValueOnce([
+    mockGetTemplateFiles.mockReturnValueOnce([
       { path: "package.json", content: JSON.stringify({ name: "musician-site", version: "9.9.9" }) },
     ]);
 

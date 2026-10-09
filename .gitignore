@@ -21,3 +21,6 @@ apps/web/capture/.auth/
 # Playwright run output (transient — traces, reports, last-run state)
 test-results/
 playwright-report/
+
+# Build-time bundle of templates/musician-site (apps/web: npm run generate)
+apps/web/src/generated/
