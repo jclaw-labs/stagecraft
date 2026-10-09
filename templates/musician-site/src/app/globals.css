@@ -131,11 +131,15 @@
    theme background, so a page shorter than the viewport doesn't end on
    the browser's white canvas. Scoped to the public site and the Puck
    canvas (`#frame-root`, which renders the same blocks without the
-   wrapper), so the editor previews the published layout while the admin
-   and Puck chrome keep their current box model. */
+   wrapper), so the editor uses the published box model and margins
+   while the admin and Puck chrome keep theirs. (The canvas still lacks
+   the theme tokens set under `.stagecraft-site`; see #392.) */
 body:has(> .stagecraft-site) {
   margin: 0;
   background: var(--color-background);
+}
+body:has(> #frame-root) {
+  margin: 0;
 }
 .stagecraft-site,
 .stagecraft-site *,
