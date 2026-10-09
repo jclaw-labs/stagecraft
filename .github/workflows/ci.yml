@@ -25,6 +25,10 @@ jobs:
 
       - run: npm run db:generate
 
+      - name: Bare next build (no pre-generated template bundle)
+        working-directory: apps/web
+        run: npx next build
+
       - run: npm run typecheck
 
       - run: npm run lint

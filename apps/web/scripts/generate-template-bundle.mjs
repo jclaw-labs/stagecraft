@@ -107,7 +107,10 @@ export async function generateTemplateBundle({
   }
   const json = JSON.stringify(files);
   await fs.mkdir(path.dirname(outFile), { recursive: true });
-  await fs.writeFile(outFile, json);
+  // Write then rename, so a build reading the bundle never sees a half-written file.
+  const tmpFile = `${outFile}.${process.pid}.tmp`;
+  await fs.writeFile(tmpFile, json);
+  await fs.rename(tmpFile, outFile);
   const buf = Buffer.from(json, "utf-8");
   return { fileCount: files.length, bytes: buf.length, gzipBytes: gzipSync(buf).length };
 }

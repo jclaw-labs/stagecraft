@@ -90,6 +90,21 @@ describe("generateTemplateBundle", () => {
     });
   });
 
+  it("replaces an existing bundle by rename, leaving no temp file behind", async () => {
+    await write("template/package.json", '{"name":"t"}');
+    const outFile = path.join(root, "out/bundle.json");
+    await write("out/bundle.json", "stale");
+    const staleInode = (await fs.stat(outFile)).ino;
+
+    await generateTemplateBundle({ templateDir: path.join(root, "template"), outFile });
+
+    expect((await fs.stat(outFile)).ino).not.toBe(staleInode);
+    expect(JSON.parse(await fs.readFile(outFile, "utf-8"))).toEqual([
+      { path: "package.json", content: '{"name":"t"}' },
+    ]);
+    expect(await fs.readdir(path.dirname(outFile))).toEqual(["bundle.json"]);
+  });
+
   it("throws rather than writing an empty bundle", async () => {
     await write("template/logo.png");
     const outFile = path.join(root, "bundle.json");
