@@ -21,6 +21,7 @@ import {
   getUrl,
   hasField,
   itemDisplayLabel,
+  selectOptionLabel,
 } from "./accessors";
 import type { CollectionDef, Item } from "./schema";
 import { asImageId } from "../image-types";
@@ -188,5 +189,32 @@ describe("itemDisplayLabel", () => {
     expect(itemDisplayLabel(defWithSource, makeItem({ f: { type: "number", value: 7 } }))).toBe(
       "test",
     );
+  });
+});
+
+describe("selectOptionLabel", () => {
+  const options = [
+    { id: "o1", value: "on_sale", label: "On sale" },
+    { id: "o2", value: "sold_out", label: "Sold out" },
+  ];
+
+  it("maps a select value to its option label", () => {
+    const field = { id: "f", key: "status", type: "select", required: true, options } as const;
+    expect(selectOptionLabel(field, "sold_out")).toBe("Sold out");
+  });
+
+  it("maps a multiSelect value to its option label", () => {
+    const field = { id: "f", key: "tags", type: "multiSelect", options } as const;
+    expect(selectOptionLabel(field, "on_sale")).toBe("On sale");
+  });
+
+  it("falls back to the raw value when no option matches", () => {
+    const field = { id: "f", key: "status", type: "select", required: true, options } as const;
+    expect(selectOptionLabel(field, "postponed")).toBe("postponed");
+  });
+
+  it("falls back to the raw value for a non-select or missing field", () => {
+    expect(selectOptionLabel({ id: "f", key: "t", type: "text", required: true }, "x")).toBe("x");
+    expect(selectOptionLabel(undefined, "x")).toBe("x");
   });
 });

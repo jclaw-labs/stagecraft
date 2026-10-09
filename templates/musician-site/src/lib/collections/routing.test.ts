@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeRoutingConflict,
   findShadowingPrefix,
+  itemDetailUrl,
   resolveCollectionItemUrl,
   validateCollectionRouting,
 } from "./routing";
@@ -197,5 +198,40 @@ describe("findShadowingPrefix", () => {
 
   it("ignores collections with null detailUrlPrefix", () => {
     expect(findShadowingPrefix("quotes", [PAGES, QUOTES])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// itemDetailUrl
+// ---------------------------------------------------------------------------
+
+describe("itemDetailUrl", () => {
+  it("joins the collection prefix and the item slug", () => {
+    expect(itemDetailUrl(def("posts", "/news"), "hello")).toBe("/news/hello");
+  });
+
+  it("maps a Pages-style root prefix to /<slug>", () => {
+    expect(itemDetailUrl(def("pages", "/"), "about")).toBe("/about");
+  });
+
+  it("tolerates a trailing slash on the prefix", () => {
+    expect(itemDetailUrl(def("posts", "/news/"), "hello")).toBe("/news/hello");
+  });
+
+  it("returns null when the collection has no detail pages", () => {
+    expect(itemDetailUrl(def("photos", null), "x")).toBeNull();
+  });
+
+  it("returns null for a singleton, even with a prefix", () => {
+    expect(itemDetailUrl(def("site", "/site", { isSingleton: true }), "x")).toBeNull();
+  });
+
+  it("round-trips through resolveCollectionItemUrl", () => {
+    const defs = [def("posts", "/news"), def("pages", "/")];
+    const url = itemDetailUrl(defs[0], "hello")!;
+    expect(resolveCollectionItemUrl(url.split("/").filter(Boolean), defs)).toEqual({
+      collectionSlug: "posts",
+      itemSlug: "hello",
+    });
   });
 });

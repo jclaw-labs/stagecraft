@@ -118,6 +118,9 @@ src/
                                 tiptap-render.tsx  Tiptap doc → React
                                 renderer.tsx  <TemplateRenderer> +
                                               `resolveTemplate` walker
+                                item-detail.tsx  Default detail page
+                                              for items whose collection
+                                              has no detailTemplate
                               index.ts    Public API
                               test-fixtures.ts  Shared fixtures
                                           (tourDatesDef, tourDateItem)

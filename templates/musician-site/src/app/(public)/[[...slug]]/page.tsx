@@ -19,10 +19,8 @@ import {
   type CollectionDef,
   type Item,
 } from "@/lib/collections";
-import {
-  buildCollectionBlockRegistry,
-  DefaultItemFieldsList,
-} from "@/lib/collections/template/collection-block";
+import { buildCollectionBlockRegistry } from "@/lib/collections/template/collection-block";
+import { DefaultItemDetail } from "@/lib/collections/template/item-detail";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
@@ -335,9 +333,9 @@ function PublicPageChrome({
  * sources before walking.
  *
  * Takes `allDefs` from the catch-all rather than re-reading every
- * definition. When `detailTemplate` is null, falls back to a
- * minimal "every scalar field as plain text" rendering wrapped in
- * an `<article>` with token-driven inline styles.
+ * definition. When `detailTemplate` is null, falls back to the
+ * default detail layout (`DefaultItemDetail`): cover, formatted meta,
+ * title, text fields and the rendered body.
  */
 async function CollectionItemBody({
   def,
@@ -349,20 +347,7 @@ async function CollectionItemBody({
   allDefs: CollectionDef[];
 }) {
   const template = def.detailTemplate as Template | null;
-  if (!template) {
-    return (
-      <article
-        style={{
-          maxWidth: "var(--max-width-content)",
-          margin: "var(--space-8) auto",
-          padding: "0 var(--space-4)",
-        }}
-      >
-        <h1>{item.slug}</h1>
-        <DefaultItemFieldsList item={item} def={def} />
-      </article>
-    );
-  }
+  if (!template) return <DefaultItemDetail def={def} item={item} />;
 
   // Build the extended registry: primitives + one Collection block
   // entry per known collection. The dispatcher's render is the same

@@ -31,6 +31,7 @@ import type { ImageMetadata } from "../image-types";
 import type {
   CollectionDef,
   CollectionRefValue,
+  FieldDef,
   FieldId,
   FieldValue,
   FileRef,
@@ -184,4 +185,15 @@ export function itemDisplayLabel(def: CollectionDef, item: Item): string {
     if (fv && fv.type === "text" && fv.value.trim()) return fv.value.trim();
   }
   return item.slug;
+}
+
+/**
+ * Artist-facing label for a stored `select` / `multiSelect` value (e.g.
+ * `"on_sale"` → `"On sale"`). Falls back to the raw value when the field
+ * isn't a select or no option matches — an option the artist deleted
+ * after items were saved still shows something rather than nothing.
+ */
+export function selectOptionLabel(field: FieldDef | undefined, value: string): string {
+  if (field?.type !== "select" && field?.type !== "multiSelect") return value;
+  return field.options.find((o) => o.value === value)?.label ?? value;
 }
