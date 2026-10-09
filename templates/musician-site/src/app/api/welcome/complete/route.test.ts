@@ -13,7 +13,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
@@ -25,7 +25,7 @@ vi.mock("@/lib/publish", async () => {
 });
 
 import { POST } from "./route";
-import { getRequestReadStore, writeCollectionDef } from "@/lib/collections";
+import { getRequestReadStore, readSingleton, writeCollectionDef } from "@/lib/collections";
 import {
   appearanceCollectionDef,
   headerCollectionDef,
@@ -194,5 +194,78 @@ describe("POST /api/welcome/complete — idempotency", () => {
     expect(second.status).toBe(409);
     const body = await second.json();
     expect(body.error).toMatch(/already completed/i);
+  });
+});
+
+describe("POST /api/welcome/complete — dev write ordering", () => {
+  it("writes the site singleton last, so a failed earlier write leaves the wizard re-runnable", async () => {
+    // A directory where the Home page file goes makes that write's
+    // rename fail, partway through the dev write.
+    await fs.mkdir(path.join(TMP_CONTENT_DIR, "collections/pages/items/home.json/blocker"), {
+      recursive: true,
+    });
+
+    await expect(POST(jsonReq(VALID_BODY))).rejects.toThrow();
+
+    expect(publishMock).not.toHaveBeenCalled();
+    const site = siteConfigFromItem(await readSingleton("site", siteCollectionDef));
+    expect(site.hasCompletedFirstRun).toBe(false);
+  });
+});
+
+describe("POST /api/welcome/complete — platform configured (issue #345)", () => {
+  beforeEach(() => {
+    process.env.STAGECRAFT_SITE_ID = "site_test";
+    process.env.STAGECRAFT_BROKER_SECRET = "secret";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    delete process.env.STAGECRAFT_BROKER_SECRET;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("returns 502 (never ok: true) when the draft commit fails", async () => {
+    const { PublishError } = await import("@/lib/publish");
+    publishMock.mockRejectedValue(new PublishError("github-failed", "commit to draft: boom"));
+
+    const res = await POST(jsonReq(VALID_BODY));
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, code: "github-failed" });
+    expect(body.error).toMatch(/^Save failed: /);
+  });
+
+  it("draft saved but publish to main failed: ok with publishWarning, not 'Save failed'", async () => {
+    const { DraftSavedPublishError, PublishError } = await import("@/lib/publish");
+    publishMock.mockRejectedValue(
+      new DraftSavedPublishError(
+        "draft-sha",
+        new PublishError("github-failed", "squash draft → main: boom"),
+      ),
+    );
+
+    const res = await POST(jsonReq(VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      published: false,
+      mode: "github",
+      commitSha: "draft-sha",
+    });
+    expect(body.publishWarning).toMatch(/^Saved to your draft, but publishing to the live site failed/);
+    expect(JSON.stringify(body)).not.toMatch(/Save failed/);
+  });
+
+  it("a successful publish carries no publishWarning", async () => {
+    publishMock.mockResolvedValue({ commitSha: "main-sha", mode: "github" });
+    const res = await POST(jsonReq(VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ ok: true, mode: "github", commitSha: "main-sha" });
   });
 });

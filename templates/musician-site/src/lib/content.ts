@@ -195,8 +195,23 @@ export async function writePage(
   data: PageData,
   store: ReadStore,
 ): Promise<void> {
-  pageSlugSchema.parse(slug);
   await ensurePrebakedCollections();
+  const item = await buildPageItem(slug, data, store);
+  await writeItem("pages", slug, item, pagesCollectionDef);
+}
+
+/**
+ * Build the pages-collection item for `data` in memory, without
+ * touching disk. Shared by `writePage` (dev / local writes) and the
+ * save routes that commit straight to the draft branch in production
+ * (issue #345).
+ */
+export async function buildPageItem(
+  slug: string,
+  data: PageData,
+  store: ReadStore,
+): Promise<import("./collections/schema").Item> {
+  pageSlugSchema.parse(slug);
   // Preserve the existing id + createdAt + showInNav across updates
   // so the collection model's stable-identity contract holds and the
   // page's nav-visibility isn't reset on every save. Reads through
@@ -204,12 +219,11 @@ export async function writePage(
   // still sees the artist's draft-branch state.
   const existing = await store.readItem("pages", slug, pagesCollectionDef);
   const showInNav = readShowInNav(existing) ?? true;
-  const item = pageDataToItem(slug, data, {
+  return pageDataToItem(slug, data, {
     id: existing?.id ?? generateItemId(),
     createdAt: existing?.createdAt,
     showInNav,
   });
-  await writeItem("pages", slug, item, pagesCollectionDef);
 }
 
 function readShowInNav(item: import("./collections/schema").Item | null): boolean | null {

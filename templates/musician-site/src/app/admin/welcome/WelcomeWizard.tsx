@@ -103,7 +103,7 @@ export function WelcomeWizard({
         body: JSON.stringify(buildWelcomePayload(values)),
       });
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; publishWarning?: string }
+        | { ok: true }
         | { ok: false; error?: string }
         | null;
       if (!res.ok || !body || !body.ok) {

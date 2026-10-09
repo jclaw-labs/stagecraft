@@ -65,7 +65,7 @@ export function DangerZone({ artistName }: Props) {
         body: JSON.stringify({ confirmArtistName: typedArtistName }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; itemsDeleted?: number; publishWarning?: string }
+        | { ok: true; itemsDeleted?: number }
         | { ok: false; error?: string }
         | null;
       if (!res.ok || !body || !body.ok) {

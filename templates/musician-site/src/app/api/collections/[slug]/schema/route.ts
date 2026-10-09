@@ -16,8 +16,8 @@
  *      destructive operations with a confirm step *before* calling
  *      this route — the warnings here are belt-and-braces).
  *
- * On success: write `_collection.json` locally, then publish via the
- * existing `collection-def` target. Items are not touched — schema
+ * On success: commit `_collection.json` via `saveContent` (a local
+ * write in dev only). Items are not touched — schema
  * changes are deliberately additive at the item level (renames change
  * key not id; lossless type transitions keep the existing values).
  */
@@ -37,7 +37,8 @@ import {
   type Item,
 } from "@/lib/collections";
 import { localPathForRepoPath, writeJsonBatchAtomic } from "@/lib/fs-helpers";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError, type PublishTarget } from "@/lib/publish";
+import { saveContent, saveFailureResponse } from "@/lib/save-content";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -99,59 +100,41 @@ export async function PUT(request: Request, ctx: Ctx) {
   // so there's a single source of truth for what the save will do.
   const migratedItems = report.migratedItems;
 
-  // Stage every local write (the new def + every migrated item) and
-  // commit them with `writeJsonBatchAtomic`. The phase-1-protected
-  // batch means a stringify / disk-full / validation slip on any
-  // single item leaves the previous state untouched — no half-
-  // migrated collection where the def says "field X is now type Y"
-  // but some items still carry the old type Y.
-  //
-  // Item writes go through `prepareItemFileWrite` (shared with
-  // `writeItem`) so the on-disk bytes match exactly what a per-call
-  // write would produce. Passing a shared `nowIso` means every item
-  // in this batch ends up with the same `updatedAt`.
+  // Build every file in memory: the new def + each migrated item,
+  // validated against the new def. Item files go through
+  // `prepareItemFileWrite` (shared with `writeItem`) so the bytes match
+  // a per-call write; a shared `nowIso` gives every item in this save
+  // an identical `updatedAt`. The commit and the dev-only local write
+  // below carry exactly these values.
   const nowIso = new Date().toISOString();
-  const writes: Array<{ file: string; value: unknown }> = [
-    {
-      file: localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
-      value: collectionDefSchema.parse(newDef),
-    },
-    ...migratedItems.map((item: Item) =>
-      prepareItemFileWrite(parsedSlug.data, item.slug, item, newDef, nowIso),
-    ),
+  const defValue = collectionDefSchema.parse(newDef);
+  const itemWrites = migratedItems.map((item: Item) => ({
+    slug: item.slug,
+    ...prepareItemFileWrite(parsedSlug.data, item.slug, item, newDef, nowIso),
+  }));
+  const targets: PublishTarget[] = [
+    { kind: "collection-def", collectionSlug: parsedSlug.data, data: defValue },
+    ...itemWrites.map(({ slug: itemSlug, value }) => ({
+      kind: "collection-item" as const,
+      collectionSlug: parsedSlug.data,
+      itemSlug,
+      data: value,
+    })),
   ];
-  await writeJsonBatchAtomic(writes);
 
-  // Serialise warnings once — both success branches return the same
-  // shape, and `describeWarning` is pure but cheap to call twice was
-  // still pointless duplication.
   const warningsOut = report.warnings.map((w) => ({ ...w, message: describeWarning(w) }));
 
   try {
-    const result = await saveToDraft({
-      targets: [
-        {
-          kind: "collection-def",
-          collectionSlug: parsedSlug.data,
-          data: newDef,
-        },
-        ...migratedItems.map((item: Item) => ({
-          kind: "collection-item" as const,
-          collectionSlug: parsedSlug.data,
-          itemSlug: item.slug,
-          data: {
-            id: item.id,
-            createdAt: item.createdAt,
-            // Match the `updatedAt` we just wrote to disk so the
-            // publish target and the on-disk file agree. The
-            // previous code used `item.updatedAt` from the
-            // validator's migrated item, which was stale relative
-            // to what `writeItem` stamped on disk.
-            updatedAt: nowIso,
-            values: item.values,
-          },
-        })),
-      ],
+    const result = await saveContent({
+      targets,
+      // Dev only: `writeJsonBatchAtomic` stages every tmp before any
+      // rename, so a stringify / disk-full slip leaves no
+      // half-migrated collection on disk.
+      writeLocal: () =>
+        writeJsonBatchAtomic([
+          { file: localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)), value: defValue },
+          ...itemWrites.map(({ file, value }) => ({ file, value })),
+        ]),
       authorEmail: session.email,
       commitSubject:
         migratedItems.length === 0
@@ -167,17 +150,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       warnings: warningsOut,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        def: newDef,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-        migratedItemCount: migratedItems.length,
-        warnings: warningsOut,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

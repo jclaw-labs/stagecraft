@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getRequestReadStore } from "@/lib/collections";
 import { deletePage, readPageOrNull } from "@/lib/content";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { saveContent, saveFailureResponse } from "@/lib/save-content";
 import { pageSlugSchema } from "@/lib/site-config-types";
 
 /**
- * DELETE /api/pages/[slug] — remove a page from disk and (when configured)
- * commit the deletion to the artist's repo in a single publish.
+ * DELETE /api/pages/[slug] — commit the page's deletion to the draft
+ * branch (in dev: remove it from local disk).
  */
 
 function err(status: number, error: string) {
@@ -31,25 +32,16 @@ export async function DELETE(
   const existing = await readPageOrNull(slug, store);
   if (!existing) return err(404, `No page with slug "${slug}"`);
 
-  await deletePage(slug);
-
   try {
-    const result = await saveToDraft({
+    const result = await saveContent({
       targets: [{ kind: "delete-collection-item", collectionSlug: "pages", itemSlug: slug }],
+      writeLocal: () => deletePage(slug),
       authorEmail: session.email,
       commitSubject: `Delete page ${slug}`,
     });
     return NextResponse.json({ ok: true, mode: result.mode, commitSha: result.commitSha });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      // Local delete already happened; report the publish failure as a warning.
-      return NextResponse.json({
-        ok: true,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

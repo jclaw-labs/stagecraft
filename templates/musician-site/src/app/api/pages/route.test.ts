@@ -220,7 +220,7 @@ describe("POST /api/pages", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
-  it("returns ok with publishWarning when local write succeeds but publish fails", async () => {
+  it("returns a 502 failure (never ok: true) when the commit fails", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(
       "@/lib/publish",
@@ -232,13 +232,12 @@ describe("POST /api/pages", () => {
       body: JSON.stringify({ slug: TEST_SLUG, title: "x" }),
     });
     const res = await POST(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.publishWarning).toContain("boom");
-    // Disk state still reflects the create.
-    const written = JSON.parse(await fs.readFile(TEST_ITEM_PATH, "utf-8"));
-    expect(written.values[PAGES_FIELD_IDS.title].value).toBe("x");
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("github-failed");
+    expect(body.error).toContain("boom");
+    expect(body.publishWarning).toBeUndefined();
   });
 });
 

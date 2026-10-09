@@ -19,8 +19,12 @@
  * the route returns 409 — the only way back into the wizard is through
  * the reset endpoint, which clears the flag first.
  *
- * All targets go through `publish()` in one call so the entire
- * onboarding lands as one commit ("Complete welcome wizard").
+ * All targets go through `saveContent` (publishing to main) in one call
+ * so the entire onboarding lands as one commit ("Complete welcome
+ * wizard"). Local disk is written in dev only; in production a failed
+ * draft commit is a failed request, while a draft commit that landed
+ * but couldn't be published to main answers `ok: true, published:
+ * false, publishWarning` (the wizard is complete on the draft).
  */
 
 import { NextResponse } from "next/server";
@@ -38,9 +42,7 @@ import {
   generateItemId,
   getRequestReadStore,
   SINGLETON_ITEM_SLUG,
-  writeItem,
   writeOrder,
-  writeSingleton,
   type Item,
 } from "@/lib/collections";
 import {
@@ -55,11 +57,12 @@ import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { imageMetadataSchema } from "@/lib/image-types";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
 import { emptyPageData } from "@/lib/content";
-import { PublishError, publish, type PublishTarget } from "@/lib/publish";
+import { PublishError, type PublishTarget } from "@/lib/publish";
+import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 import { resolveTheme, THEME_IDS } from "@/lib/theme-presets";
 import type { Appearance, HeaderConfig } from "@/lib/site-config-types";
 
-import { publishItemTarget, upsertSingletonItem } from "../_shared";
+import { upsertSingletonItem } from "../_shared";
 
 const TOUR_DATES_SLUG = "tour-dates";
 
@@ -223,46 +226,64 @@ export async function POST(request: Request) {
   }
 
   // ---------------------------------------------------------------
-  // Write locally (admin runs against the local disk), then publish
-  // everything in one commit.
+  // Build + validate every file in memory, then save everything in
+  // one commit (local disk in dev only).
   //
-  // The site singleton goes LAST because that's where the
+  // In dev the site singleton is written LAST because that's where the
   // `hasCompletedFirstRun: true` flag lands. If any earlier write
   // throws (disk full, permission error), the flag is never set, the
   // welcome wizard re-runs on next visit, and the next attempt's
   // writes overwrite anything that did succeed. Set the flag first
   // and a partial failure strands the artist on an empty Pages list
-  // with no path back into the wizard.
+  // with no path back into the wizard. (In production every target
+  // goes into one draft commit, so order doesn't matter there. That
+  // draft commit is then published to main as a second step; if only
+  // that step fails, the wizard *is* complete on the draft, so the
+  // route answers ok + `publishWarning` rather than "Save failed" —
+  // a retry would get 409 from the guard above.)
   // ---------------------------------------------------------------
-  await writeSingleton("appearance", appearanceItem, appearanceCollectionDef);
-  await writeSingleton("header", headerItem, headerCollectionDef);
-  await writeItem("pages", seed.homePage.slug, homeItem, pagesCollectionDef);
-  for (const { slug, item } of starterPageItems) {
-    await writeItem("pages", slug, item, pagesCollectionDef);
-  }
-  if (starterPageItems.length > 0) {
-    await writeOrder("pages", pageOrder);
-  }
-  for (const item of tourDateItems) {
-    await writeItem(TOUR_DATES_SLUG, item.slug, item, tourDatesDef!);
-  }
-  await writeSingleton("site", siteItem, siteCollectionDef);
+  const site = planItemWrite("site", SINGLETON_ITEM_SLUG, siteItem, siteCollectionDef);
+  const appearance = planItemWrite(
+    "appearance",
+    SINGLETON_ITEM_SLUG,
+    appearanceItem,
+    appearanceCollectionDef,
+  );
+  const header = planItemWrite("header", SINGLETON_ITEM_SLUG, headerItem, headerCollectionDef);
+  const home = planItemWrite("pages", seed.homePage.slug, homeItem, pagesCollectionDef);
+  const starterPages = starterPageItems.map(({ slug, item }) =>
+    planItemWrite("pages", slug, item, pagesCollectionDef),
+  );
+  const tourDates = tourDatesDef
+    ? tourDateItems.map((item) => planItemWrite(TOUR_DATES_SLUG, item.slug, item, tourDatesDef))
+    : [];
+  const hasPageOrder = starterPageItems.length > 0;
 
   const targets: PublishTarget[] = [
-    publishItemTarget("site", SINGLETON_ITEM_SLUG, siteItem),
-    publishItemTarget("appearance", SINGLETON_ITEM_SLUG, appearanceItem),
-    publishItemTarget("header", SINGLETON_ITEM_SLUG, headerItem),
-    publishItemTarget("pages", seed.homePage.slug, homeItem),
-    ...starterPageItems.map(({ slug, item }) => publishItemTarget("pages", slug, item)),
-    ...(starterPageItems.length > 0
+    site.target,
+    appearance.target,
+    header.target,
+    home.target,
+    ...starterPages.map((p) => p.target),
+    ...(hasPageOrder
       ? [{ kind: "collection-order" as const, collectionSlug: "pages", data: pageOrder }]
       : []),
-    ...tourDateItems.map((item) => publishItemTarget(TOUR_DATES_SLUG, item.slug, item)),
+    ...tourDates.map((t) => t.target),
   ];
 
   try {
-    const result = await publish({
+    const result = await saveContent({
       targets,
+      writeLocal: async () => {
+        await appearance.writeLocal();
+        await header.writeLocal();
+        await home.writeLocal();
+        for (const page of starterPages) await page.writeLocal();
+        if (hasPageOrder) await writeOrder("pages", pageOrder);
+        for (const tourDate of tourDates) await tourDate.writeLocal();
+        await site.writeLocal();
+      },
+      publishTo: "main",
       authorEmail: session.email,
       commitSubject: "Complete welcome wizard",
     });
@@ -270,19 +291,12 @@ export async function POST(request: Request) {
       ok: true,
       mode: result.mode,
       commitSha: result.commitSha,
+      ...(result.publishWarning
+        ? { published: false, publishWarning: result.publishWarning }
+        : {}),
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      // Local write succeeded — surface the publish error as a warning
-      // so the artist isn't blocked. The next save retries the publish.
-      return NextResponse.json({
-        ok: true,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }
-

@@ -28,7 +28,8 @@ import {
   validateSchemaChange,
   writeCollectionDef,
 } from "@/lib/collections";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { saveContent, saveFailureResponse } from "@/lib/save-content";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -101,10 +102,8 @@ export async function PUT(request: Request, ctx: Ctx) {
     });
   }
 
-  await writeCollectionDef(parsedSlug.data, nextDef.data);
-
   try {
-    const result = await saveToDraft({
+    const result = await saveContent({
       targets: [
         {
           kind: "collection-def",
@@ -112,6 +111,7 @@ export async function PUT(request: Request, ctx: Ctx) {
           data: nextDef.data,
         },
       ],
+      writeLocal: () => writeCollectionDef(parsedSlug.data, nextDef.data),
       authorEmail: session.email,
       commitSubject: `Update ${parsedSlug.data} ${kind} template`,
     });
@@ -123,16 +123,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       warnings: report.warnings.map((w) => ({ ...w, message: describeWarning(w) })),
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        def: nextDef.data,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-        warnings: report.warnings.map((w) => ({ ...w, message: describeWarning(w) })),
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

@@ -10,7 +10,6 @@ import {
   orderRepoPath,
   slugSchema,
   type CollectionDef,
-  type ReadStore,
 } from "./collections";
 import {
   localPathForRepoPath,
@@ -52,6 +51,24 @@ export class PublishError extends Error {
   ) {
     super(message);
     this.name = "PublishError";
+  }
+}
+
+/**
+ * Thrown by `publish()` when the change was committed to the draft
+ * branch but publishing that draft to `main` then failed. The save
+ * itself persisted (the draft-aware store already reads it), so callers
+ * must not report it as a failed save — and a retry of the same request
+ * would see the change as already applied. `publishFailure` is the
+ * `publishDraftToMain` error; `code` / `message` mirror it.
+ */
+export class DraftSavedPublishError extends PublishError {
+  constructor(
+    public draftCommitSha: string | null,
+    public publishFailure: PublishError,
+  ) {
+    super(publishFailure.code, publishFailure.message);
+    this.name = "DraftSavedPublishError";
   }
 }
 
@@ -346,11 +363,23 @@ export async function publish(args: PublishArgs): Promise<PublishResult> {
   // shape. The publishDraftToMain result type is widened
   // (PublishResult & { alreadyInSync }); narrowing here keeps the
   // type contract honest.
-  const publishResult = await publishDraftToMain({
-    authorEmail: args.authorEmail,
-    authorName: args.authorName,
-    commitSubject: args.commitSubject,
-  });
+  //
+  // The draft commit above has landed by now, so a failure from here on
+  // is "saved, not published" — `DraftSavedPublishError`, not a plain
+  // `PublishError` that would read as a failed save.
+  let publishResult: PublishDraftToMainResult;
+  try {
+    publishResult = await publishDraftToMain({
+      authorEmail: args.authorEmail,
+      authorName: args.authorName,
+      commitSubject: args.commitSubject,
+    });
+  } catch (cause) {
+    if (cause instanceof PublishError) {
+      throw new DraftSavedPublishError(saveResult.commitSha, cause);
+    }
+    throw cause;
+  }
   return { commitSha: publishResult.commitSha, mode: publishResult.mode };
 }
 
@@ -801,53 +830,5 @@ export async function discardDraft(args: {
   };
 }
 
-/**
- * Convenience for the Puck editor's onPublish handler: write a page
- * locally via the wrapper layer (so the editor sees fresh values on
- * the next read) and then push a `collection-item` commit through the
- * broker / GitHub. Local writes happen before the commit so a publish
- * failure leaves the artist with a saved-but-undeployed page rather
- * than nothing.
- *
- * Splitting "local write" from "commit" matches the existing
- * `/api/publish` semantics: a `publishWarning` in the response means
- * the local write succeeded but the commit didn't.
- */
-export async function publishPage(args: {
-  pageSlug: string;
-  /** Legacy PuckData shape: `{ content, root: { props: {...} } }`. */
-  data: unknown;
-  authorEmail: string;
-  authorName?: string;
-  /**
-   * Read store used by `writePage` to look up the existing item's
-   * id / createdAt / showInNav and preserve them across the update.
-   * Admin callers pass a draft-backed store so the lookup sees the
-   * artist's live state across containers; the FS-only re-read
-   * below stays direct because the post-write item exists only on
-   * local disk until `saveToDraft` commits it.
-   */
-  store: ReadStore;
-}): Promise<PublishResult> {
-  const { writePage } = await import("./content");
-  await writePage(args.pageSlug, args.data as Parameters<typeof writePage>[1], args.store);
-  const { readItem } = await import("./collections/store");
-  const { pagesCollectionDef } = await import("./collections/seeds");
-  const item = await readItem("pages", args.pageSlug, pagesCollectionDef);
-  if (!item) {
-    throw new PublishError("github-failed", `Page ${args.pageSlug} disappeared after write`);
-  }
-  return saveToDraft({
-    targets: [
-      {
-        kind: "collection-item",
-        collectionSlug: "pages",
-        itemSlug: args.pageSlug,
-        data: { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, values: item.values },
-      },
-    ],
-    authorEmail: args.authorEmail,
-    authorName: args.authorName,
-    commitSubject: `Update ${args.pageSlug}`,
-  });
-}
+// `publishPage` (the Puck editor's onPublish save) lives in
+// `./save-content` alongside the other admin save paths (issue #345).

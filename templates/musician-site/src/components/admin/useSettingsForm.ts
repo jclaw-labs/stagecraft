@@ -103,7 +103,7 @@ export function useSettingsForm<T>({
         },
       );
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; publishWarning?: string }
+        | { ok: true }
         | { ok: false; error?: string }
         | null;
       if (!res.ok || !body || !body.ok) {
@@ -117,11 +117,6 @@ export function useSettingsForm<T>({
       // pristine; the user can keep editing afterward.
       setInitialSnapshot(JSON.stringify(value));
       setStatus("saved");
-      if ("publishWarning" in body && body.publishWarning) {
-        // Persisted locally but publish failed. Show as a non-blocking note —
-        // the next save attempt will retry the publish.
-        setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
-      }
     } catch (cause) {
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");

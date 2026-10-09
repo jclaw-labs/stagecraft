@@ -53,7 +53,7 @@ export function ItemEditorClient({
         },
       );
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; item: Item; publishWarning?: string }
+        | { ok: true; item: Item }
         | {
             ok: false;
             error?: string;
@@ -80,9 +80,6 @@ export function ItemEditorClient({
       setItem(body.item);
       setInitialSnapshot(JSON.stringify(body.item));
       setStatus("saved");
-      if ("publishWarning" in body && body.publishWarning) {
-        setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
-      }
     } catch (cause) {
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");

@@ -23,7 +23,8 @@ import {
   slugSchema,
   writeOrder,
 } from "@/lib/collections";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { saveContent, saveFailureResponse } from "@/lib/save-content";
 
 const requestSchema = z.object({
   order: z.array(z.string().min(1)),
@@ -76,10 +77,8 @@ export async function PUT(request: Request, ctx: Ctx) {
     return err(400, `Unknown item slug(s): ${unknown.join(", ")}`);
   }
 
-  await writeOrder(parsedCollectionSlug.data, parsed.data.order);
-
   try {
-    const result = await saveToDraft({
+    const result = await saveContent({
       targets: [
         {
           kind: "collection-order",
@@ -87,6 +86,7 @@ export async function PUT(request: Request, ctx: Ctx) {
           data: parsed.data.order,
         },
       ],
+      writeLocal: () => writeOrder(parsedCollectionSlug.data, parsed.data.order),
       authorEmail: session.email,
       commitSubject: `Reorder ${parsedCollectionSlug.data}`,
     });
@@ -96,14 +96,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

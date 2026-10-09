@@ -68,9 +68,10 @@ export type PublishError = z.infer<typeof publishErrorSchema>;
  * - `concurrent-edit` → 409 (recoverable client-side: refresh + retry)
  * - everything else  → 500 (generic server-side failure)
  *
- * Save routes that already absorb publish failures into a 200-OK +
- * `publishWarning` envelope (the local-write-succeeded path) don't
- * use this helper — their response doesn't have a status to map.
+ * `/api/publish` (the Puck page save) uses this mapping. The other
+ * content save routes use `saveFailureStatus` in `save-content.ts`
+ * instead: a save whose commit fails didn't persist anywhere, so it's
+ * an upstream failure (502, or 409 / 503) rather than a generic 500.
  */
 export function publishErrorHttpStatus(code: PublishError["code"]): number {
   switch (code) {

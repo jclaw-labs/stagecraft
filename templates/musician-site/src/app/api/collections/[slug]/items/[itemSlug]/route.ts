@@ -20,20 +20,11 @@ import {
   isSingletonItem,
   ItemExistsError,
   itemSlugSchema,
-  renameItem,
   slugSchema,
-  writeItem,
-  type Item,
+  writeOrder,
 } from "@/lib/collections";
-// Direct FS reads for post-write re-reads: the just-written bytes
-// are on local disk but not yet on the draft branch, so the facade
-// can't see them. Pre-write existence checks go through the facade
-// so concurrent edits from another container are visible.
-import {
-  readItem as fsReadItem,
-  readOrder as fsReadOrder,
-} from "@/lib/collections/store";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError, type PublishTarget } from "@/lib/publish";
+import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 
 import { zodIssuesToStructured } from "./issue-format";
 
@@ -123,49 +114,30 @@ export async function PUT(request: Request, ctx: Ctx) {
   }
   const validated = parseResult.data;
 
-  const draft: Item = { ...validated, slug: parsedItemSlug.data };
-  await writeItem(parsedCollectionSlug.data, parsedItemSlug.data, draft, def);
-  // Re-read so the response (and publish target) carries the
-  // canonical `updatedAt` the store just stamped. Direct FS read:
-  // the write only landed on local disk until `saveToDraft` below
-  // commits it.
-  const saved = await fsReadItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
-  if (!saved) return err(500, "Item disappeared between write and read");
+  // Build + validate the item file in memory; the same bytes go into
+  // the commit, the response, and (dev only) the local disk write.
+  const planned = planItemWrite(
+    parsedCollectionSlug.data,
+    parsedItemSlug.data,
+    { ...validated, slug: parsedItemSlug.data },
+    def,
+  );
 
   try {
-    const result = await saveToDraft({
-      targets: [
-        {
-          kind: "collection-item",
-          collectionSlug: parsedCollectionSlug.data,
-          itemSlug: parsedItemSlug.data,
-          data: {
-            id: saved.id,
-            createdAt: saved.createdAt,
-            updatedAt: saved.updatedAt,
-            values: saved.values,
-          },
-        },
-      ],
+    const result = await saveContent({
+      targets: [planned.target],
+      writeLocal: planned.writeLocal,
       authorEmail: session.email,
       commitSubject: `Update ${parsedCollectionSlug.data}/${parsedItemSlug.data}`,
     });
     return NextResponse.json({
       ok: true,
-      item: saved,
+      item: planned.item,
       mode: result.mode,
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        item: saved,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }
@@ -219,81 +191,70 @@ export async function PATCH(request: Request, ctx: Ctx) {
   const def = await store.readCollectionDef(parsedCollectionSlug.data);
   if (!def) return err(404, `Collection "${parsedCollectionSlug.data}" not found`);
 
-  let saved: Item;
-  try {
-    saved = await renameItem(
-      parsedCollectionSlug.data,
-      parsedOldSlug.data,
-      parsedNewSlug.data,
-      def,
-    );
-  } catch (cause) {
-    if (cause instanceof ItemExistsError) {
-      return err(409, cause.message);
-    }
-    if (cause instanceof Error && cause.message.startsWith("renameItem: no item")) {
-      return err(404, "Item not found");
-    }
-    throw cause;
+  // Draft-aware existence + collision checks, then build the renamed
+  // item in memory. The rename bumps `updatedAt` (it's a write).
+  const existing = await store.readItem(parsedCollectionSlug.data, parsedOldSlug.data, def);
+  if (!existing) return err(404, "Item not found");
+  const collides = await store.readItem(parsedCollectionSlug.data, parsedNewSlug.data, def);
+  if (collides) {
+    return err(409, new ItemExistsError(parsedCollectionSlug.data, parsedNewSlug.data).message);
   }
+  const planned = planItemWrite(
+    parsedCollectionSlug.data,
+    parsedNewSlug.data,
+    { ...existing, slug: parsedNewSlug.data },
+    def,
+    new Date().toISOString(),
+  );
 
-  // Read the (possibly updated) order so the publish includes it
-  // when manual ordering is in effect. Otherwise the publish just
-  // covers the write + delete pair. Direct FS read: the rename
-  // just rewrote `_order.json` locally; draft hasn't seen it yet.
+  // Preserve manual ordering: swap oldSlug for newSlug in place so the
+  // drag-ordered sequence survives the rename. Field-sorted
+  // collections don't carry an order file.
+  const orderBefore =
+    def.defaultSort?.mode === "manual" ? await store.readOrder(parsedCollectionSlug.data) : null;
   const orderAfter =
-    def.defaultSort?.mode === "manual" ? await fsReadOrder(parsedCollectionSlug.data) : null;
+    orderBefore !== null
+      ? orderBefore.map((slug) => (slug === parsedOldSlug.data ? parsedNewSlug.data : slug))
+      : null;
+
+  const targets: PublishTarget[] = [
+    planned.target,
+    {
+      kind: "delete-collection-item",
+      collectionSlug: parsedCollectionSlug.data,
+      itemSlug: parsedOldSlug.data,
+    },
+    ...(orderAfter !== null
+      ? [
+          {
+            kind: "collection-order" as const,
+            collectionSlug: parsedCollectionSlug.data,
+            data: orderAfter,
+          },
+        ]
+      : []),
+  ];
 
   try {
-    const result = await saveToDraft({
-      targets: [
-        {
-          kind: "collection-item",
-          collectionSlug: parsedCollectionSlug.data,
-          itemSlug: parsedNewSlug.data,
-          data: {
-            id: saved.id,
-            createdAt: saved.createdAt,
-            updatedAt: saved.updatedAt,
-            values: saved.values,
-          },
-        },
-        {
-          kind: "delete-collection-item",
-          collectionSlug: parsedCollectionSlug.data,
-          itemSlug: parsedOldSlug.data,
-        },
-        ...(orderAfter !== null
-          ? [
-              {
-                kind: "collection-order" as const,
-                collectionSlug: parsedCollectionSlug.data,
-                data: orderAfter,
-              },
-            ]
-          : []),
-      ],
+    const result = await saveContent({
+      targets,
+      writeLocal: async () => {
+        await planned.writeLocal();
+        await deleteItem(parsedCollectionSlug.data, parsedOldSlug.data);
+        if (orderAfter !== null) await writeOrder(parsedCollectionSlug.data, orderAfter);
+      },
       authorEmail: session.email,
       commitSubject: `Rename ${parsedCollectionSlug.data}/${parsedOldSlug.data} → ${parsedNewSlug.data}`,
     });
     return NextResponse.json({
       ok: true,
-      item: saved,
+      item: planned.item,
       newSlug: parsedNewSlug.data,
       mode: result.mode,
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        item: saved,
-        newSlug: parsedNewSlug.data,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }
@@ -316,10 +277,8 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   const existing = await store.readItem(parsedCollectionSlug.data, parsedItemSlug.data, def);
   if (!existing) return err(404, "Item not found");
 
-  await deleteItem(parsedCollectionSlug.data, parsedItemSlug.data);
-
   try {
-    const result = await saveToDraft({
+    const result = await saveContent({
       targets: [
         {
           kind: "delete-collection-item",
@@ -327,19 +286,13 @@ export async function DELETE(_request: Request, ctx: Ctx) {
           itemSlug: parsedItemSlug.data,
         },
       ],
+      writeLocal: () => deleteItem(parsedCollectionSlug.data, parsedItemSlug.data),
       authorEmail: session.email,
       commitSubject: `Delete ${parsedCollectionSlug.data}/${parsedItemSlug.data}`,
     });
     return NextResponse.json({ ok: true, mode: result.mode, commitSha: result.commitSha });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }
