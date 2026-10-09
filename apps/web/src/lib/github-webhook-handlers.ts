@@ -1,4 +1,4 @@
-import { prisma } from "@stagecraft/db";
+import { prisma, type Prisma } from "@stagecraft/db";
 
 export type InstallationAction =
   | "created"
@@ -10,6 +10,13 @@ export type InstallationAction =
 export type RepositoriesAction = "added" | "removed";
 
 export type RepoRef = { name: string };
+
+/**
+ * The client a handler writes through. The webhook route passes its
+ * transaction client so the handler's writes commit or roll back together
+ * with the delivery record.
+ */
+export type WebhookDb = Prisma.TransactionClient;
 
 export type HandlerResult = {
   /** True if the event resulted in a DB write. */
@@ -33,29 +40,30 @@ export type HandlerResult = {
 export async function handleInstallationEvent(
   action: InstallationAction,
   installationId: number,
+  db: WebhookDb = prisma,
 ): Promise<HandlerResult> {
-  const site = await prisma.site.findFirst({ where: { githubInstallationId: installationId } });
+  const site = await db.site.findFirst({ where: { githubInstallationId: installationId } });
   if (!site) {
     return { applied: false, note: `no site found for installation ${installationId}` };
   }
 
   switch (action) {
     case "suspend":
-      await prisma.site.update({
+      await db.site.update({
         where: { id: site.id },
         data: { githubAppSuspended: true },
       });
       return { applied: true, note: `suspended site ${site.id}` };
 
     case "unsuspend":
-      await prisma.site.update({
+      await db.site.update({
         where: { id: site.id },
         data: { githubAppSuspended: false },
       });
       return { applied: true, note: `unsuspended site ${site.id}` };
 
     case "deleted":
-      await prisma.site.update({
+      await db.site.update({
         where: { id: site.id },
         data: {
           githubInstallationId: null,
@@ -82,12 +90,13 @@ export async function handleRepositoriesEvent(
   action: RepositoriesAction,
   installationId: number,
   repos: RepoRef[],
+  db: WebhookDb = prisma,
 ): Promise<HandlerResult> {
   if (action !== "removed") {
     return { applied: false, note: `${action} for installation ${installationId} (no-op)` };
   }
 
-  const site = await prisma.site.findFirst({ where: { githubInstallationId: installationId } });
+  const site = await db.site.findFirst({ where: { githubInstallationId: installationId } });
   if (!site || !site.githubRepoName) {
     return { applied: false, note: `no site or no configured repo for ${installationId}` };
   }
@@ -97,7 +106,7 @@ export async function handleRepositoriesEvent(
     return { applied: false, note: `removal didn't match site repo ${site.githubRepoName}` };
   }
 
-  await prisma.site.update({
+  await db.site.update({
     where: { id: site.id },
     data: {
       githubInstallationId: null,
