@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
 import { prisma } from "@stagecraft/db";
-import { connectedProviders, isValidHttpUrl } from "@stagecraft/shared";
+import { enqueue } from "@stagecraft/queue";
+import { connectedProviders, isValidHttpUrl, siteSetupIntegrationError } from "@stagecraft/shared";
 
 const DEFAULT_BLUEPRINT = "solo-artist";
 
@@ -31,20 +33,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Check integrations are connected
+  // Same integrations as the migrate_site job needs, which are the ones
+  // creating a site needs (see siteSetupIntegrationError).
   const integrations = await prisma.integrationAccount.findMany({
     where: { userId: session.user.id },
   });
-
-  const connected = connectedProviders(integrations);
-  const hasGithub = connected.has("github");
-  const hasNetlify = connected.has("netlify");
-
-  if (!hasGithub || !hasNetlify) {
-    return NextResponse.json(
-      { error: "GitHub and Netlify must be connected before migrating a site" },
-      { status: 400 }
-    );
+  const integrationError = siteSetupIntegrationError(connectedProviders(integrations), "migrating");
+  if (integrationError) {
+    return NextResponse.json({ error: integrationError }, { status: 400 });
   }
 
   const slug = slugify(body.name);
@@ -68,21 +64,27 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Enqueue migrate_site job
-  const job = await prisma.siteJob.create({
-    data: {
+  // Runs in the job queue like create_site; the site page polls the site
+  // (and its latest job) until it leaves `creating`.
+  let job;
+  try {
+    job = await enqueue({
       siteId: site.id,
       userId: session.user.id,
       type: "migrate_site",
-      status: "queued",
-      requestPayload: {
-        url: body.url,
-        name: body.name,
-        slug,
-        blueprintType: DEFAULT_BLUEPRINT,
-      },
-    },
-  });
+      payload: { url: body.url, name: body.name, slug, blueprintType: DEFAULT_BLUEPRINT },
+    });
+  } catch (cause) {
+    // Without a job nothing would ever move the site out of `creating`, so
+    // drop it (freeing the slug) and let the artist try again.
+    await prisma.site.delete({ where: { id: site.id } }).catch(() => undefined);
+    console.error("[POST /api/migrations] enqueue failed", {
+      siteId: site.id,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
+    return NextResponse.json({ error: "Could not start the migration. Please try again." }, { status: 500 });
+  }
+  drainAfterResponse();
 
   return NextResponse.json({ site, jobId: job.id }, { status: 201 });
 }

@@ -4,7 +4,7 @@ import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
 import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
-import { connectedProviders } from "@stagecraft/shared";
+import { connectedProviders, siteSetupIntegrationError } from "@stagecraft/shared";
 
 const DEFAULT_BLUEPRINT = "solo-artist";
 
@@ -33,36 +33,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Check integrations are connected. GitHub is always required (the
-  // platform commits to the artist's repo). The deploy target can be
-  // either Vercel OR Netlify — at least one must be connected.
+  // Same integrations as the create_site job needs (see siteSetupIntegrationError).
   const integrations = await prisma.integrationAccount.findMany({
     where: { userId: session.user.id },
   });
-
-  const connected = connectedProviders(integrations);
-  const hasGithub = connected.has("github");
-  const hasNetlify = connected.has("netlify");
-  const hasVercel = connected.has("vercel");
-  const hasResend = connected.has("resend");
-
-  if (!hasGithub) {
-    return NextResponse.json(
-      { error: "GitHub must be connected before creating a site" },
-      { status: 400 }
-    );
-  }
-  if (!hasNetlify && !hasVercel) {
-    return NextResponse.json(
-      { error: "A deploy target must be connected (Vercel or Netlify) before creating a site" },
-      { status: 400 }
-    );
-  }
-  if (!hasResend) {
-    return NextResponse.json(
-      { error: "Resend must be connected (for magic-link sign-in on artist sites) before creating a site" },
-      { status: 400 }
-    );
+  const integrationError = siteSetupIntegrationError(connectedProviders(integrations), "creating");
+  if (integrationError) {
+    return NextResponse.json({ error: integrationError }, { status: 400 });
   }
 
   const slug = slugify(name);
