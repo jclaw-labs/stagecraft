@@ -7,6 +7,7 @@
     "generate": "node scripts/generate-template-bundle.mjs",
     "dev": "npm run generate && sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
     "build": "npm run generate && next build",
+    "build:worker": "opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .open-next/dist",
     "start": "next start",
     "lint": "eslint .",
     "test": "npm run generate && vitest run",
@@ -19,6 +20,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
+    "@opennextjs/cloudflare": "^1.20.9",
     "@stagecraft/db": "*",
     "@stagecraft/queue": "*",
     "@stagecraft/shared": "*",
@@ -38,6 +40,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.2.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.3",
+    "wrangler": "^4.149.0"
   }
 }

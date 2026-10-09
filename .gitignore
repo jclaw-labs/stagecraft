@@ -24,3 +24,7 @@ playwright-report/
 
 # Build-time template bundle (apps/web/scripts/generate-template-bundle.mjs)
 apps/web/src/generated/
+
+# Cloudflare Worker build output (npm run build:worker) and wrangler state
+.open-next/
+.wrangler/
