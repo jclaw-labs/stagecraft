@@ -19,8 +19,9 @@ export const JOB_LEASE_MS = 5 * 60_000;
 export const LEASE_HEARTBEAT_MS = 60_000;
 
 /**
- * How many times a failed run — a handler that threw, or a job whose lease
- * expired — is retried before the job is failed for good. Two retries means
+ * How many times a failed run — a handler that threw or returned a
+ * `retryable` failure, or a job whose lease expired — is retried before the
+ * job is failed for good. All three share one `retryAttempts` budget. Two retries means
  * at most three runs. Kept low because handlers such as migrate_site have
  * external side effects (repo creation, deploys) and are not idempotent.
  * Independent of MAX_REPAIR_ATTEMPTS, which bounds `repairResult()` passes.

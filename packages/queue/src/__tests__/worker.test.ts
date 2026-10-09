@@ -741,6 +741,36 @@ describe("retrying failure results", () => {
     });
     expect(mockFinish.mock.calls[0][0].data).not.toHaveProperty("retryAttempts");
   });
+
+  it("retries before repairing while retries remain", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    const handler = vi.fn().mockResolvedValue({ success: false, retryable: true, shouldRepair: true, message: "bad build" });
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledTimes(1);
+    expect(mockFinish).toHaveBeenCalledWith({
+      where: ownedWhere(),
+      data: expect.objectContaining({ status: "queued", retryAttempts: { increment: 1 } }),
+    });
+    expect(mockFinish.mock.calls[0][0].data).not.toHaveProperty("repairAttempts");
+  });
+
+  it("writes nothing else when the lease was lost before the retry's requeue", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish.mockResolvedValueOnce({ count: 0 });
+    const events: WorkerEvent[] = [];
+    const handler = vi.fn().mockResolvedValue({ success: false, retryable: true, shouldRepair: true, message: "bad build" });
+    const worker = createWorker({ handlers: { create_site: handler }, onEvent: (e) => events.push(e) });
+
+    await worker.runNext();
+
+    expect(mockFinish).toHaveBeenCalledTimes(1);
+    const names = events.map((e) => e.event);
+    expect(names.filter((n) => n === "job.lease_lost")).toHaveLength(1);
+    expect(names).not.toContain("job.retrying");
+  });
 });
 
 describe("drain", () => {
