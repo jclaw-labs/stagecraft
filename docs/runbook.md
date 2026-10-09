@@ -15,6 +15,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 7. [Verifying Netlify Integration](#7-verifying-netlify-integration)
 8. [Cloudflare Worker](#8-cloudflare-worker)
 9. [Credential Encryption](#9-credential-encryption)
+10. [Database Migrations](#10-database-migrations)
 
 ---
 
@@ -464,3 +465,44 @@ After step 3, don't roll the app back to a build from before encryption, or remo
 1. Generate a new key with a new id.
 2. Set `STAGECRAFT_CREDENTIALS_OLD_KEYS` to the current key (append it, comma-separated, if old keys are already listed) and `STAGECRAFT_CREDENTIALS_KEY` to the new one, on Netlify and the Worker. Deploy. New writes use the new key; values under the old key still decrypt.
 3. To retire the old key, re-encrypt under the new one: run the backfill with `--rotate` (same command as above, with both variables set). Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS`, and deploy, once that run exits 0 and reports `0 undecryptable` for both tables; a non-zero exit means some values are still under a key the run couldn't use (they are listed by row).
+
+## 10. Database Migrations
+
+On every push to main, CI's "DB migrations applied to production" job runs `prisma migrate deploy` against production at the same time as the platform deploys. The migration usually lands first, so for a while the **old** code runs against the **new** schema. The new code can also briefly run against the old schema, and a rollback puts old code back on the new schema for good. So every migration must work with both the code before it and the code after it.
+
+### The rule: expand, then contract
+
+Split a breaking schema change across separate PRs, each deployed before the next merges:
+
+1. **Expand.** Add the new shape alongside the old: a new nullable column (or `NOT NULL DEFAULT ...`), a new table, a new enum value. The old code works without it.
+2. **Migrate the code.** Ship code that writes both shapes (or only the new one) and reads the new one. Backfill existing rows.
+3. **Contract.** Once no deployed code reads or writes the old shape, drop it in its own PR.
+
+| Change | Instead of | Do |
+|---|---|---|
+| Rename a column | `RENAME COLUMN a TO b` | add `b`, write both and read `b`, backfill, then drop `a` |
+| Make a column required | `SET NOT NULL` | make every writer set it and backfill, then `SET NOT NULL` in a later PR |
+| Add a required column | `ADD COLUMN x TEXT NOT NULL` | `ADD COLUMN x TEXT NOT NULL DEFAULT '...'`, or nullable first |
+| Change a column's type | `ALTER COLUMN x TYPE ...` | add a column of the new type, dual-write, backfill, switch reads, drop the old one |
+| Remove a table or column | `DROP` in the same PR as the code change | remove the code first, drop in a later PR |
+
+Never edit a migration that has merged to main. Prisma checksums applied migrations, and production has already run the old text. Add a new migration instead.
+
+### The CI check
+
+The "Migrations are backward compatible" job in `.github/workflows/ci.yml` runs `scripts/migration-safety.mjs` on every pull request. It finds the merge base of the PR with its base branch, lists what changed under `packages/db/prisma/migrations/` since then, and fails on:
+
+- `DROP TABLE` or `DROP COLUMN`
+- `ALTER COLUMN ... TYPE` / `SET DATA TYPE`
+- `SET NOT NULL`, even when the same migration backfills or sets a default first. Old code can still insert NULLs until the new code is live, so this belongs in a later contract step.
+- `ADD COLUMN ... NOT NULL` without a `DEFAULT`
+- `RENAME` in an `ALTER TABLE` or `ALTER TYPE` statement (tables, columns, enum types and values, and also `RENAME CONSTRAINT`, which Prisma emits when a key's name changes and which is harmless, so label that one; index renames are allowed)
+- any modification, deletion or rename of an existing migration file
+
+Only migration files the PR adds are scanned, so older migrations never fail it. Comments, string literals and quoted identifiers are ignored. Escape strings (`E'...'`) and dollar quotes (`$$`) are flagged instead, because the check can't read past them; Prisma never generates them. The check is deliberately simple and conservative: it matches text patterns, not the schema, so it can flag a change that is in fact safe (dropping a table no deployed code has used for a while), and it can't catch every unsafe one (for example `DROP DEFAULT` on a column old code relies on). Review migrations with the rule above, not just the check.
+
+Run it locally before pushing: `git fetch origin main && npm run migrations:check`. To scan specific files: `node scripts/migration-safety.mjs packages/db/prisma/migrations/<name>/migration.sql`.
+
+### Overriding it
+
+When a flagged change is safe for the code running in production (typically the contract step, after the code that used the old shape has shipped), add the label `migration:destructive-ok` to the PR and say in the PR body why it's safe. Adding the label doesn't restart CI: re-run the "Migrations are backward compatible" job from the PR's Checks tab, or push a new commit. The job reads the PR's current labels, so a re-run picks up the new one.
