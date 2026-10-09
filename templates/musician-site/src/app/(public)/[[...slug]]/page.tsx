@@ -87,7 +87,8 @@ type Props = {
 //
 // Content only changes through a commit + redeploy (ADR-007), so every
 // public URL is prerendered at build time. Anything not listed by
-// `generateStaticParams` 404s rather than rendering on demand.
+// `generateStaticParams` 404s rather than rendering on demand, through
+// the themed root `app/not-found.tsx`.
 // `/admin` and `/api` live outside this route and stay dynamic.
 // ---------------------------------------------------------------------------
 
