@@ -224,6 +224,29 @@ Do not paste raw hex / px values into an inline `<style>` block.
 
 ---
 
+## 7. Database migrations — expand, then contract
+
+CI applies migrations to production (`prisma migrate deploy`) at the same
+time as the new code deploys, so every migration in
+`packages/db/prisma/migrations/` must work with **both** the old and the new
+code.
+
+- Add, don't break: new tables, nullable columns, or `NOT NULL DEFAULT ...`
+  columns. No `DROP TABLE` / `DROP COLUMN`, column type changes,
+  `SET NOT NULL`, `ADD COLUMN ... NOT NULL` without a default, or renames in
+  the same PR as the code change.
+- Breaking changes go in steps, each in its own PR: expand (add the new
+  shape), migrate the code (dual-write, backfill), contract (drop the old
+  shape once no deployed code uses it).
+- Never edit a migration that has merged; add a new one.
+
+CI enforces this with `scripts/migration-safety.mjs` (run it locally with
+`npm run migrations:check`). For a contract step that is genuinely safe, add
+the PR label `migration:destructive-ok`, explain why in the PR body, and
+re-run the job. Full rule and recipes: `docs/runbook.md` §9.
+
+---
+
 ## Validation commands
 
 ```bash

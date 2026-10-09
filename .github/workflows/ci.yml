@@ -77,6 +77,50 @@ jobs:
       - name: Audit — fail on high (allowlist in .github/audit-allowlist.json)
         run: npm run audit:gate
 
+  # Backward-compatible migrations (#361). db-migrations-applied below runs
+  # `prisma migrate deploy` against production while the new code is still
+  # deploying, so the old code must keep working on the new schema. This
+  # fails on destructive SQL (DROP TABLE/COLUMN, column type changes, SET NOT
+  # NULL, ADD COLUMN NOT NULL without DEFAULT, renames) in migrations the PR
+  # adds, and on any edit to an existing migration. Rules and the
+  # expand/contract recipe: docs/runbook.md §9.
+  #
+  # Escape hatch: the PR label `migration:destructive-ok`. The job-level `if`
+  # reads the event payload; a re-run reuses that payload, so the step also
+  # reads the PR's current labels from the API. Add the label, then re-run
+  # this job.
+  migration-safety:
+    name: Migrations are backward compatible
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'migration:destructive-ok')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # Full history so the script can find the merge base with the base branch.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check new migrations (skip with label migration:destructive-ok)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # If the API call fails, fall through to the check rather than skip it.
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' || true)
+          if printf '%s\n' "$labels" | grep -qx 'migration:destructive-ok'; then
+            echo "::notice::PR is labelled migration:destructive-ok; skipping the migration safety check."
+            exit 0
+          fi
+          node scripts/migration-safety.mjs --base "origin/$BASE_REF"
+
   musician-site:
     name: Template (musician-site)
     runs-on: ubuntu-latest
