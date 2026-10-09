@@ -8,14 +8,14 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
 import {
-  describeRoutingConflict,
+  assertCollectionRouting,
   getFsReadStore,
   listCollectionSlugs,
+  listPublicRouteSegments,
   readCollectionDef,
   readItem,
   resolveCollectionItemUrl,
   slugSchema,
-  validateCollectionRouting,
   type CollectionDef,
   type Item,
 } from "@/lib/collections";
@@ -82,19 +82,51 @@ type Props = {
   params: Promise<{ slug?: string[] }>;
 };
 
+// ---------------------------------------------------------------------------
+// Static generation
+//
+// Content only changes through a commit + redeploy (ADR-007), so every
+// public URL is prerendered at build time. Anything not listed by
+// `generateStaticParams` 404s rather than rendering on demand.
+// `/admin` and `/api` live outside this route and stay dynamic.
+// ---------------------------------------------------------------------------
+
+export const dynamicParams = false;
+
+/**
+ * Every page plus every collection item with a detail URL (ADR-009 §8).
+ * Runs the routing-conflict check first, so a conflict fails
+ * `next build` with the structured message instead of reaching the
+ * live site.
+ */
+export async function generateStaticParams(): Promise<{ slug: string[] }[]> {
+  const store = getFsReadStore();
+  const [allDefs, pageSlugs, rootPageSlug] = await Promise.all([
+    cachedAllDefs(),
+    listPageSlugs(store),
+    cachedResolveRootPageSlug(),
+  ]);
+  assertCollectionRouting(allDefs, pageSlugs);
+
+  const routable = allDefs.filter((d) => !d.isSingleton && d.detailUrlPrefix !== null);
+  const itemSlugs = await Promise.all(routable.map((d) => store.listItemSlugs(d.slug)));
+  const itemSlugsByCollection = new Map(routable.map((d, i) => [d.slug, itemSlugs[i]]));
+
+  return listPublicRouteSegments(allDefs, itemSlugsByCollection, rootPageSlug !== null).map(
+    (slug) => ({ slug }),
+  );
+}
+
 /**
  * Catch-all renderer for every public URL.
  *
- * Dispatch (ADR-009 §8):
+ * Dispatch (ADR-009 §8). Routing conflicts are already ruled out by
+ * `generateStaticParams`, which fails the build on one.
  *
- *   1. `validateCollectionRouting` runs first — catches a Page slug
- *      shadowing a collection prefix or two collections claiming
- *      the same prefix. Both can corrupt the public site silently
- *      if allowed.
- *   2. `resolveCollectionItemUrl` matches the URL against every
+ *   1. `resolveCollectionItemUrl` matches the URL against every
  *      collection's `detailUrlPrefix` (longest-prefix-first). A
  *      non-Pages match renders the collection's `detailTemplate`.
- *   3. Pages fall through to the legacy `readPageOrNull` flow,
+ *   2. Pages fall through to the legacy `readPageOrNull` flow,
  *      which renders via the page-specific `puckConfig` (root
  *      props + `puckContent` body). Pages don't have a
  *      `detailTemplate` — the page body IS the page, with no
@@ -106,22 +138,6 @@ export default async function CatchAllPage({ params }: Props) {
   const { slug: segments } = await params;
 
   const allDefs = await cachedAllDefs();
-
-  // Routing-conflict check. Only the page slug list is needed here
-  // (the conflict check doesn't care about titles or body content),
-  // so we read slugs only instead of the heavier `listPageSummaries`
-  // which loads every page's `puckContent` body just to extract the
-  // title.
-  const pageSlugs = await listPageSlugs(getFsReadStore());
-  const conflicts = validateCollectionRouting(allDefs, pageSlugs);
-  if (conflicts.length > 0) {
-    // A configuration error in the artist's repo. Fail loudly with a
-    // structured message; falling through to 404 would hide the real
-    // problem from whoever's debugging.
-    throw new Error(
-      `Collection-routing conflict:\n${conflicts.map(describeRoutingConflict).join("\n")}`,
-    );
-  }
 
   const segs = segments ?? [];
   const itemUrl = resolveCollectionItemUrl(segs, allDefs);
