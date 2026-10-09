@@ -11,9 +11,9 @@ import {
  * The editor at /admin polls this every few seconds while a publish is
  * in flight, to drive the publish-state pill (queued → building → ready).
  *
- * Auth: requires a valid editor session (same gate as /api/publish). The
- * broker-secret hop happens server-side here; the broker secret never
- * touches the editor client.
+ * Auth: requires a valid editor session, like the other admin API
+ * routes. The broker-secret hop happens server-side here; the broker
+ * secret never touches the editor client.
  *
  * Dev fallback: when the platform env vars aren't set (local dev),
  * returns a synthetic { state: "unknown" } so the editor can render the

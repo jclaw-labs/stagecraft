@@ -4,9 +4,8 @@
  * The slug pair (`collectionSlug`, `itemSlug`) addresses the file at
  * `src/content/collections/<collectionSlug>/items/<itemSlug>.json`.
  *
- * The wrapper layer (`@/lib/content`) keeps the legacy pages /
- * singletons API working; this generic route is for the schema- and
- * item-editor surfaces that consume any collection by id.
+ * Every item editor saves through here, including the page editor and
+ * the Pages panel (pages are the `pages` collection).
  */
 
 import { NextResponse } from "next/server";
@@ -19,7 +18,9 @@ import {
   getRequestReadStore,
   isSingletonItem,
   ItemExistsError,
+  itemCommitSubject,
   itemSlugSchema,
+  renameCommitSubject,
   slugSchema,
   writeOrder,
 } from "@/lib/collections";
@@ -128,7 +129,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       targets: [planned.target],
       writeLocal: planned.writeLocal,
       authorEmail: session.email,
-      commitSubject: `Update ${parsedCollectionSlug.data}/${parsedItemSlug.data}`,
+      commitSubject: itemCommitSubject("update", parsedCollectionSlug.data, parsedItemSlug.data),
     });
     return NextResponse.json({
       ok: true,
@@ -244,7 +245,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
         if (orderAfter !== null) await writeOrder(parsedCollectionSlug.data, orderAfter);
       },
       authorEmail: session.email,
-      commitSubject: `Rename ${parsedCollectionSlug.data}/${parsedOldSlug.data} → ${parsedNewSlug.data}`,
+      commitSubject: renameCommitSubject(
+        parsedCollectionSlug.data,
+        parsedOldSlug.data,
+        parsedNewSlug.data,
+      ),
     });
     return NextResponse.json({
       ok: true,
@@ -288,7 +293,7 @@ export async function DELETE(_request: Request, ctx: Ctx) {
       ],
       writeLocal: () => deleteItem(parsedCollectionSlug.data, parsedItemSlug.data),
       authorEmail: session.email,
-      commitSubject: `Delete ${parsedCollectionSlug.data}/${parsedItemSlug.data}`,
+      commitSubject: itemCommitSubject("delete", parsedCollectionSlug.data, parsedItemSlug.data),
     });
     return NextResponse.json({ ok: true, mode: result.mode, commitSha: result.commitSha });
   } catch (cause) {

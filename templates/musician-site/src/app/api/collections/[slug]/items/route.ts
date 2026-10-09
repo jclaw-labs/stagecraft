@@ -18,11 +18,16 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
+  findShadowingPrefix,
   generateItemId,
   getRequestReadStore,
   ItemExistsError,
+  itemCommitSubject,
   slugSchema,
+  type CollectionDef,
+  type ReadStore,
 } from "@/lib/collections";
+import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import { PublishError } from "@/lib/publish";
 import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 
@@ -33,6 +38,24 @@ function err(status: number, error: string, extra?: Record<string, unknown>) {
 }
 
 type Ctx = { params: Promise<{ slug: string }> };
+
+/**
+ * Union of every collection def we know about: on-disk defs first
+ * (so artist-added custom collections participate), supplemented by
+ * any prebaked entry that isn't on disk yet (so fresh sites pre-
+ * bootstrap still get the prebaked prefixes in the check).
+ */
+async function loadKnownCollectionDefs(store: ReadStore): Promise<CollectionDef[]> {
+  const onDiskSlugs = await store.listCollectionSlugs();
+  const onDiskDefs = (
+    await Promise.all(onDiskSlugs.map((s) => store.readCollectionDef(s)))
+  ).filter((d): d is CollectionDef => d !== null);
+  const seen = new Set(onDiskDefs.map((d) => d.slug));
+  return [
+    ...onDiskDefs,
+    ...Object.values(PREBAKED_COLLECTIONS).filter((d) => !seen.has(d.slug)),
+  ];
+}
 
 export async function GET(_request: Request, ctx: Ctx) {
   const session = await getSession();
@@ -90,6 +113,24 @@ export async function POST(request: Request, ctx: Ctx) {
   const parsedItemSlug = slugSchema.safeParse(slugPart);
   if (!parsedItemSlug.success) return err(400, "Body must include a valid slug");
 
+  // A page's slug is its top-level URL, so it must not shadow a
+  // collection's detail URL prefix (`/news`, `/releases`, `/shows`,
+  // plus any artist-added custom collection's prefix). Without this
+  // check the write succeeds but every later public request throws the
+  // routing-conflict error from the catch-all: effectively a full-site
+  // outage triggered by a name collision. The union of on-disk defs and
+  // the prebaked registry covers custom collections and fresh sites
+  // where bootstrap hasn't written every prebaked def yet.
+  if (parsedSlug.data === "pages") {
+    const shadow = findShadowingPrefix(parsedItemSlug.data, await loadKnownCollectionDefs(store));
+    if (shadow) {
+      return err(
+        409,
+        `Cannot use slug "${parsedItemSlug.data}" — it shadows the "${shadow.collectionSlug}" collection's URL prefix "${shadow.detailUrlPrefix}". Pick a different slug.`,
+      );
+    }
+  }
+
   const valuesPart =
     body && typeof body === "object" ? (body as { values?: unknown }).values : undefined;
 
@@ -128,7 +169,7 @@ export async function POST(request: Request, ctx: Ctx) {
       targets: [planned.target],
       writeLocal: planned.writeLocal,
       authorEmail: session.email,
-      commitSubject: `Create ${parsedSlug.data}/${parsedItemSlug.data}`,
+      commitSubject: itemCommitSubject("create", parsedSlug.data, parsedItemSlug.data),
     });
     return NextResponse.json({
       ok: true,

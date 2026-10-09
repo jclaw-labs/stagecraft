@@ -9,19 +9,17 @@ const { saveToDraftMock, publishMock } = vi.hoisted(() => ({
 }));
 vi.mock("./publish", async () => {
   const actual = await vi.importActual<typeof import("./publish")>("./publish");
-  return { ...actual, saveToDraft: saveToDraftMock, publish: publishMock };
+  return { ...actual, saveToDraft: saveToDraftMock, saveAndPublish: publishMock };
 });
 
 import {
   planItemWrite,
-  publishPage,
   saveContent,
   saveFailureResponse,
   saveFailureStatus,
 } from "./save-content";
 import { DraftSavedPublishError, PublishError, type Env } from "./publish";
-import { getFsReadStore, readItem, type Item } from "./collections";
-import { pagesCollectionDef } from "./collections/seeds";
+import { readItem, type Item } from "./collections";
 import { tourDateItem, tourDatesDef as makeTourDatesDef } from "./collections/test-fixtures";
 
 const tourDatesDef = makeTourDatesDef();
@@ -93,7 +91,7 @@ describe("saveContent", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
-  it("publishTo: 'main' routes through publish() instead of saveToDraft()", async () => {
+  it("publishTo: 'main' routes through saveAndPublish() instead of saveToDraft()", async () => {
     const result = await saveContent(
       { ...ARGS, writeLocal: async () => {}, publishTo: "main" },
       PROD_ENV,
@@ -269,45 +267,5 @@ describe("planItemWrite", () => {
     expect(await readItem("tour-dates", "first-show", tourDatesDef)).toBeNull();
     await planned.writeLocal();
     expect(await readItem("tour-dates", "first-show", tourDatesDef)).toEqual(planned.item);
-  });
-});
-
-describe("publishPage", () => {
-  const data = { content: [], root: { props: { title: "Hello" } } };
-
-  it("production: commits the page item without writing it to disk", async () => {
-    process.env.STAGECRAFT_SITE_ID = "site_1";
-    process.env.STAGECRAFT_BROKER_SECRET = "secret";
-
-    const result = await publishPage({
-      pageSlug: "hello",
-      data,
-      authorEmail: "a@e.com",
-      store: getFsReadStore(),
-    });
-
-    expect(result).toEqual({ commitSha: "draft-sha", mode: "github" });
-    const args = saveToDraftMock.mock.calls[0]![0];
-    expect(args.commitSubject).toBe("Update hello");
-    expect(args.targets).toEqual([
-      expect.objectContaining({ kind: "collection-item", collectionSlug: "pages", itemSlug: "hello" }),
-    ]);
-    expect(await readItem("pages", "hello", pagesCollectionDef)).toBeNull();
-  });
-
-  it("production: a commit failure propagates", async () => {
-    process.env.STAGECRAFT_SITE_ID = "site_1";
-    process.env.STAGECRAFT_BROKER_SECRET = "secret";
-    saveToDraftMock.mockRejectedValue(new PublishError("github-failed", "boom"));
-    await expect(
-      publishPage({ pageSlug: "hello", data, authorEmail: "a@e.com", store: getFsReadStore() }),
-    ).rejects.toBeInstanceOf(PublishError);
-  });
-
-  it("dev: writes the same page item it commits", async () => {
-    await publishPage({ pageSlug: "hello", data, authorEmail: "a@e.com", store: getFsReadStore() });
-    const onDisk = await readItem("pages", "hello", pagesCollectionDef);
-    expect(onDisk).not.toBeNull();
-    expect(saveToDraftMock.mock.calls[0]![0].targets[0].data.updatedAt).toBe(onDisk!.updatedAt);
   });
 });

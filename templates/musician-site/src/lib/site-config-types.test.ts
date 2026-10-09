@@ -4,7 +4,6 @@ import {
   appearanceFontFamilies,
   appearanceSchema,
   COLOR_FIELDS,
-  createPageRequestSchema,
   DEFAULT_APPEARANCE,
   DEFAULT_DESIGN,
   DEFAULT_HEADER_CONFIG,
@@ -20,6 +19,7 @@ import {
   isTransparentHeader,
   PAGE_SLUG_PATTERN,
   pageRootPropsSchema,
+  pageSlugSchema,
   reorderPagesBefore,
   resolveLinkColor,
   siteConfigSchema,
@@ -306,23 +306,17 @@ describe("pageRootPropsSchema", () => {
   });
 });
 
-describe("createPageRequestSchema", () => {
-  it("accepts well-formed slug + title", () => {
-    expect(() =>
-      createPageRequestSchema.parse({ slug: "about", title: "About" }),
-    ).not.toThrow();
+describe("pageSlugSchema", () => {
+  it("accepts a well-formed slug", () => {
+    expect(() => pageSlugSchema.parse("about")).not.toThrow();
   });
 
   it("rejects uppercase slugs", () => {
-    expect(() =>
-      createPageRequestSchema.parse({ slug: "About", title: "About" }),
-    ).toThrow();
+    expect(() => pageSlugSchema.parse("About")).toThrow();
   });
 
   it("rejects slugs starting with a hyphen", () => {
-    expect(() =>
-      createPageRequestSchema.parse({ slug: "-about", title: "About" }),
-    ).toThrow();
+    expect(() => pageSlugSchema.parse("-about")).toThrow();
   });
 
   it("PAGE_SLUG_PATTERN matches the schema's allowed shape", () => {

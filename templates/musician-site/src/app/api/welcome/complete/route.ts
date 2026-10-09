@@ -56,7 +56,7 @@ import {
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { imageMetadataSchema } from "@/lib/image-types";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
-import { emptyPageData } from "@/lib/content";
+import { emptyPageData } from "@/lib/page-data";
 import { PublishError, type PublishTarget } from "@/lib/publish";
 import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 import { resolveTheme, THEME_IDS } from "@/lib/theme-presets";

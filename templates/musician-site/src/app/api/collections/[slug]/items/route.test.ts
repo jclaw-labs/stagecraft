@@ -3,10 +3,9 @@
  * (`GET / POST /api/collections/<slug>/items` and
  * `GET / PUT / DELETE /api/collections/<slug>/items/<itemSlug>`).
  *
- * The wrapper layer for legacy pages/singletons is tested separately
- * in `api/pages/route.test.ts` and `api/save-config/route.test.ts`.
- * These tests focus on the generic surface — what the schema and item
- * editors (PR 4+) consume directly.
+ * These are also the page editor's and the Pages panel's routes, so
+ * the pages-specific behaviour (slug-shadowing check, page commit
+ * subjects) is covered here too.
  */
 
 import fs from "node:fs/promises";
@@ -156,6 +155,7 @@ describe("POST /api/collections/[slug]/items", () => {
             itemSlug: TEST_SLUG,
           }),
         ],
+        commitSubject: `Create page ${TEST_SLUG}`,
       }),
     );
   });
@@ -288,6 +288,7 @@ describe("DELETE /api/collections/[slug]/items/[itemSlug]", () => {
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({
         targets: [{ kind: "delete-collection-item", collectionSlug: "pages", itemSlug: TEST_SLUG }],
+        commitSubject: `Delete page ${TEST_SLUG}`,
       }),
     );
   });
@@ -389,5 +390,196 @@ describe("PATCH /api/collections/[slug]/items/[itemSlug] (rename)", () => {
     // New slug resolves; old slug 404s.
     expect((await GET_ITEM(new Request("https://x"), ctx("pages", "tour-2027"))).status).toBe(200);
     expect((await GET_ITEM(new Request("https://x"), ctx("pages", "tour-2026"))).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pages through the generic routes: what the Pages panel's create and the
+// page editor's save rely on.
+// ---------------------------------------------------------------------------
+
+const PODCASTS_DEF = {
+  schemaVersion: 1,
+  slug: "podcasts",
+  singularName: "podcast",
+  pluralName: "podcasts",
+  fields: [{ id: "f_title", key: "title", type: "text", required: true }],
+  slugSourceFieldId: "f_title",
+  detailUrlPrefix: "/episodes",
+  defaultSort: null,
+  itemTemplate: null,
+  detailTemplate: null,
+  listTemplate: null,
+  isSingleton: false,
+};
+
+async function writePodcastsDef() {
+  const dir = path.join(TMP_CONTENT_DIR, "collections", "podcasts");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, "_collection.json"), JSON.stringify(PODCASTS_DEF), "utf-8");
+}
+
+describe("pages via the generic item routes", () => {
+  it("POST returns 401 without session", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const res = await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(401);
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("POST rejects malformed JSON", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await POST(
+      new Request("https://x/api/collections/pages/items", { method: "POST", body: "not json" }),
+      ctx("pages"),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("POST rejects an uppercase slug", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await POST(jsonReq("POST", { slug: "BadSlug", values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(400);
+  });
+
+  it.each([
+    ["news", "posts", "/news"],
+    ["releases", "releases", "/releases"],
+    ["shows", "tour-dates", "/shows"],
+  ])(
+    "POST returns 409 when a page slug shadows the %s collection's prefix",
+    async (slug, collectionSlug, prefix) => {
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      const res = await POST(jsonReq("POST", { slug, values: VALID_VALUES }), ctx("pages"));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(collectionSlug);
+      expect(body.error).toContain(prefix);
+      expect(publishMock).not.toHaveBeenCalled();
+      await expect(
+        fs.access(path.join(TMP_CONTENT_DIR, "collections/pages/items", `${slug}.json`)),
+      ).rejects.toThrow();
+    },
+  );
+
+  // A fresh site may not have the prebaked collections' defs on disk
+  // yet; the check still has to refuse their prefixes from the built-in
+  // defs, or the new page would shadow every item route under it.
+  it.each([
+    ["news", "posts"],
+    ["releases", "releases"],
+    ["shows", "tour-dates"],
+  ])(
+    "POST returns 409 for %s when the %s def isn't on disk yet",
+    async (slug, collectionSlug) => {
+      await fs.rm(path.join(TMP_CONTENT_DIR, "collections", collectionSlug), {
+        recursive: true,
+        force: true,
+      });
+      getSessionMock.mockResolvedValue({ email: "a@b.c" });
+      const res = await POST(jsonReq("POST", { slug, values: VALID_VALUES }), ctx("pages"));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toContain(collectionSlug);
+      expect(publishMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("POST returns 409 when a page slug shadows a custom collection's prefix", async () => {
+    await writePodcastsDef();
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await POST(jsonReq("POST", { slug: "episodes", values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("podcasts");
+    expect(body.error).toContain("/episodes");
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it("POST checks shadowing only for pages", async () => {
+    await writePodcastsDef();
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const res = await POST(
+      jsonReq("POST", { slug: "news", values: { f_title: { type: "text", value: "News" } } }),
+      ctx("podcasts"),
+    );
+    expect(res.status).toBe(200);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ commitSubject: "Create podcasts/news" }),
+    );
+  });
+
+  it("POST returns a 502 failure (never ok: true) when the commit fails", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(
+      "@/lib/publish",
+    );
+    publishMock.mockRejectedValue(new PublishError("github-failed", "boom"));
+    const res = await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("github-failed");
+    expect(body.error).toContain("boom");
+  });
+
+  it("PUT saves a page to the draft with a page commit subject", async () => {
+    getSessionMock.mockResolvedValue({ email: "artist@example.com" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    publishMock.mockClear();
+    publishMock.mockResolvedValue({ commitSha: "draft-sha", mode: "github" });
+    const res = await PUT_ITEM(
+      jsonReq("PUT", {
+        values: { ...VALID_VALUES, [PAGES_FIELD_IDS.title]: { type: "text", value: "Renamed" } },
+      }),
+      ctx("pages", TEST_SLUG),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, commitSha: "draft-sha" });
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorEmail: "artist@example.com",
+        commitSubject: `Update page ${TEST_SLUG}`,
+        targets: [
+          expect.objectContaining({
+            kind: "collection-item",
+            collectionSlug: "pages",
+            itemSlug: TEST_SLUG,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it.each([
+    ["broker-rejected", 502],
+    ["github-failed", 502],
+    ["concurrent-edit", 409],
+  ] as const)("PUT maps a %s commit failure to %i", async (code, status) => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(
+      "@/lib/publish",
+    );
+    publishMock.mockRejectedValue(new PublishError(code, "nope"));
+    const res = await PUT_ITEM(jsonReq("PUT", { values: VALID_VALUES }), ctx("pages", TEST_SLUG));
+    expect(res.status).toBe(status);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, code });
+  });
+
+  it("PATCH names a page rename in the commit subject", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    publishMock.mockClear();
+    const res = await PATCH_ITEM(
+      new Request("https://x", { method: "PATCH", body: JSON.stringify({ newSlug: "tour-2027" }) }),
+      ctx("pages", TEST_SLUG),
+    );
+    expect(res.status).toBe(200);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ commitSubject: `Rename page ${TEST_SLUG} → tour-2027` }),
+    );
   });
 });

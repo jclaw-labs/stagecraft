@@ -614,12 +614,6 @@ export const pageSummarySchema = z.object({
 });
 export type PageSummary = z.infer<typeof pageSummarySchema>;
 
-export const createPageRequestSchema = z.object({
-  slug: pageSlugSchema,
-  title: z.string().min(1).max(120),
-});
-export type CreatePageRequest = z.infer<typeof createPageRequestSchema>;
-
 /**
  * Convert a free-text page title into a URL-safe slug. Lowercased, ASCII-only,
  * hyphen-separated. Returns an empty string for inputs that contain no usable
