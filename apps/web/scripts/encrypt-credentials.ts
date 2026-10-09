@@ -219,7 +219,8 @@ export function assertAllDecryptable(stats: BackfillStats): void {
   }
 }
 
-async function main(argv: string[]): Promise<void> {
+/** CLI entry point: parse flags, run the backfill against `@stagecraft/db`, fail on undecryptable values. */
+export async function main(argv: string[]): Promise<void> {
   const known = new Set(["--dry-run", "--rotate"]);
   const unknown = argv.filter((arg) => !known.has(arg));
   if (unknown.length > 0) {

@@ -9,7 +9,10 @@ import {
   isEncryptedCredential,
   resetCredentialCryptoForTests,
 } from "../src/lib/credential-crypto";
-import { assertAllDecryptable, encryptStoredCredentials, type CredentialStore } from "./encrypt-credentials";
+import { assertAllDecryptable, encryptStoredCredentials, main, type CredentialStore } from "./encrypt-credentials";
+
+const mockDb = vi.hoisted(() => ({ prisma: null as unknown }));
+vi.mock("@stagecraft/db", () => mockDb);
 
 type Row = { id: string } & Record<string, string | null>;
 
@@ -255,5 +258,40 @@ describe("assertAllDecryptable", () => {
     expect(() =>
       assertAllDecryptable({ account: clean, integrationAccount: { ...clean, undecryptable: 1 } }),
     ).toThrow(CREDENTIALS_OLD_KEYS_ENV);
+  });
+});
+
+describe("main", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("exits with an error after the run when a stored value can't be decrypted", async () => {
+    const { db, integrationAccount } = makeDb(
+      [],
+      [
+        { id: "int1", accessToken: "enc:v1:gone:aaaa:bbbb:cccc", refreshToken: null },
+        { id: "int2", accessToken: "plain", refreshToken: null },
+      ],
+    );
+    const $disconnect = vi.fn(async () => {});
+    mockDb.prisma = { ...db, $disconnect };
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(main([])).rejects.toThrow(/^1 stored value\(s\) could not be decrypted/);
+    expect(isEncryptedCredential(integrationAccount.store[1].accessToken!)).toBe(true);
+    expect($disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("succeeds when every value decrypts", async () => {
+    const { db } = makeDb([], [{ id: "int1", accessToken: "plain", refreshToken: null }]);
+    mockDb.prisma = { ...db, $disconnect: vi.fn(async () => {}) };
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(main([])).resolves.toBeUndefined();
+  });
+
+  it("rejects unknown flags before touching the database", async () => {
+    await expect(main(["--rotat"])).rejects.toThrow("Unknown argument(s): --rotat");
   });
 });
