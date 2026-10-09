@@ -50,10 +50,14 @@ jobs:
       # Blocking gate: fail on any CRITICAL advisory in any of the repo's
       # npm projects. `npm audit` reads the lockfile, so no install is
       # needed. Threshold is `critical` (not `high`) only because the tree
-      # already carries known highs — one needs a breaking major bump.
+      # still carries highs with no non-breaking fix (#315): `braces`
+      # (GHSA-vfj7-8cjw-p6xm, every published version affected; reached via
+      # eslint-config-next → fast-glob → micromatch), `postcss` (pinned to
+      # 8.4.31 by next 15; fix is next 16) and, at the root, `deepmerge-ts`
+      # (pinned to 7.1.5 by @prisma/config; no released prisma fixes it).
       # Renovate (renovate.json) + per-site Dependabot open security PRs
-      # that bypass the 7-day cooldown; raise this to `high` once the
-      # current high-severity advisories are cleared.
+      # that bypass the 7-day cooldown; raise this to `high` once those
+      # are cleared.
       - name: Audit — fail on critical
         run: |
           status=0
