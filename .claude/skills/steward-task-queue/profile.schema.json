@@ -1,0 +1,1020 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jclaw-labs/local-config/steward-task-queue/profile.schema.json",
+  "title": "Queue stewardship profile",
+  "$comment": "This schema enforces structural rules. validate-profile additionally enforces semantic invariants that JSON Schema cannot compare across fields or object-property values.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "backend",
+    "cadence_minutes",
+    "ready_supply",
+    "ready_audit_batch",
+    "queue",
+    "priority",
+    "tracker",
+    "writes",
+    "ci_exceptions",
+    "hints"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "backend": {
+      "enum": [
+        "github-issues",
+        "linear"
+      ]
+    },
+    "cadence_minutes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "steward",
+        "worker",
+        "reviewer",
+        "merge_monitor"
+      ],
+      "properties": {
+        "steward": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "worker": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reviewer": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "merge_monitor": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "ready_supply": {
+      "type": "object",
+      "$comment": "validate-profile enforces minimum <= target_minimum <= target_maximum because JSON Schema cannot compare sibling numeric values.",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "target_minimum",
+        "target_maximum"
+      ],
+      "properties": {
+        "minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_maximum": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ready_audit_batch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "states"
+      ],
+      "properties": {
+        "states": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "Triage"
+            },
+            {
+              "const": "Waiting for input"
+            },
+            {
+              "const": "Ready"
+            },
+            {
+              "const": "In progress"
+            },
+            {
+              "const": "Needs review"
+            },
+            {
+              "const": "Under review"
+            },
+            {
+              "const": "Ready to merge"
+            }
+          ],
+          "items": false,
+          "minItems": 7,
+          "maxItems": 7
+        }
+      }
+    },
+    "priority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "values"
+      ],
+      "properties": {
+        "values": {
+          "const": [
+            "Urgent",
+            "High",
+            "Medium",
+            "Low"
+          ]
+        }
+      }
+    },
+    "tracker": {
+      "type": "object"
+    },
+    "writes": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "ci_exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "condition",
+          "action"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": ".*\\S.*"
+          },
+          "condition": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": ".*\\S.*"
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": ".*\\S.*"
+          }
+        }
+      }
+    },
+    "hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "reference",
+          "note",
+          "revalidate"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "issue",
+              "pr",
+              "external-issue"
+            ]
+          },
+          "reference": {},
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": ".*\\S.*"
+          },
+          "revalidate": {
+            "const": true
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "external-issue"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "pattern": "^[^/\\s]+/[^/#\\s]+#[1-9]\\d*$"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reference": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "backend": {
+          "const": "github-issues"
+        },
+        "tracker": {
+          "$ref": "#/$defs/githubTracker"
+        },
+        "writes": {
+          "$ref": "#/$defs/githubWrites"
+        }
+      }
+    },
+    {
+      "properties": {
+        "backend": {
+          "const": "linear"
+        },
+        "tracker": {
+          "$ref": "#/$defs/linearTracker"
+        },
+        "writes": {
+          "$ref": "#/$defs/linearWrites"
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "githubTracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "api_version",
+        "fields",
+        "values_endpoint",
+        "close_reasons"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
+        },
+        "api_version": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "fields": {
+          "type": "object",
+          "$comment": "validate-profile enforces unique IDs across these object properties because JSON Schema uniqueItems applies only to arrays.",
+          "additionalProperties": false,
+          "required": [
+            "priority",
+            "queue",
+            "blocked_by",
+            "touches",
+            "claim"
+          ],
+          "properties": {
+            "priority": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "queue": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "blocked_by": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "touches": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "claim": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "values_endpoint": {
+          "const": "/repos/{owner}/{repo}/issues/{number}/issue-field-values"
+        },
+        "close_reasons": {
+          "const": [
+            "completed",
+            "duplicate",
+            "not_planned"
+          ]
+        }
+      }
+    },
+    "githubWrites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comment_prefix",
+        "field_values"
+      ],
+      "properties": {
+        "comment_prefix": {
+          "type": "string",
+          "pattern": "^\\[[^\\]\\[\\r\\n]*[^\\]\\[\\s][^\\]\\[\\r\\n]*\\]$"
+        },
+        "field_values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "set",
+            "clear"
+          ],
+          "properties": {
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "endpoint",
+                "body_key",
+                "semantics"
+              ],
+              "properties": {
+                "method": {
+                  "const": "POST"
+                },
+                "endpoint": {
+                  "const": "/repos/{owner}/{repo}/issues/{number}/issue-field-values"
+                },
+                "body_key": {
+                  "const": "issue_field_values"
+                },
+                "semantics": {
+                  "const": "additive"
+                }
+              }
+            },
+            "clear": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "endpoint",
+                "semantics"
+              ],
+              "properties": {
+                "method": {
+                  "const": "DELETE"
+                },
+                "endpoint": {
+                  "const": "/repos/{owner}/{repo}/issues/{number}/issue-field-values/{field_id}"
+                },
+                "semantics": {
+                  "const": "single-field"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "linearQueueMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage",
+        "encoding",
+        "marker",
+        "order_by",
+        "server_order",
+        "include_archived",
+        "archive_field",
+        "events"
+      ],
+      "properties": {
+        "storage": {
+          "const": "comments-log"
+        },
+        "encoding": {
+          "const": "comments-log-v1"
+        },
+        "marker": {
+          "const": "<!-- task-queue-event -->"
+        },
+        "order_by": {
+          "const": "createdAt"
+        },
+        "server_order": {
+          "const": "descending"
+        },
+        "include_archived": {
+          "const": true
+        },
+        "archive_field": {
+          "const": "archivedAt"
+        },
+        "events": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "claim_cycle",
+            "claim_cycle_activate",
+            "claim_marker",
+            "claim",
+            "touches"
+          ],
+          "properties": {
+            "claim_cycle": {
+              "const": "claim-cycle"
+            },
+            "claim_cycle_activate": {
+              "const": "claim-cycle-activate"
+            },
+            "claim_marker": {
+              "const": "claim-marker"
+            },
+            "claim": {
+              "const": "claim"
+            },
+            "touches": {
+              "const": "touches"
+            }
+          }
+        }
+      }
+    },
+    "linearClaimProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preflight",
+        "generation_source",
+        "generation_activation_source",
+        "generation_predecessor",
+        "generation_arbitration",
+        "generation_states",
+        "transition_policy",
+        "marker_source",
+        "claim_source",
+        "claim_scope",
+        "touches_source",
+        "settlement"
+      ],
+      "properties": {
+        "preflight": {
+          "const": "linear-profile"
+        },
+        "generation_source": {
+          "const": "claim-cycle"
+        },
+        "generation_activation_source": {
+          "const": "claim-cycle-activate"
+        },
+        "generation_predecessor": {
+          "const": "claim-cycle.predecessor"
+        },
+        "generation_arbitration": {
+          "const": "earliest-activation"
+        },
+        "generation_states": {
+          "const": {
+            "In progress": "Ready",
+            "Under review": "Needs review"
+          }
+        },
+        "transition_policy": {
+          "const": "cooperative-two-phase-predecessor-chain"
+        },
+        "marker_source": {
+          "const": "claim-marker"
+        },
+        "claim_source": {
+          "const": "claim"
+        },
+        "claim_scope": {
+          "const": "held-state-generation"
+        },
+        "touches_source": {
+          "const": "touches"
+        },
+        "settlement": {
+          "const": "task-queue-settle"
+        }
+      }
+    },
+    "linearQueueMetadataWrites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage",
+        "mutation",
+        "semantics",
+        "encoding",
+        "omit_input_fields",
+        "verify"
+      ],
+      "properties": {
+        "storage": {
+          "const": "comments-log"
+        },
+        "mutation": {
+          "const": "commentCreate"
+        },
+        "semantics": {
+          "const": "append-only"
+        },
+        "encoding": {
+          "const": "comments-log-v1"
+        },
+        "omit_input_fields": {
+          "const": [
+            "id",
+            "createdAt"
+          ]
+        },
+        "verify": {
+          "const": "re-read-comment"
+        }
+      }
+    },
+    "linearTransport": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "mcp",
+          "graphql"
+        ]
+      }
+    },
+    "linearStatusNames": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Triage",
+        "Waiting for input",
+        "Ready",
+        "In progress",
+        "Needs review",
+        "Under review",
+        "Ready to merge"
+      ],
+      "properties": {
+        "Triage": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "Waiting for input": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "Ready": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "In progress": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "Needs review": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "Under review": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "Ready to merge": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        }
+      }
+    },
+    "linearMutationCapability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "supported",
+            "history_policy",
+            "hard_delete_detection",
+            "queue_transition_policy"
+          ],
+          "properties": {
+            "supported": {
+              "const": true
+            },
+            "history_policy": {
+              "const": "cooperative-immutable-event-writers"
+            },
+            "hard_delete_detection": {
+              "const": "unsupported"
+            },
+            "queue_transition_policy": {
+              "const": "steward-only-two-phase"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "supported",
+            "reason"
+          ],
+          "properties": {
+            "supported": {
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            }
+          }
+        }
+      ]
+    },
+    "linearTracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "team_id",
+        "team_key",
+        "team_name",
+        "transport",
+        "statuses",
+        "status_names",
+        "status_types",
+        "priorities",
+        "blockers",
+        "queue_metadata",
+        "claim_protocol"
+      ],
+      "properties": {
+        "team_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "team_key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^,\\s]+$"
+        },
+        "team_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            }
+          ]
+        },
+        "transport": {
+          "$ref": "#/$defs/linearTransport"
+        },
+        "statuses": {
+          "type": "object",
+          "$comment": "validate-profile enforces unique UUIDs across these object properties because JSON Schema uniqueItems applies only to arrays.",
+          "additionalProperties": false,
+          "required": [
+            "Triage",
+            "Waiting for input",
+            "Ready",
+            "In progress",
+            "Needs review",
+            "Under review",
+            "Ready to merge"
+          ],
+          "properties": {
+            "Triage": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "Waiting for input": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "Ready": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "In progress": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "Needs review": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "Under review": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "Ready to merge": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            }
+          }
+        },
+        "status_names": {
+          "$ref": "#/$defs/linearStatusNames"
+        },
+        "status_types": {
+          "const": {
+            "Triage": "triage",
+            "Waiting for input": "unstarted",
+            "Ready": "unstarted",
+            "In progress": "started",
+            "Needs review": "started",
+            "Under review": "started",
+            "Ready to merge": "started"
+          }
+        },
+        "priorities": {
+          "const": {
+            "Urgent": 1,
+            "High": 2,
+            "Medium": 3,
+            "Low": 4
+          }
+        },
+        "blockers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "storage",
+            "relation_type",
+            "read_direction"
+          ],
+          "properties": {
+            "storage": {
+              "const": "relations"
+            },
+            "relation_type": {
+              "const": "blocks"
+            },
+            "read_direction": {
+              "const": "inverse"
+            }
+          }
+        },
+        "queue_metadata": {
+          "$ref": "#/$defs/linearQueueMetadata"
+        },
+        "claim_protocol": {
+          "$ref": "#/$defs/linearClaimProtocol"
+        }
+      }
+    },
+    "linearWrites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "mutation_capability",
+        "statuses",
+        "priorities",
+        "blockers",
+        "queue_metadata",
+        "close"
+      ],
+      "properties": {
+        "transport": {
+          "$ref": "#/$defs/linearTransport"
+        },
+        "mutation_capability": {
+          "$ref": "#/$defs/linearMutationCapability"
+        },
+        "statuses": {
+          "const": "native"
+        },
+        "priorities": {
+          "const": "native"
+        },
+        "blockers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "storage",
+            "mutation",
+            "relation_type",
+            "issue_id",
+            "related_issue_id"
+          ],
+          "properties": {
+            "storage": {
+              "const": "relations"
+            },
+            "mutation": {
+              "const": "issueRelationCreate"
+            },
+            "relation_type": {
+              "const": "blocks"
+            },
+            "issue_id": {
+              "const": "blocker"
+            },
+            "related_issue_id": {
+              "const": "blocked"
+            }
+          }
+        },
+        "queue_metadata": {
+          "$ref": "#/$defs/linearQueueMetadataWrites"
+        },
+        "close": {
+          "$ref": "#/$defs/linearClose"
+        }
+      }
+    },
+    "linearDuplicateClose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mutation",
+        "relation_type",
+        "issue_id",
+        "related_issue_id",
+        "canonical_target",
+        "resulting_status",
+        "verify"
+      ],
+      "properties": {
+        "mutation": {
+          "const": "issueRelationCreate"
+        },
+        "relation_type": {
+          "const": "duplicate"
+        },
+        "issue_id": {
+          "const": "duplicate"
+        },
+        "related_issue_id": {
+          "const": "canonical"
+        },
+        "canonical_target": {
+          "const": "required"
+        },
+        "resulting_status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "type",
+            "managed"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            },
+            "type": {
+              "const": "duplicate"
+            },
+            "managed": {
+              "const": "system"
+            }
+          }
+        },
+        "verify": {
+          "const": [
+            "relation",
+            "status"
+          ]
+        }
+      }
+    },
+    "linearClose": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "supported"
+          ],
+          "properties": {
+            "supported": {
+              "const": false
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "supported",
+            "statuses",
+            "status_names",
+            "status_types",
+            "duplicate"
+          ],
+          "properties": {
+            "supported": {
+              "const": true
+            },
+            "statuses": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "completed",
+                "not_planned"
+              ],
+              "properties": {
+                "completed": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+                },
+                "not_planned": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+                }
+              }
+            },
+            "status_names": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "completed",
+                "not_planned"
+              ],
+              "properties": {
+                "completed": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": ".*\\S.*"
+                },
+                "not_planned": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": ".*\\S.*"
+                }
+              }
+            },
+            "status_types": {
+              "const": {
+                "completed": "completed",
+                "not_planned": "canceled"
+              }
+            },
+            "duplicate": {
+              "$ref": "#/$defs/linearDuplicateClose"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

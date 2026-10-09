@@ -1,0 +1,1261 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import binascii
+import hashlib
+import html
+import json
+import os
+import re
+import sys
+import tempfile
+import unicodedata
+
+EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+TARGETS = ("cloud", "local", "either", "both")
+EFFORT_RE = re.compile(
+    rf"-(?P<effort>{'|'.join(EFFORTS)})(?:-fast)?$"
+)
+VERSION_RE = re.compile(r"^\d+(?:\.\d+)+$")
+PARAM_IDS = ("effort", "reasoning", "reasoning_effort", "thinking_level")
+START = "<!-- agent-context:start -->"
+END = "<!-- agent-context:end -->"
+RECORD_PREFIX = "<!-- agent-context:v1:"
+LINEAR_HEADING = "+++ Agent context"
+MODEL_FIELDS = {
+    "runtime_id",
+    "lab",
+    "line",
+    "version",
+    "modifiers",
+    "effort",
+}
+
+
+class ProvenanceError(ValueError):
+    pass
+
+
+def title_modifier(value: str) -> str:
+    return value.replace("_", " ").replace("-", " ").title()
+
+
+def split_effort(
+    tokens: list[str],
+    explicit: str | None,
+) -> tuple[list[str], str | None]:
+    fast = tokens[-1:] == ["fast"]
+    if fast:
+        tokens = tokens[:-1]
+    derived = tokens[-1] if tokens and tokens[-1] in EFFORTS else None
+    if derived is not None:
+        tokens = tokens[:-1]
+    if explicit is not None and derived is not None and explicit != derived:
+        raise ProvenanceError(
+            f"explicit effort {explicit} conflicts with model effort {derived}"
+        )
+    effort = explicit or derived
+    if fast:
+        tokens.append("fast")
+    return tokens, effort
+
+
+def parse_gpt(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    if not tokens or VERSION_RE.fullmatch(tokens[0]) is None:
+        return None
+    return (
+        "OpenAI",
+        "GPT",
+        tokens[0],
+        [title_modifier(token) for token in tokens[1:]],
+        effort,
+    )
+
+
+def parse_claude_opus(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    version_tokens = []
+    while tokens and tokens[0].isdigit():
+        version_tokens.append(tokens.pop(0))
+    if not version_tokens:
+        return None
+    return (
+        "Anthropic",
+        "Opus",
+        ".".join(version_tokens),
+        [title_modifier(token) for token in tokens],
+        effort,
+    )
+
+
+def parse_claude_sonnet(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    version_tokens = []
+    while tokens and tokens[0].isdigit():
+        version_tokens.append(tokens.pop(0))
+    if not version_tokens:
+        return None
+    return (
+        "Anthropic",
+        "Sonnet",
+        ".".join(version_tokens),
+        [title_modifier(token) for token in tokens],
+        effort,
+    )
+
+
+def parse_gemini(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    if not tokens or VERSION_RE.fullmatch(tokens[0]) is None:
+        return None
+    return (
+        "Google",
+        "Gemini",
+        tokens[0],
+        [title_modifier(token) for token in tokens[1:]],
+        effort,
+    )
+
+
+def parse_grok(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    if not tokens or VERSION_RE.fullmatch(tokens[0]) is None:
+        return None
+    return (
+        "xAI",
+        "Grok",
+        tokens[0],
+        [title_modifier(token) for token in tokens[1:]],
+        effort,
+    )
+
+
+def parse_cursor_grok(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    if not tokens or VERSION_RE.fullmatch(tokens[0]) is None:
+        return None
+    modifiers = ["Cursor"]
+    modifiers.extend(title_modifier(token) for token in tokens[1:])
+    return "xAI", "Grok", tokens[0], modifiers, effort
+
+
+def parse_muse(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    version_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if VERSION_RE.fullmatch(token) is not None
+        ),
+        None,
+    )
+    if version_index is None:
+        return None
+    modifier_tokens = tokens[:version_index] + tokens[version_index + 1:]
+    return (
+        "Cursor",
+        "Muse",
+        tokens[version_index],
+        [title_modifier(token) for token in modifier_tokens],
+        effort,
+    )
+
+
+def parse_composer(
+    tokens: list[str],
+    explicit_effort: str | None,
+) -> tuple[str, str, str, list[str], str | None] | None:
+    tokens, effort = split_effort(tokens, explicit_effort)
+    if not tokens or VERSION_RE.fullmatch(tokens[0]) is None:
+        return None
+    return (
+        "Cursor",
+        "Composer",
+        tokens[0],
+        [title_modifier(token) for token in tokens[1:]],
+        effort,
+    )
+
+
+MODEL_PARSERS = (
+    ("cursor-grok-", parse_cursor_grok),
+    ("claude-opus-", parse_claude_opus),
+    ("claude-sonnet-", parse_claude_sonnet),
+    ("composer-", parse_composer),
+    ("gemini-", parse_gemini),
+    ("grok-", parse_grok),
+    ("gpt-", parse_gpt),
+    ("muse-", parse_muse),
+)
+
+
+def model_record(
+    runtime_id: str,
+    explicit_effort: str | None = None,
+) -> dict[str, object]:
+    if not runtime_id or runtime_id != runtime_id.lower():
+        raise ProvenanceError("model must be a non-empty canonical lower-case slug")
+    if explicit_effort is not None and explicit_effort not in EFFORTS:
+        raise ProvenanceError(f"unsupported effort: {explicit_effort}")
+    parsed = None
+    for prefix, family_parser in MODEL_PARSERS:
+        if runtime_id.startswith(prefix):
+            parsed = family_parser(
+                runtime_id.removeprefix(prefix).split("-"),
+                explicit_effort,
+            )
+            break
+    if parsed is None:
+        _, effort = split_effort(runtime_id.split("-"), explicit_effort)
+        lab = None
+        line = None
+        version = None
+        modifiers = []
+    else:
+        lab, line, version, modifiers, effort = parsed
+    return {
+        "runtime_id": runtime_id,
+        "lab": lab,
+        "line": line,
+        "version": version,
+        "modifiers": modifiers,
+        "effort": effort,
+    }
+
+
+def withheld_record(
+    environment: str,
+    target: str | None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "models": [],
+        "models_withheld": True,
+        "environment": environment,
+    }
+    if target is not None:
+        result["target"] = target
+    return validate_structured_record(result)
+
+
+def normalize(
+    models: list[str],
+    environment: str,
+    target: str | None,
+    explicit_effort: str | None,
+    models_withheld: bool = False,
+) -> dict[str, object]:
+    if environment not in ("cloud", "local"):
+        raise ProvenanceError("environment must be cloud or local")
+    if target is not None and target not in TARGETS:
+        raise ProvenanceError("target must be cloud, local, either, or both")
+    if models_withheld:
+        if models or explicit_effort is not None:
+            raise ProvenanceError(
+                "--models-withheld takes no --model or --effort"
+            )
+        return withheld_record(environment, target)
+    if not models:
+        raise ProvenanceError("at least one --model is required")
+    unique_models = sorted(set(models))
+    if explicit_effort is not None and len(unique_models) != 1:
+        raise ProvenanceError("--effort requires exactly one --model")
+    normalized_models: dict[str, dict[str, object]] = {}
+    for runtime_id in models:
+        record = model_record(runtime_id, explicit_effort)
+        existing = normalized_models.get(runtime_id)
+        if existing is not None and existing != record:
+            raise ProvenanceError(
+                f"conflicting structured fields for model: {runtime_id}"
+            )
+        normalized_models[runtime_id] = record
+    result: dict[str, object] = {
+        "models": [
+            normalized_models[runtime_id]
+            for runtime_id in sorted(normalized_models)
+        ],
+        "environment": environment,
+    }
+    if target is not None:
+        result["target"] = target
+    return validate_structured_record(result)
+
+
+def validate_visible_text(value: str) -> None:
+    if len(value.splitlines()) != 1:
+        raise ProvenanceError(
+            "runtime-derived visible text contains a line break or control character"
+        )
+    categories = {
+        unicodedata.category(character)
+        for character in value
+    }
+    if "Cc" in categories:
+        raise ProvenanceError(
+            "runtime-derived visible text contains a control character"
+        )
+    if categories.intersection({"Cf", "Cs"}):
+        raise ProvenanceError(
+            "runtime-derived visible text contains a non-renderable Unicode character"
+        )
+
+
+def validate_cursor_text(value: str, label: str) -> None:
+    try:
+        validate_visible_text(value)
+    except ProvenanceError as error:
+        detail = str(error).removeprefix("runtime-derived visible text ")
+        raise ProvenanceError(f"{label} {detail}") from error
+
+
+def validate_structured_record(record: object) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise ProvenanceError("record must contain one structured object")
+    required = {"models", "environment"}
+    allowed = required | {"target", "models_withheld"}
+    if not required.issubset(record) or not set(record).issubset(allowed):
+        raise ProvenanceError("record must contain one structured object")
+    models = record["models"]
+    environment = record["environment"]
+    target = record.get("target")
+    withheld = "models_withheld" in record
+    if (
+        not isinstance(models, list)
+        or (withheld and (record["models_withheld"] is not True or models))
+        or (not withheld and not models)
+        or environment not in ("cloud", "local")
+        or (target is not None and target not in TARGETS)
+    ):
+        raise ProvenanceError("record must contain one structured object")
+
+    runtime_ids = []
+    for model in models:
+        if not isinstance(model, dict) or set(model) != MODEL_FIELDS:
+            raise ProvenanceError("record contains an invalid structured model")
+        runtime_id = model["runtime_id"]
+        lab = model["lab"]
+        line = model["line"]
+        version = model["version"]
+        modifiers = model["modifiers"]
+        effort = model["effort"]
+        optional_text = (lab, line, version)
+        if (
+            not isinstance(runtime_id, str)
+            or not runtime_id
+            or runtime_id != runtime_id.lower()
+            or any(
+                value is not None
+                and (not isinstance(value, str) or not value)
+                for value in optional_text
+            )
+            or not isinstance(modifiers, list)
+            or not all(
+                isinstance(modifier, str) and modifier
+                for modifier in modifiers
+            )
+            or (effort is not None and effort not in EFFORTS)
+        ):
+            raise ProvenanceError("record contains an invalid structured model")
+        visible_values = [runtime_id]
+        visible_values.extend(
+            value for value in optional_text if isinstance(value, str)
+        )
+        visible_values.extend(modifiers)
+        for value in visible_values:
+            validate_visible_text(value)
+        runtime_ids.append(runtime_id)
+    if runtime_ids != sorted(set(runtime_ids)):
+        raise ProvenanceError(
+            "record models must have unique runtime IDs in stable order"
+        )
+    return record
+
+
+def load_structured_record(path: str) -> dict[str, object]:
+    try:
+        with open(path, encoding="utf-8") as record_file:
+            record = json.load(record_file)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ProvenanceError("cannot load one structured record object") from error
+    return validate_structured_record(record)
+
+
+def target_record(
+    record_path: str,
+    target: str,
+) -> dict[str, object]:
+    record = load_structured_record(record_path)
+    updated = dict(record)
+    updated["target"] = target
+    return validate_structured_record(updated)
+
+
+def escape_model_text(value: object) -> str:
+    escaped = re.sub(r"([\\`*_\[\]{}()#+!|~])", r"\\\1", str(value))
+    return html.escape(escaped, quote=True)
+
+
+def escape_runtime_id(value: str) -> str:
+    escaped = re.sub(r"([\\`*_\[\]{}()#+!|~.-])", r"\\\1", value)
+    return html.escape(escaped, quote=True)
+
+
+def readable_model(model: dict[str, object]) -> str:
+    runtime_id = str(model["runtime_id"])
+    lab = model["lab"]
+    line = model["line"]
+    version = model["version"]
+    modifiers = model["modifiers"]
+    effort = model["effort"]
+    assert isinstance(modifiers, list)
+    if line is None:
+        identity = f"Unknown lab · {escape_runtime_id(runtime_id)}"
+    else:
+        values = [lab or "Unknown lab", line, version, *modifiers]
+        identity = " ".join(
+            escape_model_text(value)
+            for value in values
+            if value
+        )
+    effort_text = f"{effort} effort" if effort else "effort unknown"
+    return f"{identity} — {effort_text}"
+
+
+def encode_record(record: dict[str, object]) -> str:
+    payload = json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def render_record(record: dict[str, object], style: str) -> str:
+    models = record["models"]
+    environment = record["environment"]
+    target = record.get("target")
+    assert isinstance(models, list)
+    environment_text = {"cloud": "Cloud", "local": "Local"}[str(environment)]
+    target_text = {
+        "cloud": "Cloud",
+        "local": "Local",
+        "either": "Cloud or local",
+        "both": "Cloud and local",
+    }.get(target)
+    details = [
+        f"- Model: {readable_model(model)}"
+        for model in models
+        if isinstance(model, dict)
+    ]
+    if record.get("models_withheld") is True:
+        details.append("- Model: withheld by the harness")
+    details.append(f"- Environment: {environment_text}")
+    if target_text is not None:
+        details.append(f"- Required coverage: {target_text}")
+    if style == "linear":
+        return "\n".join([LINEAR_HEADING, "", *details, "", "+++"])
+    lines = [START]
+    if style == "plain":
+        lines.extend(["### Agent context", ""])
+    else:
+        lines.extend(["<details>", "<summary>Agent context</summary>", ""])
+    lines.extend(details)
+    lines.extend([
+        "",
+        f"{RECORD_PREFIX}{encode_record(record)} -->",
+    ])
+    if style != "plain":
+        lines.append("</details>")
+    lines.append(END)
+    return "\n".join(lines)
+
+
+def read_body(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", newline="") as body_file:
+            return body_file.read()
+    except (OSError, UnicodeDecodeError) as error:
+        raise ProvenanceError("cannot load artifact body") from error
+
+
+def locate_owned_block(body: str) -> tuple[int, int, str] | None:
+    start_count = body.count(START)
+    end_count = body.count(END)
+    marker_count = body.count("<!-- agent-context")
+    if start_count == 0 and end_count == 0 and marker_count == 0:
+        return None
+    if start_count != 1 or end_count != 1:
+        raise ProvenanceError("artifact body has an invalid agent context marker layout")
+    start = body.index(START)
+    end_start = body.index(END)
+    if start >= end_start:
+        raise ProvenanceError("artifact body has an invalid agent context marker layout")
+    end = end_start + len(END)
+    block = body[start:end]
+    if marker_count != 3 or block.count("<!-- agent-context") != marker_count:
+        raise ProvenanceError("artifact body has an invalid agent context marker layout")
+    return start, end, block
+
+
+def decode_record_marker(block: str) -> dict[str, object]:
+    markers = re.findall(
+        r"<!-- agent-context:([^: >]+):([^ >]+) -->",
+        block,
+    )
+    if len(markers) != 1:
+        raise ProvenanceError("agent context block has an invalid record marker")
+    version, encoded = markers[0]
+    if version != "v1":
+        raise ProvenanceError(f"unsupported agent context record version: {version}")
+    if re.fullmatch(r"[A-Za-z0-9_-]+", encoded) is None:
+        raise ProvenanceError("agent context block has a malformed encoded record")
+    padding = "=" * (-len(encoded) % 4)
+    try:
+        payload = base64.b64decode(
+            encoded + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        record = json.loads(payload.decode())
+    except (
+        binascii.Error,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        raise ProvenanceError(
+            "agent context block has a malformed encoded record"
+        ) from error
+    validated = validate_structured_record(record)
+    if encode_record(validated) != encoded:
+        raise ProvenanceError("agent context block record is not canonical")
+    return validated
+
+
+def insert_body_block(
+    record_path: str,
+    body_path: str,
+    style: str,
+) -> str:
+    record = load_structured_record(record_path)
+    body = read_body(body_path)
+    if (
+        locate_owned_block(body) is not None
+        or LINEAR_HEADING in body.splitlines()
+    ):
+        raise ProvenanceError("artifact body already contains an agent context block")
+    block = render_record(record, style)
+    if not body:
+        return f"{block}\n"
+    if body.endswith("\n\n"):
+        separator = ""
+    elif body.endswith("\n"):
+        separator = "\n"
+    else:
+        separator = "\n\n"
+    return f"{body}{separator}{block}\n"
+
+
+def read_body_record(
+    body: str,
+    plain: bool,
+) -> tuple[int, int, str, dict[str, object]]:
+    located = locate_owned_block(body)
+    if located is None:
+        raise ProvenanceError(
+            "artifact body does not contain one valid agent context block"
+        )
+    start, end, block = located
+    record = decode_record_marker(block)
+    style = "plain" if plain else "details"
+    if block != render_record(record, style):
+        raise ProvenanceError(
+            "agent context display does not match its encoded record"
+        )
+    return start, end, style, record
+
+
+def replace_body_target(
+    target: str | None,
+    body_path: str,
+    plain: bool,
+) -> str:
+    body = read_body(body_path)
+    start, end, style, record = read_body_record(body, plain)
+    updated = dict(record)
+    if target is None:
+        updated.pop("target", None)
+    else:
+        updated["target"] = target
+    validate_structured_record(updated)
+    return body[:start] + render_record(updated, style) + body[end:]
+
+
+def cursor_environment(
+    payload: dict[str, object],
+    environ: dict[str, str],
+) -> str:
+    if environ.get("CURSOR_CLOUD_AGENT", "").lower() == "true":
+        raise ProvenanceError("local Cursor adapter received cloud metadata")
+    version = payload.get("cursor_version")
+    if not isinstance(version, str) or not version:
+        raise ProvenanceError(
+            "Cursor hook input requires cursor_version for local provenance"
+        )
+    return "local"
+
+
+def cursor_effort(payload: dict[str, object]) -> str | None:
+    values = {
+        str(item.get("value"))
+        for item in payload.get("model_params", [])
+        if isinstance(item, dict) and item.get("id") in PARAM_IDS
+    }
+    if len(values) > 1:
+        raise ProvenanceError("Cursor supplied conflicting effort parameters")
+    return next(iter(values), None)
+
+
+def normalized_history(
+    history: list[dict[str, object]],
+    environment: str,
+) -> dict[str, object]:
+    models_by_id: dict[str, dict[str, object]] = {}
+    for item in history:
+        validated = validate_structured_record({
+            "models": [item],
+            "environment": environment,
+        })
+        models = validated["models"]
+        assert isinstance(models, list)
+        model = models[0]
+        assert isinstance(model, dict)
+        runtime_id = model["runtime_id"]
+        assert isinstance(runtime_id, str)
+        existing = models_by_id.get(runtime_id)
+        if existing is not None and existing != model:
+            raise ProvenanceError(
+                f"conflicting structured fields for model: {runtime_id}"
+            )
+        models_by_id[runtime_id] = model
+    return validate_structured_record({
+        "models": [
+            models_by_id[runtime_id]
+            for runtime_id in sorted(models_by_id)
+        ],
+        "environment": environment,
+    })
+
+
+def cursor_current(payload: dict[str, object]) -> str:
+    display = payload.get("model")
+    model_id = payload.get("model_id")
+    current = display if isinstance(display, str) and display else model_id
+    if not isinstance(current, str) or not current:
+        raise ProvenanceError("Cursor hook input requires model_id or model")
+    if (
+        isinstance(model_id, str)
+        and model_id
+        and model_id != current
+    ):
+        current = f"{current} (id: {model_id})"
+    params = payload.get("model_params", [])
+    if not isinstance(params, list) or not all(
+        isinstance(item, dict) for item in params
+    ):
+        raise ProvenanceError("Cursor model_params must be a list of objects")
+    rendered_params = []
+    for item in params:
+        param_id = item.get("id")
+        value = item.get("value")
+        if not isinstance(param_id, str):
+            raise ProvenanceError("Cursor model parameter id must be a string")
+        rendered_value = (
+            value
+            if isinstance(value, str)
+            else json.dumps(value, separators=(",", ":"))
+        )
+        rendered_params.append(f"{param_id}={rendered_value}")
+    if rendered_params:
+        current = f"{current} [{', '.join(rendered_params)}]"
+    validate_cursor_text(current, "Cursor model context")
+    return current
+
+
+def read_cursor_payload() -> dict[str, object]:
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ProvenanceError("Cursor hook input must be one JSON object") from error
+    if not isinstance(payload, dict):
+        raise ProvenanceError("Cursor hook input must be one JSON object")
+    params = payload.get("model_params", [])
+    if not isinstance(params, list):
+        raise ProvenanceError("Cursor model_params must be a list of objects")
+    return payload
+
+
+def old_cursor_state_item(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"model", "effort"}
+        and isinstance(value["model"], str)
+        and isinstance(value["effort"], str)
+    )
+
+
+def old_cursor_state(state: object) -> bool:
+    if not isinstance(state, dict) or set(state) != {
+        "active",
+        "history",
+        "last_emitted",
+        "version",
+    }:
+        return False
+    active = state["active"]
+    history = state["history"]
+    return (
+        state["version"] == 1
+        and isinstance(active, dict)
+        and set(active) == {"current", "effort", "model"}
+        and isinstance(active["current"], str)
+        and isinstance(active["effort"], str)
+        and isinstance(active["model"], str)
+        and isinstance(history, list)
+        and bool(history)
+        and all(old_cursor_state_item(item) for item in history)
+        and old_cursor_state_item(state["last_emitted"])
+    )
+
+
+def load_cursor_state(path: str) -> dict[str, object] | None:
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as state_file:
+            state = json.load(state_file)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ProvenanceError("malformed Cursor provenance state") from error
+    if old_cursor_state(state):
+        raise ProvenanceError("outdated label-shaped Cursor provenance state")
+    if (
+        not isinstance(state, dict)
+        or set(state) != {
+            "active",
+            "history",
+            "last_emitted",
+            "version",
+        }
+        or state["version"] != 1
+        or not isinstance(state["history"], list)
+        or not state["history"]
+        or not isinstance(state["active"], dict)
+        or set(state["active"]) != {"current", "model"}
+        or not isinstance(state["active"]["current"], str)
+        or not isinstance(state["active"]["model"], dict)
+        or not (
+            state["last_emitted"] is None
+            or isinstance(state["last_emitted"], dict)
+        )
+    ):
+        raise ProvenanceError("malformed Cursor provenance state")
+    history = state["history"]
+    assert isinstance(history, list)
+    try:
+        validate_cursor_text(
+            state["active"]["current"],
+            "Cursor model context",
+        )
+        normalized_history(history, "local")
+        for item in history:
+            assert isinstance(item, dict)
+            runtime_id = item["runtime_id"]
+            effort = item["effort"]
+            assert isinstance(runtime_id, str)
+            explicit_effort = effort if isinstance(effort, str) else None
+            if item != model_record(runtime_id, explicit_effort):
+                raise ProvenanceError("noncanonical Cursor provenance model")
+    except ProvenanceError as error:
+        raise ProvenanceError("malformed Cursor provenance state") from error
+    runtime_ids = [item["runtime_id"] for item in history]
+    if len(set(runtime_ids)) != len(runtime_ids):
+        raise ProvenanceError("malformed Cursor provenance state")
+    active = state["active"]
+    last_emitted = state["last_emitted"]
+    assert isinstance(active, dict)
+    if active["model"] not in history or (
+        last_emitted is not None and last_emitted not in history
+    ):
+        raise ProvenanceError("malformed Cursor provenance state")
+    return state
+
+
+def write_cursor_state(path: str, state: dict[str, object]) -> None:
+    directory = os.path.dirname(path)
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=directory,
+        prefix=".cursor-agent-provenance-",
+        delete=False,
+    )
+    try:
+        with temporary:
+            json.dump(state, temporary, sort_keys=True, separators=(",", ":"))
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary.name, path)
+    except BaseException:
+        try:
+            os.unlink(temporary.name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def lock_cursor_state(lock_file: object) -> None:
+    try:
+        import fcntl
+    except (ImportError, ModuleNotFoundError) as error:
+        raise ProvenanceError(
+            "Cursor provenance locking is unavailable on this platform"
+        ) from error
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+    except (AttributeError, OSError) as error:
+        raise ProvenanceError("cannot lock Cursor provenance state") from error
+
+
+def cursor_base_id(runtime_id: str) -> str:
+    tokens = EFFORT_RE.sub("", runtime_id).split("-")
+    return "-".join(token for token in tokens if token != "thinking")
+
+
+def cursor_conversation_key(conversation: str) -> str:
+    prefix = re.sub(r"[^A-Za-z0-9_-]", "_", conversation)[:48]
+    digest = hashlib.sha256(conversation.encode("utf-8")).hexdigest()
+    return f"{prefix}-{digest}"
+
+
+def cursor_state_path(conversation: str, environ: dict[str, str]) -> str:
+    temporary_directory = environ.get("TMPDIR") or "/tmp"
+    return os.path.join(
+        temporary_directory,
+        f"cursor-agent-provenance-{cursor_conversation_key(conversation)}.json",
+    )
+
+
+def cursor_current_record(
+    conversation: str | None,
+    environ: dict[str, str],
+) -> dict[str, object]:
+    if environ.get("CURSOR_CLOUD_AGENT", "").lower() == "true":
+        raise ProvenanceError("cursor-current reads local Cursor state only")
+    conversation = conversation or environ.get("CURSOR_CONVERSATION_ID", "")
+    if not conversation:
+        raise ProvenanceError(
+            "cursor-current requires CURSOR_CONVERSATION_ID or --conversation"
+        )
+    validate_cursor_text(conversation, "Cursor conversation ID")
+    state = load_cursor_state(cursor_state_path(conversation, environ))
+    if state is None:
+        raise ProvenanceError("no Cursor provenance state for this conversation")
+    history = state["history"]
+    assert isinstance(history, list)
+    return normalized_history(history, "local")
+
+
+def cursor_hook(
+    payload: dict[str, object],
+    environ: dict[str, str],
+) -> dict[str, object]:
+    environment = cursor_environment(payload, environ)
+    model_value = payload.get("model_id") or payload.get("model")
+    if not isinstance(model_value, str) or not model_value:
+        raise ProvenanceError("Cursor hook input requires model_id or model")
+    explicit_effort = cursor_effort(payload)
+    current = cursor_current(payload)
+    record_item = model_record(model_value, explicit_effort)
+    conversation = payload.get("conversation_id") or payload.get("session_id")
+    tool = payload.get("tool_name")
+    # Cursor can drop sessionStart context, so only a tool call's emission
+    # counts as delivered.
+    tool_call = bool(tool) or payload.get("hook_event_name") == "postToolUse"
+    if not conversation:
+        record = normalized_history([record_item], environment)
+        if tool_call:
+            return {"emit": False, "message": "", "record": record}
+        message = (
+            f"Current model: {current}. Agent provenance: "
+            f"{json.dumps(record, sort_keys=True, separators=(',', ':'))}."
+        )
+        return {"emit": True, "message": message, "record": record}
+    if not isinstance(conversation, str):
+        raise ProvenanceError("Cursor conversation ID must be a string")
+    validate_cursor_text(conversation, "Cursor conversation ID")
+    state_path = cursor_state_path(conversation, environ)
+    lock_path = f"{state_path}.lock"
+    try:
+        lock_file = open(lock_path, "a+", encoding="utf-8")
+    except OSError as error:
+        raise ProvenanceError("cannot lock Cursor provenance state") from error
+    with lock_file:
+        lock_cursor_state(lock_file)
+        state = load_cursor_state(state_path)
+        history = [] if state is None else list(state["history"])
+        previous_active = None if state is None else state["active"]
+        previous_emitted = None if state is None else state["last_emitted"]
+        effort_learned = False
+        unknown_effort_model = model_record(str(record_item["runtime_id"]))
+        if (
+            record_item["effort"] is not None
+            and unknown_effort_model["effort"] is None
+            and unknown_effort_model in history
+        ):
+            history = [
+                record_item if item == unknown_effort_model else item
+                for item in history
+            ]
+            if previous_emitted == unknown_effort_model:
+                previous_emitted = None
+            effort_learned = (
+                previous_active is not None
+                and previous_active["model"] == unknown_effort_model
+            )
+        if record_item["effort"] is None:
+            known = next(
+                (
+                    item
+                    for item in history
+                    if item["runtime_id"] == record_item["runtime_id"]
+                ),
+                None,
+            )
+            if known is None:
+                base_id = cursor_base_id(str(record_item["runtime_id"]))
+                same_base = [
+                    item
+                    for item in history
+                    if cursor_base_id(str(item["runtime_id"])) == base_id
+                ]
+                if len(same_base) == 1:
+                    known = same_base[0]
+            if known is not None:
+                record_item = known
+                if previous_active is not None and previous_active["model"] == known:
+                    current = previous_active["current"]
+        already_recorded = record_item in history
+        if not already_recorded:
+            history.append(record_item)
+        record = normalized_history(history, environment)
+        active_changed = (
+            previous_active is None
+            or previous_active["model"] != record_item
+        )
+        if tool_call:
+            emit = previous_emitted != record_item
+        else:
+            emit = active_changed
+        next_state = {
+            "active": {
+                "current": current,
+                "model": record_item,
+            },
+            "history": history,
+            "last_emitted": record_item if tool_call else previous_emitted,
+            "version": 1,
+        }
+        try:
+            if state != next_state:
+                write_cursor_state(state_path, next_state)
+        except OSError as error:
+            raise ProvenanceError("cannot write Cursor provenance state") from error
+        if not emit:
+            return {"emit": False, "message": "", "record": record}
+    compact_record = json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if tool_call and previous_emitted is None:
+        message = f"Current model: {current}."
+    elif tool_call:
+        assert isinstance(previous_emitted, dict)
+        if (
+            previous_active is not None
+            and previous_active["model"] == previous_emitted
+        ):
+            previous_current = previous_active["current"]
+        else:
+            previous_current = previous_emitted["runtime_id"]
+        message = (
+            "Model changed mid-conversation. "
+            f"Now running: {current}. Previously: {previous_current}."
+        )
+    elif previous_active is None or effort_learned:
+        message = f"Current model: {current}."
+    else:
+        assert isinstance(previous_active, dict)
+        previous_current = previous_active["current"]
+        message = (
+            "Model changed mid-conversation. "
+            f"Now running: {current}. Previously: {previous_current}."
+        )
+    message = f"{message} Agent provenance: {compact_record}."
+    return {"emit": True, "message": message, "record": record}
+
+
+def claude_code_transcript(
+    explicit_path: str | None,
+    environ: dict[str, str],
+) -> str:
+    if explicit_path is not None:
+        return explicit_path
+    session_id = environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session_id):
+        raise ProvenanceError(
+            "Claude Code adapter requires CLAUDE_CODE_SESSION_ID or --transcript"
+        )
+    config_dir = environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
+        environ.get("HOME") or os.path.expanduser("~"),
+        ".claude",
+    )
+    projects_dir = os.path.join(config_dir, "projects")
+    try:
+        project_dirs = sorted(os.listdir(projects_dir))
+    except OSError as error:
+        raise ProvenanceError(
+            f"cannot read Claude Code projects directory: {projects_dir}"
+        ) from error
+    matches = [
+        os.path.join(projects_dir, project, f"{session_id}.jsonl")
+        for project in project_dirs
+        if os.path.isfile(os.path.join(projects_dir, project, f"{session_id}.jsonl"))
+    ]
+    if not matches:
+        raise ProvenanceError(
+            f"no Claude Code transcript for session {session_id} under {projects_dir}"
+        )
+    if len(matches) > 1:
+        raise ProvenanceError(
+            f"more than one Claude Code transcript for session {session_id}"
+        )
+    return matches[0]
+
+
+def claude_code_environment(environ: dict[str, str]) -> str:
+    return "cloud" if environ.get("CLAUDE_CODE_REMOTE") == "true" else "local"
+
+
+def claude_code_record(
+    transcript_path: str,
+    environ: dict[str, str],
+    target: str | None,
+) -> dict[str, object]:
+    try:
+        with open(transcript_path, encoding="utf-8") as transcript:
+            text = transcript.read()
+    except (OSError, UnicodeDecodeError) as error:
+        raise ProvenanceError(
+            f"cannot read Claude Code transcript: {transcript_path}"
+        ) from error
+    lines = text.split("\n")
+    efforts: dict[str, str] = {}
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as error:
+            if index == len(lines) - 1:
+                break
+            raise ProvenanceError(
+                f"malformed Claude Code transcript line {index + 1}"
+            ) from error
+        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+            continue
+        message = entry.get("message")
+        model = message.get("model") if isinstance(message, dict) else None
+        if model == "<synthetic>":
+            continue
+        if not isinstance(model, str) or not model:
+            raise ProvenanceError(
+                f"Claude Code assistant entry on line {index + 1} has no message.model"
+            )
+        effort = entry.get("effort")
+        if not isinstance(effort, str) or effort not in EFFORTS:
+            raise ProvenanceError(
+                f"Claude Code assistant entry on line {index + 1} has no supported effort"
+            )
+        efforts[model] = effort
+    if not efforts:
+        raise ProvenanceError(
+            f"Claude Code transcript has no assistant entries: {transcript_path}"
+        )
+    environment = claude_code_environment(environ)
+    records = [
+        normalize([model], environment, target, effort)
+        for model, effort in efforts.items()
+    ]
+    result: dict[str, object] = {
+        "models": sorted(
+            (model for record in records for model in record["models"]),
+            key=lambda model: str(model["runtime_id"]),
+        ),
+        "environment": environment,
+    }
+    if target is not None:
+        result["target"] = target
+    return validate_structured_record(result)
+
+
+def add_style_arguments(command_parser: argparse.ArgumentParser) -> None:
+    style_group = command_parser.add_mutually_exclusive_group()
+    style_group.add_argument(
+        "--plain",
+        dest="style",
+        action="store_const",
+        const="plain",
+    )
+    style_group.add_argument(
+        "--linear",
+        dest="style",
+        action="store_const",
+        const="linear",
+    )
+    command_parser.set_defaults(style="details")
+
+
+def parser() -> argparse.ArgumentParser:
+    command_parser = argparse.ArgumentParser(prog="agent-provenance")
+    subparsers = command_parser.add_subparsers(dest="command", required=True)
+    normalize_parser = subparsers.add_parser("normalize")
+    normalize_parser.add_argument("--model", action="append", default=[])
+    normalize_parser.add_argument("--effort")
+    normalize_parser.add_argument("--environment")
+    normalize_parser.add_argument("--target")
+    normalize_parser.add_argument("--models-withheld", action="store_true")
+    record_target_parser = subparsers.add_parser("record-target")
+    record_target_parser.add_argument("--record", required=True)
+    record_target_parser.add_argument(
+        "--target",
+        required=True,
+        choices=TARGETS,
+    )
+    render_parser = subparsers.add_parser("render")
+    render_parser.add_argument("--record", required=True)
+    add_style_arguments(render_parser)
+    insert_parser = subparsers.add_parser("body-insert")
+    insert_parser.add_argument("--record", required=True)
+    insert_parser.add_argument("--body", required=True)
+    add_style_arguments(insert_parser)
+    body_target_parser = subparsers.add_parser("body-target")
+    target_group = body_target_parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument(
+        "--target",
+        choices=TARGETS,
+    )
+    target_group.add_argument("--clear-target", action="store_true")
+    body_target_parser.add_argument("--body", required=True)
+    body_target_parser.add_argument("--plain", action="store_true")
+    body_record_parser = subparsers.add_parser("body-record")
+    body_record_parser.add_argument("--body", required=True)
+    body_record_parser.add_argument("--plain", action="store_true")
+    subparsers.add_parser("cursor-hook")
+    cursor_current_parser = subparsers.add_parser("cursor-current")
+    cursor_current_parser.add_argument("--conversation")
+    claude_code_parser = subparsers.add_parser("from-claude-code")
+    claude_code_parser.add_argument("--transcript")
+    claude_code_parser.add_argument("--target")
+    claude_code_parser.add_argument("--withhold-model", action="store_true")
+    return command_parser
+
+
+def main() -> int:
+    args = parser().parse_args()
+    text_result = None
+    try:
+        if args.command == "normalize":
+            result = normalize(
+                args.model,
+                args.environment,
+                args.target,
+                args.effort,
+                args.models_withheld,
+            )
+        elif args.command == "record-target":
+            result = target_record(args.record, args.target)
+        elif args.command == "render":
+            record = load_structured_record(args.record)
+            text_result = f"{render_record(record, args.style)}\n"
+            result = None
+        elif args.command == "body-insert":
+            text_result = insert_body_block(
+                args.record,
+                args.body,
+                args.style,
+            )
+            result = None
+        elif args.command == "body-target":
+            text_result = replace_body_target(
+                args.target,
+                args.body,
+                args.plain,
+            )
+            result = None
+        elif args.command == "body-record":
+            result = read_body_record(read_body(args.body), args.plain)[3]
+        elif args.command == "cursor-hook":
+            result = cursor_hook(read_cursor_payload(), dict(os.environ))
+        elif args.command == "cursor-current":
+            result = cursor_current_record(args.conversation, dict(os.environ))
+        elif args.command == "from-claude-code" and args.withhold_model:
+            environ = dict(os.environ)
+            if args.transcript is not None:
+                raise ProvenanceError("--withhold-model reads no transcript")
+            if claude_code_environment(environ) != "cloud":
+                raise ProvenanceError(
+                    "--withhold-model is only for Claude Code in the cloud"
+                )
+            result = normalize([], "cloud", args.target, None, models_withheld=True)
+        elif args.command == "from-claude-code":
+            environ = dict(os.environ)
+            result = claude_code_record(
+                claude_code_transcript(args.transcript, environ),
+                environ,
+                args.target,
+            )
+    except ProvenanceError as error:
+        print(f"agent-provenance: {error}", file=sys.stderr)
+        return 1
+    if text_result is not None:
+        sys.stdout.write(text_result)
+        return 0
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

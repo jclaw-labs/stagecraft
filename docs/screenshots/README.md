@@ -1,17 +1,14 @@
----
-name: create-pr
-description: Use when opening or revising a pull request in the stagecraft monorepo. Enforces the screenshots convention — PRs that change rendered UI (public site or Keystatic admin) must embed screenshots from a public gist, since this repo is private and in-tree / raw.githubusercontent URLs don't render anonymously. Cloud Claude Code sessions commit captures to .pr-screenshots/ and a CI workflow relays them to a gist; local sessions can also run the gist push manually. Trigger phrases include "create a PR", "open a pull request", "update my PR description", or any task where a branch is ready for review.
----
+# PR screenshots
 
-# Create PR
+PRs that change rendered UI — public site, admin, or both — must embed
+screenshots in the body so reviewers can see what changed without
+pulling the branch.
 
-Open or revise a pull request. PRs that change rendered UI — public
-site, Keystatic admin, or both — must embed screenshots in the body so
-reviewers can see what changed without pulling the branch.
-
-The system prompt's standard "Creating pull requests" workflow handles
-the `gh pr create` mechanics; this skill covers the screenshots
-convention that wraps around it.
+This is stagecraft's screenshot convention. The vendored `create-pr` and
+`capture-pr-screenshots` skills (synced from local-config into
+`.claude/skills/`) handle the PR mechanics; this file holds the
+repo-specific parts they defer to: where captures go, how they reach a
+public gist, and how to verify they render.
 
 ## When screenshots apply
 

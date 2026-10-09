@@ -3,7 +3,7 @@ name: PR Screenshots
 # Relays screenshots committed by cloud Claude Code sessions to a public
 # gist, then rewrites the PR body so they render inline. See
 # .github/scripts/upload-pr-screenshots.mjs and
-# claude/skills/create-pr/SKILL.md for the full flow.
+# docs/screenshots/README.md for the full flow.
 #
 # One-time setup (repo admin): create a personal access token with the
 # `gist` scope and add it as a repository secret named GIST_TOKEN.

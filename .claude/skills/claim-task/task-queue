@@ -1,0 +1,1538 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Decides which issue an agent should pick up next, and why every other one is
+# out. One definition of "eligible" rather than one per agent: the fleet only
+# stays coherent if two agents waking up five seconds apart compute the same
+# answer from the same board.
+#
+# next, why and settle deliberately do no network. Eligibility is a pure
+# function of the issue set, and the fetch is the part that differs by surface.
+# Making the caller supply the JSON keeps the part that would drift in one file
+# and lets the part that varies stay varied.
+#
+# snapshot, claim and handoff are the GitHub fetch and write sequences around
+# them, for a surface with `gh`. Every queue session used to hand-write these
+# three, and the hand-written copies guessed settle's input keys wrong and lost
+# a refspec to zsh's :r modifier. They call next and settle rather than
+# repeating them, so the rules still live in one place.
+
+usage() {
+  cat <<'USAGE'
+task-queue next [--queue <Ready|Needs review>] [--reviewer <identity>] [--runtime <cloud|local>] [--prefer <issue>] [--issues <file>] [--json]
+task-queue why <issue> [--issues <file>] [--json]
+task-queue settle --scenario <file> [--json]
+task-queue validate-session --session <identity>
+task-queue snapshot --profile <file> [--out <file>]
+task-queue claim <issue> --profile <file> --session <identity> [--review] [--resume] [--out <file>]
+task-queue handoff <issue> --pr <number>... --profile <file> --session <identity> --note-file <file> [--touches <paths>] [--out <file>]
+
+GitHub sequences (a github-issues profile, gh, python3 and jq). Each prints one
+verdict line ending in the path of a JSON file with the detail, written under
+$TMPDIR unless --out names one. In Cursor Cloud (CURSOR_CLOUD_AGENT set) every
+issue read and write carries GH_JCLAW_LABS_ISSUE_TOKEN with tracing off, and
+fails before any traffic when it is unset; PR and ref traffic keeps the ambient
+credential. claim-replay and issue-fields resolve from this file's directory,
+then issue-fields from the checkout holding it (bin/), then PATH.
+
+  snapshot  Lists open issues through issue-fields, maps open PRs (with their
+            files) to owner issues, replays every Ready, In progress, Needs
+            review and Under review issue through claim-replay, and runs next.
+            A failed replay becomes that record's normalization_error. The
+            verdict names the first eligible Ready issue whose visit replay
+            says is claimable; eligible ones that are not are listed under
+            unclaimable_ready. Review selection is not covered: it needs
+            stack_ancestors, implementation_authors and runtime_target.
+  claim     Requires Queue Ready (Needs review with --review) and a claimable
+            replay, then posts the marker, writes Queue, posts claim-set and
+            the Claim projection, re-reads, settles, converges Claim to the
+            winner, and creates claude/issue-<n>-<generation>
+            (claude/review-... with --review) from the default branch head,
+            running the rejected-ref protocol on a 422, at most three times.
+            When the refs API refuses otherwise, it pushes the ref create-only
+            from the current directory if that is a checkout of the
+            repository; only a push that creates the ref is a win, and any
+            other accepted push is a rejection. Exit 0 on a win, 3 on a loss
+            or an unclaimable visit, 4 when the claim is held but the ref
+            could not be created. --resume skips the claim writes and retries
+            the ref for a visit replay shows this session already holding.
+  handoff   Requires Queue In progress and a replayed Claim naming --session
+            in the active generation, and every --pr open and either owning
+            the issue or stacked on or under one that does. Writes Touches
+            when --touches is given (empty clears it), posts the note with
+            the profile's prefix, the scoped claim-clear,
+            the Needs review intent, the Queue write and the activation,
+            clears the Claim projection, and verifies by replay that the new
+            visit is claimable and unheld.
+
+Reads a normalised issue set and reports the queue in pick order, or why one
+issue is not pickable.
+
+Input is a JSON array, from --issues, from TASK_QUEUE_ISSUES_FILE, or on stdin:
+
+  [{ "number":   126,
+     "title":    "...",
+     "queue":    "Ready",
+     "priority": "High",
+     "claim":    "sess-9",
+     "blocked_by": [134],
+     "stack_ancestors": [120],
+     "implementation_authors": ["worker-session"],
+     "runtime_target": "either",
+     "normalization_error": null,
+     "touches":  ["apps/web/src/app/page.tsx"],
+     "open_prs": [472],
+     "context_only": false }]
+
+The keys map to issue fields: queue is Queue, blocked_by is "Blocked by issue",
+touches is Touches, priority is Priority, claim is Claim.
+context_only marks an open blocker fetched only to close a scoped dependency
+graph. It can block an in-scope issue but is never itself pickable.
+
+"Blocked by issue" and Touches are single text fields, so SPLITTING THEM ON
+WHITESPACE IS THE CALLER'S JOB: "134 96" becomes [134, 96], not ["134 96"].
+Forgetting is the likeliest bug on this path, so an entry still carrying a space
+is reported against its own issue rather than read past -- reading only the first
+number in it used to hand out an issue whose other blocker was wide open.
+
+What a person typed is read where it can be: a blocked_by entry gives up every
+number in it, so "#134" is 134. An entry with no number in it holds its own issue
+back and says so, because an unreadable blocker might be an open one. Only the
+JSON shape is refused outright, and only a normaliser chooses that.
+
+If one issue's claim replay or review authorship cannot be normalized safely,
+set normalization_error to a nonempty diagnostic and preserve its Queue and
+Touches. That record is ineligible, still holds files when its Queue is in
+flight, and does not prevent a valid sibling from being selected. Do not invent
+Claim, generation, ancestry, or authorship to fill the gap.
+
+Pass every OPEN issue. A number under blocked_by that is absent from the input
+is read as closed -- and reported as a warning, because a typo looks the same.
+
+An issue is eligible when all three hold:
+  - queue matches the selection target (Ready by default; Needs review for review work)
+  - every blocked_by issue and stack ancestor is closed
+  - its touches do not overlap any held by an issue in flight, where in flight
+    means In progress, Needs review, Under review, or Ready to merge
+
+For review selection, another issue waiting in Needs review holds no files:
+a review nobody has claimed edits nothing, and each review commits only to its
+own PR branch, so overlapping reviews collide at merge rather than in a shared
+tree. A claimed review (Under review) still holds its files, and so does Ready
+to merge.
+Counting them made overlapping reviews lock each other with none pickable
+(#679). In progress, Under review, and Ready to merge keep their locks, and so
+does a Needs review record whose normalization failed, since its claim replay
+may be hiding a live review.
+
+stack_ancestors contains every owner issue below this issue in its live PR
+stack. Its open ancestry keeps a descendant behind the bottom issue, so the
+stack is still reviewed bottom-up. Every Needs-review record must carry stack_ancestors.
+An explicit [] means the live graph proved that no unmerged owner ancestor
+exists; an omitted field makes only that record ineligible. Malformed or cyclic
+ancestry fails closed.
+
+Every Needs-review record must also carry implementation_authors as a unique,
+nonempty array of session tokens. A session token is nonempty and contains no
+colon, ASCII whitespace, <, or >. The caller passes its token with --reviewer.
+The executable derives
+review_excluded by exact membership and ignores any caller-supplied field of
+that name. Missing authorship makes that record ineligible. A normalizer that
+cannot establish valid authorship uses normalization_error so only that record
+is ineligible; a malformed implementation_authors value passed as normalized
+input remains a document-shape error. An excluded record reports that
+self-authored work cannot be reviewed; its unmerged branch holds every declared
+file against implementation picks, but like any unclaimed review it holds
+nothing against another review pick.
+
+Every Needs-review record must also carry runtime_target: the runtime target
+recorded in its implementation PR's agent context, as "cloud", "local",
+"either", or "both", or null when the work is not agent-facing. The caller
+names the runtime it reviews in with --runtime cloud or --runtime local. null
+and "either" are certifiable from either runtime; "cloud" and "local" only from
+that runtime; "both" from neither, because one reviewer checks one path. An
+incompatible record is ineligible and says which runtime it needs, but stays in
+flight: it holds its files against implementation picks, and like any
+unclaimed review it holds nothing against another review pick. A missing runtime_target makes only that record
+ineligible; any other value is a document-shape error.
+
+open_prs lists the open pull requests that implement the issue: the caller maps
+each open PR to its owner issue through a closing keyword (close, fix or
+resolve in any tense or case, then #n) or a claude/issue-<n> or
+claude/work-issue-<n> head branch with or without a -suffix. It is optional; an
+omitted or empty field means no open PR is known, and the record is read exactly
+as it was before the field existed. A Ready issue with an open PR stays
+eligible, because claim-task's reclaim path returns an issue whose PR lost its
+authorship to Ready so a worker can adopt it. It sorts after every eligible
+Ready issue without one, its reason says to adopt or verify the PR rather than
+implement again, and a warning reports it as a stewardship finding. Its branch
+is live, so like a waiting review it holds its Touches against Ready picks that
+have no open PR, but not against another Ready issue with one or against review
+picks. An in-flight record that shares an open PR with a Ready record holds that
+Ready pick whatever their Touches, so two workers are never sent to the same
+branch; two Ready records that share a PR stay both pickable until one is
+claimed. So in-flight records' open_prs matter too, and the caller fills them
+for every record, not only Ready ones. Otherwise the field is Ready-only: review
+selection reads Needs review and later records as before.
+
+With --queue "Needs review", --prefer may name the next owner in a stack already
+being reviewed. A fully eligible preferred record comes first even when another
+eligible issue has higher Priority. If that record is blocked, locked, behind an
+open ancestor, missing ancestry, or otherwise ineligible, selection falls back
+to the canonical priority and issue-number order.
+
+Every state from In progress onward holds its files, because the branch is
+unmerged in all of them: a second agent branching off the default branch would
+collide at merge rather than at pick time. Ready to merge holds them most
+certainly of all -- the work is finished and waiting on a human.
+
+Waiting for input is the other end of that sentence and its opposite in every
+mechanical way: nothing has started, so there is no branch, so it holds no
+files -- Triage and Ready are its neighbours there, not Ready to merge. Both it
+and Ready to merge wait on a person; only one of them has work behind it.
+Putting finished work here instead releases the files of a branch that is still
+out there, which is the one way this state can do damage.
+
+Queue is matched case-insensitively, so "In Progress" is that state rather than
+a typo for it. A value outside the seven holds its files anyway and is reported,
+because serialising work that could have run costs throughput while releasing a
+lock by accident costs two agents editing the same file.
+
+An in-flight issue that declares no touches holds nothing, and says so -- that
+is a triage omission rather than a task with no files.
+
+Ties break by priority (Urgent, High, Medium, Low), then issue number ascending.
+An unset priority sorts last, so forgetting to set one cannot promote an issue.
+A priority outside those four also sorts last and is reported as a warning,
+because a scale nobody declared is not a scale.
+
+Settlement scenarios carry the active claim generation, and every marker carries
+the generation it read before claiming. Only markers from that generation enter
+the tie; an older visit to the same held state cannot win a later cycle. Claim is
+null or an authoritative event with value, held state, and generation. The lock
+ref includes that generation, so later work and review cycles get fresh locks
+while racers in one cycle still converge on one name.
+USAGE
+}
+
+die() { echo "task-queue: $1" >&2; exit 1; }
+
+session_token_regex='^[^:\x09-\x0D\x20<>]+$'
+
+is_session_token() {
+  local value="${1-}"
+  [ -n "$value" ] || return 1
+  case "$value" in
+    *:*|*"<"*|*">"*|*" "*|*$'\t'*|*$'\n'*|*$'\r'*|*$'\f'*|*$'\v'*)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+require_session_token() {
+  local value="$1" name="$2"
+  is_session_token "$value" \
+    || die "$name must be a session token: nonempty and without colon, ASCII whitespace, <, or >"
+}
+
+validate_unique_json() {
+  local value="$1" error
+  command -v python3 >/dev/null 2>&1 || die "python3 is required"
+  if ! error="$(printf '%s' "$value" | python3 -c '
+import json
+import sys
+
+class DuplicateKey(Exception):
+    pass
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKey(key)
+        result[key] = value
+    return result
+
+try:
+    json.load(sys.stdin, object_pairs_hook=unique_object)
+except DuplicateKey as error:
+    print(f"duplicate JSON object key: {error.args[0]}")
+    raise SystemExit(1)
+except (json.JSONDecodeError, UnicodeDecodeError):
+    print("input is not valid JSON")
+    raise SystemExit(1)
+')"; then
+    die "${error:-input is not valid JSON}"
+  fi
+}
+
+cmd="${1:-}"; shift 2>/dev/null || true
+case "$cmd" in
+  next|why|settle|validate-session|snapshot|claim|handoff) ;;
+  -h|--help|"") usage; exit 0 ;;
+  *) die "unknown command: $cmd (expected next, why, settle, validate-session, snapshot, claim, or handoff)" ;;
+esac
+
+if [ "$cmd" = validate-session ]; then
+  session=""; session_given=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session)
+        [ $# -ge 2 ] || die "--session needs a value"
+        [ "$session_given" = 0 ] || die "session may be provided only once"
+        session="$2"; session_given=1; shift 2
+        ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [ "$session_given" = 1 ] || die "validate-session needs --session"
+  require_session_token "$session" "session"
+  exit 0
+fi
+
+# --- GitHub transport: snapshot, claim, handoff ------------------------------
+# Everything above this block and below it is a pure function of its input.
+# These three commands are the GitHub side every queue session used to write by
+# hand: fetch, replay, post the markers, write the fields, settle, lock. Each
+# one prints a one-line verdict and leaves the detail in a JSON file, so a
+# session reads one line instead of the comment stream.
+#
+# Credential contract (steward-task-queue, Cursor Cloud): issue reads and writes
+# carry GH_JCLAW_LABS_ISSUE_TOKEN with tracing off; PR and git-ref traffic stays
+# on the ambient installation credential. Outside Cursor Cloud both use ambient
+# gh auth. Siblings resolve from this file's own directory.
+
+self_path() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}"
+}
+
+gh_setup() {
+  local profile_file="$1"
+  command -v jq >/dev/null 2>&1 || die "jq is required"
+  command -v gh >/dev/null 2>&1 || die "gh is required"
+  command -v python3 >/dev/null 2>&1 || die "python3 is required"
+  [ -n "$profile_file" ] || die "$cmd needs --profile"
+  [ -r "$profile_file" ] || die "cannot read profile $profile_file"
+  jq -e '.backend == "github-issues"' "$profile_file" >/dev/null 2>&1 \
+    || die "$cmd needs a github-issues profile"
+  repo="$(jq -er '.tracker.repository' "$profile_file")" || die "profile has no tracker.repository"
+  api_version="$(jq -er '.tracker.api_version' "$profile_file")" || die "profile has no tracker.api_version"
+  comment_prefix="$(jq -er '.writes.comment_prefix' "$profile_file")" || die "profile has no writes.comment_prefix"
+  queue_field="$(jq -er '.tracker.fields.queue' "$profile_file")" || die "profile has no queue field"
+  claim_field="$(jq -er '.tracker.fields.claim' "$profile_file")" || die "profile has no claim field"
+  if [ -n "${CURSOR_CLOUD_AGENT:-}" ] && [ -z "${GH_JCLAW_LABS_ISSUE_TOKEN:-}" ]; then
+    die "GH_JCLAW_LABS_ISSUE_TOKEN is required for GitHub queue traffic"
+  fi
+
+  self="$(self_path)"
+  local here
+  here="$(dirname "$self")"
+  claim_replay="$here/claim-replay"
+  [ -x "$claim_replay" ] || die "claim-replay is missing beside $self"
+  # Bundled beside this file first, then the checkout that contains it (a
+  # local-config source tree keeps it under bin/), then PATH.
+  issue_fields="$here/issue-fields"
+  if [ ! -x "$issue_fields" ]; then
+    local top
+    top="$(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true)"
+    issue_fields="${top:+$top/bin/issue-fields}"
+  fi
+  if [ -z "$issue_fields" ] || [ ! -x "$issue_fields" ]; then
+    issue_fields="$(command -v issue-fields 2>/dev/null || true)"
+  fi
+  [ -n "$issue_fields" ] && [ -x "$issue_fields" ] || die "issue-fields command is unavailable"
+
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/task-queue.XXXXXX")" || die "cannot create a scratch directory"
+  trap 'rm -rf "$scratch"' EXIT
+}
+
+issue_api() {
+  { set +x; } 2>/dev/null
+  if [ -n "${CURSOR_CLOUD_AGENT:-}" ]; then
+    GH_TOKEN="$GH_JCLAW_LABS_ISSUE_TOKEN" gh api -H "X-GitHub-Api-Version: $api_version" "$@"
+  else
+    gh api -H "X-GitHub-Api-Version: $api_version" "$@"
+  fi
+}
+
+run_issue_fields() {
+  { set +x; } 2>/dev/null
+  if [ -n "${CURSOR_CLOUD_AGENT:-}" ]; then
+    GH_TOKEN="$GH_JCLAW_LABS_ISSUE_TOKEN" "$issue_fields" "$@"
+  else
+    "$issue_fields" "$@"
+  fi
+}
+
+pr_api() { gh api "$@"; }
+
+out_file() {
+  local name="$1" given="$2"
+  if [ -n "$given" ]; then
+    : >"$given" || die "cannot write $given"
+    printf '%s\n' "$given"
+  else
+    mktemp "${TMPDIR:-/tmp}/task-queue-$name.XXXXXX" || die "cannot create an output file"
+  fi
+}
+
+# The seven Queue values, matched case-insensitively as next does.
+canon_queue() {
+  jq -rn --arg q "$1" '
+    ["Triage", "Waiting for input", "Ready", "In progress", "Needs review",
+     "Under review", "Ready to merge"]
+    | map(select(ascii_downcase == ($q | ascii_downcase))) | .[0] // ""'
+}
+
+# Prints {"queue": ..., "claim": ...} for one issue from its live field values.
+read_fields() {
+  issue_api "repos/$repo/issues/$1/issue-field-values" \
+    | jq -ce --argjson q "$queue_field" --argjson c "$claim_field" '
+        def val: if .data_type == "single_select" then .single_select_option.name else .value end;
+        def field($id): (map(select(.issue_field_id == $id)) | .[0]) as $e
+                        | if $e == null then null else ($e | val) end;
+        if type != "array" then error("field values must be an array") else
+          {queue: field($q), claim: field($c)} end' \
+    || die "cannot read the fields of #$1"
+}
+
+# Writes the github-claim-comments-v1 replay input for one issue.
+fetch_comments() {
+  local issue="$1" projection="$2" dest="$3" page=1 count
+  : >"$scratch/pages"
+  while :; do
+    issue_api "repos/$repo/issues/$issue/comments?per_page=100&page=$page" >"$scratch/page" \
+      || return 1
+    count="$(jq -e 'if type == "array" then length else error("not an array") end' "$scratch/page")" \
+      || return 1
+    cat "$scratch/page" >>"$scratch/pages"
+    [ "$count" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  jq -s --arg p "$projection" '
+    {format: "github-claim-comments-v1", claim_projection: $p,
+     comments: [add // [] | .[]
+                | {databaseId: .id, createdAt: .created_at,
+                   updatedAt: .updated_at, body: .body}]}' \
+    "$scratch/pages" >"$dest"
+}
+
+# replay <issue> <queue-state> <projection> <dest>; on failure the reason is in
+# $scratch/replay-error.
+replay_issue() {
+  local issue="$1" state="$2" projection="$3" dest="$4"
+  : >"$scratch/replay-error"
+  if ! fetch_comments "$issue" "$projection" "$scratch/comments-$issue.json" 2>"$scratch/replay-error"; then
+    printf 'cannot read the comments of #%s\n' "$issue" >>"$scratch/replay-error"
+    return 1
+  fi
+  "$claim_replay" github --input "$scratch/comments-$issue.json" \
+    --queue-state "$state" --comment-prefix "$comment_prefix" --json \
+    >"$dest" 2>"$scratch/replay-error"
+}
+
+replay_error() {
+  tr '\n' ' ' <"$scratch/replay-error" | sed 's/^claim-replay: //; s/ *$//'
+}
+
+post_comment() {
+  issue_api --method POST "repos/$repo/issues/$1/comments" -f "body=$2" \
+    | jq -er '.id' || die "cannot comment on #$1"
+}
+
+set_field() {
+  run_issue_fields set --profile "$profile" --issue "$1" --value "$2" >/dev/null \
+    || die "cannot set $2 on #$1"
+}
+
+clear_field() {
+  run_issue_fields clear --profile "$profile" --issue "$1" --field "$2" >/dev/null \
+    || die "cannot clear $2 on #$1"
+}
+
+# Owner issues an open PR implements: a closing keyword in its body, or a
+# claude/issue-<n> or claude/work-issue-<n> head branch, with or without a -suffix.
+pr_owners_jq='
+  def owners:
+    ([(.head.ref // "") | capture("^claude/(work-)?issue-(?<n>[0-9]+)(-|$)") | .n]
+     + [(.body // "") | scan("(?i)\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[ \\t]+#([0-9]+)\\b") | .[0]])
+    | map(tonumber) | unique;'
+
+# --- snapshot -----------------------------------------------------------------
+cmd_snapshot() {
+  local out_given="" n state projection rc
+  profile=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) [ $# -ge 2 ] || die "--profile needs a value"; profile="$2"; shift 2 ;;
+      --out) [ $# -ge 2 ] || die "--out needs a value"; out_given="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  gh_setup "$profile"
+  local out
+  out="$(out_file snapshot "$out_given")"
+
+  run_issue_fields list --profile "$profile" >"$scratch/fields.json" \
+    || die "cannot list the open issues"
+
+  local page=1 count
+  : >"$scratch/pr-pages"
+  while :; do
+    pr_api "repos/$repo/pulls?state=open&per_page=100&page=$page" >"$scratch/page" \
+      || die "cannot list open pull requests"
+    count="$(jq -e 'if type == "array" then length else error("not an array") end' "$scratch/page")" \
+      || die "open pull requests page is not an array"
+    cat "$scratch/page" >>"$scratch/pr-pages"
+    [ "$count" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  jq -s "$pr_owners_jq"'
+    [add // [] | .[] | {number, title, head: .head.ref, draft: (.draft // false), owners: owners}]' \
+    "$scratch/pr-pages" >"$scratch/prs.json"
+
+  printf '[]' >"$scratch/pr-files.json"
+  for n in $(jq -r '.[].number' "$scratch/prs.json"); do
+    page=1
+    : >"$scratch/file-pages"
+    while :; do
+      pr_api "repos/$repo/pulls/$n/files?per_page=100&page=$page" >"$scratch/page" \
+        || die "cannot list the files of PR #$n"
+      count="$(jq -e 'if type == "array" then length else error("not an array") end' "$scratch/page")" \
+        || die "files page of PR #$n is not an array"
+      cat "$scratch/page" >>"$scratch/file-pages"
+      [ "$count" -lt 100 ] && break
+      page=$((page + 1))
+    done
+    jq -s --argjson n "$n" --slurpfile acc "$scratch/pr-files.json" \
+      '$acc[0] + [{number: $n, files: [add // [] | .[].filename]}]' \
+      "$scratch/file-pages" >"$scratch/pr-files.next"
+    mv "$scratch/pr-files.next" "$scratch/pr-files.json"
+  done
+  jq --slurpfile files "$scratch/pr-files.json" '
+    ($files[0] | map({key: (.number | tostring), value: .files}) | from_entries) as $f
+    | map(. + {files: ($f[.number | tostring] // [])})' \
+    "$scratch/prs.json" >"$scratch/prs-with-files.json"
+
+  # Replay every issue in a claimable or held state. A record whose replay
+  # fails keeps its Queue and Touches and becomes ineligible, as next expects.
+  printf '{}' >"$scratch/replays.json"
+  while IFS=$'\x1f' read -r n state projection; do
+    state="$(canon_queue "$state")"
+    case "$state" in
+      Ready|"In progress"|"Needs review"|"Under review") ;;
+      *) continue ;;
+    esac
+    if replay_issue "$n" "$state" "$projection" "$scratch/replay-$n.json"; then
+      jq --arg n "$n" --arg s "$state" --slurpfile r "$scratch/replay-$n.json" \
+        '. + {($n): ($r[0] | {queue_state: $s, claim, generation: (.generation.id // null),
+                              transition, projection, error: null})}' \
+        "$scratch/replays.json" >"$scratch/replays.next"
+    else
+      jq --arg n "$n" --arg s "$state" --arg e "$(replay_error)" \
+        '. + {($n): {queue_state: $s, error: $e}}' \
+        "$scratch/replays.json" >"$scratch/replays.next"
+    fi
+    mv "$scratch/replays.next" "$scratch/replays.json"
+  done < <(jq -r '.[] | [(.number | tostring), (.queue // ""), (.claim // "")] | join("\u001f")' "$scratch/fields.json")
+
+  jq --slurpfile prs "$scratch/prs.json" --slurpfile replays "$scratch/replays.json" '
+    ($replays[0]) as $r
+    | map(. as $i
+          | ($r[$i.number | tostring]) as $rep
+          | $i + {open_prs: [$prs[0][] | select(.owners | index($i.number)) | .number]}
+          | if $rep == null then .
+            elif $rep.error != null then . + {normalization_error: "claim replay failed: \($rep.error)"}
+            else . + {claim: ($rep.claim.value // null)} end)' \
+    "$scratch/fields.json" >"$scratch/issues.json"
+
+  rc=0
+  "$self" next --issues "$scratch/issues.json" --json >"$scratch/selection.json" 2>"$scratch/selection-error" || rc=$?
+  [ "$rc" = 0 ] || die "next refused the snapshot: $(tr '\n' ' ' <"$scratch/selection-error")"
+
+  jq -n --arg repo "$repo" --arg taken "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --slurpfile issues "$scratch/issues.json" \
+    --slurpfile prs "$scratch/prs-with-files.json" \
+    --slurpfile replays "$scratch/replays.json" \
+    --slurpfile selection "$scratch/selection.json" '
+    ($replays[0]) as $r
+    | ($selection[0].queue
+       | map(select(.eligible and .state == "Ready"
+                    and (($r[.number | tostring].transition.claimable // false) | not)))
+       | map({number, reason: ($r[.number | tostring]
+                               | if .error != null then .error
+                                 else (.transition.reason // .transition.status // "no replay") end)}))
+      as $unclaimable
+    | {format: "task-queue-snapshot-v1", repository: $repo, taken_at: $taken,
+       next: ($selection[0].queue
+              | map(select(.eligible and (.number as $n | $unclaimable | map(.number) | index($n) | not)))
+              | .[0].number // null),
+       unclaimable_ready: $unclaimable,
+       selection: $selection[0],
+       issues: $issues[0], pull_requests: $prs[0], replays: $r}' >"$out"
+
+  jq -r --arg out "$out" '
+    (.selection.queue | map(select(.eligible)) | length) as $pickable
+    | (.selection.queue | map(select(.eligible | not)) | length) as $held
+    | (.selection.queue | map(.warnings) | add // [] | unique | length) as $warnings
+    | (.next) as $next
+    | (if $next == null then "nothing claimable"
+       else (.selection.queue[] | select(.number == $next)
+             | "next #\(.number) (\(.priority // "unset")) \(.title)") end)
+      + "; \($pickable) pickable, \($held) held back, \($warnings) warnings"
+      + (if (.unclaimable_ready | length) > 0
+         then ", \(.unclaimable_ready | length) eligible but not claimable" else "" end)
+      + "; snapshot \($out)"' "$out"
+}
+
+# --- claim --------------------------------------------------------------------
+# Re-reads the issue in its held state, settles, and converges Claim. Leaves
+# the settlement in $scratch/settled.json and the replay in $scratch/held.json.
+settle_fresh() {
+  local issue="$1" held="$2" session="$3" fields live projection
+  fields="$(read_fields "$issue")"
+  live="$(canon_queue "$(jq -r '.queue // ""' <<<"$fields")")"
+  [ "$live" = "$held" ] \
+    || die "#$issue left $held during the claim (Queue is now ${live:-unset}); select again"
+  projection="$(jq -r '.claim // ""' <<<"$fields")"
+  replay_issue "$issue" "$held" "$projection" "$scratch/held.json" \
+    || die "claim replay of #$issue failed: $(replay_error)"
+  jq -e '.generation.id != null' "$scratch/held.json" >/dev/null \
+    || die "#$issue has no active generation after the claim"
+  jq -n --argjson issue "$issue" --arg caller "$session" --arg state "$held" \
+    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --slurpfile r "$scratch/held.json" '
+    {issue: $issue, caller: $caller, target_state: $state, claim: $r[0].claim,
+     generation: $r[0].generation.id, now: $now, stale_after_seconds: 14400,
+     markers: $r[0].markers}' >"$scratch/scenario.json"
+  "$self" settle --scenario "$scratch/scenario.json" --json >"$scratch/settled.json" \
+    2>"$scratch/settle-error" \
+    || die "settlement of #$issue failed: $(tr '\n' ' ' <"$scratch/settle-error")"
+
+  local value state generation
+  if [ "$(jq -r '.write_claim' "$scratch/settled.json")" = true ]; then
+    value="$(jq -r '.desired_claim_event.value' "$scratch/settled.json")"
+    state="$(jq -r '.desired_claim_event.state' "$scratch/settled.json")"
+    generation="$(jq -r '.desired_claim_event.generation' "$scratch/settled.json")"
+    post_comment "$issue" "$comment_prefix <!-- claim-set:$value:$state:$generation -->" >/dev/null
+    set_field "$issue" "claim=$value"
+  elif [ "$(jq -r '.projection.write // false' "$scratch/held.json")" = true ]; then
+    value="$(jq -r '.projection.desired' "$scratch/held.json")"
+    if [ -n "$value" ]; then set_field "$issue" "claim=$value"; else clear_field "$issue" claim; fi
+  fi
+}
+
+# 0 when the branch exists, 1 when GitHub says it does not, 2 when unknown.
+ref_exists() {
+  local err
+  if pr_api "repos/$repo/git/ref/heads/$1" >/dev/null 2>"$scratch/ref-error"; then
+    return 0
+  fi
+  err="$(cat "$scratch/ref-error")"
+  case "$err" in
+    *"Not Found"*|*"HTTP 404"*) return 1 ;;
+  esac
+  return 2
+}
+
+create_ref() {
+  local ref="$1" sha="$2" default_branch="$3" url
+  if pr_api --method POST "repos/$repo/git/refs" -f "ref=refs/heads/$ref" -f "sha=$sha" \
+       >/dev/null 2>"$scratch/ref-error"; then
+    return 0
+  fi
+  case "$(cat "$scratch/ref-error")" in
+    *"HTTP 422"*) return 1 ;;
+  esac
+  # Claude Code cloud's proxy refuses this REST write but lets git push through.
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  url="${url%/}"; url="${url%.git}"
+  case "$url" in
+    */"$repo"|*:"$repo") ;;
+    *) printf 'and the current directory is not a checkout of %s to push from\n' "$repo" >>"$scratch/ref-error"
+       return 2 ;;
+  esac
+  git cat-file -e "$sha^{commit}" 2>/dev/null \
+    || git fetch --quiet origin "refs/heads/$default_branch" 2>>"$scratch/ref-error" || true
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    printf 'and %s is not in this checkout to push\n' "$sha" >>"$scratch/ref-error"
+    return 2
+  fi
+  if git push --porcelain --force-with-lease="refs/heads/$ref:" origin "$sha:refs/heads/$ref" \
+       >"$scratch/push-out" 2>>"$scratch/ref-error"; then
+    grep -q '^\*' "$scratch/push-out" && return 0
+    cat "$scratch/push-out" >>"$scratch/ref-error"
+    return 1
+  fi
+  cat "$scratch/push-out" >>"$scratch/ref-error"
+  grep -q '^!.*stale info' "$scratch/push-out" && return 1
+  return 2
+}
+
+claim_result() {
+  local out="$1" outcome="$2" reason="$3"
+  jq -n --argjson issue "$issue" --arg outcome "$outcome" --arg reason "$reason" \
+    --arg state "$held" --arg ref "${ref:-}" --arg generation "${generation:-}" \
+    --slurpfile settled <(cat "$scratch/settled.json" 2>/dev/null || printf 'null') \
+    --slurpfile replay <(cat "$scratch/held.json" 2>/dev/null || cat "$scratch/unheld.json" 2>/dev/null || printf 'null') '
+    {format: "task-queue-claim-v1", issue: $issue, outcome: $outcome,
+     reason: (if $reason == "" then null else $reason end),
+     state: $state,
+     generation: (if $generation == "" then null else $generation end),
+     ref: (if $ref == "" then null else $ref end),
+     settlement: ($settled[0] // null), replay: ($replay[0] // null)}' >"$out"
+}
+
+cmd_claim() {
+  local session="" session_given=0 review=0 resume=0 out_given="" unheld held kind
+  issue=""; profile=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) [ $# -ge 2 ] || die "--profile needs a value"; profile="$2"; shift 2 ;;
+      --session)
+        [ $# -ge 2 ] || die "--session needs a value"
+        [ "$session_given" = 0 ] || die "session may be provided only once"
+        session="$2"; session_given=1; shift 2
+        ;;
+      --review) review=1; shift ;;
+      --resume) resume=1; shift ;;
+      --out) [ $# -ge 2 ] || die "--out needs a value"; out_given="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) [ -z "$issue" ] || die "unexpected argument: $1"; issue="$1"; shift ;;
+    esac
+  done
+  case "$issue" in ""|*[!0-9]*|0*) die "claim needs a positive issue number" ;; esac
+  [ "$session_given" = 1 ] || die "claim needs --session"
+  require_session_token "$session" "--session"
+  if [ "$review" = 1 ]; then
+    unheld="Needs review"; held="Under review"; kind=review
+  else
+    unheld="Ready"; held="In progress"; kind=issue
+  fi
+  gh_setup "$profile"
+  local out fields live projection
+  out="$(out_file "claim-$issue" "$out_given")"
+  generation=""; ref=""
+
+  fields="$(read_fields "$issue")"
+  live="$(canon_queue "$(jq -r '.queue // ""' <<<"$fields")")"
+  projection="$(jq -r '.claim // ""' <<<"$fields")"
+  if [ "$resume" = 1 ]; then
+    if [ "$live" != "$held" ]; then
+      claim_result "$out" not-claimable "Queue is ${live:-unset}, not $held"
+      printf 'not claimable #%s: Queue is %s, not %s; details %s\n' "$issue" "${live:-unset}" "$held" "$out"
+      exit 3
+    fi
+    replay_issue "$issue" "$held" "$projection" "$scratch/held.json" \
+      || die "claim replay of #$issue failed: $(replay_error)"
+    if ! jq -e --arg s "$session" --arg state "$held" '
+         .claim.value == $s and .claim.state == $state
+         and .generation.id != null and .claim.generation == .generation.id' \
+         "$scratch/held.json" >/dev/null; then
+      claim_result "$out" not-claimable "not held by $session in its active generation"
+      printf 'not claimable #%s: not held by %s in its active generation; details %s\n' "$issue" "$session" "$out"
+      exit 3
+    fi
+    generation="$(jq -r '.generation.id' "$scratch/held.json")"
+    ref="claude/$kind-$issue-$generation"
+  else
+    if [ "$live" != "$unheld" ]; then
+      claim_result "$out" not-claimable "Queue is ${live:-unset}, not $unheld"
+      printf 'not claimable #%s: Queue is %s, not %s; details %s\n' "$issue" "${live:-unset}" "$unheld" "$out"
+      exit 3
+    fi
+    replay_issue "$issue" "$unheld" "$projection" "$scratch/unheld.json" \
+      || die "claim replay of #$issue failed: $(replay_error)"
+    if [ "$(jq -r '.transition.claimable' "$scratch/unheld.json")" != true ]; then
+      local why
+      why="$(jq -r '.transition | "\(.status): \(.reason // "not claimable")"' "$scratch/unheld.json")"
+      claim_result "$out" not-claimable "$why"
+      printf 'not claimable #%s: %s; details %s\n' "$issue" "$why" "$out"
+      exit 3
+    fi
+    generation="$(jq -r '.generation.id' "$scratch/unheld.json")"
+    ref="claude/$kind-$issue-$generation"
+
+    # The marker goes first: a claimant that dies here leaves a marker the stale
+    # half of the tie-break can clear, never a held state with no clock.
+    post_comment "$issue" "$comment_prefix <!-- claim:$session:$held:$generation -->" >/dev/null
+    set_field "$issue" "queue=$held"
+    post_comment "$issue" "$comment_prefix <!-- claim-set:$session:$held:$generation -->" >/dev/null
+    set_field "$issue" "claim=$session"
+  fi
+
+  local attempt=1 winner sha default_branch rc
+  while :; do
+    settle_fresh "$issue" "$held" "$session"
+    winner="$(jq -r '.winner' "$scratch/settled.json")"
+    if [ "$(jq -r '.outcome' "$scratch/settled.json")" != won ]; then
+      ref=""
+      claim_result "$out" lost "settlement names $winner"
+      printf 'lost #%s to %s; Claim converged, Queue left %s; details %s\n' "$issue" "$winner" "$held" "$out"
+      exit 3
+    fi
+    if [ "$attempt" -gt 1 ]; then
+      rc=0; ref_exists "$ref" || rc=$?
+      if [ "$rc" = 0 ]; then
+        claim_result "$out" disagreement "settlement names this session but $ref already exists"
+        die "settlement names this session but $ref already exists; do not work or review, and monitor until a fresh read agrees (details $out)"
+      elif [ "$rc" = 2 ]; then
+        die "cannot tell whether $ref exists: $(tr '\n' ' ' <"$scratch/ref-error")"
+      fi
+    fi
+    if [ -z "${sha:-}" ]; then
+      default_branch="$(pr_api "repos/$repo" | jq -er '.default_branch')" \
+        || die "cannot read the default branch of $repo"
+      sha="$(pr_api "repos/$repo/git/ref/heads/$default_branch" | jq -er '.object.sha')" \
+        || die "cannot read the head of $default_branch"
+    fi
+    rc=0; create_ref "$ref" "$sha" "$default_branch" || rc=$?
+    [ "$rc" = 0 ] && break
+    if [ "$rc" = 2 ] || [ "$attempt" -ge 3 ]; then
+      local reason
+      reason="$(tr '\n' ' ' <"$scratch/ref-error" | sed 's/ *$//')"
+      [ "$rc" = 2 ] || reason="rejected $attempt times: $reason"
+      claim_result "$out" held-without-ref "$reason"
+      printf 'holding #%s %s generation %s without ref %s: %s; retry with claim --resume or report the held claim; details %s\n' \
+        "$issue" "$held" "$generation" "$ref" "$reason" "$out"
+      exit 4
+    fi
+    attempt=$((attempt + 1))
+  done
+  claim_result "$out" won ""
+  printf 'won #%s %s generation %s, ref %s; details %s\n' "$issue" "$held" "$generation" "$ref" "$out"
+}
+
+# --- handoff ------------------------------------------------------------------
+cmd_handoff() {
+  local session="" session_given=0 note_file="" touches="" touches_given=0 out_given="" prs=()
+  issue=""; profile=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) [ $# -ge 2 ] || die "--profile needs a value"; profile="$2"; shift 2 ;;
+      --session)
+        [ $# -ge 2 ] || die "--session needs a value"
+        [ "$session_given" = 0 ] || die "session may be provided only once"
+        session="$2"; session_given=1; shift 2
+        ;;
+      --pr)
+        [ $# -ge 2 ] || die "--pr needs a value"
+        case "$2" in ""|*[!0-9]*|0*) die "--pr needs a positive pull request number" ;; esac
+        prs+=("$2"); shift 2
+        ;;
+      --note-file) [ $# -ge 2 ] || die "--note-file needs a value"; note_file="$2"; shift 2 ;;
+      --touches) [ $# -ge 2 ] || die "--touches needs a value"; touches="$2"; touches_given=1; shift 2 ;;
+      --out) [ $# -ge 2 ] || die "--out needs a value"; out_given="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) [ -z "$issue" ] || die "unexpected argument: $1"; issue="$1"; shift ;;
+    esac
+  done
+  case "$issue" in ""|*[!0-9]*|0*) die "handoff needs a positive issue number" ;; esac
+  [ "${#prs[@]}" -gt 0 ] || die "handoff needs at least one --pr"
+  [ "$session_given" = 1 ] || die "handoff needs --session"
+  require_session_token "$session" "--session"
+  [ -n "$note_file" ] || die "handoff needs --note-file"
+  [ -r "$note_file" ] || die "cannot read $note_file"
+  local note
+  note="$(cat "$note_file")"
+  [ -n "${note//[[:space:]]/}" ] || die "the handoff note is empty"
+  case "$note" in
+    *"<!-- claim"*) die "the handoff note must not contain a claim protocol marker" ;;
+  esac
+  gh_setup "$profile"
+  local out fields live projection generation pr unlinked
+  out="$(out_file "handoff-$issue" "$out_given")"
+
+  fields="$(read_fields "$issue")"
+  live="$(canon_queue "$(jq -r '.queue // ""' <<<"$fields")")"
+  [ "$live" = "In progress" ] || die "#$issue is ${live:-unset}, not In progress"
+  projection="$(jq -r '.claim // ""' <<<"$fields")"
+  replay_issue "$issue" "In progress" "$projection" "$scratch/held.json" \
+    || die "claim replay of #$issue failed: $(replay_error)"
+  jq -e --arg s "$session" '
+    .claim.value == $s and .claim.state == "In progress"
+    and .generation.id != null and .claim.generation == .generation.id' \
+    "$scratch/held.json" >/dev/null \
+    || die "#$issue is not held by $session in its active generation; stop writing"
+  generation="$(jq -r '.generation.id' "$scratch/held.json")"
+
+  : >"$scratch/prs.jsonl"
+  for pr in "${prs[@]}"; do
+    pr_api "repos/$repo/pulls/$pr" >"$scratch/pr.json" || die "cannot read PR #$pr"
+    jq -e '.state == "open"' "$scratch/pr.json" >/dev/null || die "PR #$pr is not open"
+    jq -c "$pr_owners_jq"' {number, head: (.head.ref // ""), base: (.base.ref // ""), owners: owners}' \
+      "$scratch/pr.json" >>"$scratch/prs.jsonl"
+  done
+  unlinked="$(jq -rs --argjson n "$issue" '
+    def stacked($a; $b): ($a.head != "" and $a.head == $b.base) or ($b.head != "" and $b.head == $a.base);
+    . as $prs
+    | reduce range(length) as $_ ([$prs[] | select(.owners | index($n)) | .number];
+        . as $ok
+        | . + [$prs[] | select(. as $p | ($ok | index($p.number) | not)
+                                and any($prs[] | select(.number as $m | $ok | index($m)); stacked($p; .)))
+                      | .number]
+        | unique)
+    | . as $ok | [$prs[] | select(.number as $m | $ok | index($m) | not) | .number] | .[0] // empty' \
+    "$scratch/prs.jsonl")"
+  [ -z "$unlinked" ] \
+    || die "PR #$unlinked does not name #$issue by a closing reference or claude/ branch, and is not stacked on or under a PR that does"
+
+  if [ "$touches_given" = 1 ]; then
+    touches="$(printf '%s' "$touches" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+    if [ -n "$touches" ]; then set_field "$issue" "touches=$touches"; else clear_field "$issue" touches; fi
+  fi
+
+  case "$note" in
+    "[Agent] "*|"[Cursor] "*|"$comment_prefix "*) ;;
+    *) note="$comment_prefix $note" ;;
+  esac
+  post_comment "$issue" "$note" >/dev/null
+  post_comment "$issue" "$comment_prefix <!-- claim-clear:In progress:$generation -->" >/dev/null
+  local intent
+  intent="$(post_comment "$issue" "$comment_prefix <!-- claim-cycle:Needs review:$generation -->")"
+  set_field "$issue" "queue=Needs review"
+  post_comment "$issue" "$comment_prefix <!-- claim-cycle-activate:$intent -->" >/dev/null
+  clear_field "$issue" claim
+
+  fields="$(read_fields "$issue")"
+  live="$(canon_queue "$(jq -r '.queue // ""' <<<"$fields")")"
+  projection="$(jq -r '.claim // ""' <<<"$fields")"
+  replay_issue "$issue" "${live:-Triage}" "$projection" "$scratch/after.json" \
+    || die "verification replay of #$issue failed: $(replay_error)"
+  jq -n --argjson issue "$issue" --arg live "$live" --arg intent "$intent" \
+    --arg previous "$generation" --argjson prs "$(printf '%s\n' "${prs[@]}" | jq -s 'map(tonumber)')" \
+    --slurpfile r "$scratch/after.json" '
+    ($r[0]) as $r
+    | {format: "task-queue-handoff-v1", issue: $issue, pull_requests: $prs,
+       queue: $live, previous_generation: $previous, intent: $intent,
+       generation: ($r.generation.id // null),
+       verified: ($live == "Needs review" and $r.transition.claimable == true
+                  and $r.claim == null and (($r.projection.write // false) | not)),
+       replay: $r}' >"$out"
+  if [ "$(jq -r '.verified' "$out")" != true ]; then
+    die "handoff of #$issue did not verify (Queue ${live:-unset}, transition $(jq -c '.replay.transition' "$out")); details $out"
+  fi
+  printf 'handed off #%s to Needs review generation %s with PR %s; details %s\n' \
+    "$issue" "$(jq -r '.generation' "$out")" \
+    "$(printf '#%s ' "${prs[@]}" | sed 's/ $//; s/ /, /g')" "$out"
+}
+
+case "$cmd" in
+  snapshot) { set +x; } 2>/dev/null; cmd_snapshot "$@"; exit 0 ;;
+  claim)    { set +x; } 2>/dev/null; cmd_claim "$@"; exit 0 ;;
+  handoff)  { set +x; } 2>/dev/null; cmd_handoff "$@"; exit 0 ;;
+esac
+
+if [ "$cmd" = settle ]; then
+  scenario_file=""; as_json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --scenario) [ $# -ge 2 ] || die "--scenario needs a value"; scenario_file="$2"; shift 2 ;;
+      --json) as_json=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  command -v jq >/dev/null 2>&1 || die "jq is required"
+  [ -n "$scenario_file" ] || die "settle needs --scenario"
+  [ -r "$scenario_file" ] || die "cannot read $scenario_file"
+  scenario="$(cat "$scenario_file")"
+  validate_unique_json "$scenario"
+
+  settlement="$(printf '%s' "$scenario" | jq \
+    --arg session_token_regex "$session_token_regex" '
+    def session_token:
+      if type == "string" then test($session_token_regex) else false end;
+    def iso:
+      try (
+        (capture("^(?<whole>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:[.](?<fraction>[0-9]+))?(?<zone>Z|[+-][0-9]{2}:[0-9]{2})$") // null) as $p
+        | if $p == null then null
+          else
+            ($p.whole + "Z" | fromdateiso8601) as $base
+            | if ($base | strftime("%Y-%m-%dT%H:%M:%SZ")) != ($p.whole + "Z") then null
+              elif $p.zone != "Z" and
+                   (($p.zone[1:3] | tonumber) > 23 or
+                    ($p.zone[4:6] | tonumber) > 59)
+              then null
+              else
+                $base
+                + (if $p.fraction == null then 0
+                   else ("0." + $p.fraction | tonumber) end)
+                + (if $p.zone == "Z" then 0
+                   else
+                     (($p.zone[1:3] | tonumber) * 3600
+                      + ($p.zone[4:6] | tonumber) * 60)
+                     * (if $p.zone[0:1] == "+" then -1 else 1 end)
+                   end)
+              end
+          end
+      ) catch null;
+    . as $s
+    | (if type != "object" then
+        ["scenario must be an object"]
+      else [
+        (if (.issue | type) != "number" or .issue <= 0 or (.issue | floor) != .issue then "issue must be a positive integer" else empty end),
+        (if (.caller | session_token | not) then "caller must be a session token" else empty end),
+        (if (.target_state == "In progress" or .target_state == "Under review") | not then "target_state must be In progress or Under review" else empty end),
+        (if .claim == null then empty
+         elif (.claim | type) != "object" then
+           "claim must be null or a scoped Claim event"
+         elif ((.claim | keys | sort) != ["generation", "state", "value"] or
+               (.claim.value | session_token | not) or
+               (.claim.state != "In progress" and .claim.state != "Under review") or
+               (.claim.generation | type) != "string" or
+               (.claim.generation | test("^[0-9A-Za-z][0-9A-Za-z._-]*$") | not))
+         then "claim value must be a session token with only held state and ref-safe generation"
+         elif .claim.state != .target_state or .claim.generation != .generation then
+           "claim must match the target state and active generation"
+         else empty end),
+        (if (.generation | type) != "string" or
+            (.generation | test("^[0-9A-Za-z][0-9A-Za-z._-]*$") | not)
+         then "generation must be a ref-safe nonblank string" else empty end),
+        (if (.now | type) != "string" or (.now | iso) == null then "now must be an ISO-8601 timestamp" else empty end),
+        (if (.stale_after_seconds | type) != "number" or .stale_after_seconds <= 0 then "stale_after_seconds must be positive" else empty end),
+        (if (.markers | type) != "array" then "markers must be an array" else empty end),
+        (if (.markers | type) == "array" and
+            (.markers | all(
+              type == "object" and
+              (.session | session_token) and
+              (.state == "In progress" or .state == "Under review") and
+              (.generation | type) == "string" and
+              (.generation | test("^[0-9A-Za-z][0-9A-Za-z._-]*$")) and
+              (.created_at | type) == "string" and (.created_at | iso) != null and
+              (.order | type) == "number" and .order > 0 and (.order | floor) == .order
+            ) | not)
+         then "every marker needs a session token, claim state, ref-safe generation, ISO created_at, and positive integer order" else empty end),
+        (if (.markers | type) == "array" and
+            (([.markers[].order] | unique | length) != (.markers | length))
+         then "marker orders must be unique" else empty end),
+        (if (.markers | type) == "array" and
+            (.caller | type) == "string" and
+            (.generation | type) == "string" and
+            (.target_state == "In progress" or .target_state == "Under review") and
+            ((.markers | any(.[];
+                type == "object" and
+                .session == $s.caller and
+                .state == $s.target_state and
+                .generation == $s.generation)) | not)
+         then "markers must include the caller in the target state and generation" else empty end),
+        (if (.markers | type) == "array" and
+            (.claim | type) == "object" and
+            (.claim.value | session_token) and
+            .claim.state == .target_state and
+            .claim.generation == .generation and
+            ((.markers | any(.[];
+                type == "object" and
+                .session == $s.claim.value and
+                .state == $s.claim.state and
+                .generation == $s.claim.generation)) | not)
+         then "Claim must have a marker in the target state and generation" else empty end)
+      ] end) as $problems
+    | if ($problems | length) > 0 then
+        {error: ($problems | join("; "))}
+      else
+        (.now | iso) as $now
+        | (if .claim == null then null else .claim.value end) as $claim
+        | [.markers[]
+           | select(.state == $s.target_state and .generation == $s.generation)
+           | . + {epoch: (.created_at | iso)}
+           | . + {stale: (($now - .epoch) > $s.stale_after_seconds)}
+           | select((.stale and ($claim != .session)) | not)]
+          | sort_by(.epoch, .order) as $survivors
+        | if ($survivors | length) == 0 then
+            {error: "no surviving marker for the target state"}
+          else
+            $survivors[0] as $winner
+            | {
+                winner: $winner.session,
+                outcome: (if $s.caller == $winner.session then "won" else "lost" end),
+                desired_claim: $winner.session,
+                desired_claim_event: {
+                  value: $winner.session,
+                  state: $s.target_state,
+                  generation: $s.generation
+                },
+                generation: $s.generation,
+                write_claim: ($claim != $winner.session),
+                queue_action: "leave",
+                create_ref: ($s.caller == $winner.session),
+                ref: (if $s.target_state == "In progress"
+                      then "claude/issue-\($s.issue)-\($s.generation)"
+                      else "claude/review-\($s.issue)-\($s.generation)" end),
+                surviving_markers: ($survivors | length)
+              }
+          end
+      end
+  ' 2>/dev/null)" || die "invalid settlement scenario"
+
+  error="$(printf '%s' "$settlement" | jq -r '.error // empty')"
+  [ -z "$error" ] || die "$error"
+  if [ "$as_json" = 1 ]; then
+    printf '%s\n' "$settlement"
+  else
+    printf '%s' "$settlement" | jq -r \
+      '"winner: \(.winner)\noutcome: \(.outcome)\ndesired Claim: \(.desired_claim)\nref: \(.ref)"'
+  fi
+  exit 0
+fi
+
+target=""; issues_file="${TASK_QUEUE_ISSUES_FILE:-}"; as_json=0
+selection_queue="Ready"; selection_queue_given=0
+prefer=0; prefer_given=0
+reviewer=""; reviewer_given=0
+runtime=""; runtime_given=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --issues) [ $# -ge 2 ] || die "--issues needs a value"; issues_file="$2"; shift 2 ;;
+    --queue) [ $# -ge 2 ] || die "--queue needs a value"; selection_queue="$2"; selection_queue_given=1; shift 2 ;;
+    --reviewer)
+      [ $# -ge 2 ] || die "--reviewer needs a value"
+      [ "$reviewer_given" = 0 ] || die "reviewer may be provided only once"
+      reviewer="$2"; reviewer_given=1; shift 2
+      ;;
+    --runtime)
+      [ $# -ge 2 ] || die "--runtime needs a value"
+      [ "$runtime_given" = 0 ] || die "runtime may be provided only once"
+      runtime="$2"; runtime_given=1; shift 2
+      ;;
+    --prefer) [ $# -ge 2 ] || die "--prefer needs a value"; prefer="$2"; prefer_given=1; shift 2 ;;
+    --json)   as_json=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*)       die "unknown flag: $1" ;;
+    *)        if [ -n "$target" ]; then die "unexpected argument: $1"; fi; target="$1"; shift ;;
+  esac
+done
+
+if [ "$selection_queue_given" = 1 ] && [ "$cmd" != "next" ]; then
+  die "--queue is only valid with next"
+fi
+if [ "$prefer_given" = 1 ] && [ "$cmd" != "next" ]; then
+  die "--prefer is only valid with next"
+fi
+if [ "$reviewer_given" = 1 ] &&
+   { [ "$cmd" != "next" ] || [ "$selection_queue" != "Needs review" ]; }; then
+  die '--reviewer is only valid with --queue "Needs review"'
+fi
+if [ "$runtime_given" = 1 ] &&
+   { [ "$cmd" != "next" ] || [ "$selection_queue" != "Needs review" ]; }; then
+  die '--runtime is only valid with --queue "Needs review"'
+fi
+case "$selection_queue" in
+  Ready|"Needs review") ;;
+  *) die "supported selection states are Ready and Needs review" ;;
+esac
+if [ "$cmd" = "next" ] && [ "$selection_queue" = "Needs review" ]; then
+  [ "$reviewer_given" = 1 ] \
+    || die '--reviewer is required with --queue "Needs review"'
+  require_session_token "$reviewer" "reviewer"
+  [ "$runtime_given" = 1 ] \
+    || die '--runtime is required with --queue "Needs review"'
+  case "$runtime" in
+    cloud|local) ;;
+    *) die "--runtime must be cloud or local" ;;
+  esac
+fi
+if [ "$prefer_given" = 1 ]; then
+  case "$prefer" in
+    ""|*[!0-9]*|0) die "--prefer needs a positive issue number" ;;
+  esac
+  [ "$selection_queue" = "Needs review" ] \
+    || die "--prefer is only valid with --queue \"Needs review\""
+fi
+
+if [ "$cmd" = "why" ]; then
+  [ -n "$target" ] || die "why needs an issue number"
+  case "$target" in (*[!0-9]*) die "not an issue number: $target" ;; esac
+  [ "$target" -gt 0 ] || die "not an issue number: $target"
+fi
+
+# next reshapes its whole output around a positional it never asked for, which
+# turns `next 2` into `why 2` silently -- and a --json caller reading .next then
+# sees null and concludes nothing is pickable.
+if [ "$cmd" = "next" ] && [ -n "$target" ]; then
+  die "next takes no issue number (did you mean: why $target?)"
+fi
+
+command -v jq >/dev/null 2>&1 || die "jq is required"
+
+if [ -n "$issues_file" ]; then
+  [ -r "$issues_file" ] || die "cannot read $issues_file"
+  input="$(cat "$issues_file")"
+else
+  [ ! -t 0 ] || die "no input: pass --issues, set TASK_QUEUE_ISSUES_FILE, or pipe JSON on stdin"
+  input="$(cat)"
+fi
+
+validate_unique_json "$input"
+printf '%s' "$input" | jq -e 'type == "array"' >/dev/null 2>&1 \
+  || die "input is not a JSON array"
+printf '%s' "$input" | jq -e 'all(type == "object")' >/dev/null 2>&1 \
+  || die "every entry in the input must be an issue object"
+
+# Only the JSON shape is refused here, and only a normaliser can get that wrong
+# -- it decides every type in this document. What a person typed into a text
+# field is content, and content is reported per issue instead, because refusing
+# the board over it stops every agent in the fleet: "#134 96" under Blocked by
+# issue is one human being ordinary, and it used to fail this gate.
+problems="$(printf '%s' "$input" | jq -r \
+  --arg session_token_regex "$session_token_regex" '
+  def session_token:
+    if type == "string" then test($session_token_regex) else false end;
+  def ref: "#\(.number // "?")";
+  [ .[]
+    | (if (.number | type) != "number"
+       then "every issue needs a numeric number" else empty end),
+      (if .queue != null and (.queue | type) != "string"
+       then "\(ref): queue must be a string" else empty end),
+      (if .priority != null and (.priority | type) != "string"
+       then "\(ref): priority must be a string" else empty end),
+      (if .claim != null and (.claim | type) != "string"
+       then "\(ref): claim must be a string" else empty end),
+      (if .context_only != null and (.context_only | type) != "boolean"
+       then "\(ref): context_only must be a boolean" else empty end),
+      (if .normalization_error != null
+          and ((.normalization_error | type) != "string"
+               or (.normalization_error | test("\\S") | not))
+       then "\(ref): normalization_error must be a nonempty string" else empty end),
+      (if has("implementation_authors") then
+         if ((.implementation_authors | type) != "array"
+             or (.implementation_authors | length) == 0
+             or (.implementation_authors
+                 | map(session_token | not)
+                 | any)
+             or ((.implementation_authors | unique | length)
+                 != (.implementation_authors | length)))
+         then "\(ref): implementation_authors must be a nonempty array of unique session tokens"
+         else empty end
+       else empty end),
+      (if has("runtime_target")
+          and (.runtime_target != null)
+          and (.runtime_target as $t | ["cloud", "local", "either", "both"] | any(. == $t) | not)
+       then "\(ref): runtime_target must be cloud, local, either, both, or null"
+       else empty end),
+      (if .touches != null and ((.touches | type) != "array"
+                                or (.touches | map(type != "string") | any))
+       then "\(ref): touches must be an array of paths" else empty end),
+      (if .blocked_by != null
+          and ((.blocked_by | type) != "array"
+               or (.blocked_by | map((type == "number") or (type == "string") | not) | any))
+       then "\(ref): blocked_by must be an array of issue numbers or text" else empty end),
+      (if .stack_ancestors == null then empty
+       elif (.stack_ancestors | type) != "array"
+         or (.stack_ancestors
+             | any((type != "number") or . <= 0 or (floor != .)))
+         or ((.stack_ancestors | unique | length) != (.stack_ancestors | length))
+       then "\(ref): stack_ancestors must be an array of unique positive issue numbers"
+       else empty end),
+      (if .open_prs == null then empty
+       elif (.open_prs | type) != "array"
+         or (.open_prs
+             | any((type != "number") or . <= 0 or (floor != .)))
+         or ((.open_prs | unique | length) != (.open_prs | length))
+       then "\(ref): open_prs must be an array of unique positive pull request numbers"
+       else empty end)
+  ]
+  + ([.[].number | select(type == "number")] | group_by(.)
+     | map(select(length > 1) | "#\(.[0]) appears more than once in the input"))
+  | unique | .[]')"
+if [ -n "$problems" ]; then
+  printf '%s\n' "$problems" | while IFS= read -r p; do
+    echo "task-queue: $p" >&2
+  done
+  exit 1
+fi
+
+cycles="$(printf '%s' "$input" | jq -r '
+  . as $issues
+  | def parents($number):
+      [$issues[]
+       | select(.number == $number)
+       | (.stack_ancestors // [])[]];
+    def reaches($number; $target; $seen):
+      if ($seen | index($number)) != null then false
+      else any(parents($number)[];
+        . == $target or reaches(.; $target; $seen + [$number]))
+      end;
+  [.[] | select(reaches(.number; .number; [])) | .number]
+  | unique
+  | if length == 0 then empty
+    else "stack ancestry contains a cycle involving "
+         + (map("#\(.)") | join(", "))
+    end
+')"
+if [ -n "$cycles" ]; then
+  die "$cycles"
+fi
+
+verdict="$(printf '%s' "$input" | jq --argjson want "${target:-0}" \
+  --arg select_state "$selection_queue" --arg reviewer "$reviewer" \
+  --arg runtime "$runtime" \
+  --argjson prefer "$prefer" '
+  # A touches entry is a path or a directory glob. Strip the glob tail so the
+  # comparison is a path-prefix one, then require the prefix to land on a
+  # segment boundary -- without that, "a/b" would swallow "a/bc".
+  #
+  # Brace expansion is NOT handled: "rules/{a,b}.mjs" is read as one literal
+  # path that matches nothing. List the files separately.
+  # A leading "/" or "./" is what somebody writes when asked for a path in a
+  # repo, so strip those too -- "/src/app.ts" and "src/app.ts" naming different
+  # files was a lock that silently missed. Every spelling of "the whole repo"
+  # reduces to nothing, and an entry that reduces to nothing is reported rather
+  # than left to look like a lock.
+  def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
+  def norm:
+    trim
+    | sub("^\\./"; "")
+    | sub("/\\*\\*$"; "") | sub("/\\*$"; "")
+    | sub("^\\*\\*$"; "")  | sub("^\\*$"; "") | sub("^\\.$"; "")
+    | sub("/+$"; "") | sub("^/+"; "");
+  def overlaps($a; $b):
+    any($a[]; . as $x | any($b[]; . as $y |
+      ($x == $y)
+      or (($y + "/") | startswith($x + "/"))
+      or (($x + "/") | startswith($y + "/"))));
+
+  # Priority is a named option rather than a number, so the order it implies has
+  # to be written down. Unlike an integer rank this cannot drift quietly: an
+  # option outside the table sorts last AND says so.
+  {"urgent": 0, "high": 1, "medium": 2, "low": 3} as $rank_of
+  | 9 as $unranked
+  | ["In progress", "Needs review", "Under review", "Ready to merge"] as $inflight
+  # The seven are listed again rather than built from $inflight. Deriving them
+  # made dropping a state from $inflight turn it unknown, which holds files for
+  # the other reason -- so the suite stayed green under the one mutation that
+  # matters most here. Two separate facts, two separate lists.
+  | ["Triage", "Waiting for input", "Ready", "In progress", "Needs review", "Under review", "Ready to merge"] as $states
+  | ($states | map({key: ascii_downcase, value: .}) | from_entries) as $queue_of
+  # Blanks are dropped AFTER norm, not before: norm turns "/" and "/**" into ""
+  # just as surely as a double space does, and an empty entry equals the other
+  # empty entry on the other issue, so two tasks collide over nothing at all.
+  #
+  # An unset single-select reaches us as "" as readily as as an absent key, and
+  # the two must not mean opposite things now that an unrecognised state holds
+  # every file it names.
+  # Every number in an entry, not the first: reading only the first silently
+  # dropped the rest, so an unsplit "134 96" was handed out as blocked by #134
+  # alone and its real blocker went unreported. An entry carrying more than one
+  # number, or whitespace after trimming, is a caller that did not split -- the
+  # likeliest normalisation bug here, since the field itself holds "134 96".
+  | map(. + {
+      _touches:    ((.touches // []) | map(norm) | map(select(test("\\S")))),
+      _empty_touches: ((.touches // []) | map(select(norm | test("\\S") | not))),
+      _unsplit_touches: ((.touches // []) | map(trim) | map(select(test("\\s")))),
+      _glob_touches: ((.touches // []) | map(select(norm | test("\\*")))),
+      _blocked_by: ((.blocked_by // [])
+                    | map(if type == "string" then [scan("[0-9]+") | tonumber] else [.] end)
+                    | flatten),
+      _stack_ancestry_present: has("stack_ancestors"),
+      _stack_ancestors: (.stack_ancestors // []),
+      _open_prs: (.open_prs // []),
+      _implementation_authors_present: has("implementation_authors"),
+      _implementation_authors: (.implementation_authors // []),
+      _review_fields_present: has("implementation_authors"),
+      _runtime_target_present: has("runtime_target"),
+      _runtime_target: (.runtime_target // null),
+      _unreadable_blockers: ((.blocked_by // [])
+                             | map(select(type == "string" and test("\\S")
+                                          and ([scan("[0-9]+")] | length) == 0))),
+      _unsplit_blockers: ((.blocked_by // [])
+                          | map(select(type == "string"
+                                       and (((trim | test("\\s")) or ([scan("[0-9]+")] | length) > 1))))),
+      _priority:   (.priority // null),
+      _claim:      (if ((.claim // "") | test("^\\s*$")) then null else (.claim | trim) end),
+      _context_only: (.context_only // false),
+      _normalization_error: (.normalization_error // null),
+      _queue:      (if ((.queue // "") | test("^\\s*$")) then "Triage" else .queue end)
+    })
+  | map(. + {
+      _canon_queue: ($queue_of[._queue | ascii_downcase] // null),
+      _runtime_compatible: (._runtime_target == null or ._runtime_target == "either"
+                            or ._runtime_target == $runtime),
+      _review_excluded: ($reviewer as $identity | (._implementation_authors | index($identity)) != null)
+    })
+  | map(. + {
+      _order: (if ._priority == null then $unranked
+               else ($rank_of[._priority | ascii_downcase] // $unranked) end),
+      _unknown_priority: (._priority != null
+                          and ($rank_of[._priority | ascii_downcase] == null)),
+      _ready_with_pr: (._canon_queue == "Ready" and (._open_prs | length) > 0),
+      _holds_files: (._canon_queue as $q
+                     | $q == null or ($inflight | index($q)) != null)
+    })
+  | . as $all
+  | ([$all[].number]) as $present
+  | map(
+      . as $i
+      # The input is every open issue, so "present" is exactly "still open" and
+      # "absent" is exactly "closed". No second lookup can say more than that.
+      | ($i._blocked_by | map(select(. as $n | $present | index($n)))) as $still_open
+      | ($i._blocked_by - $still_open) as $absent
+      | ($i._stack_ancestors | map(select(. as $n | $present | index($n)))) as $stack_ancestors_open
+      | ($all
+         | map(select(.number != $i.number
+                      and ((overlaps($i._touches; ._touches)
+                            and (._holds_files
+                                 or ($select_state == "Ready" and ._ready_with_pr and ($i._ready_with_pr | not))))
+                           or ($select_state == "Ready" and ._holds_files
+                               and any(._open_prs[]; . as $p | $i._open_prs | index($p) != null)))))
+         | (if $select_state == "Needs review"
+            then map(select(._canon_queue != "Needs review" or ._normalization_error != null)) # a waiting review holds nothing against another review
+            else .
+            end)
+         | map(.number)) as $collisions
+      | {
+          number:   $i.number,
+          title:    ($i.title // ""),
+          # The field as it reads, and the canonical reading of it. Reporting
+          # only the reading hid an unset field behind the Triage it stands in
+          # for, and left every consumer to redo the case-insensitive match --
+          # the one query SKILL.md asks a reviewer for, selecting on Needs
+          # review, missed an issue whose field was typed in the wrong case.
+          queue:    ($i.queue // null),
+          state:    $i._canon_queue,
+          claim:    $i._claim,
+          context_only: $i._context_only,
+          normalization_error: $i._normalization_error,
+          open_prs: (if $i | has("open_prs") then $i._open_prs else null end),
+          implementation_authors:
+            (if $i._implementation_authors_present
+             then $i._implementation_authors else null end),
+          review_excluded:
+            (if $i._implementation_authors_present
+             then $i._review_excluded else null end),
+          runtime_target: $i._runtime_target,
+          runtime_compatible:
+            (if $select_state == "Needs review" and $i._runtime_target_present
+             then $i._runtime_compatible else null end),
+          priority: $i._priority,
+          order:    $i._order,
+          eligible: (($i._context_only | not) and ($i._normalization_error == null)
+                     and ($i._canon_queue == $select_state) and ($still_open | length) == 0
+                     and ($select_state != "Needs review" or $i._stack_ancestry_present)
+                     and ($select_state != "Needs review" or ($i._review_fields_present and ($i._review_excluded | not)))
+                     and ($select_state != "Needs review" or ($i._runtime_target_present and $i._runtime_compatible))
+                     and ($stack_ancestors_open | length) == 0
+                     and ($collisions | length) == 0 and ($i._unreadable_blockers | length) == 0
+                     and ($i._unsplit_blockers | length) == 0),
+          adopt_open_pr: ($select_state == "Ready" and $i._ready_with_pr),
+          blocked_by_open: $still_open,
+          stack_ancestors: $i._stack_ancestors,
+          stack_ancestors_open: $stack_ancestors_open,
+          collides_with:   $collisions,
+          warnings: (($absent | map("#\($i.number) names blocked_by #\(.), which is not in the input; read as closed"))
+                     + ($i._unreadable_blockers
+                        | map("#\($i.number) has a Blocked by issue entry with no number in it (\"\(.)\"); held back until it is readable"))
+                     + ($i._empty_touches
+                        | map("#\($i.number) has a Touches entry that names no path (\"\(.)\"); it locks nothing"))
+                     + ($i._unsplit_touches
+                        | map("#\($i.number) has a Touches entry with a space in it (\"\(.)\"); it was not split, so it matches no path and locks nothing"))
+                     + ($i._glob_touches
+                        | map("#\($i.number) has a Touches entry with a * left in it (\"\(.)\"); only a trailing /* or /** is understood, so it locks nothing"))
+                     + ($i._unsplit_blockers
+                        | map("#\($i.number) has a Blocked by issue entry that was not split (\"\(.)\"); held back until each number is its own entry"))
+                     # The two states an agent is meant to be holding, which is
+                     # the precondition the reclaim rule uses. Needs review and
+                     # Ready to merge are held by nobody, by design.
+                     + (if (["In progress", "Under review"] | index($i._canon_queue)) != null and $i._claim == null
+                        then ["#\($i.number) is \($i._queue) with no Claim, so it holds its files and nobody holds it"]
+                        else [] end)
+                     + (if $i._unknown_priority
+                        then ["#\($i.number) has priority \"\($i._priority)\", which is not one of Urgent, High, Medium, Low; sorted last"]
+                        else [] end)
+                     + (if $i._ready_with_pr
+                        then ["#\($i.number) is Ready but already has open PR \($i._open_prs | map("#\(.)") | join(", ")); adopt or verify that PR rather than implementing it again"]
+                        else [] end)
+                     + (if $i._canon_queue == null
+                        then ["#\($i.number) has queue \"\($i._queue)\", which is not one of Triage, Waiting for input, Ready, In progress, Needs review, Under review, Ready to merge; its files stay held"]
+                        else [] end)
+                     + (if $i._canon_queue != null and $i._holds_files and ($i._touches | length) == 0
+                        then ["#\($i.number) is \($i._queue) and declares no Touches, so it holds no files"]
+                        else [] end))
+        }
+      | .reasons = (
+          (if $i._context_only then ["context-only blocker, not project work"] else [] end)
+          + (if $i._normalization_error != null
+             then ["normalization failed: \($i._normalization_error)"] else [] end)
+          + (if $i._canon_queue != $select_state then ["queue is \($i._queue), not \($select_state)"] else [] end)
+          + (if $select_state == "Needs review" and ($i._stack_ancestry_present | not)
+             then ["stack_ancestors is required for Needs review selection"] else [] end)
+          + (if $select_state == "Needs review" and ($i._implementation_authors_present | not)
+             then ["implementation_authors is required for Needs review selection"] else [] end)
+          + (if $select_state == "Needs review" and $i._implementation_authors_present and $i._review_excluded
+             then ["self-authored implementation is excluded from review"] else [] end)
+          + (if $select_state == "Needs review" and ($i._runtime_target_present | not)
+             then ["runtime_target is required for Needs review selection"] else [] end)
+          + (if $select_state == "Needs review" and $i._runtime_target_present and ($i._runtime_compatible | not)
+             then [if $i._runtime_target == "both"
+                   then "runtime target both needs cloud and local checks, which one \($runtime) reviewer cannot cover"
+                   else "runtime target \($i._runtime_target) needs a \($i._runtime_target) reviewer, not \($runtime)" end]
+             else [] end)
+          + (.blocked_by_open | map("blocked by #\(.), still open"))
+          + (.stack_ancestors_open | map("waiting for stack ancestor #\(.), still open"))
+          + (if $select_state == "Ready" and $i._ready_with_pr
+             then ["adopt or verify open PR \($i._open_prs | map("#\(.)") | join(", ")) rather than implementing again"]
+             else [] end)
+          + (.collides_with
+             | map(. as $n
+                   | ($all[] | select(.number == $n)) as $holder
+                   | ($holder._open_prs | map(. as $p | select($i._open_prs | index($p) != null))) as $shared
+                   | if $select_state == "Ready" and $holder._holds_files and ($shared | length) > 0
+                     then "shares open PR \($shared | map("#\(.)") | join(", ")) with #\($n), in flight"
+                     elif $holder._holds_files then "touches code held by #\($n), in flight"
+                     else "touches code held by #\($n), which has unmerged open PR \($holder._open_prs | map("#\(.)") | join(", "))" end))
+          + ($i._unreadable_blockers | map("blocked by \"\(.)\", which names no issue number"))
+          + ($i._unsplit_blockers | map("blocked by \"\(.)\", which was not split into one number per entry"))
+        )
+    )
+  | sort_by((if .eligible then 0 else 1 end), (if .adopt_open_pr then 1 else 0 end), .order, .number) as $canonical
+  | (($canonical | map(select(.number == $prefer and .eligible)) | first | .number) // null) as $preferred
+  | (if $preferred == null then $canonical
+     else [$canonical[] | select(.number == $preferred)]
+          + [$canonical[] | select(.number != $preferred)]
+     end) as $ordered
+  | { queue: $ordered,
+      next: ($preferred // ($canonical | map(select(.eligible)) | first | .number // null)) }
+  | if $want > 0 then { asked: $want, issue: (.queue[] | select(.number == $want)) } else . end
+')"
+
+# Before the --json branch, not inside the text one: an empty selection makes
+# the whole verdict empty, so --json used to print nothing and exit 0 -- and
+# --json is the path a caller scripts against.
+if [ "$cmd" = "why" ]; then
+  printf '%s' "$verdict" | jq -e '.issue' >/dev/null 2>&1 \
+    || die "#$target is not in the input (closed, or not fetched)"
+fi
+
+if [ "$as_json" = 1 ]; then
+  printf '%s\n' "$verdict"
+  exit 0
+fi
+
+if [ "$cmd" = "why" ]; then
+  printf '%s' "$verdict" | jq -r '
+    .issue
+    | "#\(.number)  \(.title)",
+      "queue:    \(.state)    priority: \(.priority // "unset")",
+      (if .eligible then "verdict:  pickable" else "verdict:  not pickable" end),
+      (.reasons   | map("  - " + .) | .[]),
+      (.warnings  | map("  ! " + .) | .[])'
+  exit 0
+fi
+
+printf '%s' "$verdict" | jq -r '
+  (.queue | map(select(.eligible))
+   | if length == 0 then "nothing is pickable right now"
+     else "pickable, in order:", (.[] | "  \(.priority // "--")  #\(.number)  \(.title)") end),
+  (.queue | map(select(.eligible | not))
+   | if length == 0 then empty
+     else "", "held back:",
+          (.[] | "  \(.priority // "--")  #\(.number)  \(.title)\n      \(.reasons | join("; "))")
+     end),
+  (.queue | map(.warnings) | add // [] | unique
+   | if length == 0 then empty else "", (.[] | "  ! " + .) end)'
