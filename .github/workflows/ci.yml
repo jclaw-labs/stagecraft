@@ -67,19 +67,6 @@ jobs:
       - name: Audit — fail on high (allowlist in .github/audit-allowlist.json)
         run: npm run audit:gate
 
-  # TEMPORARY STUB (ADR-014). The real `musician-site-legacy` template + its CI
-  # job were removed, but "Template (musician-site-legacy)" is still a *required*
-  # status check in branch protection — and a required check that never runs
-  # blocks every PR from merging. This no-op reports that check green so the
-  # legacy-removal PRs can land. CLEANUP: drop "Template (musician-site-legacy)"
-  # from the required status checks on `main`, then delete this job. Tracked in
-  # docs/musician-site-legacy-removal-plan.md.
-  musician-site-legacy:
-    name: Template (musician-site-legacy)
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "musician-site-legacy retired in ADR-014; stub satisfying a stale required status check (see comment above)."
-
   musician-site:
     name: Template (musician-site)
     runs-on: ubuntu-latest
