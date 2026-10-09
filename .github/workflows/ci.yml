@@ -85,13 +85,12 @@ jobs:
   # adds, and on any edit to an existing migration. Rules and the
   # expand/contract recipe: docs/runbook.md §9.
   #
-  # Escape hatch: the PR label `migration:destructive-ok`. The job-level `if`
-  # reads the event payload; a re-run reuses that payload, so the step also
-  # reads the PR's current labels from the API. Add the label, then re-run
-  # this job.
+  # Escape hatch: the PR label `migration:destructive-ok`. The step reads the
+  # PR's current labels from the API rather than the event payload, which a
+  # re-run reuses, so adding or removing the label takes effect on a re-run.
   migration-safety:
     name: Migrations are backward compatible
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'migration:destructive-ok')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

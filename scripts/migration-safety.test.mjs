@@ -23,8 +23,17 @@ describe("scanSql — flagged patterns", () => {
     ["rename", 'ALTER TABLE "Site" RENAME "name" TO "title";'],
     ["rename", 'ALTER TYPE "JobStatus" RENAME TO "JobStatus_old";'],
     ["rename", "ALTER TYPE \"JobStatus\" RENAME VALUE 'queued' TO 'pending';"],
+    ["unreadable-sql", "UPDATE \"a\" SET \"b\" = E'it\\'s';"],
+    ["unreadable-sql", "DO $$ BEGIN RAISE NOTICE 'x'; END $$;"],
+    ["unreadable-sql", "CREATE FUNCTION f() RETURNS int AS $body$ SELECT 1 $body$ LANGUAGE sql;"],
   ])("flags %s: %s", (kind, sql) => {
     expect(kinds(sql)).toEqual([kind]);
+  });
+
+  it("fails closed when an escape string hides what follows", () => {
+    // maskSql reads E'it\\'s' as ending early, so the DROP COLUMN is masked;
+    // the unreadable-sql finding is what still fails the check.
+    expect(kinds("UPDATE \"a\" SET \"b\" = E'it\\'s';\nALTER TABLE \"a\" DROP COLUMN \"c\";")).toEqual(["unreadable-sql"]);
   });
 
   it("is case-insensitive", () => {
@@ -93,6 +102,8 @@ describe("scanSql — ignored", () => {
     ['ALTER TABLE "a" ALTER COLUMN "b" DROP NOT NULL;'],
     ['ALTER TABLE "a" ALTER COLUMN "b" SET DEFAULT 0;'],
     ['ALTER TABLE "a" ADD CONSTRAINT "a_b_fkey" FOREIGN KEY ("b") REFERENCES "c"("id") ON DELETE CASCADE;'],
+    ['ALTER TABLE "a" ADD CONSTRAINT "a_b_check" CHECK ("b" IS NOT NULL);'],
+    ['ALTER TABLE "a" ADD PRIMARY KEY ("id");'],
     ['ALTER TABLE "a" DROP CONSTRAINT "a_b_fkey";'],
     ['CREATE TABLE "W" ("id" TEXT NOT NULL, "type" TEXT NOT NULL, CONSTRAINT "W_pkey" PRIMARY KEY ("id"));'],
     ['CREATE UNIQUE INDEX "W_id_key" ON "W"("id");'],

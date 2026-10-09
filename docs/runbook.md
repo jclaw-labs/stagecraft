@@ -413,7 +413,7 @@ The "Migrations are backward compatible" job in `.github/workflows/ci.yml` runs 
 - `RENAME` in an `ALTER TABLE` or `ALTER TYPE` statement (tables, columns, enum types and values; index renames are allowed)
 - any modification, deletion or rename of an existing migration file
 
-Only migration files the PR adds are scanned, so older migrations never fail it. Comments, string literals and quoted identifiers are ignored. The check is deliberately simple and conservative: it matches text patterns, not the schema, so it can flag a change that is in fact safe (dropping a table no deployed code has used for a while), and it can't catch every unsafe one (for example `DROP DEFAULT` on a column old code relies on). Review migrations with the rule above, not just the check.
+Only migration files the PR adds are scanned, so older migrations never fail it. Comments, string literals and quoted identifiers are ignored. Escape strings (`E'...'`) and dollar quotes (`$$`) are flagged instead, because the check can't read past them; Prisma never generates them. The check is deliberately simple and conservative: it matches text patterns, not the schema, so it can flag a change that is in fact safe (dropping a table no deployed code has used for a while), and it can't catch every unsafe one (for example `DROP DEFAULT` on a column old code relies on). Review migrations with the rule above, not just the check.
 
 Run it locally before pushing: `git fetch origin main && npm run migrations:check`. To scan specific files: `node scripts/migration-safety.mjs packages/db/prisma/migrations/<name>/migration.sql`.
 

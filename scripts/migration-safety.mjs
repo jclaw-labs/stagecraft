@@ -18,6 +18,8 @@
  *     code, which can still insert NULLs)
  *   - ADD COLUMN ... NOT NULL without a DEFAULT (old code's inserts fail)
  *   - RENAME in ALTER TABLE / ALTER TYPE (tables, columns, enum types/values)
+ *   - escape strings (E'...') and dollar quotes ($$...$$), which the masking
+ *     below can't read, so a hand-written file using them fails closed
  * Flagged in the diff itself:
  *   - any change to, deletion or rename of an existing migration file
  *     (applied migrations are immutable; Prisma checksums them)
@@ -40,7 +42,7 @@ import { fileURLToPath } from "node:url";
 export const MIGRATIONS_DIR = "packages/db/prisma/migrations";
 export const ALLOW_LABEL = "migration:destructive-ok";
 
-/** @typedef {'drop-table' | 'drop-column' | 'alter-column-type' | 'set-not-null' | 'add-not-null-without-default' | 'rename' | 'edited-migration'} FindingKind */
+/** @typedef {'drop-table' | 'drop-column' | 'alter-column-type' | 'set-not-null' | 'add-not-null-without-default' | 'rename' | 'unreadable-sql' | 'edited-migration'} FindingKind */
 
 /**
  * @typedef {object} Finding
@@ -58,6 +60,7 @@ const MESSAGES = {
   "set-not-null": "SET NOT NULL breaks old code that inserts without the column",
   "add-not-null-without-default": "ADD COLUMN ... NOT NULL without DEFAULT breaks old code's inserts",
   rename: "RENAME breaks old code using the old name",
+  "unreadable-sql": "escape strings (E'...') and dollar quotes ($$) aren't checked; review this migration by hand",
 };
 
 /**
@@ -188,6 +191,11 @@ export function scanSql(sql, file) {
     findings.push({ kind, file, line: lineAt(offset), message: MESSAGES[kind] });
   };
 
+  // maskSql doesn't know backslash escapes or dollar quoting, so anything
+  // after one of these may be misread; flag the first and stop trusting it.
+  const unreadable = masked.match(/\b[Ee]'|\$(?:[A-Za-z_]\w*)?\$/);
+  if (unreadable) add("unreadable-sql", unreadable.index ?? 0);
+
   for (const stmt of splitStatements(masked)) {
     for (const [kind, re] of STATEMENT_PATTERNS) {
       for (const m of stmt.text.matchAll(re)) add(kind, stmt.start + (m.index ?? 0));
@@ -250,7 +258,6 @@ export function classifyDiff(nameStatus) {
         line: 0,
         message: `existing migration ${what}; applied migrations are immutable, add a new migration instead`,
       });
-      if (code === "C" && newPath.endsWith(".sql")) added.push(newPath);
     }
   }
   return { added, edited };
