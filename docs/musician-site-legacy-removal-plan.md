@@ -55,9 +55,6 @@ render and are editable. If it needs fixing, that's a forward fix on
   single `RichText` of the joined paragraphs); images, embeds, and structured
   collections (releases, tour dates, etc.) are reported but not imported.
   Richer block mapping is a follow-up.
-- **Required-check stub (do this!).** `Template (musician-site-legacy)` is still
-  a *required* status check in `main` branch protection, even though the job was
-  removed. A no-op stub job of that name now lives in `.github/workflows/ci.yml`
-  so the removal PRs could merge. **Cleanup:** drop `Template
-  (musician-site-legacy)` from the required status checks on `main`, then delete
-  the stub job. (Admin-only — outside the agent's toolset.)
+- **Required-check stub.** Done (#306). `Template (musician-site-legacy)` was
+  dropped from the required status checks on `main`, and the no-op stub job
+  in `.github/workflows/ci.yml` that kept it green was deleted.
