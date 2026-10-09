@@ -16,14 +16,17 @@
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
     "build": "prisma generate && tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@prisma/adapter-neon": "^6.19.3",
     "@prisma/client": "^6.19.3"
   },
   "devDependencies": {
     "prisma": "^6.19.3",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.3"
   }
 }

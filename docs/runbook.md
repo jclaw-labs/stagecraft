@@ -85,6 +85,12 @@ For production or CI, set the variables below directly in your hosting environme
 | `NETLIFY_CLIENT_ID` | Netlify OAuth App client ID |
 | `NETLIFY_CLIENT_SECRET` | Netlify OAuth App client secret |
 
+### Optional env vars
+
+| Variable | Description |
+|---|---|
+| `DATABASE_DRIVER` | How Prisma connects. Unset: a `*.neon.tech` `DATABASE_URL` uses the Neon driver adapter (WebSockets) when the runtime has a global `WebSocket`, anything else uses Prisma's built-in TCP engine. `engine` forces the built-in engine (rollback switch); `neon` forces the adapter. |
+
 ---
 
 ## 3. Health Check
