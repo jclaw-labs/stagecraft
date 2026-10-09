@@ -124,6 +124,34 @@
   --space-32: calc(8rem * var(--space-scale, 1));
 }
 
+/* Public-site box model. The header and footer are full-bleed
+   (`width: 100%`) with their own padding, so the browser's default 8px
+   body margin and content-box sizing pushed them past the viewport and
+   made every public page scroll sideways (#388). The body also takes the
+   theme background, so a page shorter than the viewport doesn't end on
+   the browser's white canvas. Scoped to the public site and the Puck
+   canvas (`#frame-root`, which renders the same blocks without the
+   wrapper), so the editor uses the published box model and margins
+   while the admin and Puck chrome keep theirs. (The canvas still lacks
+   the theme tokens set under `.stagecraft-site`; see #392.) */
+body:has(> .stagecraft-site) {
+  margin: 0;
+  background: var(--color-background);
+}
+body:has(> #frame-root) {
+  margin: 0;
+}
+.stagecraft-site,
+.stagecraft-site *,
+.stagecraft-site *::before,
+.stagecraft-site *::after,
+#frame-root,
+#frame-root *,
+#frame-root *::before,
+#frame-root *::after {
+  box-sizing: border-box;
+}
+
 /* Editor spinner — used by /admin's Puck publish-status pill. Defined
    globally because the spinner element lives inside Puck's chrome
    (overrides.headerActions), which doesn't accept scoped CSS modules. */

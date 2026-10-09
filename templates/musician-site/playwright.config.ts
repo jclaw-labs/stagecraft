@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test";
 import os from "node:os";
 import path from "node:path";
 
+import { captureLaunchOptions } from "./capture/chromium";
+
 /**
  * Playwright config for the musician-site admin e2e suite.
  *
@@ -46,6 +48,9 @@ export default defineConfig({
     storageState: "e2e/.auth/storage-state.json",
     trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
     screenshot: "only-on-failure",
+    // Uses the pre-installed Chromium in cloud sessions where Playwright
+    // can't download its own; a no-op in CI and local dev.
+    launchOptions: captureLaunchOptions(),
   },
   globalSetup: "./e2e/setup/global-setup.ts",
   webServer: {

@@ -139,10 +139,12 @@ export function Header({ artistName, header, navItems, pageTitleBySlug }: Props)
       <ul
         style={{
           display: "flex",
+          // Wrap onto a second row rather than overflow on narrow screens.
+          flexWrap: "wrap",
           listStyle: "none",
           margin: 0,
           padding: 0,
-          gap: "var(--space-4)",
+          gap: "var(--space-2) var(--space-4)",
           fontSize: "var(--font-size-sm)",
           justifyContent: justify,
         }}
@@ -208,6 +210,8 @@ function layoutStyle(layout: HeaderLayout): CSSProperties {
     case "logo-left-nav-right":
       return {
         display: "flex",
+        // When the nav doesn't fit beside the logo, it drops to its own row.
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
         gap: "var(--space-4)",
