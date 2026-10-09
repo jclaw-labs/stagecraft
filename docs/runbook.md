@@ -63,7 +63,7 @@ queued  ──►  running  ──►  completed
 
 The worker polls the `SiteJob` table every 5 seconds for the oldest `queued` job whose `runAt` (retry backoff) has passed and processes it. All state transitions are reflected in the database immediately.
 
-A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
+A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. `migrate_site`, today the only queued job type, catches its own errors and returns a failure instead of throwing, so its errors are not retried automatically; only a lost lease re-runs it. See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
 
 ---
 
@@ -194,7 +194,7 @@ WHERE id = '<job-id>';
 
 **Symptom:** A `SiteJob` row has `status = "failed"` and `errorMessage` indicates a transient or external error.
 
-The worker already retried it: a handler that throws is re-run up to 2 times with backoff before the job is failed, so `"retryAttempts" = 2` on a failed row means the error persisted across three runs.
+`"retryAttempts"` counts automatic re-runs. A handler that throws is re-run up to 2 times with backoff, and so is a job whose lease expired. `migrate_site` reports its errors without throwing, so a failed `migrate_site` row usually has `"retryAttempts" = 0`: it ran once and was not retried. A non-zero value means earlier runs were lost (lease expired) or threw.
 
 **Diagnosis:**
 ```sql

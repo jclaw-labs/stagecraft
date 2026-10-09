@@ -34,7 +34,14 @@ vi.mock("@stagecraft/db", () => ({
 }));
 
 const { createWorker, reapExpiredLeases, LEASE_EXPIRED_MESSAGE } = await import("../worker");
-const { JOB_LEASE_MS, LEASE_HEARTBEAT_MS, MAX_RETRY_ATTEMPTS, RETRY_BASE_DELAY_MS } = await import("../retry");
+const {
+  FINISH_RETRY_DELAY_MS,
+  FINISH_WRITE_ATTEMPTS,
+  JOB_LEASE_MS,
+  LEASE_HEARTBEAT_MS,
+  MAX_RETRY_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
+} = await import("../retry");
 
 function makeJob(overrides = {}) {
   return {
@@ -309,6 +316,70 @@ describe("runNext", () => {
     const names = events.map((e) => e.event);
     expect(names).toContain("job.lease_lost");
     expect(names).not.toContain("job.completed");
+  });
+});
+
+describe("terminal write", () => {
+  beforeEach(() => {
+    resetMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries a completion write that throws, so a finished job isn't left running", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish.mockRejectedValueOnce(new Error("connection reset")).mockResolvedValueOnce({ count: 1 });
+    const events: WorkerEvent[] = [];
+    const worker = createWorker({
+      handlers: { create_site: vi.fn().mockResolvedValue({ success: true }) },
+      onEvent: (e) => events.push(e),
+    });
+
+    const outcome = worker.runNext();
+    await vi.advanceTimersByTimeAsync(FINISH_RETRY_DELAY_MS);
+
+    await expect(outcome).resolves.toBe("processed");
+    expect(mockFinish).toHaveBeenCalledTimes(2);
+    for (const [args] of mockFinish.mock.calls) {
+      expect(args).toEqual({ where: ownedWhere(), data: expect.objectContaining({ status: "completed" }) });
+    }
+    expect(events.map((e) => e.event)).toContain("job.completed");
+  });
+
+  it("waits longer before each further attempt", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish
+      .mockRejectedValueOnce(new Error("blip 1"))
+      .mockRejectedValueOnce(new Error("blip 2"))
+      .mockResolvedValueOnce({ count: 1 });
+    const worker = createWorker({ handlers: { create_site: vi.fn().mockResolvedValue({ success: true }) } });
+
+    const outcome = worker.runNext();
+    await vi.advanceTimersByTimeAsync(FINISH_RETRY_DELAY_MS);
+    expect(mockFinish).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2 * FINISH_RETRY_DELAY_MS - 1);
+    expect(mockFinish).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(outcome).resolves.toBe("processed");
+    expect(mockFinish).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up after FINISH_WRITE_ATTEMPTS attempts and reports a poll error", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob());
+    mockFinish.mockRejectedValue(new Error("database down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const worker = createWorker({ handlers: { create_site: vi.fn().mockResolvedValue({ success: true }) } });
+
+    const outcome = worker.runNext();
+    await vi.advanceTimersByTimeAsync(10 * FINISH_RETRY_DELAY_MS);
+
+    await expect(outcome).resolves.toBe("idle");
+    expect(mockFinish).toHaveBeenCalledTimes(FINISH_WRITE_ATTEMPTS);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("worker.poll_error"));
   });
 });
 

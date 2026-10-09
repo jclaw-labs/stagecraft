@@ -27,6 +27,17 @@ export const LEASE_HEARTBEAT_MS = 60_000;
  */
 export const MAX_RETRY_ATTEMPTS = 2;
 
+/**
+ * How many times a worker tries its terminal write (complete, fail or
+ * re-queue) before giving up. A write lost to a connection blip would
+ * otherwise leave the row `running` until the lease expires, and the reaper
+ * would then re-run a job that already finished.
+ */
+export const FINISH_WRITE_ATTEMPTS = 3;
+
+/** Delay before the second terminal-write attempt; doubles for the third. */
+export const FINISH_RETRY_DELAY_MS = 1_000;
+
 /** Delay before the first retry; doubles on each subsequent retry. */
 export const RETRY_BASE_DELAY_MS = 30_000;
 

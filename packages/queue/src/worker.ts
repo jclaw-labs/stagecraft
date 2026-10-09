@@ -2,7 +2,14 @@ import { prisma } from "@stagecraft/db";
 import type { Prisma } from "@stagecraft/db";
 import type { JobStatus } from "@stagecraft/shared";
 import { MAX_REPAIR_ATTEMPTS } from "./repair";
-import { JOB_LEASE_MS, LEASE_HEARTBEAT_MS, MAX_RETRY_ATTEMPTS, retryDelayMs } from "./retry";
+import {
+  FINISH_RETRY_DELAY_MS,
+  FINISH_WRITE_ATTEMPTS,
+  JOB_LEASE_MS,
+  LEASE_HEARTBEAT_MS,
+  MAX_RETRY_ATTEMPTS,
+  retryDelayMs,
+} from "./retry";
 import type { JobHandler, JobResult } from "./types";
 
 export type WorkerEventType =
@@ -186,7 +193,21 @@ export function createWorker(options: WorkerOptions) {
       const jobRef = { jobId: job.id, jobType: job.type, siteId: job.siteId };
 
       async function finish(data: Prisma.SiteJobUpdateManyMutationInput): Promise<boolean> {
-        const res = await prisma.siteJob.updateMany({ where: owned, data: { ...data, lockedUntil: null } });
+        // Retry the write in place: if it is lost, the row stays `running`
+        // until the lease lapses and the reaper re-runs a job that already
+        // finished (for migrate_site, a re-run fails on "repo already exists"
+        // and marks a working site as errored). The write is conditional on
+        // `owned`, so repeating it can't clobber a newer run.
+        let res: Prisma.BatchPayload;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            res = await prisma.siteJob.updateMany({ where: owned, data: { ...data, lockedUntil: null } });
+            break;
+          } catch (error) {
+            if (attempt >= FINISH_WRITE_ATTEMPTS) throw error;
+            await new Promise((resolve) => setTimeout(resolve, FINISH_RETRY_DELAY_MS * 2 ** (attempt - 1)));
+          }
+        }
         if (res.count === 0) {
           emit({ event: "job.lease_lost", ...jobRef }, onEvent);
           return false;
