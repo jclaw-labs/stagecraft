@@ -37,12 +37,13 @@ artist-site /api/publish
       { siteId }
   ← { ok: true, token, expiresAt, repo: { owner, name } }  # GitHub installation token, ~1hr lifetime
   → uses token to commit via Octokit Git Data API
-  → discards token
+  → keeps token in memory for later publishes until near expiry
 ```
 
 - **Why broker, not at-edge:** the App private key is the master credential. Distributing it to every artist site multiplies the blast radius of any single-site compromise. The broker model keeps the master credential confined to the platform's secret manager.
 - **Auth from artist site to platform:** *per-site shared secret* (`STAGECRAFT_BROKER_SECRET`) sent as `Authorization: Bearer`. The platform stores only the SHA-256 hash on the `Site` row (`brokerSecretHash`); the plaintext is shown to the artist exactly once at install time and lives only in their site's deployment env vars. Comparison is constant-time. **(Amended from earlier draft.)**
-- **Tokens are not cached on the artist site.** Each publish requests a fresh token. Tokens may be cached on the platform for the remaining lifetime to reduce GitHub API calls; cache key is `installationId`.
+- **Tokens are scoped to the site's own repo.** The broker mints with `repositories: [githubRepoName]` and only `contents: write` + `metadata: read`, so a site's broker secret can't reach the other repos the same installation covers. **(Amended, see revision history.)**
+- **Tokens are cached in memory on both sides.** The artist site keeps the token it was handed, per process, and asks the broker again shortly before it expires. The platform caches each site's token until five minutes before expiry; the cache key is the site, and a change to its installation or repo mints afresh.
 - **Rate limiting** lives in the broker, not in the artist site — the broker is the chokepoint for all publishes.
 
 ### 3. Installation flow
@@ -140,3 +141,5 @@ The body above reflects current decisions. Each entry below records *what change
 **2026-05-03, PR #88 — `/create` is synchronous, not queued.** Tangential but relevant: the worker pattern from `@stagecraft/queue` doesn't survive on Netlify Functions (Lambda freezes the container when the HTTP handler returns; any pending awaits in a "background" job get abandoned and the SiteJob stays `running` forever). `POST /api/sites` now awaits `handleCreateSite` directly. The install-callback flow described here is unchanged — it was already synchronous within an HTTP request.
 
 **2026-05-03, PR #90 — `findGithubAppInstallation` helper.** Stand-alone helper in `integrations/github.ts` that calls `GET /user/installations` (the user's own GitHub OAuth token) and filters by `app_slug` + `account.login` to find any App's installation id. Used for Stagecraft's App (where the install-callback already had it from the OAuth round-trip) and for the deploy-target App (Netlify) where the provider's own API doesn't expose installation discovery.
+
+**2026-10-09, issue #355 — Per-site token scope and cache key.** `/api/publish-token` minted installation-wide tokens, so one site's broker secret could write to every repo the artist's installation covers. Tokens are now limited to the site's repo with minimal permissions, and since a scoped token belongs to one site, the platform cache is keyed by site instead of `installationId`.

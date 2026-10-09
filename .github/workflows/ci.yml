@@ -83,7 +83,7 @@ jobs:
   # fails on destructive SQL (DROP TABLE/COLUMN, column type changes, SET NOT
   # NULL, ADD COLUMN NOT NULL without DEFAULT, renames) in migrations the PR
   # adds, and on any edit to an existing migration. Rules and the
-  # expand/contract recipe: docs/runbook.md §9.
+  # expand/contract recipe: docs/runbook.md §10.
   #
   # Escape hatch: the PR label `migration:destructive-ok`. The step reads the
   # PR's current labels from the API rather than the event payload, which a

@@ -16,7 +16,14 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 vi.mock("@/lib/integrations/vercel", () => ({ validateVercelToken: validateMock }));
 
+import { randomBytes } from "node:crypto";
 import { POST, DELETE } from "../route";
+import {
+  CREDENTIALS_KEY_ENV,
+  decryptCredential,
+  isEncryptedCredential,
+  resetCredentialCryptoForTests,
+} from "@/lib/credential-crypto";
 
 function buildRequest(body: unknown): NextRequest {
   return new NextRequest("http://platform.test/api/integrations/vercel/connect", {
@@ -104,6 +111,24 @@ describe("POST /api/integrations/vercel/connect", () => {
     validateMock.mockResolvedValue({ userId: "u-1", username: "j" });
     await POST(buildRequest({ token: "  tok-with-spaces  " }));
     expect(validateMock).toHaveBeenCalledWith("tok-with-spaces");
+  });
+
+  it("stores the token encrypted when a credentials key is set", async () => {
+    vi.stubEnv(CREDENTIALS_KEY_ENV, `k1:${randomBytes(32).toString("base64")}`);
+    try {
+      validateMock.mockResolvedValue({ userId: "u-1", username: "j" });
+      await POST(buildRequest({ token: "vercel_secret" }));
+
+      const { update, create } = prismaMock.integrationAccount.upsert.mock.calls[0][0];
+      expect(isEncryptedCredential(create.accessToken)).toBe(true);
+      expect(update.accessToken).toBe(create.accessToken);
+      expect(await decryptCredential(create.accessToken)).toBe("vercel_secret");
+      // Validation still sees the plaintext.
+      expect(validateMock).toHaveBeenCalledWith("vercel_secret");
+    } finally {
+      vi.unstubAllEnvs();
+      resetCredentialCryptoForTests();
+    }
   });
 });
 

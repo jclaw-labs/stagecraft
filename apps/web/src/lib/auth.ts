@@ -2,9 +2,11 @@ import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@stagecraft/db";
+import { upsertGithubIntegration, withEncryptedAccountTokens } from "./auth-credentials";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  // OAuth tokens are encrypted before they reach `Account` (ADR-005).
+  adapter: withEncryptedAccountTokens(PrismaAdapter(prisma)),
   // NextAuth v5 doesn't trust the request Host off Vercel by default — even
   // when it matches AUTH_URL. On Netlify, functions are only reachable via
   // the edge (which controls the Host header), so trusting it is safe.
@@ -36,24 +38,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           headers: { Authorization: `Bearer ${account.access_token}` },
         }).then((r) => r.json() as Promise<{ id: number; login: string }>);
 
-        await prisma.integrationAccount.upsert({
-          where: {
-            userId_provider: { userId: user.id, provider: "github" },
-          },
-          update: {
-            accessToken: account.access_token,
-            providerAccountId: String(ghUser.id),
-            metadata: { login: ghUser.login },
-            updatedAt: new Date(),
-          },
-          create: {
-            userId: user.id,
-            provider: "github",
-            providerAccountId: String(ghUser.id),
-            accessToken: account.access_token,
-            scopes: "repo workflow",
-            metadata: { login: ghUser.login },
-          },
+        await upsertGithubIntegration({
+          userId: user.id,
+          accessToken: account.access_token,
+          githubUser: ghUser,
         });
       }
     },

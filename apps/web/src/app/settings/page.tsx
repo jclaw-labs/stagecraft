@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@stagecraft/db";
+import { findIntegration } from "@stagecraft/shared";
 
 import AppShell from "@/components/AppShell";
 import { STAGECRAFT_GITHUB_APP_INSTALL_URL } from "@/lib/install-url";
@@ -25,10 +26,10 @@ export default async function SettingsPage({
     where: { userId: session.user.id },
   });
 
-  const github = integrations.find((i: { provider: string }) => i.provider === "github");
-  const netlify = integrations.find((i: { provider: string }) => i.provider === "netlify");
-  const vercel = integrations.find((i: { provider: string }) => i.provider === "vercel");
-  const resend = integrations.find((i: { provider: string }) => i.provider === "resend");
+  const github = findIntegration(integrations, "github");
+  const netlify = findIntegration(integrations, "netlify");
+  const vercel = findIntegration(integrations, "vercel");
+  const resend = findIntegration(integrations, "resend");
   const vercelUsername =
     vercel?.metadata && typeof vercel.metadata === "object" && vercel.metadata !== null
       ? (vercel.metadata as { username?: string }).username ?? null

@@ -8,7 +8,7 @@
  * time as the new code deploys, so for a while the *old* code runs against
  * the *new* schema. A migration is only safe if the old code keeps working
  * after it lands: expand first (add), contract later (drop) in a separate PR
- * once no deployed code uses the old shape. See docs/runbook.md §9.
+ * once no deployed code uses the old shape. See docs/runbook.md §10.
  *
  * Flagged in new migration files:
  *   - DROP TABLE
@@ -245,13 +245,13 @@ export function classifyDiff(nameStatus) {
     if (!line.trim()) continue;
     const [status, ...paths] = line.split("\t");
     const code = status[0];
-    // For renames/copies the old path comes first.
+    // For renames the old path comes first.
     const oldPath = paths[0];
     const newPath = paths[paths.length - 1];
     if (code === "A") {
       if (newPath.endsWith(".sql")) added.push(newPath);
     } else if (oldPath.endsWith(".sql")) {
-      const what = { M: "modified", D: "deleted", R: "renamed", C: "copied", T: "changed type" }[code] ?? `changed (${status})`;
+      const what = { M: "modified", D: "deleted", R: "renamed", T: "changed type" }[code] ?? `changed (${status})`;
       edited.push({
         kind: "edited-migration",
         file: oldPath,
@@ -312,7 +312,7 @@ export function main(argv, io = {}) {
     return 0;
   }
   log(
-    `${findings.length} finding(s). Split the change into expand/contract steps (docs/runbook.md §9), ` +
+    `${findings.length} finding(s). Split the change into expand/contract steps (docs/runbook.md §10), ` +
       `or, if it is safe for the code running in production, add the PR label \`${ALLOW_LABEL}\` and re-run this job.`,
   );
   return 1;

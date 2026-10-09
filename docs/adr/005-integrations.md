@@ -28,7 +28,7 @@ The platform integrates with GitHub (repos, branches, PRs), Netlify (hosting, pr
 - Platform manages Resend API key injection into site environment variables
 
 ## Consequences
-- Integration tokens are stored encrypted in the platform database via `IntegrationAccount`
+- Integration tokens are stored in the platform database via `IntegrationAccount` (and NextAuth's `Account`), encrypted at the application layer (see the 2026-10-09 revision below)
 - Each integration has a service module in the platform codebase
 - GitHub and Netlify connections are per-user and validated on each operation
 - AI calls are platform-managed, providing observability and retry control
@@ -42,3 +42,12 @@ The platform integrates with GitHub (repos, branches, PRs), Netlify (hosting, pr
 Added Vercel as an additive parallel target, not a replacement. Schema gains `Site.deployTarget` (defaults to `"netlify"` for existing rows) plus Vercel-specific fields (`vercelProjectId`, `vercelProjectName`, `vercelTeamId`). `/create` picks based on which integration the artist has connected; Vercel preferred when both are. Vercel auth is via Personal Access Token (their first-party Integration model is heavier; PAT is the lighter on-ramp and can be upgraded later).
 
 Netlify's path also got fixed in the same PR — `findGithubAppInstallation(userId, "netlify", repoOwner)` now discovers the installation_id via GitHub's `/user/installations` (using the user's GitHub OAuth token we already have) and threads it into the Netlify create call. Both targets now work cleanly out of the box.
+
+**2026-10-09, issue #354 — Credentials actually encrypted at rest.** The Consequences above said tokens were stored encrypted, but they weren't: GitHub OAuth tokens (with `delete_repo` scope), Netlify and Vercel tokens and Resend API keys sat in plaintext. They are now encrypted at the application layer:
+
+- **What:** `Account.access_token` / `refresh_token` / `id_token` and `IntegrationAccount.accessToken` / `refreshToken`.
+- **How:** AES-256-GCM via WebCrypto, which runs on both Node (Netlify) and Cloudflare Workers (`apps/web/src/lib/credential-crypto.ts`). Each value is stored as `enc:v1:<keyId>:<iv>:<tag>:<ciphertext>`; the version and key id are bound into the GCM additional data.
+- **Keys:** `STAGECRAFT_CREDENTIALS_KEY` is the current key (`<keyId>:<base64 32 bytes>`); `STAGECRAFT_CREDENTIALS_OLD_KEYS` lists retired keys that only decrypt, so keys rotate without a flag day. A single platform key held as a host secret, not a KMS-wrapped per-row data key: no KMS is in use, and the key id prefix leaves room to move to one later.
+- **Write sites:** the NextAuth adapter's `linkAccount` (wrapped by `withEncryptedAccountTokens`), the `signIn` event's GitHub `IntegrationAccount` upsert, the Netlify OAuth callback, and the Vercel and Resend connect routes.
+- **Read sites:** the token getters in `lib/integrations/{github,netlify,vercel,resend}.ts`, the only code that reads a stored token. Nothing reads tokens back from `Account`.
+- **Rollout:** reads accept legacy plaintext (no prefix). With no key set, writes store plaintext and log one warning, so a deploy that lands before the secret doesn't break sign-in. `apps/web/scripts/encrypt-credentials.ts` backfills existing rows; it is idempotent, also re-encrypts under a new key with `--rotate`, and lists any stored value it can't decrypt by row and exits non-zero rather than stopping at the first one. Operator steps are in `docs/runbook.md` §9.

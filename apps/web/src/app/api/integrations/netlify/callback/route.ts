@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { encryptCredential } from "@/lib/credential-crypto";
 import { exchangeNetlifyCode } from "@/lib/integrations/oauth";
 import { prisma } from "@stagecraft/db";
 import { cookies } from "next/headers";
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
       headers: { Authorization: `Bearer ${accessToken}` },
     }).then((r) => r.json() as Promise<{ id: string; email: string; full_name: string }>);
 
+    const storedToken = await encryptCredential(accessToken);
     await prisma.integrationAccount.upsert({
       where: {
         userId_provider: {
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
         },
       },
       update: {
-        accessToken,
+        accessToken: storedToken,
         providerAccountId: netlifyUser.id,
         metadata: { email: netlifyUser.email, name: netlifyUser.full_name },
         updatedAt: new Date(),
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
         userId: session.user.id,
         provider: "netlify",
         providerAccountId: netlifyUser.id,
-        accessToken,
+        accessToken: storedToken,
         metadata: { email: netlifyUser.email, name: netlifyUser.full_name },
       },
     });

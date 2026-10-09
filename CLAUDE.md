@@ -243,7 +243,7 @@ code.
 CI enforces this with `scripts/migration-safety.mjs` (run it locally with
 `npm run migrations:check`). For a contract step that is genuinely safe, add
 the PR label `migration:destructive-ok`, explain why in the PR body, and
-re-run the job. Full rule and recipes: `docs/runbook.md` §9.
+re-run the job. Full rule and recipes: `docs/runbook.md` §10.
 
 ---
 
