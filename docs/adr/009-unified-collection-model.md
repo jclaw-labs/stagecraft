@@ -880,8 +880,13 @@ clean cutover beats a feature flag.
    `/admin/appearance` routes survive as aliases over the generic
    editor — no admin-UI regression.
 
-External-facing API routes (`/api/publish`, `/api/pages`,
-`/api/save-config`) keep their paths for back-compat in the same PR.
+The legacy save routes (`/api/publish`, `/api/pages`,
+`/api/save-config`) were kept for back-compat at first and have since
+been removed (#373). Every admin save now goes through the generic
+collection routes: `POST /api/collections/<slug>/items` to create,
+`PUT` / `PATCH` / `DELETE /api/collections/<slug>/items/<itemSlug>`
+to save, rename and delete, and `PUT /api/collections/<slug>/order`
+for manual ordering.
 
 ### 14. Goal 2 (navigation menu into Pages) folded in
 
@@ -1325,9 +1330,10 @@ trigger condition isn't here yet:
   hand-maintained — both come from walking the registry at editor
   mount.
 - **The publish layer trades page-specific targets for
-  collection-item targets.** PR 3 also keeps the old `/api/publish` /
-  `/api/pages` / `/api/save-config` endpoint paths so external
-  callers don't break.
+  collection-item targets.** PR 3 kept the old `/api/publish` /
+  `/api/pages` / `/api/save-config` endpoint paths for back-compat;
+  they have since been removed (#373), and every save goes through
+  `/api/collections/<slug>/items[/<itemSlug>]`.
 - **Build-time route generation reads the collection registry.**
   Next.js's static export walks the registry to generate dynamic
   routes. A misconfigured collection (two collections both at

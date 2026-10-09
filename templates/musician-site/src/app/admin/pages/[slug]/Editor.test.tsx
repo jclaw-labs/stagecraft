@@ -140,6 +140,40 @@ describe("<Editor> save", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("names the first validation issue when the save is rejected", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          item: { values: CURRENT_VALUES },
+          def: { fields: [{ id: PAGES_FIELD_IDS.title, key: "title" }] },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(400, {
+          ok: false,
+          error: "Validation failed",
+          issues: [{ path: `values.${PAGES_FIELD_IDS.title}`, message: "Required" }],
+        }),
+      );
+    renderEditor();
+    await save();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("title")).toBe("Validation failed: title: Required");
+  });
+
+  it("falls back to a Save failed message with the HTTP status", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, item: { values: CURRENT_VALUES } }))
+      .mockResolvedValueOnce(jsonResponse(500, null));
+    renderEditor();
+    await save();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("title")).toBe("Save failed (HTTP 500)");
+  });
+
   it("shows the error state when the request throws", async () => {
     fetchMock.mockRejectedValueOnce(new Error("offline"));
     renderEditor();

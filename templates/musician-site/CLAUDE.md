@@ -380,6 +380,9 @@ Endpoints:
   The page editor's Puck "Publish" button only saves: it reads the
   page item, merges the editor's content over it with
   `pageValuesForSave`, and PUTs it to the draft branch.
+- `PATCH /api/collections/<slug>/items/<itemSlug>` — rename an item
+  (`{ newSlug }`). For `pages` it runs the same shadow-prefix check as
+  create (409).
 - `DELETE /api/collections/<slug>/items/<itemSlug>` — delete an item
   (the Pages panel's delete).
 - Draft commits for pages read "Create / Update / Delete page <slug>";

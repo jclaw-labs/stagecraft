@@ -13,7 +13,7 @@ import {
 } from "@/puck/collection-view-editor";
 import { BLOCK_DESCRIPTIONS } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
-import type { Item } from "@/lib/collections/schema";
+import type { CollectionDef, Item } from "@/lib/collections/schema";
 import { pageValuesForSave, type PageData } from "@/lib/page-data";
 
 import {
@@ -21,6 +21,7 @@ import {
   computeCategoryVisibility,
   isVisibilityDispatchTrivial,
 } from "./drawer-visibility";
+import { type ItemRouteFailureBody, saveErrorMessage } from "./save-error";
 
 type Props = {
   initialData: PageData;
@@ -54,8 +55,8 @@ type SaveState =
   | { status: "error"; message: string };
 
 type ItemResponse =
-  | { ok: true; item: { values: Item["values"] } }
-  | { ok: false; error?: string }
+  | { ok: true; item: { values: Item["values"] }; def?: Pick<CollectionDef, "fields"> }
+  | ItemRouteFailureBody
   | null;
 
 export function Editor({ initialData, pageSlug, email, embeddableCollections }: Props) {
@@ -85,11 +86,12 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
     async (data: PageData) => {
       setSaveState({ status: "saving" });
       const itemUrl = `/api/collections/pages/items/${encodeURIComponent(pageSlug)}`;
+      // A rejected save names its first validation issue (e.g. which
+      // required field is missing), labelled with the GET's def fields.
+      let fields: CollectionDef["fields"] = [];
       const fail = (res: Response, body: ItemResponse) => {
-        const message =
-          (body && "error" in body && body.error) ||
-          `Publish failed (HTTP ${res.status})`;
-        setSaveState({ status: "error", message });
+        const failure = body && !body.ok ? body : null;
+        setSaveState({ status: "error", message: saveErrorMessage(res.status, failure, fields) });
       };
       try {
         const getRes = await fetch(itemUrl, { cache: "no-store" });
@@ -98,6 +100,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
           fail(getRes, current);
           return;
         }
+        fields = current.def?.fields ?? [];
         const res = await fetch(itemUrl, {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -113,7 +116,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
       } catch (cause) {
         setSaveState({
           status: "error",
-          message: cause instanceof Error ? cause.message : "Publish failed",
+          message: cause instanceof Error ? cause.message : "Save failed",
         });
       }
     },
