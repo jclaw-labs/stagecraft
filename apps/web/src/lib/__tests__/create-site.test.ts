@@ -59,9 +59,6 @@ vi.mock("@/lib/integrations/resend", () => ({
 const mockReadTemplateFiles = vi.fn().mockResolvedValue([]);
 vi.mock("@/lib/template-reader", () => ({
   readTemplateFiles: mockReadTemplateFiles,
-  BINARY_EXTENSIONS: new Set(),
-  TEMPLATE_SKIP_DIRS: new Set(),
-  TEMPLATE_SKIP_FILES: new Set(),
 }));
 
 const { handleCreateSite } = await import("../jobs/create-site");

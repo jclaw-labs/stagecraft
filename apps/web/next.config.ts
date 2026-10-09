@@ -1,19 +1,26 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from "next/constants";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@stagecraft/db", "@stagecraft/queue", "@stagecraft/shared"],
-  // Monorepo root — required so Next.js's file tracer can reach files
-  // outside this app's directory (specifically templates/, which is a
-  // peer of apps/web/, not under it).
+  // Monorepo root, so Next.js's file tracer resolves the hoisted workspace
+  // packages. The musician-site template no longer needs tracing: it is
+  // bundled at build time into src/generated/template-bundle.json (see
+  // scripts/generate-template-bundle.mjs) and imported by the jobs.
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
-  // Include the new musician-site template in the Lambda bundle so
-  // create_site jobs can read it via fs at runtime. The worker is
-  // initialized in instrumentation.ts and runs in whichever API Lambda
-  // happens to be alive, so include broadly across /api/**.
-  outputFileTracingIncludes: {
-    "/api/**/*": ["../../templates/musician-site/**/*"],
-  },
 };
 
-export default nextConfig;
+export default function config(phase: string): NextConfig {
+  // Next loads this config in several processes per build; the env flag, inherited by the later ones, keeps generation to one run.
+  const isBuildOrDev = phase === PHASE_PRODUCTION_BUILD || phase === PHASE_DEVELOPMENT_SERVER;
+  if (isBuildOrDev && !process.env.STAGECRAFT_TEMPLATE_BUNDLED) {
+    execFileSync(process.execPath, ["scripts/generate-template-bundle.mjs"], {
+      cwd: import.meta.dirname,
+      stdio: "inherit",
+    });
+    process.env.STAGECRAFT_TEMPLATE_BUNDLED = "1";
+  }
+  return nextConfig;
+}
