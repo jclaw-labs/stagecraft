@@ -18,8 +18,14 @@ import path from "node:path";
 
 import {
   PAGES_FIELD_IDS,
+  PHOTOS_FIELD_IDS,
   SITE_FIELD_IDS,
+  STORE_ITEMS_FIELD_IDS,
+  TOUR_DATES_FIELD_IDS,
+  VIDEOS_FIELD_IDS,
 } from "../../src/lib/collections/field-ids";
+import type { FieldValue } from "../../src/lib/collections/schema";
+import { asImageId, type ImageMetadata } from "../../src/lib/image-types";
 import { E2E_CONTENT_DIR } from "../../playwright.config";
 
 /**
@@ -153,4 +159,153 @@ export async function seedDemoContent(
   const source = path.join(process.cwd(), "src", "content");
   await fs.rm(contentDir, { recursive: true, force: true });
   await fs.cp(source, contentDir, { recursive: true });
+}
+
+/**
+ * Collections whose detail pages the overflow spec must reach. Posts
+ * and releases are linked from the demo pages, so the crawl finds them
+ * on its own; these aren't linked from anywhere (photos, videos and
+ * store items ship with no detail URL at all), so a regression in
+ * their detail layout would otherwise go unnoticed (#392).
+ */
+export type DetailFixtureCollection = "tour-dates" | "photos" | "videos" | "store-items";
+
+/**
+ * Detail URL prefixes switched on for collections that ship with
+ * `detailUrlPrefix: null`. An artist can set these from the schema
+ * editor, so the pages are real even though the demo doesn't use them.
+ */
+const ENABLED_DETAIL_PREFIXES: Record<Exclude<DetailFixtureCollection, "tour-dates">, string> = {
+  photos: "/photos",
+  videos: "/videos",
+  "store-items": "/store",
+};
+
+const FIXTURE_TIMESTAMP = "2026-05-20T00:00:00.000Z";
+
+/**
+ * A wide landscape image, so a detail layout that doesn't constrain
+ * its cover would push the page sideways. The file itself doesn't
+ * exist; the `<img>` width/height attributes still drive layout.
+ */
+const WIDE_IMAGE: ImageMetadata = {
+  id: asImageId("e2e-wide-image"),
+  alt: "",
+  width: 2400,
+  height: 1200,
+  placeholderDataUri: "data:image/webp;base64,UklGRhIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh/AAA=",
+  contentSlug: "e2e",
+  originalExt: "jpg",
+};
+
+type DetailFixture = {
+  collection: DetailFixtureCollection;
+  itemSlug: string;
+  values: Record<string, FieldValue>;
+};
+
+const DETAIL_FIXTURES: readonly DetailFixture[] = [
+  {
+    collection: "tour-dates",
+    itemSlug: "e2e-overflow-show",
+    values: {
+      [TOUR_DATES_FIELD_IDS.date]: { type: "date", value: "2026-09-12T20:00" },
+      [TOUR_DATES_FIELD_IDS.venue]: { type: "text", value: "The Overflow Room" },
+      [TOUR_DATES_FIELD_IDS.city]: { type: "text", value: "Llanfairpwllgwyngyll" },
+      [TOUR_DATES_FIELD_IDS.country]: { type: "text", value: "United Kingdom" },
+      [TOUR_DATES_FIELD_IDS.status]: { type: "select", value: "on_sale" },
+      [TOUR_DATES_FIELD_IDS.ticketUrl]: {
+        type: "url",
+        value: "https://tickets.example.com/events/the-overflow-room-2026-09-12",
+      },
+      [TOUR_DATES_FIELD_IDS.notes]: {
+        type: "longText",
+        value: "Doors at 7pm. All ages with a guardian until 9pm.",
+      },
+    },
+  },
+  {
+    collection: "photos",
+    itemSlug: "e2e-overflow-photo",
+    values: {
+      [PHOTOS_FIELD_IDS.image]: { type: "image", value: WIDE_IMAGE },
+      [PHOTOS_FIELD_IDS.caption]: { type: "longText", value: "Soundcheck, late afternoon." },
+      [PHOTOS_FIELD_IDS.takenAt]: { type: "date", value: "2026-04-02" },
+      [PHOTOS_FIELD_IDS.credit]: { type: "text", value: "E2E Photographer" },
+    },
+  },
+  {
+    collection: "videos",
+    itemSlug: "e2e-overflow-video",
+    values: {
+      [VIDEOS_FIELD_IDS.title]: { type: "text", value: "Live at the Overflow Room" },
+      [VIDEOS_FIELD_IDS.source]: { type: "select", value: "youtube" },
+      [VIDEOS_FIELD_IDS.embedUrl]: {
+        type: "text",
+        value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      [VIDEOS_FIELD_IDS.thumbnail]: { type: "image", value: WIDE_IMAGE },
+      [VIDEOS_FIELD_IDS.description]: { type: "longText", value: "Full set, one take." },
+      [VIDEOS_FIELD_IDS.publishedAt]: { type: "date", value: "2026-05-01" },
+    },
+  },
+  {
+    collection: "store-items",
+    itemSlug: "e2e-overflow-store-item",
+    values: {
+      [STORE_ITEMS_FIELD_IDS.title]: { type: "text", value: "Tour Poster" },
+      [STORE_ITEMS_FIELD_IDS.image]: { type: "image", value: WIDE_IMAGE },
+      [STORE_ITEMS_FIELD_IDS.kind]: { type: "select", value: "physical" },
+      [STORE_ITEMS_FIELD_IDS.price]: { type: "number", value: 25 },
+      [STORE_ITEMS_FIELD_IDS.currency]: { type: "select", value: "USD" },
+      [STORE_ITEMS_FIELD_IDS.description]: { type: "longText", value: "Screen-printed, A2." },
+      [STORE_ITEMS_FIELD_IDS.externalUrl]: {
+        type: "url",
+        value: "https://store.example.com/products/tour-poster-2026",
+      },
+    },
+  },
+];
+
+/**
+ * Seed one item per detail-page collection into an already-seeded
+ * content dir, switching on a detail URL for the collections that
+ * ship without one. Returns the detail URL of each seeded item so the
+ * spec can visit them and assert it did.
+ */
+export async function seedDetailPageFixtures(
+  contentDir: string = E2E_CONTENT_DIR,
+): Promise<Record<DetailFixtureCollection, string>> {
+  const { collections } = dirs(contentDir);
+  const urls: Partial<Record<DetailFixtureCollection, string>> = {};
+  for (const fixture of DETAIL_FIXTURES) {
+    const collectionDir = path.join(collections, fixture.collection);
+    const defPath = path.join(collectionDir, "_collection.json");
+    const def = JSON.parse(await fs.readFile(defPath, "utf-8")) as {
+      detailUrlPrefix: string | null;
+    };
+    if (fixture.collection !== "tour-dates") {
+      def.detailUrlPrefix = ENABLED_DETAIL_PREFIXES[fixture.collection];
+      await fs.writeFile(defPath, JSON.stringify(def, null, 2) + "\n", "utf-8");
+    }
+    if (def.detailUrlPrefix === null) {
+      throw new Error(`seedDetailPageFixtures: ${fixture.collection} has no detail URL`);
+    }
+
+    const itemsDir = path.join(collectionDir, "items");
+    await fs.mkdir(itemsDir, { recursive: true });
+    const item = {
+      id: `item_${fixture.itemSlug.replaceAll("-", "_")}`,
+      createdAt: FIXTURE_TIMESTAMP,
+      updatedAt: FIXTURE_TIMESTAMP,
+      values: fixture.values,
+    };
+    await fs.writeFile(
+      path.join(itemsDir, `${fixture.itemSlug}.json`),
+      JSON.stringify(item, null, 2) + "\n",
+      "utf-8",
+    );
+    urls[fixture.collection] = `${def.detailUrlPrefix.replace(/\/$/, "")}/${fixture.itemSlug}`;
+  }
+  return urls as Record<DetailFixtureCollection, string>;
 }

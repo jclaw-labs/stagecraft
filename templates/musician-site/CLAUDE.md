@@ -291,7 +291,7 @@ server against an isolated content directory.
 | ----------------------------- | ------------------------------------------------------------ |
 | `playwright.config.ts`        | Test runner config. Pins `STAGECRAFT_CONTENT_DIR` to a tmpdir so specs can wipe/seed without touching `src/content/`. Single worker — serial specs against one content dir. |
 | `e2e/setup/global-setup.ts`   | Signs in once via `/api/auth/dev-login`, saves `storageState.json`. Every spec arrives authenticated. |
-| `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state) and `seedCompletedSite` (post-wizard state). Specs call these from `beforeEach`. |
+| `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state), `seedCompletedSite` (post-wizard state), `seedDemoContent` (checked-in demo site) and `seedDetailPageFixtures` (one item per unlinked detail-page collection). Specs call these from `beforeEach` / `beforeAll`. |
 | `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |
 | `e2e/reset.spec.ts`           | Three-stage danger-zone confirm (idle → warned → confirming) + the type-to-confirm gating + the post-reset return to `/admin/welcome`. |
 
