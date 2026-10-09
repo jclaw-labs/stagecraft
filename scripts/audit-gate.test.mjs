@@ -213,6 +213,26 @@ describe("evaluate", () => {
     expect(result.unresolved.sort()).toEqual(["a", "b"]);
   });
 
+  it("treats an advisory with an unknown severity as critical", () => {
+    const result = evaluate({
+      report: report({ x: { severity: "high", via: [advisory("x", OTHER, "severe")] } }),
+      allowlist,
+      project: ".",
+      level,
+    });
+    expect(result.blocking.map((a) => [a.id, a.severity])).toEqual([[OTHER, "critical"]]);
+  });
+
+  it("treats a package with an unknown severity as critical", () => {
+    const result = evaluate({
+      report: report({ x: { severity: "severe", via: [advisory("x", OTHER, "moderate")] } }),
+      allowlist,
+      project: ".",
+      level,
+    });
+    expect(result.unresolved).toEqual(["x"]);
+  });
+
   it("reports entries for this project that match nothing as stale", () => {
     const result = evaluate({ report: report({}), allowlist, project: ".", level });
     expect(result.stale.map((e) => e.package)).toEqual(["braces", "deepmerge-ts"]);
@@ -282,6 +302,13 @@ describe("main", () => {
     const { run, lines } = setup({});
     expect(run("--input", "allowlist.json")).toBe(1);
     expect(lines.some((l) => l.startsWith("::error"))).toBe(true);
+  });
+
+  it("exits 1 and names the package when a high package's via chain names no high advisory", () => {
+    // One unresolved package and nothing else, so the exit code rests on it alone.
+    const { run, lines } = setup({ a: { severity: "high", via: [advisory("a", OTHER, "moderate")] } });
+    expect(run()).toBe(1);
+    expect(lines.some((l) => l.startsWith("::error") && l.includes(": a is rated"))).toBe(true);
   });
 
   it("rejects bad arguments", () => {

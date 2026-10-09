@@ -10,15 +10,10 @@
     },
     {
       "package": "postcss",
-      "advisories": [
-        "GHSA-6g55-p6wh-862q",
-        "GHSA-r28c-9q8g-f849",
-        "GHSA-qx2v-qp2m-jg93",
-        "GHSA-fxqj-rqcc-2cmp"
-      ],
+      "advisories": ["GHSA-6g55-p6wh-862q", "GHSA-r28c-9q8g-f849"],
       "projects": [".", "templates/musician-site"],
-      "reason": "next 15.5.x pins postcss to exactly 8.4.31 (all four advisories cover <=8.5.22). Our own postcss copies are already patched; only next's bundled copy is affected, and npm's only fix is next 16 (a major upgrade).",
-      "removeWhen": "Both projects are on next 16 (or a next 15 release that unpins postcss to >=8.5.23)."
+      "reason": "next 15.5.x pins postcss to exactly 8.4.31 (both high advisories cover <=8.5.17; its moderate ones are below the gate and not listed). Our own postcss copies are already patched; only next's bundled copy is affected, and npm's only fix is next 16 (a major upgrade).",
+      "removeWhen": "Both projects are on next 16 (or a next 15 release that unpins postcss to >=8.5.18)."
     },
     {
       "package": "deepmerge-ts",
