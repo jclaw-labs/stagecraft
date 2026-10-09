@@ -11,14 +11,24 @@
 export const CRON_JOBS_PATH = "/api/cron/jobs";
 
 /**
- * Origin for the in-process request. Only the path matters to Next's router;
- * the host never resolves because the request goes straight to the handler.
+ * Fallback origin for the in-process request, used only when AUTH_URL is
+ * unset or not a valid URL. The host never resolves, because the request goes
+ * straight to the handler, but the origin is not inert: OpenNext sets
+ * `__NEXT_PRIVATE_ORIGIN` from the first request an isolate handles, and Next
+ * builds the fetch URL for app-relative server-action redirects from it. A
+ * cron tick that starts a fresh isolate would pin this placeholder for every
+ * later request in that isolate, which is why the app's real origin comes
+ * first.
  */
 export const CRON_REQUEST_ORIGIN = "https://cron.internal";
 
-/** The Worker bindings this handler reads. CRON_SECRET is a Worker secret. */
+/**
+ * The Worker bindings this handler reads. CRON_SECRET is a Worker secret;
+ * AUTH_URL is the app's base URL (see docs/runbook.md).
+ */
 export interface ScheduledEnv {
   CRON_SECRET?: string;
+  AUTH_URL?: string;
 }
 
 /** The subset of Cloudflare's ExecutionContext the fetch handler needs. */
@@ -43,9 +53,24 @@ export interface StagecraftWorker<Env extends ScheduledEnv> {
   scheduled(controller: unknown, env: Env, ctx: WorkerExecutionContext): Promise<void>;
 }
 
+/**
+ * The origin the cron request is built on: AUTH_URL's origin when it parses
+ * as an http(s) URL, otherwise CRON_REQUEST_ORIGIN.
+ */
+export function cronRequestOrigin(authUrl: string | undefined): string {
+  if (!authUrl) return CRON_REQUEST_ORIGIN;
+  try {
+    const url = new URL(authUrl);
+    if (url.protocol === "https:" || url.protocol === "http:") return url.origin;
+  } catch {
+    // Not a URL: fall through to the placeholder.
+  }
+  return CRON_REQUEST_ORIGIN;
+}
+
 /** Builds the authenticated request the Cron Trigger sends to the drain route. */
-export function buildCronRequest(secret: string): Request {
-  return new Request(new URL(CRON_JOBS_PATH, CRON_REQUEST_ORIGIN), {
+export function buildCronRequest(secret: string, authUrl?: string): Request {
+  return new Request(new URL(CRON_JOBS_PATH, cronRequestOrigin(authUrl)), {
     method: "POST",
     headers: { authorization: `Bearer ${secret}` },
   });
@@ -66,7 +91,7 @@ export async function runScheduledDrain<Env extends ScheduledEnv>(
     throw new Error("CRON_SECRET is not set; the Cron Trigger cannot drain the job queue");
   }
 
-  const response = await fetchHandler(buildCronRequest(secret), env, ctx);
+  const response = await fetchHandler(buildCronRequest(secret, env.AUTH_URL), env, ctx);
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`${CRON_JOBS_PATH} returned ${response.status}: ${body}`);

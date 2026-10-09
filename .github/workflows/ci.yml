@@ -41,11 +41,21 @@ jobs:
       # wrangler --dry-run bundles the Worker entry and prints its compressed
       # size (limit 3 MB free / 10 MB paid). Nothing is deployed and no
       # Cloudflare credentials are used. The Netlify build above is unchanged.
+      # The output is kept for the size gate below.
       - name: Cloudflare Worker build (no deploy)
         working-directory: apps/web
         env:
           WRANGLER_SEND_METRICS: "false"
-        run: npm run build:worker
+        run: |
+          set -o pipefail
+          npm run build:worker 2>&1 | tee "$RUNNER_TEMP/worker-build.log"
+
+      # Fails above the 3,072 KiB gzip limit (Workers Free) and warns from
+      # 2,900 KiB (#328). Also fails when the size line can't be found, so a
+      # wrangler output change can't turn this into a silent pass.
+      - name: Cloudflare Worker size gate
+        working-directory: apps/web
+        run: node scripts/worker-size-gate.mjs --limit 3072 --warn 2900 "$RUNNER_TEMP/worker-build.log"
 
   security-audit:
     name: Dependency audit (npm)
