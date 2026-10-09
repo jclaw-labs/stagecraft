@@ -1,4 +1,5 @@
 import { prisma } from "@stagecraft/db";
+import { decryptCredential } from "../credential-crypto";
 
 interface CreateRepoOptions {
   userId: string;
@@ -33,7 +34,7 @@ async function getGitHubToken(userId: string): Promise<string> {
     throw new Error("GitHub account not connected");
   }
 
-  return integration.accessToken;
+  return decryptCredential(integration.accessToken);
 }
 
 async function githubApi(token: string, path: string, options?: RequestInit) {

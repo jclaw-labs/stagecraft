@@ -14,6 +14,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 6. [Verifying GitHub Integration](#6-verifying-github-integration)
 7. [Verifying Netlify Integration](#7-verifying-netlify-integration)
 8. [Cloudflare Worker](#8-cloudflare-worker)
+9. [Credential Encryption](#9-credential-encryption)
 
 ---
 
@@ -87,11 +88,13 @@ For production or CI, set the variables below directly in your hosting environme
 | `NETLIFY_CLIENT_SECRET` | Netlify OAuth App client secret |
 | `CRON_SECRET` | Bearer secret for `POST /api/cron/jobs`, the scheduled job-queue drain. Unset disables the route (503). |
 | `STAGECRAFT_INPROCESS_WORKER` | Set to `false` to stop the in-process job poller (hosts with no long-lived process). Queue is then drained only via `/api/cron/jobs`. |
+| `STAGECRAFT_CREDENTIALS_KEY` | Current key for encrypting stored integration credentials, as `<keyId>:<base64 of 32 bytes>`. Unset, new tokens are stored in plaintext and the app logs a warning once per process. Generating it and the rollout order are in [§9](#9-credential-encryption). |
 
 ### Optional env vars
 
 | Variable | Description |
 |---|---|
+| `STAGECRAFT_CREDENTIALS_OLD_KEYS` | Retired credential keys, comma-separated, same format as `STAGECRAFT_CREDENTIALS_KEY`. Used only to decrypt values written before a rotation ([§9](#9-credential-encryption)). |
 | `DATABASE_DRIVER` | How Prisma connects. Unset, empty or `engine`: Prisma's built-in TCP engine, whatever the `DATABASE_URL` host. `neon`: opt in to the Neon driver adapter (WebSockets), needed on Cloudflare Workers; it requires `DATABASE_URL` and a global `WebSocket` (Node 22+ or Workers) and fails at startup without them. Any other value fails at startup. |
 
 ---
@@ -273,6 +276,8 @@ WHERE provider = 'github' AND "userId" = '<user-id>';
 
 ### Manually verify the token works
 
+`accessToken` is stored encrypted (it starts with `enc:v1:`; see [§9](#9-credential-encryption)), so the column value is not the token. Decrypt it with `decryptCredential` from `apps/web/src/lib/credential-crypto.ts` and the deployed key, or have the user reconnect. With the plaintext token:
+
 ```bash
 curl -s -H "Authorization: Bearer <access_token>" \
   https://api.github.com/user | jq .login
@@ -295,6 +300,8 @@ WHERE provider = 'netlify' AND "userId" = '<user-id>';
 ```
 
 ### Manually verify the token works
+
+As with GitHub, the stored `accessToken` is encrypted; decrypt it first ([§9](#9-credential-encryption)).
 
 ```bash
 curl -s -H "Authorization: Bearer <access_token>" \
@@ -337,10 +344,12 @@ The Worker has no long-lived process, so `wrangler.jsonc` sets `STAGECRAFT_INPRO
 | `GITHUB_APP_PRIVATE_KEY` | yes | `stagecraft-bot` GitHub App tokens. Multi-line, `\n`-escaped or space-flattened PEM all work |
 | `GITHUB_APP_WEBHOOK_SECRET` | yes | GitHub App webhook signature check |
 | `CRON_SECRET` | yes | Cron Trigger → `POST /api/cron/jobs` bearer token. Unset, every cron run fails |
+| `STAGECRAFT_CREDENTIALS_KEY` | yes | Encrypts and decrypts stored integration credentials (`apps/web/src/lib/credential-crypto.ts`). Must be the same value as on Netlify whenever both read the same database. Unset, new tokens are stored in plaintext (with a warning) and encrypted ones can't be read. See [§9](#9-credential-encryption) |
+| `STAGECRAFT_CREDENTIALS_OLD_KEYS` | no | Retired credential keys, decrypt only. Same value as on Netlify |
 | `GITHUB_APP_INSTALLATION_ID_NETLIFY` | no | Fallback installation id when `/user/installations` can't find the Netlify app |
 | `GITHUB_APP_INSTALLATION_ID_STAGECRAFT_BOT` | no | Same fallback for `stagecraft-bot` |
 
-Resend, Netlify and Vercel API keys aren't platform secrets: each user connects their own account, and the tokens live in the database (`IntegrationAccount`).
+Resend, Netlify and Vercel API keys aren't platform secrets: each user connects their own account, and the tokens live in the database (`IntegrationAccount`), encrypted with `STAGECRAFT_CREDENTIALS_KEY`.
 
 Sign-in on the preview only works if the GitHub OAuth App (`AUTH_GITHUB_ID`) accepts `<AUTH_URL>/api/auth/callback/github` as a callback URL, and Netlify OAuth needs `<AUTH_URL>/api/integrations/netlify/callback` registered the same way.
 
@@ -376,3 +385,56 @@ Each `secret put` or `secret bulk` deploys a new version of the Worker with the 
 - **By hand:** from `apps/web`, after `npm ci` and `npm run db:generate` at the repo root, run `npm run deploy:worker` with the same two variables exported.
 
 `npm run build:worker` builds and bundles without deploying or logging in, which is what CI runs on every PR.
+
+---
+
+## 9. Credential Encryption
+
+Users' provider credentials are encrypted in the database with AES-256-GCM (ADR-005, `apps/web/src/lib/credential-crypto.ts`):
+
+- `Account.access_token`, `refresh_token`, `id_token` (NextAuth's GitHub OAuth tokens)
+- `IntegrationAccount.accessToken`, `refreshToken` (GitHub, Netlify and Vercel tokens, Resend API keys)
+
+An encrypted value looks like `enc:v1:<keyId>:<iv>:<tag>:<ciphertext>`. The app still reads values without that prefix as legacy plaintext, so rows written before the key was set keep working until the backfill below encrypts them.
+
+### Generating a key
+
+The key is a key id (letters, digits, `_` or `-`, up to 32 characters) and 32 random bytes in base64, joined by `:`. Use a new id for each key, e.g. the date:
+
+```bash
+echo "k$(date +%Y%m%d):$(openssl rand -base64 32)"
+```
+
+Store it in 1Password with the other platform secrets. Never commit it. Losing it makes every encrypted credential unreadable, and users would have to reconnect each integration.
+
+### First rollout
+
+1. **Set the key** as `STAGECRAFT_CREDENTIALS_KEY` on Netlify (site environment variables) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_KEY`). Use the same value on both whenever they read the same database.
+2. **Deploy** the code that encrypts on write (Netlify needs a redeploy to pick up a new environment variable; a Worker `secret put` deploys by itself). From now on new and refreshed tokens are written encrypted. Deploying before step 1 is safe: tokens are written in plaintext and the app logs `STAGECRAFT_CREDENTIALS_KEY is not set` once per process.
+3. **Run the backfill** against each database, from the repo root, with that database's `DATABASE_URL` and the same key. Dry-run first:
+
+   ```bash
+   DATABASE_URL='<url>' STAGECRAFT_CREDENTIALS_KEY='<key>' npx tsx apps/web/scripts/encrypt-credentials.ts --dry-run
+   DATABASE_URL='<url>' STAGECRAFT_CREDENTIALS_KEY='<key>' npx tsx apps/web/scripts/encrypt-credentials.ts
+   ```
+
+   It skips values that are already encrypted, so it is safe to re-run, and it refuses to run without a key. A row rewritten by a sign-in during the run is reported as a conflict and left alone (the app already encrypted it).
+4. **Check** nothing is left in plaintext; both counts should be 0:
+
+   ```sql
+   SELECT count(*) FROM "IntegrationAccount"
+   WHERE ("accessToken" IS NOT NULL AND "accessToken" NOT LIKE 'enc:v1:%')
+      OR ("refreshToken" IS NOT NULL AND "refreshToken" NOT LIKE 'enc:v1:%');
+   SELECT count(*) FROM "Account"
+   WHERE (access_token IS NOT NULL AND access_token NOT LIKE 'enc:v1:%')
+      OR (refresh_token IS NOT NULL AND refresh_token NOT LIKE 'enc:v1:%')
+      OR (id_token IS NOT NULL AND id_token NOT LIKE 'enc:v1:%');
+   ```
+
+After step 3, don't roll the app back to a build from before encryption, or remove the key: either would send ciphertext to GitHub, Netlify, Vercel and Resend, and every integration call would fail until the key is restored.
+
+### Rotating the key
+
+1. Generate a new key with a new id.
+2. Set `STAGECRAFT_CREDENTIALS_OLD_KEYS` to the current key (append it, comma-separated, if old keys are already listed) and `STAGECRAFT_CREDENTIALS_KEY` to the new one, on Netlify and the Worker. Deploy. New writes use the new key; values under the old key still decrypt.
+3. To retire the old key, re-encrypt under the new one: run the backfill with `--rotate` (same command as above, with both variables set). Then remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS` and deploy.

@@ -1,4 +1,5 @@
 import { prisma } from "@stagecraft/db";
+import { decryptCredential } from "../credential-crypto";
 
 /**
  * Vercel integration — mirrors `netlify.ts`'s surface for the parts the
@@ -81,7 +82,7 @@ async function getVercelToken(userId: string): Promise<string> {
     throw new Error("Vercel account not connected");
   }
 
-  return integration.accessToken;
+  return decryptCredential(integration.accessToken);
 }
 
 async function vercelApi(

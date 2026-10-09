@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@stagecraft/db";
 
 import { auth } from "@/lib/auth";
+import { encryptCredential } from "@/lib/credential-crypto";
 import { validateResendToken } from "@/lib/integrations/resend";
 import { verifyVerificationToken } from "@/lib/resend-verification";
 
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
   }
 
   const adminEmail = verification.adminEmail;
+  const storedToken = await encryptCredential(token);
 
   await prisma.$transaction([
     prisma.integrationAccount.upsert({
@@ -93,7 +95,7 @@ export async function POST(req: NextRequest) {
         userId_provider: { userId: session.user.id, provider: "resend" },
       },
       update: {
-        accessToken: token,
+        accessToken: storedToken,
         providerAccountId: adminEmail,
         metadata: {},
         updatedAt: new Date(),
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         provider: "resend",
         providerAccountId: adminEmail,
-        accessToken: token,
+        accessToken: storedToken,
         metadata: {},
       },
     }),
