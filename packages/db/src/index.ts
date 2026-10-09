@@ -17,5 +17,3 @@ if (process.env.NODE_ENV !== "production") {
 
 export { PrismaClient };
 export type * from "@prisma/client";
-export { DATABASE_DRIVERS, resolveDatabaseDriver } from "./driver";
-export type { DatabaseDriver } from "./driver";

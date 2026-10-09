@@ -13,6 +13,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 5. [Manually Retrying Failed Jobs](#5-manually-retrying-failed-jobs)
 6. [Verifying GitHub Integration](#6-verifying-github-integration)
 7. [Verifying Netlify Integration](#7-verifying-netlify-integration)
+8. [Cloudflare Worker](#8-cloudflare-worker)
 
 ---
 
@@ -309,3 +310,71 @@ WHERE id = '<site-id>';
 ```
 
 `netlifySiteId` should be set after a successful `create_site` job. `productionUrl` is populated once the first deploy succeeds.
+
+---
+
+## 8. Cloudflare Worker
+
+`apps/web` also builds as a Cloudflare Worker named `stagecraft` (`apps/web/wrangler.jsonc`). It serves only the workers.dev preview, `https://stagecraft.<account-subdomain>.workers.dev`. It has no routes or custom domains, so stagecraft.website keeps serving from Netlify until the cutover.
+
+The Worker has no long-lived process, so `wrangler.jsonc` sets `STAGECRAFT_INPROCESS_WORKER=false` and a Cron Trigger drains the job queue every minute through `POST /api/cron/jobs`. It also sets `DATABASE_DRIVER=neon`, because Prisma's default engine can't open a TCP socket on Workers. Those two are the only `vars`. Everything else is a Worker secret.
+
+### Worker secrets
+
+`wrangler deploy` replaces `vars` on every deploy and stores them in plain text, but leaves secrets alone. So every value below is a secret, including `AUTH_URL`, which isn't sensitive but differs between the preview and production. `apps/web/cloudflare/wrangler-config.test.ts` fails if one of these names shows up in `vars`.
+
+| Secret | Required | What reads it |
+|---|---|---|
+| `DATABASE_URL` | yes | Prisma client (`packages/db`); must be a Neon URL, since the Worker uses the Neon driver. Until the preview passes the end-to-end checks, use a separate Neon database, not production's (see below) |
+| `AUTH_SECRET` | yes | NextAuth session signing |
+| `AUTH_URL` | yes | NextAuth, Netlify OAuth redirect, install URLs. The Worker's own origin, e.g. `https://stagecraft.<account-subdomain>.workers.dev` |
+| `AUTH_GITHUB_ID` | yes | NextAuth GitHub sign-in |
+| `AUTH_GITHUB_SECRET` | yes | NextAuth GitHub sign-in |
+| `STAGECRAFT_STATE_SIGNING_SECRET` | yes | Signed install-URL state and Resend verification tokens |
+| `NETLIFY_CLIENT_ID` | yes | Netlify OAuth |
+| `NETLIFY_CLIENT_SECRET` | yes | Netlify OAuth |
+| `GITHUB_APP_ID` | yes | `stagecraft-bot` GitHub App tokens |
+| `GITHUB_APP_PRIVATE_KEY` | yes | `stagecraft-bot` GitHub App tokens. Multi-line, `\n`-escaped or space-flattened PEM all work |
+| `GITHUB_APP_WEBHOOK_SECRET` | yes | GitHub App webhook signature check |
+| `CRON_SECRET` | yes | Cron Trigger → `POST /api/cron/jobs` bearer token. Unset, every cron run fails |
+| `GITHUB_APP_INSTALLATION_ID_NETLIFY` | no | Fallback installation id when `/user/installations` can't find the Netlify app |
+| `GITHUB_APP_INSTALLATION_ID_STAGECRAFT_BOT` | no | Same fallback for `stagecraft-bot` |
+
+Resend, Netlify and Vercel API keys aren't platform secrets: each user connects their own account, and the tokens live in the database (`IntegrationAccount`).
+
+Sign-in on the preview only works if the GitHub OAuth App (`AUTH_GITHUB_ID`) accepts `<AUTH_URL>/api/auth/callback/github` as a callback URL, and Netlify OAuth needs `<AUTH_URL>/api/integrations/netlify/callback` registered the same way.
+
+### Setting secrets
+
+**Give the preview its own database until it has passed end to end.** The every-minute cron claims queued jobs from whatever `DATABASE_URL` points at, and a job whose handler throws is marked `failed` with no retry (`packages/queue/src/worker.ts`). With production's `DATABASE_URL`, the preview would share real users' `create_site` and `migrate_site` jobs with Netlify's in-process worker, on Worker code nobody has checked end to end yet, and it starts doing so as soon as the secret is set. So set `DATABASE_URL` to a separate Neon database, not the Netlify value, until sign-in, create-site and migrate-site have passed on the preview. Switching to production's database is part of the cutover (#312).
+
+Nothing in CI migrates that database (CI's "DB migrations applied to production" job and `npm run db:migrate:prod` both target production), so apply the schema to it yourself before setting the secret, and again whenever a migration lands on main, or sign-in and the cron fail on missing tables. Use its direct (unpooled) URL, the one without `-pooler` in the host:
+
+```bash
+cd packages/db
+read -rs PREVIEW_DATABASE_URL   # paste the URL; it isn't echoed or kept in history
+DATABASE_URL="$PREVIEW_DATABASE_URL" npx prisma migrate deploy
+```
+
+From `apps/web`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exported (or after `npx wrangler login`):
+
+```bash
+# One at a time (prompts for the value, so it stays out of shell history)
+npx wrangler secret put CRON_SECRET
+
+# Or all at once from a JSON file ({"NAME": "value", ...}) or a KEY=VALUE .env file.
+# Keep the file outside the repo and delete it afterwards.
+npx wrangler secret bulk /path/to/worker-secrets.json
+
+# Check which names are set (values are never shown)
+npx wrangler secret list
+```
+
+Each `secret put` or `secret bulk` deploys a new version of the Worker with the change, so no redeploy is needed. If the Worker doesn't exist yet, run `npm run deploy:worker` first. Until they're set, the cron runs fail on the missing `CRON_SECRET`.
+
+### Deploying
+
+- **From CI:** `.github/workflows/deploy-worker.yml` runs `npm run deploy:worker` after CI passes on a push to main, or by hand from main via Actions → Deploy Worker → Run workflow. It needs the repository secrets `CLOUDFLARE_API_TOKEN` (a token with Workers Scripts: Edit on the account) and `CLOUDFLARE_ACCOUNT_ID`; without them it skips with a notice.
+- **By hand:** from `apps/web`, after `npm ci` and `npm run db:generate` at the repo root, run `npm run deploy:worker` with the same two variables exported.
+
+`npm run build:worker` builds and bundles without deploying or logging in, which is what CI runs on every PR.
