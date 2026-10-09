@@ -292,6 +292,11 @@ describe("main", () => {
   });
 
   it("rejects unknown flags before touching the database", async () => {
+    const { db, integrationAccount } = makeDb([], [{ id: "int1", accessToken: "plain", refreshToken: null }]);
+    mockDb.prisma = { ...db, $disconnect: vi.fn(async () => {}) };
+
     await expect(main(["--rotat"])).rejects.toThrow("Unknown argument(s): --rotat");
+    expect(integrationAccount.findMany).not.toHaveBeenCalled();
+    expect(integrationAccount.store[0].accessToken).toBe("plain");
   });
 });
