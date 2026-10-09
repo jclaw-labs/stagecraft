@@ -418,7 +418,7 @@ Store it in 1Password with the other platform secrets. Never commit it. Losing i
    DATABASE_URL='<url>' STAGECRAFT_CREDENTIALS_KEY='<key>' npx tsx apps/web/scripts/encrypt-credentials.ts
    ```
 
-   It skips values that are already encrypted, so it is safe to re-run, and it refuses to run without a key. A row rewritten by a sign-in during the run is reported as a conflict and left alone (the app already encrypted it).
+   It skips values that are already encrypted, so it is safe to re-run, and it refuses to run without a key. A row rewritten by a sign-in during the run is reported as a conflict and left alone (the app already encrypted it). It also test-decrypts every encrypted value. Any it can't decrypt (key not configured, or a malformed value) are listed by table, row id and column, left as they are, and make the run exit non-zero once every other row is done. Add the missing key to `STAGECRAFT_CREDENTIALS_OLD_KEYS`, or have those users reconnect, and re-run.
 4. **Check** nothing is left in plaintext; both counts should be 0:
 
    ```sql
@@ -437,4 +437,4 @@ After step 3, don't roll the app back to a build from before encryption, or remo
 
 1. Generate a new key with a new id.
 2. Set `STAGECRAFT_CREDENTIALS_OLD_KEYS` to the current key (append it, comma-separated, if old keys are already listed) and `STAGECRAFT_CREDENTIALS_KEY` to the new one, on Netlify and the Worker. Deploy. New writes use the new key; values under the old key still decrypt.
-3. To retire the old key, re-encrypt under the new one: run the backfill with `--rotate` (same command as above, with both variables set). Then remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS` and deploy.
+3. To retire the old key, re-encrypt under the new one: run the backfill with `--rotate` (same command as above, with both variables set). Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS`, and deploy, once that run exits 0 and reports `0 undecryptable` for both tables; a non-zero exit means some values are still under a key the run couldn't use (they are listed by row).

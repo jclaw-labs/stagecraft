@@ -14,6 +14,11 @@
  * with the current one, after which that old key can be dropped from
  * STAGECRAFT_CREDENTIALS_OLD_KEYS.
  *
+ * Every already-encrypted value is test-decrypted. One that can't be (its key
+ * isn't configured, or it's malformed) is logged by row and column, counted
+ * as undecryptable and skipped, so the rest of the run still happens; the run
+ * then exits non-zero.
+ *
  * Usage, from the repo root, with DATABASE_URL and STAGECRAFT_CREDENTIALS_KEY
  * (plus STAGECRAFT_CREDENTIALS_OLD_KEYS if any) set to the deployed values:
  *
@@ -25,6 +30,7 @@ import { pathToFileURL } from "node:url";
 import type { PrismaClient } from "@stagecraft/db";
 import {
   CREDENTIALS_KEY_ENV,
+  CREDENTIALS_OLD_KEYS_ENV,
   credentialKeyId,
   currentCredentialKeyId,
   decryptCredential,
@@ -51,6 +57,7 @@ export interface TableStats {
   rowsScanned: number;
   valuesEncrypted: number;
   valuesAlreadyEncrypted: number;
+  undecryptable: number;
   conflicts: number;
 }
 
@@ -62,7 +69,7 @@ export interface BackfillStats {
 const DEFAULT_BATCH_SIZE = 200;
 
 function emptyStats(): TableStats {
-  return { rowsScanned: 0, valuesEncrypted: 0, valuesAlreadyEncrypted: 0, conflicts: 0 };
+  return { rowsScanned: 0, valuesEncrypted: 0, valuesAlreadyEncrypted: 0, undecryptable: 0, conflicts: 0 };
 }
 
 /**
@@ -71,11 +78,12 @@ function emptyStats(): TableStats {
  * compare-and-set `where`).
  */
 async function planRow<F extends string>(
-  row: Record<F, string | null>,
+  row: { id: string } & Record<F, string | null>,
   fields: readonly F[],
   currentKeyId: string,
   rotate: boolean,
   stats: TableStats,
+  report: (line: string) => void,
 ): Promise<{ data: Partial<Record<F, string>>; expected: Partial<Record<F, string>> } | null> {
   const data: Partial<Record<F, string>> = {};
   const expected: Partial<Record<F, string>> = {};
@@ -84,11 +92,20 @@ async function planRow<F extends string>(
     const value = row[field];
     if (value === null || value === undefined) continue;
     if (isEncryptedCredential(value)) {
+      let plaintext: string;
+      try {
+        plaintext = await decryptCredential(value);
+      } catch (error) {
+        // The error names only the key id, never key material or the value.
+        stats.undecryptable++;
+        report(`${row.id}.${field}: cannot decrypt (${error instanceof Error ? error.message : String(error)})`);
+        continue;
+      }
       if (!rotate || credentialKeyId(value) === currentKeyId) {
         stats.valuesAlreadyEncrypted++;
         continue;
       }
-      data[field] = await encryptCredential(await decryptCredential(value));
+      data[field] = await encryptCredential(plaintext);
     } else {
       data[field] = await encryptCredential(value);
     }
@@ -117,7 +134,9 @@ async function backfillTable<F extends AccountTokenField | IntegrationTokenField
     if (rows.length === 0) break;
     for (const row of rows) {
       stats.rowsScanned++;
-      const plan = await planRow(row, fields, currentKeyId, options.rotate ?? false, stats);
+      const plan = await planRow(row, fields, currentKeyId, options.rotate ?? false, stats, (line) =>
+        log(`${name} ${line}`),
+      );
       if (!plan || options.dryRun) continue;
       const count = await update(row.id, plan.expected, plan.data);
       if (count === 0) {
@@ -134,7 +153,7 @@ async function backfillTable<F extends AccountTokenField | IntegrationTokenField
   log(
     `${name}: ${stats.rowsScanned} rows, ${stats.valuesEncrypted} values ` +
       `${options.dryRun ? "to encrypt" : "encrypted"}, ${stats.valuesAlreadyEncrypted} already encrypted, ` +
-      `${stats.conflicts} conflicts`,
+      `${stats.undecryptable} undecryptable, ${stats.conflicts} conflicts`,
   );
   return stats;
 }
@@ -186,6 +205,20 @@ export async function encryptStoredCredentials(
   return { account, integrationAccount };
 }
 
+/**
+ * Fail the run when any stored value couldn't be decrypted, after the
+ * per-row lines naming them have been logged.
+ */
+export function assertAllDecryptable(stats: BackfillStats): void {
+  const undecryptable = stats.account.undecryptable + stats.integrationAccount.undecryptable;
+  if (undecryptable > 0) {
+    throw new Error(
+      `${undecryptable} stored value(s) could not be decrypted (listed above); ` +
+        `configure their key in ${CREDENTIALS_OLD_KEYS_ENV} or have those users reconnect`,
+    );
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
   const known = new Set(["--dry-run", "--rotate"]);
   const unknown = argv.filter((arg) => !known.has(arg));
@@ -194,11 +227,12 @@ async function main(argv: string[]): Promise<void> {
   }
   const { prisma } = await import("@stagecraft/db");
   try {
-    await encryptStoredCredentials(prisma, {
+    const stats = await encryptStoredCredentials(prisma, {
       dryRun: argv.includes("--dry-run"),
       rotate: argv.includes("--rotate"),
       log: (line) => console.log(line),
     });
+    assertAllDecryptable(stats);
   } finally {
     await prisma.$disconnect();
   }
