@@ -26,12 +26,16 @@ export default function NotFound() {
     <PublicLayout>
       <main
         style={{
-          // Fill the viewport without scrolling: border-box keeps the
-          // padding inside the height, and the subtraction leaves room
-          // for the body's UA default margin (8px each side, which is
-          // --space-2), so the page is exactly one screen tall.
+          // One viewport tall, with border-box keeping the padding inside
+          // that height at any theme density. The page still scrolls by
+          // the body's UA margin (8px each side) because nothing resets
+          // it: AppearanceStyles' `.stagecraft-site body` selector never
+          // matches, since <body> is never inside the wrapper. That same
+          // margin is the light frame around every public page, and #388
+          // owns the fix (a `body:has(> .stagecraft-site)` rule). Once it
+          // lands, this height is exact, with no margin arithmetic here.
           boxSizing: "border-box",
-          minHeight: "calc(100vh - 2 * var(--space-2))",
+          minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
