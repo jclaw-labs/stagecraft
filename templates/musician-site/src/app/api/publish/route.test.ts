@@ -7,9 +7,9 @@ const { publishPageMock, getSessionMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
 }));
 
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("./../../../lib/publish")>(
-    "@/lib/publish",
+vi.mock("@/lib/save-content", async () => {
+  const actual = await vi.importActual<typeof import("./../../../lib/save-content")>(
+    "@/lib/save-content",
   );
   return { ...actual, publishPage: publishPageMock };
 });

@@ -163,20 +163,22 @@ describe("PUT /api/collections/[slug]/order", () => {
     expect(body.error).toContain("phantom");
   });
 
-  it("returns the publishWarning envelope on broker failure", async () => {
+  it("returns a 502 failure (never ok: true) on broker failure", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     const { PublishError } = await import("@/lib/publish");
     publishMock.mockRejectedValueOnce(new PublishError("broker-rejected", "broker rejected"));
     await seedPage("home", "Home");
     const res = await PUT(jsonReq({ order: ["home"] }), ctx("pages"));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(502);
     const body = (await res.json()) as {
       ok: boolean;
-      mode: string;
-      publishWarning: string;
+      code: string;
+      error: string;
+      publishWarning?: string;
     };
-    expect(body.ok).toBe(true);
-    expect(body.mode).toBe("local");
-    expect(body.publishWarning).toBe("broker rejected");
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("broker-rejected");
+    expect(body.error).toContain("broker rejected");
+    expect(body.publishWarning).toBeUndefined();
   });
 });

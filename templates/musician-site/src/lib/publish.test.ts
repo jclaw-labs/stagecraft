@@ -42,12 +42,12 @@ import {
   isPlatformConfigured,
   publish,
   publishDraftToMain,
-  publishPage,
   publishSelectedToMain,
   PublishError,
   readEnv,
   saveToDraft,
 } from "./publish";
+import { publishPage } from "./save-content";
 import { ConcurrentEditError } from "./git-commit";
 import { getFsReadStore } from "./collections";
 import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";

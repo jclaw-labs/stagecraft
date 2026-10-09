@@ -10,7 +10,6 @@ import {
   orderRepoPath,
   slugSchema,
   type CollectionDef,
-  type ReadStore,
 } from "./collections";
 import {
   localPathForRepoPath,
@@ -801,53 +800,5 @@ export async function discardDraft(args: {
   };
 }
 
-/**
- * Convenience for the Puck editor's onPublish handler: write a page
- * locally via the wrapper layer (so the editor sees fresh values on
- * the next read) and then push a `collection-item` commit through the
- * broker / GitHub. Local writes happen before the commit so a publish
- * failure leaves the artist with a saved-but-undeployed page rather
- * than nothing.
- *
- * Splitting "local write" from "commit" matches the existing
- * `/api/publish` semantics: a `publishWarning` in the response means
- * the local write succeeded but the commit didn't.
- */
-export async function publishPage(args: {
-  pageSlug: string;
-  /** Legacy PuckData shape: `{ content, root: { props: {...} } }`. */
-  data: unknown;
-  authorEmail: string;
-  authorName?: string;
-  /**
-   * Read store used by `writePage` to look up the existing item's
-   * id / createdAt / showInNav and preserve them across the update.
-   * Admin callers pass a draft-backed store so the lookup sees the
-   * artist's live state across containers; the FS-only re-read
-   * below stays direct because the post-write item exists only on
-   * local disk until `saveToDraft` commits it.
-   */
-  store: ReadStore;
-}): Promise<PublishResult> {
-  const { writePage } = await import("./content");
-  await writePage(args.pageSlug, args.data as Parameters<typeof writePage>[1], args.store);
-  const { readItem } = await import("./collections/store");
-  const { pagesCollectionDef } = await import("./collections/seeds");
-  const item = await readItem("pages", args.pageSlug, pagesCollectionDef);
-  if (!item) {
-    throw new PublishError("github-failed", `Page ${args.pageSlug} disappeared after write`);
-  }
-  return saveToDraft({
-    targets: [
-      {
-        kind: "collection-item",
-        collectionSlug: "pages",
-        itemSlug: args.pageSlug,
-        data: { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, values: item.values },
-      },
-    ],
-    authorEmail: args.authorEmail,
-    authorName: args.authorName,
-    commitSubject: `Update ${args.pageSlug}`,
-  });
-}
+// `publishPage` (the Puck editor's onPublish save) lives in
+// `./save-content` alongside the other admin save paths (issue #345).

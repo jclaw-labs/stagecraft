@@ -18,17 +18,13 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import {
   buildItemFileSchema,
-  createItem,
   generateItemId,
   getRequestReadStore,
   ItemExistsError,
   slugSchema,
-  type Item,
 } from "@/lib/collections";
-// Direct FS read for the post-write re-read: the item lives on local
-// disk but not yet on the draft branch, so the facade can't see it.
-import { readItem as fsReadItem } from "@/lib/collections/store";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 
 import { zodIssuesToStructured } from "./[itemSlug]/issue-format";
 
@@ -113,55 +109,35 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const validated = parseResult.data;
 
-  const draft: Item = { ...validated, slug: parsedItemSlug.data };
-  // createItem 409s on collision; check first so we return a clean
-  // status code rather than letting the error bubble.
+  // Refuse on collision so the artist can't silently overwrite. The
+  // check reads through the draft-aware store.
   const existing = await store.readItem(parsedSlug.data, parsedItemSlug.data, def);
   if (existing) return err(409, new ItemExistsError(parsedSlug.data, parsedItemSlug.data).message);
-  await createItem(parsedSlug.data, parsedItemSlug.data, draft, def);
-  // Re-read so the response (and publish target) carries the
-  // canonical `createdAt` / `updatedAt` the store just stamped —
-  // `createItem` overrides both internally. Direct FS read: the item
-  // is only on local disk until `saveToDraft` below commits it.
-  const saved = await fsReadItem(parsedSlug.data, parsedItemSlug.data, def);
-  if (!saved) {
-    return err(500, "Item disappeared between write and read");
-  }
+
+  // Built + validated in memory; the same bytes go into the commit,
+  // the response, and (dev only) the local disk write.
+  const planned = planItemWrite(
+    parsedSlug.data,
+    parsedItemSlug.data,
+    { ...validated, slug: parsedItemSlug.data },
+    def,
+  );
 
   try {
-    const result = await saveToDraft({
-      targets: [
-        {
-          kind: "collection-item",
-          collectionSlug: parsedSlug.data,
-          itemSlug: parsedItemSlug.data,
-          data: {
-            id: saved.id,
-            createdAt: saved.createdAt,
-            updatedAt: saved.updatedAt,
-            values: saved.values,
-          },
-        },
-      ],
+    const result = await saveContent({
+      targets: [planned.target],
+      writeLocal: planned.writeLocal,
       authorEmail: session.email,
       commitSubject: `Create ${parsedSlug.data}/${parsedItemSlug.data}`,
     });
     return NextResponse.json({
       ok: true,
-      item: saved,
+      item: planned.item,
       mode: result.mode,
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        item: saved,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

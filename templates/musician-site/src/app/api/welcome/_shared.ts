@@ -1,12 +1,10 @@
 /**
  * Helpers shared between `/api/welcome/complete` and `/api/welcome/reset`.
  *
- * Both routes do the same two things: build a singleton item from
- * an existing-or-null base + a fresh values map (preserving `id` /
- * `createdAt` when possible so the publish history is clean), and
- * shape an `Item` into a `collection-item` publish target. The two
- * helpers were duplicated verbatim across the routes before this
- * extraction (CLAUDE.md §2 DRY).
+ * Both routes build a singleton item from an existing-or-null base + a
+ * fresh values map (preserving `id` / `createdAt` when possible so the
+ * publish history is clean). Shaping the item into a publish target is
+ * `planItemWrite` in `@/lib/save-content`, which also validates it.
  */
 
 import {
@@ -14,7 +12,6 @@ import {
   SINGLETON_ITEM_SLUG,
   type Item,
 } from "@/lib/collections";
-import type { PublishTarget } from "@/lib/publish";
 
 /**
  * Merge a fresh `values` map into an existing singleton item, or
@@ -43,29 +40,5 @@ export function upsertSingletonItem(
     createdAt: now,
     updatedAt: now,
     values,
-  };
-}
-
-/**
- * Build a `collection-item` PublishTarget from an in-hand Item. The
- * publish layer reconstructs the on-disk JSON from the target's
- * `data` shape, so we copy the shape directly rather than re-reading
- * from disk.
- */
-export function publishItemTarget(
-  collectionSlug: string,
-  itemSlug: string,
-  item: Item,
-): PublishTarget {
-  return {
-    kind: "collection-item",
-    collectionSlug,
-    itemSlug,
-    data: {
-      id: item.id,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      values: item.values,
-    },
   };
 }

@@ -34,7 +34,7 @@ import {
  */
 
 type CreateResponse =
-  | { ok: true; slug: string; publishWarning?: string }
+  | { ok: true; slug: string }
   | { ok: false; error?: string }
   | null;
 

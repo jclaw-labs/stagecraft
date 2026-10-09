@@ -34,7 +34,6 @@ import {
   deleteItem,
   getRequestReadStore,
   SINGLETON_ITEM_SLUG,
-  writeSingleton,
 } from "@/lib/collections";
 import {
   appearanceToItemValues,
@@ -47,9 +46,10 @@ import {
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
 } from "@/lib/site-config-types";
-import { PublishError, publish, type PublishTarget } from "@/lib/publish";
+import { PublishError, type PublishTarget } from "@/lib/publish";
+import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 
-import { publishItemTarget, upsertSingletonItem } from "../_shared";
+import { upsertSingletonItem } from "../_shared";
 
 const requestSchema = z.object({
   confirmArtistName: z.string().min(1),
@@ -135,25 +135,32 @@ export async function POST(request: Request) {
     headerConfigToItemValues(DEFAULT_HEADER_CONFIG),
   );
 
-  // Local-disk first, then publish atomically.
-  await writeSingleton("site", resetSite, siteCollectionDef);
-  await writeSingleton("appearance", resetAppearance, appearanceCollectionDef);
-  await writeSingleton("header", resetHeader, headerCollectionDef);
-  for (const target of deleteTargets) {
-    if (target.kind !== "delete-collection-item") continue;
-    await deleteItem(target.collectionSlug, target.itemSlug);
-  }
+  // Built + validated in memory; one commit in production, local disk
+  // in dev only.
+  const site = planItemWrite("site", SINGLETON_ITEM_SLUG, resetSite, siteCollectionDef);
+  const appearance = planItemWrite(
+    "appearance",
+    SINGLETON_ITEM_SLUG,
+    resetAppearance,
+    appearanceCollectionDef,
+  );
+  const header = planItemWrite("header", SINGLETON_ITEM_SLUG, resetHeader, headerCollectionDef);
 
-  const targets: PublishTarget[] = [
-    publishItemTarget("site", SINGLETON_ITEM_SLUG, resetSite),
-    publishItemTarget("appearance", SINGLETON_ITEM_SLUG, resetAppearance),
-    publishItemTarget("header", SINGLETON_ITEM_SLUG, resetHeader),
-    ...deleteTargets,
-  ];
+  const targets: PublishTarget[] = [site.target, appearance.target, header.target, ...deleteTargets];
 
   try {
-    const result = await publish({
+    const result = await saveContent({
       targets,
+      writeLocal: async () => {
+        await site.writeLocal();
+        await appearance.writeLocal();
+        await header.writeLocal();
+        for (const target of deleteTargets) {
+          if (target.kind !== "delete-collection-item") continue;
+          await deleteItem(target.collectionSlug, target.itemSlug);
+        }
+      },
+      publishTo: "main",
       authorEmail: session.email,
       commitSubject: "Reset site to first-run state",
     });
@@ -164,16 +171,7 @@ export async function POST(request: Request) {
       itemsDeleted: deleteTargets.length,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        mode: "local",
-        commitSha: null,
-        itemsDeleted: deleteTargets.length,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }
-

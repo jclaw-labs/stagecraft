@@ -54,7 +54,7 @@ export function NewItemClient({
         body: JSON.stringify({ slug, values: draft.values }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { ok: true; item: Item; publishWarning?: string }
+        | { ok: true; item: Item }
         | {
             ok: false;
             error?: string;

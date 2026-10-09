@@ -385,10 +385,14 @@ Endpoints:
   every slug in the requested order against on-disk items; phantoms
   return 400.
 
-Save semantics: every settings/page mutation writes locally **first**,
-then publishes through the broker → GitHub path. A publish failure
-surfaces as `{ ok: true, publishWarning }` so the artist keeps a
-usable local copy — the next save retries the publish.
+Save semantics (`src/lib/save-content.ts`): every settings/page
+mutation builds and validates its files in memory and saves them with
+`saveContent`. With the platform configured, the files are committed
+to the draft branch and **nothing is written to the server's disk** (it
+is read-only or discarded on serverless hosts); a failed commit returns
+`{ ok: false, code, error }` with 502 (409 for `concurrent-edit`), never
+`ok: true`. Without the platform (dev), the route's local write runs
+instead — local disk is the content store there.
 
 **Local-write atomicity.** Content writes go through
 `writeJsonAtomic` (per-file: write to tmp sibling, then `rename` into

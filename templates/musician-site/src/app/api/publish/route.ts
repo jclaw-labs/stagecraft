@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { getRequestReadStore } from "@/lib/collections";
-import { PublishError, publishPage } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { publishPage } from "@/lib/save-content";
 import {
   type PublishError as PublishErrorPayload,
   publishErrorHttpStatus,

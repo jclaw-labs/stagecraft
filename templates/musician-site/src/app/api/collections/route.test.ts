@@ -240,26 +240,19 @@ describe("POST /api/collections", () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
-  it("returns { ok: true, publishWarning } when the publish fails", async () => {
+  it("returns a 502 failure (never ok: true) when the commit fails", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     publishMock.mockRejectedValue(
       new PublishError("broker-unreachable", "broker down"),
     );
 
     const res = await POST(jsonReq({ pluralName: "Press Quotes", singularName: "press quote" }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.slug).toBe("press-quotes");
-    expect(body.mode).toBe("local");
-    expect(body.commitSha).toBeNull();
-    expect(body.publishWarning).toBe("broker down");
-
-    // Local-write-first: the def is on disk even though the publish
-    // failed, so the next save can retry.
-    const saved = await readCollectionDef("press-quotes");
-    expect(saved).not.toBeNull();
-    expect(saved!.pluralName).toBe("Press Quotes");
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe("broker-unreachable");
+    expect(body.error).toContain("broker down");
+    expect(body.publishWarning).toBeUndefined();
   });
 
   it("re-throws a non-PublishError from saveToDraft", async () => {

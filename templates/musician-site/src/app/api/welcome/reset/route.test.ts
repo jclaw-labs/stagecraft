@@ -12,7 +12,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
@@ -26,6 +26,7 @@ vi.mock("@/lib/publish", async () => {
 import { POST } from "./route";
 import {
   getRequestReadStore,
+  readSingleton,
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
   writeItem,
@@ -157,5 +158,72 @@ describe("POST /api/welcome/reset — happy path", () => {
     );
     // Singletons are NOT deleted — only reset.
     void SINGLETON_ITEM_SLUG;
+  });
+});
+
+describe("POST /api/welcome/reset — platform configured (issue #345)", () => {
+  // Production: the reset is committed in memory; the server's disk
+  // (read-only / ephemeral on serverless hosts) is never written. The
+  // broker fetch fails so reads fall back to the seeded FS snapshot.
+  beforeEach(() => {
+    process.env.STAGECRAFT_SITE_ID = "site_test";
+    process.env.STAGECRAFT_BROKER_SECRET = "secret";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.STAGECRAFT_SITE_ID;
+    delete process.env.STAGECRAFT_BROKER_SECRET;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("commits the reset singletons without writing them to local disk", async () => {
+    publishMock.mockResolvedValue({ commitSha: "reset-sha", mode: "github" });
+    const before = await readSingleton("site", siteCollectionDef);
+
+    const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, mode: "github", commitSha: "reset-sha" });
+
+    const targets = publishMock.mock.calls[0]![0].targets;
+    const siteTarget = targets.find(
+      (t: { kind: string; collectionSlug?: string }) =>
+        t.kind === "collection-item" && t.collectionSlug === "site",
+    );
+    expect(siteConfigFromItem({ ...siteTarget.data, slug: SINGLETON_ITEM_SLUG }).hasCompletedFirstRun)
+      .toBe(false);
+    // Identity preserved across the reset.
+    expect(siteTarget.data.id).toBe(before!.id);
+
+    // The on-disk snapshot still says the wizard was completed.
+    const after = await readSingleton("site", siteCollectionDef);
+    expect(siteConfigFromItem(after).hasCompletedFirstRun).toBe(true);
+    expect(after).toEqual(before);
+  });
+
+  it("returns 502 (never ok: true) when the commit fails", async () => {
+    const { PublishError } = await import("@/lib/publish");
+    publishMock.mockRejectedValue(new PublishError("broker-rejected", "Token broker returned 401"));
+
+    const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, code: "broker-rejected" });
+    expect(body.error).toContain("401");
+    expect(body.publishWarning).toBeUndefined();
+
+    const after = await readSingleton("site", siteCollectionDef);
+    expect(siteConfigFromItem(after).hasCompletedFirstRun).toBe(true);
+  });
+});
+
+describe("POST /api/welcome/reset — platform not configured (dev)", () => {
+  it("writes the reset to local disk", async () => {
+    const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
+    expect(res.status).toBe(200);
+    const after = await readSingleton("site", siteCollectionDef);
+    expect(siteConfigFromItem(after).hasCompletedFirstRun).toBe(false);
   });
 });

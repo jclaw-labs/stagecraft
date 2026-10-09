@@ -12,10 +12,9 @@
  * Body: `{ pluralName, singularName, isSingleton? }`.
  *
  * The route mirrors `[slug]/schema/route.ts`: `getSession()` auth,
- * JSON-body parse, a local atomic write FIRST, then publish via the
- * `collection-def` target, with a `PublishError` → `{ ok: true,
- * publishWarning }` fallback so a publish failure still leaves the
- * artist with a usable local copy (the next save retries the publish).
+ * JSON-body parse, then `saveContent` with the `collection-def` target
+ * (a local write in dev only; in production a failed commit is a
+ * failed save — see `@/lib/save-content`).
  *
  * The slug is derived from `pluralName`, validated with `slugSchema`,
  * then guarded two ways: a static check against `PREBAKED_COLLECTIONS`
@@ -47,7 +46,8 @@ import {
 } from "@/lib/collections";
 import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import { localPathForRepoPath, writeJsonAtomic } from "@/lib/fs-helpers";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { saveContent, saveFailureResponse } from "@/lib/save-content";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -142,18 +142,8 @@ export async function POST(request: Request) {
     isSingleton,
   });
 
-  // Local-write-first: write `_collection.json` atomically before the
-  // publish call so a publish failure leaves the artist with a usable
-  // local copy. Mirrors the schema route's write path
-  // (`writeJsonAtomic` + `collectionDefRepoPath` + `collectionDefSchema`
-  // parse on the bytes).
-  await writeJsonAtomic(
-    localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
-    collectionDefSchema.parse(def),
-  );
-
   try {
-    const result = await saveToDraft({
+    const result = await saveContent({
       targets: [
         {
           kind: "collection-def",
@@ -161,6 +151,11 @@ export async function POST(request: Request) {
           data: def,
         },
       ],
+      writeLocal: () =>
+        writeJsonAtomic(
+          localPathForRepoPath(collectionDefRepoPath(parsedSlug.data)),
+          collectionDefSchema.parse(def),
+        ),
       authorEmail: session.email,
       commitSubject: `Create ${pluralName} collection`,
     });
@@ -172,16 +167,7 @@ export async function POST(request: Request) {
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    if (cause instanceof PublishError) {
-      return NextResponse.json({
-        ok: true,
-        slug: parsedSlug.data,
-        def,
-        mode: "local",
-        commitSha: null,
-        publishWarning: cause.message,
-      });
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

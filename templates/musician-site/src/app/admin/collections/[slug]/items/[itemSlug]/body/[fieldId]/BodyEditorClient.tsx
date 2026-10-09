@@ -79,7 +79,7 @@ export function BodyEditorClient({
           },
         );
         const body = (await res.json().catch(() => null)) as
-          | { ok: true; publishWarning?: string }
+          | { ok: true }
           | { ok: false; error?: string }
           | null;
         if (!res.ok || !body || !body.ok) {
@@ -91,9 +91,6 @@ export function BodyEditorClient({
         }
         setStatus("saved");
         setIsDirty(false);
-        if ("publishWarning" in body && body.publishWarning) {
-          setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
-        }
       } catch (cause) {
         setStatus("error");
         setErrorMessage(cause instanceof Error ? cause.message : "Save failed");

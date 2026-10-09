@@ -7,24 +7,21 @@ import {
   type CollectionDef,
   type ReadStore,
 } from "@/lib/collections";
-// Direct FS read for the post-write re-read: the new page is on local
-// disk but `saveToDraft` hasn't published it yet, so the facade can't
-// see it.
-import { readItem as fsReadItem } from "@/lib/collections/store";
 import { pagesCollectionDef, PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
 import {
+  buildPageItem,
   emptyPageData,
   listPageSummaries,
   PageExistsError,
   readPageOrNull,
-  writePage,
 } from "@/lib/content";
-import { PublishError, saveToDraft } from "@/lib/publish";
+import { PublishError } from "@/lib/publish";
+import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
 import { createPageRequestSchema } from "@/lib/site-config-types";
 
 /**
  * GET  /api/pages         — list all pages with summary metadata
- * POST /api/pages         — create a new empty page (publishes in prod)
+ * POST /api/pages         — create a new empty page (commits to draft in prod)
  *
  * Deletes are routed through /api/pages/[slug] so the URL identifies the
  * target unambiguously.
@@ -104,32 +101,19 @@ export async function POST(request: Request) {
 
   const data = emptyPageData(title);
 
-  // Always persist locally so the dev workflow works without the broker. In
-  // prod the same write is followed by a GitHub commit so the new page is
-  // immediately deployable.
-  await writePage(slug, data, store);
-  // Re-read so the publish target carries the canonical id + timestamps
-  // the collection store just stamped on the new item. Direct FS read:
-  // the write only landed on local disk until `saveToDraft` below
-  // commits it.
-  const item = await fsReadItem("pages", slug, pagesCollectionDef);
-  if (!item) return err(500, "Page disappeared between write and publish");
+  // Built in memory; committed to the draft branch in production, and
+  // written to local disk only in dev.
+  const planned = planItemWrite(
+    "pages",
+    slug,
+    await buildPageItem(slug, data, store),
+    pagesCollectionDef,
+  );
 
   try {
-    const result = await saveToDraft({
-      targets: [
-        {
-          kind: "collection-item",
-          collectionSlug: "pages",
-          itemSlug: slug,
-          data: {
-            id: item.id,
-            createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
-            values: item.values,
-          },
-        },
-      ],
+    const result = await saveContent({
+      targets: [planned.target],
+      writeLocal: planned.writeLocal,
       authorEmail: session.email,
       commitSubject: `Create page ${slug}`,
     });
@@ -140,15 +124,7 @@ export async function POST(request: Request) {
       commitSha: result.commitSha,
     });
   } catch (cause) {
-    // Local write succeeded; report the commit failure but don't roll back.
-    // Without the rollback the artist keeps a usable local page; the commit
-    // can be retried by editing-and-publishing from the page editor.
-    if (cause instanceof PublishError) {
-      return NextResponse.json(
-        { ok: true, slug, mode: "local", commitSha: null, publishWarning: cause.message },
-        { status: 200 },
-      );
-    }
+    if (cause instanceof PublishError) return saveFailureResponse(cause);
     throw cause;
   }
 }

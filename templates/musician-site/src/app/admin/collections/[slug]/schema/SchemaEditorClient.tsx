@@ -55,7 +55,6 @@ export function SchemaEditorClient({
             ok: true;
             def: CollectionDef;
             warnings?: SchemaEditorWarning[];
-            publishWarning?: string;
           }
         | {
             ok: false;
@@ -83,9 +82,6 @@ export function SchemaEditorClient({
       setInitialSnapshot(JSON.stringify(body.def));
       setWarnings(body.warnings ?? []);
       setStatus("saved");
-      if ("publishWarning" in body && body.publishWarning) {
-        setErrorMessage(`Saved locally, publish warning: ${body.publishWarning}`);
-      }
     } catch (cause) {
       setErrorMessage(cause instanceof Error ? cause.message : "Save failed");
       setStatus("error");
