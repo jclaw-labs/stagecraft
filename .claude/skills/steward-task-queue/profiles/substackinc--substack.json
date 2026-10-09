@@ -1,0 +1,180 @@
+{
+  "schema_version": 2,
+  "backend": "linear",
+  "cadence_minutes": {
+    "steward": 5,
+    "worker": 5,
+    "reviewer": 5,
+    "merge_monitor": 5
+  },
+  "ready_supply": {
+    "minimum": 5,
+    "target_minimum": 10,
+    "target_maximum": 12
+  },
+  "ready_audit_batch": 10,
+  "queue": {
+    "states": [
+      "Triage",
+      "Waiting for input",
+      "Ready",
+      "In progress",
+      "Needs review",
+      "Under review",
+      "Ready to merge"
+    ]
+  },
+  "priority": {
+    "values": [
+      "Urgent",
+      "High",
+      "Medium",
+      "Low"
+    ]
+  },
+  "tracker": {
+    "team_id": "f456c10a-6b15-49ed-bf68-f2ba0e6c6fdb",
+    "team_key": "ADEV",
+    "team_name": "Agent Dev",
+    "project_id": null,
+    "transport": [
+      "graphql"
+    ],
+    "statuses": {
+      "Triage": "c0177515-fbb7-419e-85bb-c387969d5d69",
+      "Waiting for input": "0f10514e-4cce-483f-af15-bd832d1c5cdc",
+      "Ready": "6c20ab85-75cc-404b-b9db-2614ce8d282a",
+      "In progress": "34c3d807-f254-4367-803a-1e8e9d12f9e3",
+      "Needs review": "bd793468-e4d6-442d-9242-e922d4caf650",
+      "Under review": "55ed38c5-3855-4045-bc18-89ab30a68b9b",
+      "Ready to merge": "0eee65ea-9d4d-430c-a3dc-77e201153701"
+    },
+    "status_names": {
+      "Triage": "Triage",
+      "Waiting for input": "Waiting for input",
+      "Ready": "Ready",
+      "In progress": "In Progress",
+      "Needs review": "Needs review",
+      "Under review": "Under review",
+      "Ready to merge": "Ready to merge"
+    },
+    "status_types": {
+      "Triage": "triage",
+      "Waiting for input": "unstarted",
+      "Ready": "unstarted",
+      "In progress": "started",
+      "Needs review": "started",
+      "Under review": "started",
+      "Ready to merge": "started"
+    },
+    "priorities": {
+      "Urgent": 1,
+      "High": 2,
+      "Medium": 3,
+      "Low": 4
+    },
+    "blockers": {
+      "storage": "relations",
+      "relation_type": "blocks",
+      "read_direction": "inverse"
+    },
+    "queue_metadata": {
+      "storage": "comments-log",
+      "encoding": "comments-log-v1",
+      "marker": "<!-- task-queue-event -->",
+      "order_by": "createdAt",
+      "server_order": "descending",
+      "include_archived": true,
+      "archive_field": "archivedAt",
+      "events": {
+        "claim_cycle": "claim-cycle",
+        "claim_cycle_activate": "claim-cycle-activate",
+        "claim_marker": "claim-marker",
+        "claim": "claim",
+        "touches": "touches"
+      }
+    },
+    "claim_protocol": {
+      "preflight": "linear-profile",
+      "generation_source": "claim-cycle",
+      "generation_activation_source": "claim-cycle-activate",
+      "generation_predecessor": "claim-cycle.predecessor",
+      "generation_arbitration": "earliest-activation",
+      "generation_states": {
+        "In progress": "Ready",
+        "Under review": "Needs review"
+      },
+      "transition_policy": "cooperative-two-phase-predecessor-chain",
+      "marker_source": "claim-marker",
+      "claim_source": "claim",
+      "claim_scope": "held-state-generation",
+      "touches_source": "touches",
+      "settlement": "task-queue-settle"
+    }
+  },
+  "writes": {
+    "transport": [
+      "graphql"
+    ],
+    "mutation_capability": {
+      "supported": true,
+      "history_policy": "cooperative-immutable-event-writers",
+      "hard_delete_detection": "unsupported",
+      "queue_transition_policy": "steward-only-two-phase"
+    },
+    "statuses": "native",
+    "priorities": "native",
+    "blockers": {
+      "storage": "relations",
+      "mutation": "issueRelationCreate",
+      "relation_type": "blocks",
+      "issue_id": "blocker",
+      "related_issue_id": "blocked"
+    },
+    "queue_metadata": {
+      "storage": "comments-log",
+      "mutation": "commentCreate",
+      "semantics": "append-only",
+      "encoding": "comments-log-v1",
+      "omit_input_fields": [
+        "id",
+        "createdAt"
+      ],
+      "verify": "re-read-comment"
+    },
+    "close": {
+      "supported": true,
+      "statuses": {
+        "completed": "c5290e3e-9b5a-48f6-ab3f-815c44f6fab6",
+        "not_planned": "5f596056-9941-4181-a43c-58c02c3fb118"
+      },
+      "status_names": {
+        "completed": "Done",
+        "not_planned": "Canceled"
+      },
+      "status_types": {
+        "completed": "completed",
+        "not_planned": "canceled"
+      },
+      "duplicate": {
+        "mutation": "issueRelationCreate",
+        "relation_type": "duplicate",
+        "issue_id": "duplicate",
+        "related_issue_id": "canonical",
+        "canonical_target": "required",
+        "resulting_status": {
+          "id": "088e1d3b-eae6-4d31-8338-76963edb057e",
+          "name": "Duplicate",
+          "type": "duplicate",
+          "managed": "system"
+        },
+        "verify": [
+          "relation",
+          "status"
+        ]
+      }
+    }
+  },
+  "ci_exceptions": [],
+  "hints": []
+}

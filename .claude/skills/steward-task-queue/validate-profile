@@ -1,0 +1,767 @@
+#!/usr/bin/env python3
+"""Validate a queue-stewardship profile without third-party dependencies."""
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+
+QUEUE_STATES = [
+    "Triage",
+    "Waiting for input",
+    "Ready",
+    "In progress",
+    "Needs review",
+    "Under review",
+    "Ready to merge",
+]
+PRIORITIES = ["Urgent", "High", "Medium", "Low"]
+FIELD_NAMES = {"priority", "queue", "blocked_by", "touches", "claim"}
+LINEAR_STATUS_TYPES = {
+    "Triage": "triage",
+    "Waiting for input": "unstarted",
+    "Ready": "unstarted",
+    "In progress": "started",
+    "Needs review": "started",
+    "Under review": "started",
+    "Ready to merge": "started",
+}
+VALUES_ENDPOINT = (
+    "/repos/{owner}/{repo}/issues/{number}/issue-field-values"
+)
+CLEAR_ENDPOINT = f"{VALUES_ENDPOINT}/{{field_id}}"
+CLOSE_REASONS = ["completed", "duplicate", "not_planned"]
+LINEAR_STATUS_CLOSE_REASONS = {"completed", "not_planned"}
+CLOSE_STATUS_TYPES = {
+    "completed": "completed",
+    "not_planned": "canceled",
+}
+LINEAR_HISTORY_POLICY = "cooperative-immutable-event-writers"
+UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
+
+
+def fail(message: str) -> NoReturn:
+    print(f"profile: {message}", file=sys.stderr)
+    raise SystemExit(64)
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        fail(message)
+
+
+def is_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            fail(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def require_keys(
+    value: object,
+    keys: set[str],
+    name: str,
+    optional: set[str] | None = None,
+) -> dict[str, object]:
+    optional = optional or set()
+    require(isinstance(value, dict), f"{name} must be an object")
+    missing = keys - value.keys()
+    require(not missing, f"{name} is missing {', '.join(sorted(missing))}")
+    extra = value.keys() - keys - optional
+    require(not extra, f"{name} has unknown keys: {', '.join(sorted(extra))}")
+    return value
+
+
+def validate_hints(value: object) -> None:
+    require(isinstance(value, list), "hints must be an array")
+    for hint in value:
+        hint = require_keys(
+            hint, {"kind", "reference", "note", "revalidate"}, "hint"
+        )
+        kind = hint["kind"]
+        require(
+            isinstance(kind, str)
+            and kind in {"issue", "pr", "external-issue"},
+            "hint kind must be issue, pr, or external-issue",
+        )
+        reference = hint["reference"]
+        if kind == "external-issue":
+            require(
+                isinstance(reference, str)
+                and re.fullmatch(r"[^/\s]+/[^/#\s]+#[1-9]\d*", reference)
+                is not None,
+                "external-issue hint reference must be owner/repo#number",
+            )
+        else:
+            require(
+                is_integer(reference) and reference > 0,
+                "issue and pr hint references must be positive integers",
+            )
+        require(
+            isinstance(hint["note"], str) and bool(hint["note"].strip()),
+            "hint note must be nonempty",
+        )
+        require(
+            hint["revalidate"] is True,
+            "every mutable hint must set revalidate true",
+        )
+
+
+def validate_common(profile: dict[str, object]) -> None:
+    required = {
+        "schema_version",
+        "backend",
+        "cadence_minutes",
+        "ready_supply",
+        "ready_audit_batch",
+        "queue",
+        "priority",
+        "tracker",
+        "writes",
+        "ci_exceptions",
+        "hints",
+    }
+    require_keys(profile, required, "profile")
+    schema_version = profile.get("schema_version")
+    require(
+        is_integer(schema_version) and schema_version == 2,
+        "schema_version must be the integer 2",
+    )
+    backend = profile.get("backend")
+    require(
+        isinstance(backend, str) and backend in {"github-issues", "linear"},
+        "backend must be github-issues or linear",
+    )
+    cadence = require_keys(
+        profile.get("cadence_minutes"),
+        {"steward", "worker", "reviewer", "merge_monitor"},
+        "cadence_minutes",
+    )
+    for role in ("steward", "worker", "reviewer", "merge_monitor"):
+        require(
+            is_integer(cadence[role]) and cadence[role] > 0,
+            f"cadence_minutes.{role} must be a positive integer",
+        )
+    supply = require_keys(
+        profile.get("ready_supply"),
+        {"minimum", "target_minimum", "target_maximum"},
+        "ready_supply",
+    )
+    values = [
+        supply.get(name)
+        for name in ("minimum", "target_minimum", "target_maximum")
+    ]
+    require(
+        all(is_integer(value) for value in values),
+        "ready_supply values must be integers",
+    )
+    require(
+        0 <= values[0] <= values[1] <= values[2],
+        "ready_supply must satisfy minimum <= target_minimum <= target_maximum",
+    )
+    audit_batch = profile.get("ready_audit_batch")
+    require(
+        is_integer(audit_batch) and audit_batch > 0,
+        "ready_audit_batch must be positive",
+    )
+    queue = require_keys(profile.get("queue"), {"states"}, "queue")
+    priority = require_keys(profile.get("priority"), {"values"}, "priority")
+    require(
+        queue.get("states") == QUEUE_STATES,
+        "queue states must contain the canonical seven in order",
+    )
+    require(
+        priority.get("values") == PRIORITIES,
+        "priority values must be Urgent, High, Medium, Low",
+    )
+    require(isinstance(profile.get("writes"), dict), "writes must be an object")
+    require(
+        isinstance(profile.get("ci_exceptions"), list),
+        "ci_exceptions must be an array",
+    )
+    for exception in profile["ci_exceptions"]:
+        exception = require_keys(
+            exception,
+            {"provider", "condition", "action"},
+            "ci_exceptions entry",
+        )
+        for key in ("provider", "condition", "action"):
+            require(
+                isinstance(exception[key], str) and bool(exception[key].strip()),
+                f"ci_exceptions {key} must be a nonempty string",
+            )
+    validate_hints(profile.get("hints"))
+
+
+def validate_github(profile: dict[str, object]) -> None:
+    tracker = require_keys(
+        profile.get("tracker"),
+        {
+            "repository",
+            "api_version",
+            "fields",
+            "values_endpoint",
+            "close_reasons",
+        },
+        "tracker",
+    )
+    repository = tracker.get("repository")
+    require(
+        isinstance(repository, str)
+        and re.fullmatch(r"[^/\s]+/[^/\s]+", repository) is not None,
+        "repository must be owner/repo",
+    )
+    require(
+        "{" not in repository and "}" not in repository,
+        "repository is an unresolved owner template; run resolve-profile",
+    )
+    api_version = tracker.get("api_version")
+    require(
+        isinstance(api_version, str)
+        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", api_version)
+        is not None,
+        "api_version must be YYYY-MM-DD",
+    )
+    fields = require_keys(tracker.get("fields"), FIELD_NAMES, "fields")
+    field_ids = list(fields.values())
+    require(
+        all(is_integer(field_id) and field_id > 0 for field_id in field_ids),
+        "field IDs must be positive integers",
+    )
+    require(len(set(field_ids)) == len(field_ids), "field IDs must be unique")
+    require(
+        tracker.get("values_endpoint") == VALUES_ENDPOINT,
+        "values_endpoint must use the repository and issue template",
+    )
+    require(
+        tracker.get("close_reasons") == CLOSE_REASONS,
+        "close_reasons must be completed, duplicate, not_planned",
+    )
+    writes = require_keys(
+        profile.get("writes"),
+        {"comment_prefix", "field_values"},
+        "writes",
+    )
+    prefix = writes.get("comment_prefix")
+    prefix_match = (
+        re.fullmatch(r"\[([^\]\[\r\n]+)\]", prefix)
+        if isinstance(prefix, str)
+        else None
+    )
+    require(
+        prefix_match is not None and bool(prefix_match.group(1).strip()),
+        "comment_prefix must be a nonempty [Name]-style prefix",
+    )
+    field_values = require_keys(
+        writes.get("field_values"), {"set", "clear"}, "field_values"
+    )
+    set_operation = require_keys(
+        field_values.get("set"),
+        {"method", "endpoint", "body_key", "semantics"},
+        "field_values set",
+    )
+    require(set_operation.get("method") == "POST", "field_values set must use POST")
+    require(
+        set_operation.get("endpoint") == VALUES_ENDPOINT,
+        "field_values set endpoint must use the repository and issue template",
+    )
+    require(
+        set_operation.get("body_key") == "issue_field_values",
+        "field_values set body key must be issue_field_values",
+    )
+    require(
+        set_operation.get("semantics") == "additive",
+        "field_values set semantics must be additive",
+    )
+    clear_operation = require_keys(
+        field_values.get("clear"),
+        {"method", "endpoint", "semantics"},
+        "field_values clear",
+    )
+    require(
+        clear_operation.get("method") == "DELETE",
+        "field_values clear must use DELETE",
+    )
+    require(
+        clear_operation.get("endpoint") == CLEAR_ENDPOINT,
+        "field_values clear endpoint must end in {field_id}",
+    )
+    require(
+        clear_operation.get("semantics") == "single-field",
+        "field_values clear semantics must be single-field",
+    )
+
+
+def validate_queue_metadata(value: object) -> None:
+    metadata = require_keys(
+        value,
+        {
+            "storage",
+            "encoding",
+            "marker",
+            "order_by",
+            "server_order",
+            "include_archived",
+            "archive_field",
+            "events",
+        },
+        "queue_metadata",
+    )
+    require(
+        metadata.get("storage") == "comments-log",
+        "queue_metadata storage must be comments-log",
+    )
+    require(
+        metadata.get("encoding") == "comments-log-v1",
+        "queue_metadata encoding must be comments-log-v1",
+    )
+    require(
+        metadata.get("marker") == "<!-- task-queue-event -->",
+        "queue_metadata must declare the task-queue event marker",
+    )
+    require(
+        metadata.get("order_by") == "createdAt"
+        and metadata.get("server_order") == "descending",
+        "queue_metadata must use descending server createdAt order",
+    )
+    require(
+        metadata.get("include_archived") is True
+        and metadata.get("archive_field") == "archivedAt",
+        "queue_metadata must include archived comments and archivedAt",
+    )
+    events = require_keys(
+        metadata.get("events"),
+        {
+            "claim_cycle",
+            "claim_cycle_activate",
+            "claim_marker",
+            "claim",
+            "touches",
+        },
+        "queue_metadata events",
+    )
+    require(
+        events
+        == {
+            "claim_cycle": "claim-cycle",
+            "claim_cycle_activate": "claim-cycle-activate",
+            "claim_marker": "claim-marker",
+            "claim": "claim",
+            "touches": "touches",
+        },
+        "queue_metadata events must map claim-cycle, activation, "
+        "claim-marker, claim, and touches",
+    )
+
+
+def validate_claim_protocol(value: object) -> None:
+    protocol = require_keys(
+        value,
+        {
+            "preflight",
+            "generation_source",
+            "generation_activation_source",
+            "generation_predecessor",
+            "generation_arbitration",
+            "generation_states",
+            "transition_policy",
+            "marker_source",
+            "claim_source",
+            "claim_scope",
+            "touches_source",
+            "settlement",
+        },
+        "claim_protocol",
+    )
+    require(
+        protocol
+        == {
+            "preflight": "linear-profile",
+            "generation_source": "claim-cycle",
+            "generation_activation_source": "claim-cycle-activate",
+            "generation_predecessor": "claim-cycle.predecessor",
+            "generation_arbitration": "earliest-activation",
+            "generation_states": {
+                "In progress": "Ready",
+                "Under review": "Needs review",
+            },
+            "transition_policy": "cooperative-two-phase-predecessor-chain",
+            "marker_source": "claim-marker",
+            "claim_source": "claim",
+            "claim_scope": "held-state-generation",
+            "touches_source": "touches",
+            "settlement": "task-queue-settle",
+        },
+        "claim_protocol must map Linear generations and events into settlement",
+    )
+
+
+def validate_status_names(
+    value: object, keys: set[str], name: str
+) -> dict[str, object]:
+    names = require_keys(value, keys, name)
+    require(
+        all(
+            isinstance(status_name, str) and bool(status_name.strip())
+            for status_name in names.values()
+        ),
+        f"{name} must map every state to a nonempty live name",
+    )
+    require(
+        len(set(names.values())) == len(names),
+        f"{name} live names must be unique",
+    )
+    return names
+
+
+def validate_mutation_capability(value: object) -> None:
+    capability = require_keys(
+        value,
+        {"supported"},
+        "mutation_capability",
+        {
+            "history_policy",
+            "hard_delete_detection",
+            "queue_transition_policy",
+            "reason",
+        },
+    )
+    supported = capability.get("supported")
+    require(
+        isinstance(supported, bool),
+        "mutation_capability supported must be a boolean",
+    )
+    if not supported:
+        require_keys(
+            capability,
+            {"supported", "reason"},
+            "unsupported mutation_capability",
+        )
+        require(
+            isinstance(capability["reason"], str)
+            and bool(capability["reason"].strip()),
+            "unsupported mutation_capability reason must be nonempty",
+        )
+        return
+    require_keys(
+        capability,
+        {
+            "supported",
+            "history_policy",
+            "hard_delete_detection",
+            "queue_transition_policy",
+        },
+        "supported mutation_capability",
+    )
+    require(
+        capability["history_policy"] == LINEAR_HISTORY_POLICY,
+        f"mutation_capability history_policy must be {LINEAR_HISTORY_POLICY}",
+    )
+    require(
+        capability["hard_delete_detection"] == "unsupported",
+        "mutation_capability must acknowledge unsupported hard-delete detection",
+    )
+    require(
+        capability["queue_transition_policy"] == "steward-only-two-phase",
+        "mutation_capability must require steward-only two-phase Queue transitions",
+    )
+
+
+def validate_linear_close(
+    value: object,
+    queue_status_ids: list[object],
+    queue_status_names: dict[str, object],
+) -> None:
+    close = require_keys(
+        value,
+        {"supported"},
+        "close",
+        {"statuses", "status_names", "status_types", "duplicate"},
+    )
+    supported = close.get("supported")
+    require(isinstance(supported, bool), "close supported must be a boolean")
+    if not supported:
+        require(
+            "statuses" not in close
+            and "status_names" not in close
+            and "status_types" not in close,
+            "close cannot declare status or duplicate operations when unsupported",
+        )
+        require("duplicate" not in close, "close cannot declare duplicate when unsupported")
+        return
+    statuses = require_keys(
+        close.get("statuses"), LINEAR_STATUS_CLOSE_REASONS, "close statuses"
+    )
+    require(
+        all(isinstance(status, str) and UUID.fullmatch(status) for status in statuses.values()),
+        "close statuses must map completed and not_planned to UUIDs",
+    )
+    require(
+        len(set(statuses.values())) == len(statuses),
+        "close status UUIDs must be unique",
+    )
+    require(
+        set(statuses.values()).isdisjoint(queue_status_ids),
+        "close status UUIDs must be disjoint from queue status UUIDs",
+    )
+    status_names = validate_status_names(
+        close.get("status_names"),
+        LINEAR_STATUS_CLOSE_REASONS,
+        "close status_names",
+    )
+    require(
+        set(status_names.values()).isdisjoint(queue_status_names.values()),
+        "close live status names must be disjoint from queue live status names",
+    )
+    status_types = require_keys(
+        close.get("status_types"),
+        LINEAR_STATUS_CLOSE_REASONS,
+        "close status_types",
+    )
+    require(
+        status_types == CLOSE_STATUS_TYPES,
+        "close status_types must use terminal completed or canceled types",
+    )
+    duplicate = require_keys(
+        close.get("duplicate"),
+        {
+            "mutation",
+            "relation_type",
+            "issue_id",
+            "related_issue_id",
+            "canonical_target",
+            "resulting_status",
+            "verify",
+        },
+        "close duplicate",
+    )
+    require(
+        duplicate.get("mutation") == "issueRelationCreate"
+        and duplicate.get("relation_type") == "duplicate"
+        and duplicate.get("issue_id") == "duplicate"
+        and duplicate.get("related_issue_id") == "canonical"
+        and duplicate.get("canonical_target") == "required",
+        "close duplicate must create a native duplicate-to-canonical relation",
+    )
+    resulting_status = require_keys(
+        duplicate.get("resulting_status"),
+        {"id", "name", "type", "managed"},
+        "close duplicate resulting_status",
+    )
+    require(
+        isinstance(resulting_status["id"], str)
+        and UUID.fullmatch(resulting_status["id"]) is not None,
+        "close duplicate resulting status ID must be a UUID",
+    )
+    require(
+        isinstance(resulting_status["name"], str)
+        and bool(resulting_status["name"].strip()),
+        "close duplicate resulting status name must be nonempty",
+    )
+    require(
+        resulting_status["type"] == "duplicate"
+        and resulting_status["managed"] == "system",
+        "close duplicate must expect the system-managed duplicate state",
+    )
+    require(
+        duplicate.get("verify") == ["relation", "status"],
+        "close duplicate must verify relation and status",
+    )
+    require(
+        resulting_status["id"] not in queue_status_ids
+        and resulting_status["id"] not in statuses.values(),
+        "close status UUIDs must be disjoint from queue status UUIDs",
+    )
+    require(
+        resulting_status["name"] not in queue_status_names.values()
+        and resulting_status["name"] not in status_names.values(),
+        "close live status names must be disjoint from queue live status names",
+    )
+
+
+def validate_linear(profile: dict[str, object]) -> None:
+    tracker = require_keys(
+        profile.get("tracker"),
+        {
+            "team_id",
+            "team_key",
+            "team_name",
+            "transport",
+            "statuses",
+            "status_names",
+            "status_types",
+            "priorities",
+            "blockers",
+            "queue_metadata",
+            "claim_protocol",
+        },
+        "tracker",
+        {"project_id"},
+    )
+    team_id = tracker.get("team_id")
+    require(
+        isinstance(team_id, str) and UUID.fullmatch(team_id) is not None,
+        "team_id must be a UUID",
+    )
+    team_key = tracker.get("team_key")
+    require(
+        isinstance(team_key, str)
+        and re.fullmatch(r"[^,\s]+", team_key) is not None,
+        "team_key must identify a single Linear team",
+    )
+    team_name = tracker.get("team_name")
+    require(
+        isinstance(team_name, str) and bool(team_name.strip()),
+        "team_name must be nonempty",
+    )
+    project_id = tracker.get("project_id")
+    require(
+        project_id is None
+        or (isinstance(project_id, str) and bool(project_id.strip())),
+        "project_id must be a nonempty string or null",
+    )
+    transport = tracker.get("transport")
+    require(
+        isinstance(transport, list)
+        and bool(transport)
+        and all(
+            isinstance(item, str) and item in {"mcp", "graphql"}
+            for item in transport
+        ),
+        "transport must contain unique mcp or graphql entries",
+    )
+    require(
+        len(transport) == len(set(transport)),
+        "transport must contain unique mcp or graphql entries",
+    )
+    statuses = require_keys(
+        tracker.get("statuses"), set(QUEUE_STATES), "statuses"
+    )
+    status_ids = list(statuses.values())
+    require(
+        all(isinstance(status, str) and UUID.fullmatch(status) for status in status_ids),
+        "statuses must map all queue states to UUIDs",
+    )
+    require(
+        len(set(status_ids)) == len(status_ids),
+        "status UUIDs must be unique",
+    )
+    status_names = validate_status_names(
+        tracker.get("status_names"), set(QUEUE_STATES), "status_names"
+    )
+    status_types = require_keys(
+        tracker.get("status_types"), set(QUEUE_STATES), "status_types"
+    )
+    require(
+        status_types == LINEAR_STATUS_TYPES,
+        "status_types must map queue states to nonterminal Linear workflow types",
+    )
+    priorities = require_keys(
+        tracker.get("priorities"), set(PRIORITIES), "priorities"
+    )
+    require(
+        all(is_integer(value) for value in priorities.values())
+        and priorities == {"Urgent": 1, "High": 2, "Medium": 3, "Low": 4},
+        "Linear priorities must use native values 1 through 4",
+    )
+    require(
+        tracker.get("blockers")
+        == {
+            "storage": "relations",
+            "relation_type": "blocks",
+            "read_direction": "inverse",
+        },
+        "Linear blockers must read inverse blocks relations",
+    )
+    validate_queue_metadata(tracker.get("queue_metadata"))
+    validate_claim_protocol(tracker.get("claim_protocol"))
+    writes = require_keys(
+        profile.get("writes"),
+        {
+            "transport",
+            "mutation_capability",
+            "statuses",
+            "priorities",
+            "blockers",
+            "queue_metadata",
+            "close",
+        },
+        "writes",
+    )
+    require(writes.get("transport") == transport, "writes transport must match tracker")
+    validate_mutation_capability(writes.get("mutation_capability"))
+    require(writes.get("statuses") == "native", "statuses writes must be native")
+    require(writes.get("priorities") == "native", "priorities writes must be native")
+    require(
+        writes.get("blockers")
+        == {
+            "storage": "relations",
+            "mutation": "issueRelationCreate",
+            "relation_type": "blocks",
+            "issue_id": "blocker",
+            "related_issue_id": "blocked",
+        },
+        "blockers writes must create native blocks from blocker to blocked",
+    )
+    require(
+        writes.get("queue_metadata")
+        == {
+            "storage": "comments-log",
+            "mutation": "commentCreate",
+            "semantics": "append-only",
+            "encoding": "comments-log-v1",
+            "omit_input_fields": ["id", "createdAt"],
+            "verify": "re-read-comment",
+        },
+        "queue_metadata writes must append server-ordered comments-log-v1 events",
+    )
+    validate_linear_close(writes.get("close"), status_ids, status_names)
+
+
+def load_profile(path: str) -> dict[str, object]:
+    try:
+        with Path(path).open(encoding="utf-8") as handle:
+            value = json.load(handle, object_pairs_hook=unique_object)
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read {path}: {error}")
+    except json.JSONDecodeError as error:
+        fail(f"invalid JSON: {error.msg} at line {error.lineno} column {error.colno}")
+    require(isinstance(value, dict), "document must be an object")
+    return value
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        fail("usage: validate-profile <path>")
+    profile = load_profile(sys.argv[1])
+    validate_common(profile)
+    if profile["backend"] == "github-issues":
+        validate_github(profile)
+    else:
+        validate_linear(profile)
+    schema_validator = Path(__file__).with_name("validate-profile-schema")
+    result = subprocess.run(
+        [str(schema_validator), sys.argv[1]],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"validator exited {result.returncode}"
+        fail(f"schema validation failed: {detail}")
+
+
+if __name__ == "__main__":
+    main()

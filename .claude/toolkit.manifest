@@ -1,0 +1,39 @@
+# Managed by local-config bin/sync-project -- do not edit by hand.
+# Every path below is a vendored copy. Edit the source in local-config,
+# not here; the next sync overwrites whatever it finds.
+source	https://github.com/jclaw-labs/local-config
+commit	d01345fa70124b4e5e39c2b8ca38895e4e9b9225
+file	7a8c1086a858669f19f0474559bc17b7722c56db	.claude/skills/address-deep-review/SKILL.md
+file	0f000c570fa214754182cc4135a73ae2896e968d	.claude/skills/agent-provenance/SKILL.md
+file	944cdcabd50f25d5900c3b8697fb261e08f8686c	.claude/skills/agent-provenance/agent-provenance
+file	bb50b305388a228d4781fb07315fe2539fb6964b	.claude/skills/capture-pr-screenshots/SKILL.md
+file	0840c26b0dbdd4a141fa4f5179bcbae25fc60c65	.claude/skills/claim-task/SKILL.md
+file	d9a38378721ffafed30c3f02660ba24d3c4b89cc	.claude/skills/claim-task/claim-replay
+file	874ba97c3c3967e5bf0a32671c8bab78b43e652b	.claude/skills/claim-task/issue-fields
+file	4d5fa86e7f480d80c2193473ae6ac61ef6a89609	.claude/skills/claim-task/task-queue
+file	9191a29c24ab6005cea057ed7cf18c19314ea143	.claude/skills/create-pr/SKILL.md
+file	99c35736e4330f65c1c1644abd99ad0ab60b4516	.claude/skills/create-pr/lib/restack-common.sh
+file	88a59a5d21bbf7a014330d75b427592006df2304	.claude/skills/create-pr/pr-stack-section
+file	711d6a3b97cfd930d87e96964dbf5443673ccc77	.claude/skills/deep-review-orchestrate/SKILL.md
+file	81c1209cfbbfab405782fbd40fed3ad093961957	.claude/skills/deep-review-orchestrate/review-loop-state
+file	e06a264cf68b9fa29acc0b0f6218060672ab223f	.claude/skills/deep-review/SKILL.md
+file	5bc2ea0b6403bbf5e2bb7b1bb3d0107c19828d69	.claude/skills/pr-body-rules/SKILL.md
+file	fd0c3563ed08311d3c6b37bb8a4d720a28066dbe	.claude/skills/resolve-conflicts/SKILL.md
+file	645b2eb5cb56b248ec23c530c5baca7c078b64a5	.claude/skills/review-end-decision/SKILL.md
+file	35d4047747bf3cf6a8c25a3e456672fc649ab42a	.claude/skills/review-task-queue/SKILL.md
+file	7d896d72487d1a408f1120384e28d9e790878a61	.claude/skills/rfc-review/SKILL.md
+file	dc4d3ac25f907fda112c3c67958ec616fc840d9d	.claude/skills/stacked-pr-rules/SKILL.md
+file	0f75cb995798024bafc8515a99720453f6e16173	.claude/skills/steward-task-queue/SKILL.md
+file	dc791b32b4f908a1b6829b189aca190bf8612ac9	.claude/skills/steward-task-queue/linear-adapter
+file	36bef9542e4ae61b30fbedc962df40dce694369d	.claude/skills/steward-task-queue/profile.schema.json
+file	35a8f0ad262df07db001e4a1775e8d28e5ed4a7d	.claude/skills/steward-task-queue/profiles/example-linear.json
+file	5f34fb2d4afa4bdaffb8f5d7e06a83232291e3ae	.claude/skills/steward-task-queue/profiles/owners/jclaw-labs.json
+file	d8df0973a6a733c43588ceb2f41e81673a757dc7	.claude/skills/steward-task-queue/profiles/substackinc--substack.json
+file	470d5771a54fa1866c4a49e30e71da060fa911b4	.claude/skills/steward-task-queue/resolve-profile
+file	3001cb60e5bb18f1a806ce4abc7c8993343a9019	.claude/skills/steward-task-queue/validate-profile
+file	535ad6260b194e5c860f8bc55b837e97a89793ad	.claude/skills/steward-task-queue/validate-profile-schema
+file	78af2b25135a66467fc02cc4b978bfc3967563c7	.claude/skills/tidy-commits/SKILL.md
+file	2a5b98f0fb4befc838acac37737627860604d2f4	.claude/skills/work-task-queue/SKILL.md
+file	0ce9e61c1fdd01b81f3f858a46f35ce6cd62dfb1	.claude/skills/writing-style/SKILL.md
+file	20e192f01bce8c47d457eb702f9252114dc124cb	.claude/verify-toolkit
+file	245cb006cfe5b07a9eb02c9ff3f8828986721005	AGENTS.md

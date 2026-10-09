@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Verify the vendored AI toolkit in this repo still matches .claude/toolkit.manifest.
+#
+# This is a vendored copy from my local-config repo -- see AGENTS.md. It answers
+# one question: has anyone hand-edited a vendored file? It deliberately does not
+# check whether the toolkit is behind local-config, because that would need a
+# checkout of a private repo; local-config's own workflow answers that by opening
+# a PR here when it drifts ahead.
+#
+#   .claude/verify-toolkit          # exit 1 if a vendored file was edited
+#
+# If it fails: either revert the edit, or make the same change in local-config
+# (repo-tools/dot-agents-base/) and re-run `sync-project` from there, which is
+# what makes it stick.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+MANIFEST=".claude/toolkit.manifest"
+
+if [[ ! -f "$MANIFEST" ]]; then
+    echo "error: $MANIFEST not found -- is this repo synced from local-config?" >&2
+    exit 1
+fi
+
+modified=()
+missing=()
+
+while IFS=$'\t' read -r kind hash rel; do
+    [[ "$kind" == "file" ]] || continue
+    if [[ ! -f "$rel" ]]; then
+        missing+=("$rel")
+    elif [[ "$(git hash-object -- "$rel")" != "$hash" ]]; then
+        modified+=("$rel")
+    fi
+done < "$MANIFEST"
+
+if (( ${#modified[@]} == 0 && ${#missing[@]} == 0 )); then
+    echo "vendored toolkit matches $MANIFEST"
+    exit 0
+fi
+
+echo "vendored toolkit does not match $MANIFEST:" >&2
+for f in ${modified[@]+"${modified[@]}"}; do echo "  edited:  $f" >&2; done
+for f in ${missing[@]+"${missing[@]}"}; do echo "  missing: $f" >&2; done
+cat >&2 <<'EOF'
+
+These files are build artifacts, so a local edit is lost at the next sync.
+Make the change in local-config (repo-tools/dot-agents-base/) and run
+`sync-project <this-repo>` there, or `git restore` the paths above.
+EOF
+exit 1

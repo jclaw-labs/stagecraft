@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+"""Validate profiles against this skill's dependency-free JSON Schema subset.
+
+This is not a general Draft 2020-12 implementation. It implements every
+assertion keyword used by the bundled schema and rejects the schema if an
+unsupported assertion keyword is introduced.
+"""
+
+import json
+import re
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+
+ANNOTATIONS = {"$comment", "$id", "$schema", "title"}
+ASSERTIONS = {
+    "$ref",
+    "additionalProperties",
+    "allOf",
+    "anyOf",
+    "const",
+    "else",
+    "enum",
+    "format",
+    "if",
+    "items",
+    "maxItems",
+    "minItems",
+    "minLength",
+    "minProperties",
+    "minimum",
+    "oneOf",
+    "pattern",
+    "prefixItems",
+    "properties",
+    "required",
+    "then",
+    "type",
+    "uniqueItems",
+}
+CONTAINERS = {"$defs"}
+UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
+
+
+def fail(message: str) -> NoReturn:
+    print(f"profile-schema: {message}", file=sys.stderr)
+    raise SystemExit(64)
+
+
+def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load(path: Path, name: str) -> object:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return json.load(handle, object_pairs_hook=unique_object)
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read {name}: {error}")
+    except json.JSONDecodeError as error:
+        fail(
+            f"invalid {name} JSON: {error.msg} at line "
+            f"{error.lineno} column {error.colno}"
+        )
+    except ValueError as error:
+        fail(f"invalid {name} JSON: {error}")
+
+
+def audit_schema(schema: object, path: str = "$") -> None:
+    if isinstance(schema, bool):
+        return
+    if not isinstance(schema, dict):
+        fail(f"{path} must be a schema object or boolean")
+    unknown = schema.keys() - ANNOTATIONS - ASSERTIONS - CONTAINERS
+    if unknown:
+        fail(
+            f"{path} uses unsupported schema keywords: "
+            f"{', '.join(sorted(unknown))}"
+        )
+    for container in CONTAINERS | {"properties"}:
+        value = schema.get(container)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            fail(f"{path}.{container} must be an object")
+        for name, child in value.items():
+            audit_schema(child, f"{path}.{container}.{name}")
+    for keyword in {"allOf", "anyOf", "oneOf", "prefixItems"}:
+        value = schema.get(keyword)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            fail(f"{path}.{keyword} must be an array")
+        for index, child in enumerate(value):
+            audit_schema(child, f"{path}.{keyword}[{index}]")
+    for keyword in {
+        "additionalProperties",
+        "else",
+        "if",
+        "items",
+        "then",
+    }:
+        value = schema.get(keyword)
+        if value is not None and isinstance(value, (dict, bool)):
+            audit_schema(value, f"{path}.{keyword}")
+
+
+def resolve(root: dict[str, object], reference: str) -> object:
+    if not reference.startswith("#/"):
+        fail(f"only local JSON pointers are supported, got {reference}")
+    value: object = root
+    for raw_part in reference[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(value, dict) or part not in value:
+            fail(f"unresolved schema reference: {reference}")
+        value = value[part]
+    return value
+
+
+def json_identity(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def type_matches(expected: str, value: object) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "integer":
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            or isinstance(value, float)
+            and value.is_integer()
+        )
+    fail(f"unsupported JSON Schema type: {expected}")
+
+
+def validate(
+    schema: object,
+    value: object,
+    root: dict[str, object],
+    path: str = "$",
+) -> list[str]:
+    if schema is False:
+        return [f"{path}: false schema rejects the value"]
+    if schema is True:
+        return []
+    if not isinstance(schema, dict):
+        fail(f"invalid schema at {path}")
+    errors: list[str] = []
+
+    reference = schema.get("$ref")
+    if reference is not None:
+        if not isinstance(reference, str):
+            fail(f"{path}: $ref must be a string")
+        errors.extend(validate(resolve(root, reference), value, root, path))
+
+    expected_type = schema.get("type")
+    if expected_type is not None:
+        if not isinstance(expected_type, str):
+            fail(f"{path}: only one string type is supported")
+        if not type_matches(expected_type, value):
+            return errors + [f"{path}: expected {expected_type}"]
+
+    if "const" in schema and json_identity(value) != json_identity(schema["const"]):
+        errors.append(f"{path}: value does not match const")
+    if "enum" in schema:
+        enum = schema["enum"]
+        if not isinstance(enum, list):
+            fail(f"{path}: enum must be an array")
+        if all(json_identity(value) != json_identity(item) for item in enum):
+            errors.append(f"{path}: value is not in enum")
+
+    if isinstance(value, dict):
+        required = schema.get("required", [])
+        if not isinstance(required, list):
+            fail(f"{path}: required must be an array")
+        for key in required:
+            if not isinstance(key, str):
+                fail(f"{path}: required entries must be strings")
+            if key not in value:
+                errors.append(f"{path}: missing required property {key}")
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            fail(f"{path}: properties must be an object")
+        for key, child in properties.items():
+            if key in value:
+                errors.extend(validate(child, value[key], root, f"{path}.{key}"))
+        if "additionalProperties" in schema:
+            extra = value.keys() - properties.keys()
+            additional = schema["additionalProperties"]
+            if additional is False:
+                for key in sorted(extra):
+                    errors.append(f"{path}: additional property {key}")
+            elif additional is not True:
+                for key in sorted(extra):
+                    errors.extend(
+                        validate(additional, value[key], root, f"{path}.{key}")
+                    )
+        minimum_properties = schema.get("minProperties")
+        if minimum_properties is not None and len(value) < minimum_properties:
+            errors.append(f"{path}: fewer than {minimum_properties} properties")
+
+    if isinstance(value, list):
+        minimum_items = schema.get("minItems")
+        maximum_items = schema.get("maxItems")
+        if minimum_items is not None and len(value) < minimum_items:
+            errors.append(f"{path}: fewer than {minimum_items} items")
+        if maximum_items is not None and len(value) > maximum_items:
+            errors.append(f"{path}: more than {maximum_items} items")
+        if schema.get("uniqueItems") is True:
+            identities = [json_identity(item) for item in value]
+            if len(identities) != len(set(identities)):
+                errors.append(f"{path}: array items are not unique")
+        prefix = schema.get("prefixItems", [])
+        if not isinstance(prefix, list):
+            fail(f"{path}: prefixItems must be an array")
+        for index, child in enumerate(prefix[: len(value)]):
+            errors.extend(validate(child, value[index], root, f"{path}[{index}]"))
+        if "items" in schema:
+            child = schema["items"]
+            for index in range(len(prefix), len(value)):
+                errors.extend(validate(child, value[index], root, f"{path}[{index}]"))
+
+    if isinstance(value, str):
+        minimum_length = schema.get("minLength")
+        if minimum_length is not None and len(value) < minimum_length:
+            errors.append(f"{path}: shorter than {minimum_length} characters")
+        pattern = schema.get("pattern")
+        if pattern is not None:
+            if not isinstance(pattern, str):
+                fail(f"{path}: pattern must be a string")
+            if re.search(pattern, value) is None:
+                errors.append(f"{path}: does not match pattern")
+        value_format = schema.get("format")
+        if value_format is not None:
+            if value_format != "uuid":
+                fail(f"{path}: unsupported format {value_format}")
+            if UUID.fullmatch(value) is None:
+                errors.append(f"{path}: is not a UUID")
+
+    minimum = schema.get("minimum")
+    if (
+        minimum is not None
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value < minimum
+    ):
+        errors.append(f"{path}: is less than {minimum}")
+
+    for keyword, minimum_matches, maximum_matches in (
+        ("allOf", None, None),
+        ("anyOf", 1, None),
+        ("oneOf", 1, 1),
+    ):
+        branches = schema.get(keyword)
+        if branches is None:
+            continue
+        branch_errors = [validate(branch, value, root, path) for branch in branches]
+        matches = sum(not branch for branch in branch_errors)
+        if keyword == "allOf":
+            for branch in branch_errors:
+                errors.extend(branch)
+        elif matches < minimum_matches or (
+            maximum_matches is not None and matches > maximum_matches
+        ):
+            errors.append(f"{path}: matched {matches} branches of {keyword}")
+
+    conditional = schema.get("if")
+    if conditional is not None:
+        branch = "then" if not validate(conditional, value, root, path) else "else"
+        if branch in schema:
+            errors.extend(validate(schema[branch], value, root, path))
+    return errors
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        fail("usage: validate-profile-schema <profile>")
+    schema_path = Path(__file__).with_name("profile.schema.json")
+    schema = load(schema_path, "schema")
+    if not isinstance(schema, dict):
+        fail("schema root must be an object")
+    audit_schema(schema)
+    profile = load(Path(sys.argv[1]), "profile")
+    errors = validate(schema, profile, schema)
+    if errors:
+        fail("; ".join(errors[:8]))
+
+
+if __name__ == "__main__":
+    main()

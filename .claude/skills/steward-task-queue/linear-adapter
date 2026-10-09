@@ -1,0 +1,1250 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from contextlib import redirect_stderr
+from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
+from typing import NoReturn
+from uuid import uuid4
+
+
+UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
+SESSION_TOKEN_TEXT = r"[^:\x09-\x0d\x20<>]+"
+SESSION_TOKEN = re.compile(rf"^{SESSION_TOKEN_TEXT}$")
+HELD_STATES = {"In progress", "Under review"}
+CYCLE_STATES = {"Ready": "In progress", "Needs review": "Under review"}
+OPEN_STATE_TYPES = {"triage", "backlog", "unstarted", "started"}
+TERMINAL_STATE_TYPES = {"completed", "canceled", "duplicate"}
+
+
+def fail(message: str) -> NoReturn:
+    print(f"linear-adapter: {message}", file=sys.stderr)
+    raise SystemExit(64)
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        fail(message)
+
+
+def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load_json(path: str, name: str) -> object:
+    try:
+        with Path(path).open(encoding="utf-8") as handle:
+            return json.load(handle, object_pairs_hook=unique_object)
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read {name}: {error}")
+    except json.JSONDecodeError as error:
+        fail(
+            f"invalid {name} JSON: {error.msg} at line "
+            f"{error.lineno} column {error.colno}"
+        )
+    except ValueError as error:
+        fail(f"invalid {name} JSON: {error}")
+
+
+def load_profile(path: str) -> dict[str, object]:
+    validator = Path(__file__).with_name("validate-profile")
+    result = subprocess.run(
+        [str(validator), path],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"validator exited {result.returncode}"
+        fail(f"invalid profile: {detail}")
+    profile = load_json(path, "profile")
+    require(isinstance(profile, dict), "profile must be an object")
+    require(profile.get("backend") == "linear", "profile backend must be linear")
+    return profile
+
+
+def parse_time(value: object, name: str) -> datetime:
+    require(isinstance(value, str) and bool(value), f"{name} must be a timestamp")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        fail(f"{name} must be an ISO-8601 timestamp")
+    require(parsed.tzinfo is not None, f"{name} must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def issue_number(identifier: object, team_key: str) -> int:
+    require(isinstance(identifier, str), "blocker identifier must be a string")
+    match = re.fullmatch(rf"{re.escape(team_key)}-([1-9]\d*)", identifier)
+    require(match is not None, "blocker identifier must use the configured team")
+    return int(match.group(1))
+
+
+def normalize_blockers(
+    profile: dict[str, object], document: object
+) -> dict[str, object]:
+    require(isinstance(document, dict), "issue response must be an object")
+    team_key = profile["tracker"]["team_key"]
+    issue_id = document.get("id")
+    require(isinstance(issue_id, str) and bool(issue_id), "issue response needs an id")
+    team = document.get("team")
+    require(
+        isinstance(team, dict) and team.get("key") == team_key,
+        "issue response must belong to the configured team",
+    )
+    inverse = document.get("inverseRelations")
+    require(
+        isinstance(inverse, dict),
+        "issue response needs inverseRelations",
+    )
+    page_info = inverse.get("pageInfo")
+    require(
+        isinstance(page_info, dict)
+        and page_info.get("hasPreviousPage") is False
+        and page_info.get("hasNextPage") is False,
+        "inverseRelations must contain the complete relation history",
+    )
+    nodes = inverse.get("nodes")
+    require(isinstance(nodes, list), "inverseRelations nodes must be an array")
+    relation_ids: set[str] = set()
+    blocker_numbers: set[int] = set()
+    for relation in nodes:
+        require(isinstance(relation, dict), "every relation must be an object")
+        relation_id = relation.get("id")
+        require(
+            isinstance(relation_id, str) and bool(relation_id),
+            "every relation needs an id",
+        )
+        require(relation_id not in relation_ids, "duplicate relation id")
+        relation_ids.add(relation_id)
+        relation_type = relation.get("type")
+        require(isinstance(relation_type, str), "every relation needs a type")
+        if relation_type != "blocks":
+            continue
+        blocker = relation.get("issue")
+        blocked = relation.get("relatedIssue")
+        require(
+            isinstance(blocker, dict) and isinstance(blocked, dict),
+            "blocks relations need issue and relatedIssue",
+        )
+        require(
+            blocked.get("id") == issue_id,
+            "inverse blocks relation does not target the current issue",
+        )
+        blocker_team = blocker.get("team")
+        require(
+            isinstance(blocker_team, dict),
+            "blocker relation needs a team",
+        )
+        require(
+            blocker_team.get("key") == team_key,
+            "other-team blocker fails closed",
+        )
+        state = blocker.get("state")
+        require(
+            isinstance(state, dict) and isinstance(state.get("type"), str),
+            "blocker relation needs a workflow state type",
+        )
+        state_type = state["type"]
+        require(
+            state_type in OPEN_STATE_TYPES | TERMINAL_STATE_TYPES,
+            "blocker has an unknown workflow state type",
+        )
+        if state_type in TERMINAL_STATE_TYPES:
+            continue
+        number = issue_number(blocker.get("identifier"), team_key)
+        require(number not in blocker_numbers, "duplicate open blocker relation")
+        blocker_numbers.add(number)
+    return {"blocked_by": sorted(blocker_numbers)}
+
+
+def parse_event(
+    marker: str,
+    comment: dict[str, object],
+) -> dict[str, object] | None:
+    body = comment.get("body")
+    require(isinstance(body, str), "every comment body must be a string")
+    count = body.count(marker)
+    if count == 0:
+        return None
+    require(count == 1, "event comment must contain exactly one marker")
+    require(
+        body.startswith(marker + "\n"),
+        "event marker must be the first line",
+    )
+    payload_text = body[len(marker) + 1 :]
+    try:
+        payload = json.loads(payload_text, object_pairs_hook=unique_object)
+    except (json.JSONDecodeError, ValueError) as error:
+        fail(f"malformed event JSON: {error}")
+    require(isinstance(payload, dict), "event payload must be an object")
+    version = payload.get("version")
+    require(
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version == 1,
+        "event version must be the integer 1",
+    )
+    event_id = payload.get("event_id")
+    require(
+        isinstance(event_id, str) and UUID.fullmatch(event_id) is not None,
+        "event_id must be a UUID",
+    )
+    kind = payload.get("kind")
+    require(
+        kind
+        in {
+            "claim-cycle",
+            "claim-cycle-activate",
+            "claim-marker",
+            "claim",
+            "touches",
+        },
+        "event kind must be claim-cycle, claim-cycle-activate, "
+        "claim-marker, claim, or touches",
+    )
+    if kind == "claim-cycle":
+        fields = set(payload)
+        require(
+            fields
+            in (
+                {"version", "event_id", "kind", "state"},
+                {
+                    "version",
+                    "event_id",
+                    "kind",
+                    "state",
+                    "predecessor",
+                },
+            ),
+            "claim-cycle event has unknown or missing fields",
+        )
+        require(
+            payload.get("state") in CYCLE_STATES,
+            "claim-cycle state must be Ready or Needs review",
+        )
+        if "predecessor" in payload:
+            predecessor = payload["predecessor"]
+            require(
+                predecessor is None
+                or isinstance(predecessor, str)
+                and UUID.fullmatch(predecessor) is not None,
+                "claim-cycle predecessor must be null or a UUID",
+            )
+    elif kind == "claim-cycle-activate":
+        require(
+            set(payload) == {"version", "event_id", "kind", "generation"},
+            "claim-cycle-activate event has unknown or missing fields",
+        )
+        require(
+            isinstance(payload.get("generation"), str)
+            and UUID.fullmatch(payload["generation"]) is not None,
+            "claim-cycle activation generation must be a UUID",
+        )
+    elif kind == "claim-marker":
+        fields = set(payload)
+        require(
+            fields
+            in (
+                {"version", "event_id", "kind", "session", "state"},
+                {
+                    "version",
+                    "event_id",
+                    "kind",
+                    "session",
+                    "state",
+                    "generation",
+                },
+            ),
+            "claim-marker event has unknown or missing fields",
+        )
+        session = payload.get("session")
+        require(
+            isinstance(session, str)
+            and SESSION_TOKEN.fullmatch(session) is not None,
+            "claim-marker session must be a session token",
+        )
+        require(
+            payload.get("state") in HELD_STATES,
+            "claim-marker state must be In progress or Under review",
+        )
+        if "generation" in payload:
+            require(
+                isinstance(payload["generation"], str)
+                and UUID.fullmatch(payload["generation"]) is not None,
+                "claim-marker generation must be a UUID",
+            )
+    elif kind == "claim":
+        fields = set(payload)
+        require(
+            fields
+            in (
+                {"version", "event_id", "kind", "value"},
+                {
+                    "version",
+                    "event_id",
+                    "kind",
+                    "value",
+                    "state",
+                    "generation",
+                },
+            ),
+            "claim event has unknown or missing fields",
+        )
+        claim_value = payload.get("value")
+        require(isinstance(claim_value, str), "claim value must be a string")
+        require(
+            claim_value == ""
+            or SESSION_TOKEN.fullmatch(claim_value) is not None,
+            "nonempty claim value must be a session token",
+        )
+        if "generation" in payload:
+            require(
+                payload.get("state") in HELD_STATES,
+                "claim state must be In progress or Under review",
+            )
+            require(
+                isinstance(payload["generation"], str)
+                and UUID.fullmatch(payload["generation"]) is not None,
+                "claim generation must be a UUID",
+            )
+    else:
+        require(
+            set(payload) == {"version", "event_id", "kind", "value"},
+            "touches event has unknown or missing fields",
+        )
+        value = payload.get("value")
+        require(isinstance(value, list), "touches value must be an array")
+        require(
+            all(isinstance(path, str) and bool(path.strip()) for path in value),
+            "touches paths must be nonblank strings",
+        )
+        require(len(value) == len(set(value)), "touches paths must be unique")
+    return payload
+
+
+def recovery_candidate(
+    marker: str,
+    comment: dict[str, object],
+    created: datetime,
+    updated: datetime,
+    archived: datetime | None,
+) -> tuple[dict[str, object] | None, bool]:
+    body = comment["body"]
+    if not isinstance(body, str) or marker not in body:
+        return None, False
+    try:
+        with redirect_stderr(StringIO()):
+            event = parse_event(marker, comment)
+    except SystemExit as error:
+        if error.code != 64:
+            raise
+        return None, True
+    if event is None:
+        return None, False
+    if archived is not None or created != updated:
+        return None, True
+    return event, False
+
+
+def server_order_key(created: datetime, node_index: int) -> tuple[datetime, int]:
+    return created, -node_index
+
+
+def select_recovery_root(
+    marker: str,
+    comments: list[
+        tuple[
+            int,
+            dict[str, object],
+            datetime,
+            datetime,
+            datetime | None,
+        ]
+    ],
+) -> list[tuple[datetime, int, dict[str, object]]]:
+    roots: list[tuple[datetime, str, dict[str, object], int]] = []
+    activations: dict[
+        str,
+        list[tuple[datetime, str, dict[str, object]]],
+    ] = {}
+    malformed_comments: list[
+        tuple[
+            dict[str, object],
+            datetime,
+            datetime,
+            datetime | None,
+            int,
+        ]
+    ] = []
+    for node_index, comment, created, updated, archived in comments:
+        event, malformed = recovery_candidate(
+            marker,
+            comment,
+            created,
+            updated,
+            archived,
+        )
+        if malformed:
+            malformed_comments.append(
+                (comment, created, updated, archived, node_index)
+            )
+        if event is None:
+            continue
+        event_id = event["event_id"]
+        if event["kind"] == "claim-cycle":
+            roots.append((created, event_id, event, node_index))
+        else:
+            if event["kind"] != "claim-cycle-activate":
+                continue
+            generation = event["generation"]
+            activations.setdefault(generation, []).append(
+                (created, event_id, event)
+            )
+
+    candidates: list[
+        tuple[
+            datetime,
+            str,
+            datetime,
+            str,
+            dict[str, object],
+            dict[str, object],
+            int,
+        ]
+    ] = []
+    for root_created, generation, root, root_node_index in roots:
+        for activation_created, activation_id, activation in activations.get(
+            generation, []
+        ):
+            if (activation_created, activation_id) <= (
+                root_created,
+                generation,
+            ):
+                continue
+            candidates.append(
+                (
+                    activation_created,
+                    activation_id,
+                    root_created,
+                    generation,
+                    root,
+                    activation,
+                    root_node_index,
+                )
+            )
+    boundary_order = max(
+        (
+            server_order_key(created, node_index)
+            for _, created, _, _, node_index in malformed_comments
+        ),
+        default=None,
+    )
+    eligible = (
+        [
+            candidate
+            for candidate in candidates
+            if server_order_key(candidate[2], candidate[6]) > boundary_order
+        ]
+        if boundary_order is not None
+        else candidates
+    )
+    if not eligible and candidates:
+        (
+            malformed_comment,
+            malformed_created,
+            malformed_updated,
+            malformed_archived,
+            _,
+        ) = max(
+            malformed_comments,
+            key=lambda value: server_order_key(value[1], value[4]),
+        )
+        parse_event(marker, malformed_comment)
+        require(
+            malformed_archived is None,
+            "archived event comments fail closed",
+        )
+        require(
+            malformed_created == malformed_updated,
+            "edited event comments fail closed",
+        )
+    require(
+        bool(eligible),
+        "no activated root exists after malformed Linear claim history",
+    )
+    boundaries: list[tuple[datetime, int, dict[str, object]]] = []
+    for root_order in sorted(
+        {
+            server_order_key(candidate[2], candidate[6])
+            for candidate in eligible
+        }
+    ):
+        winner = min(
+            (
+                candidate
+                for candidate in eligible
+                if server_order_key(candidate[2], candidate[6]) >= root_order
+            ),
+            key=lambda candidate: candidate[:2],
+        )
+        boundaries.append(
+            (
+                root_order[0],
+                -root_order[1],
+                {
+                    "root_activation": winner[1],
+                    "root_generation": winner[3],
+                },
+            )
+        )
+    return boundaries
+
+
+def strict_replay_comments(
+    marker: str,
+    comments: list[
+        tuple[
+            int,
+            dict[str, object],
+            datetime,
+            datetime,
+            datetime | None,
+        ]
+    ],
+    queue_state: str,
+) -> dict[str, object]:
+    parsed: list[tuple[dict[str, object], dict[str, object]]] = []
+    event_ids: set[str] = set()
+    for _, comment, created, updated, archived in comments:
+        event = parse_event(marker, comment)
+        if event is None:
+            continue
+        require(archived is None, "archived event comments fail closed")
+        require(created == updated, "edited event comments fail closed")
+        event_id = event["event_id"]
+        require(event_id not in event_ids, "duplicate event_id fails closed")
+        event_ids.add(event_id)
+        parsed.append((comment, event))
+
+    replay = Path(__file__).parent.parent / "claim-task" / "claim-replay"
+    result = subprocess.run(
+        [
+            str(replay),
+            "events",
+            "--input",
+            "-",
+            "--queue-state",
+            queue_state,
+            "--json",
+        ],
+        input=json.dumps(
+            {
+                "format": "claim-protocol-events-v1",
+                "events": [
+                    {
+                        "source_id": comment["id"],
+                        "created_at": comment["createdAt"],
+                        "stable_key": event["event_id"],
+                        "event": event,
+                    }
+                    for comment, event in parsed
+                ],
+            },
+            separators=(",", ":"),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"replay exited {result.returncode}"
+        fail(f"claim replay failed: {detail}")
+    try:
+        normalized = json.loads(result.stdout, object_pairs_hook=unique_object)
+    except (json.JSONDecodeError, ValueError) as error:
+        fail(f"claim replay returned invalid JSON: {error}")
+    require(isinstance(normalized, dict), "claim replay must return an object")
+    return normalized
+
+
+def comment_nodes(document: object) -> list[object]:
+    require(isinstance(document, dict), "comment response must be an object")
+    expected_fields = {"format", "includeArchived", "orderBy", "pages"}
+    require(
+        not (set(document) - expected_fields),
+        "raw comment pages are not a linear-comment-pages-v1 aggregate",
+    )
+    require(
+        document.get("format") == "linear-comment-pages-v1",
+        "comments must use the linear-comment-pages-v1 page aggregate",
+    )
+    require(
+        document.get("includeArchived") is True,
+        "comments-log must include archived comments",
+    )
+    require(
+        document.get("orderBy") == "createdAt",
+        "comments-log must be fetched in configured server order",
+    )
+    pages = document.get("pages")
+    require(
+        isinstance(pages, list) and bool(pages),
+        "comment page aggregate needs at least one page",
+    )
+    nodes: list[object] = []
+    previous_end: str | None = None
+    seen_end_cursors: set[str] = set()
+    for index, page in enumerate(pages):
+        require(isinstance(page, dict), "every comment page must be an object")
+        require(
+            set(page) == {"after", "nodes", "pageInfo"},
+            "comment page has unknown or missing fields",
+        )
+        after = page["after"]
+        if index == 0:
+            require(after is None, "the first comment page must use after: null")
+        else:
+            require(
+                isinstance(after, str)
+                and bool(after)
+                and after == previous_end,
+                "comment pages must form one contiguous cursor chain",
+            )
+        page_nodes = page["nodes"]
+        require(isinstance(page_nodes, list), "comment page nodes must be an array")
+        page_info = page["pageInfo"]
+        require(isinstance(page_info, dict), "comment pageInfo must be an object")
+        require(
+            set(page_info)
+            == {
+                "hasPreviousPage",
+                "hasNextPage",
+                "startCursor",
+                "endCursor",
+            },
+            "comment pageInfo has unknown or missing fields",
+        )
+        expected_next = index < len(pages) - 1
+        require(
+            isinstance(page_info["hasPreviousPage"], bool)
+            and page_info["hasNextPage"] is expected_next,
+            "comment pageInfo contradicts aggregate position",
+        )
+        start_cursor = page_info["startCursor"]
+        end_cursor = page_info["endCursor"]
+        if page_nodes:
+            require(
+                isinstance(start_cursor, str)
+                and bool(start_cursor)
+                and isinstance(end_cursor, str)
+                and bool(end_cursor),
+                "nonempty comment pages need start and end cursors",
+            )
+            require(
+                end_cursor not in seen_end_cursors,
+                "comment page cursor chain contains a duplicate end cursor",
+            )
+            seen_end_cursors.add(end_cursor)
+        else:
+            require(
+                start_cursor is None and end_cursor is None,
+                "empty comment pages must use null cursors",
+            )
+            require(
+                not expected_next,
+                "an empty comment page cannot precede another page",
+            )
+        previous_end = end_cursor
+        nodes.extend(page_nodes)
+    return nodes
+
+
+def normalize_comments(
+    profile: dict[str, object],
+    document: object,
+    queue_state: str,
+    recover_root: bool,
+) -> dict[str, object]:
+    metadata = profile["tracker"]["queue_metadata"]
+    nodes = comment_nodes(document)
+    require(
+        document.get("orderBy") == metadata["order_by"],
+        "comments-log must be fetched in configured server order",
+    )
+    envelopes: list[
+        tuple[
+            int,
+            dict[str, object],
+            datetime,
+            datetime,
+            datetime | None,
+        ]
+    ] = []
+    comment_ids: set[str] = set()
+    previous_time: datetime | None = None
+    for node_index, comment in enumerate(nodes):
+        require(isinstance(comment, dict), "every comment must be an object")
+        comment_id = comment.get("id")
+        require(
+            isinstance(comment_id, str) and bool(comment_id),
+            "every comment needs an id",
+        )
+        require(comment_id not in comment_ids, "duplicate comment id")
+        comment_ids.add(comment_id)
+        created = parse_time(comment.get("createdAt"), "comment createdAt")
+        updated = parse_time(comment.get("updatedAt"), "comment updatedAt")
+        require("archivedAt" in comment, "every comment needs archivedAt")
+        archived_value = comment["archivedAt"]
+        archived = (
+            None
+            if archived_value is None
+            else parse_time(archived_value, "comment archivedAt")
+        )
+        if previous_time is not None:
+            require(
+                created <= previous_time,
+                "comments are not in descending server createdAt order",
+            )
+        previous_time = created
+        require(
+            isinstance(comment.get("body"), str),
+            "every comment body must be a string",
+        )
+        envelopes.append((node_index, comment, created, updated, archived))
+
+    if not recover_root:
+        return strict_replay_comments(
+            metadata["marker"],
+            envelopes,
+            queue_state,
+        )
+
+    boundaries = select_recovery_root(metadata["marker"], envelopes)
+    last_error: str | None = None
+    for root_created, root_node_index, recovery in boundaries:
+        suffix = [
+            envelope
+            for envelope in envelopes
+            if server_order_key(envelope[2], envelope[0])
+            >= server_order_key(root_created, root_node_index)
+        ]
+        captured = StringIO()
+        try:
+            with redirect_stderr(captured):
+                normalized = strict_replay_comments(
+                    metadata["marker"],
+                    suffix,
+                    queue_state,
+                )
+        except SystemExit as error:
+            if error.code != 64:
+                raise
+            last_error = captured.getvalue().strip()
+            continue
+        recovery["fenced_source_ids"] = [
+            comment["id"]
+            for node_index, comment, created, _, _ in envelopes
+            if server_order_key(created, node_index)
+            < server_order_key(root_created, root_node_index)
+        ]
+        normalized["recovery"] = recovery
+        return normalized
+
+    require(last_error is not None, "activated root recovery failed")
+    fail(f"activated root recovery failed: {last_error}")
+
+
+def render_event(
+    profile: dict[str, object], args: argparse.Namespace
+) -> dict[str, object]:
+    capability = profile["writes"]["mutation_capability"]
+    if not capability["supported"]:
+        fail(f"Linear mutations unsupported: {capability['reason']}")
+    require(
+        isinstance(args.issue_id, str) and bool(args.issue_id.strip()),
+        "event issue-id must be nonblank",
+    )
+    require(args.kind is not None, "event kind is required")
+    payload: dict[str, object] = {
+        "version": 1,
+        "event_id": str(uuid4()),
+        "kind": args.kind,
+    }
+    if args.kind == "claim-cycle":
+        require(
+            args.state in CYCLE_STATES,
+            "claim-cycle state must be Ready or Needs review",
+        )
+        require(
+            args.session is None
+            and args.generation is None
+            and args.value is None
+            and args.touch is None
+            and not args.empty_touches,
+            "claim-cycle accepts only state and predecessor",
+        )
+        require(
+            isinstance(args.predecessor, str)
+            and bool(args.predecessor.strip()),
+            "claim-cycle predecessor is required",
+        )
+        payload["state"] = args.state
+        if args.predecessor == "root":
+            payload["predecessor"] = None
+        else:
+            require(
+                UUID.fullmatch(args.predecessor) is not None,
+                "claim-cycle predecessor must be root or a UUID",
+            )
+            payload["predecessor"] = args.predecessor
+    elif args.kind == "claim-cycle-activate":
+        require(
+            isinstance(args.generation, str)
+            and UUID.fullmatch(args.generation) is not None,
+            "claim-cycle activation generation must be a UUID",
+        )
+        require(
+            args.session is None
+            and args.state is None
+            and args.predecessor is None
+            and args.value is None
+            and args.touch is None
+            and not args.empty_touches,
+            "claim-cycle-activate accepts only generation",
+        )
+        payload["generation"] = args.generation
+    elif args.kind == "claim-marker":
+        require(
+            isinstance(args.session, str)
+            and SESSION_TOKEN.fullmatch(args.session) is not None,
+            "claim-marker session must be a session token",
+        )
+        require(
+            args.state in HELD_STATES,
+            "claim-marker state must be In progress or Under review",
+        )
+        require(
+            isinstance(args.generation, str) and bool(args.generation.strip()),
+            "claim-marker generation must be nonblank",
+        )
+        require(
+            UUID.fullmatch(args.generation) is not None,
+            "claim-marker generation must be a UUID",
+        )
+        require(
+            args.predecessor is None
+            and args.value is None
+            and args.touch is None
+            and not args.empty_touches,
+            "claim-marker accepts only session, state, and generation",
+        )
+        payload.update(
+            {
+                "session": args.session,
+                "state": args.state,
+                "generation": args.generation,
+            }
+        )
+    elif args.kind == "claim":
+        require(args.value is not None, "claim value is required")
+        require(
+            args.value == ""
+            or SESSION_TOKEN.fullmatch(args.value) is not None,
+            "nonempty claim value must be a session token",
+        )
+        require(
+            args.session is None
+            and args.predecessor is None
+            and args.touch is None
+            and not args.empty_touches,
+            "claim accepts only value, state, and generation",
+        )
+        require(
+            args.state in HELD_STATES,
+            "claim state must be In progress or Under review",
+        )
+        require(
+            isinstance(args.generation, str)
+            and UUID.fullmatch(args.generation) is not None,
+            "claim generation must be a UUID",
+        )
+        payload.update(
+            {
+                "value": args.value,
+                "state": args.state,
+                "generation": args.generation,
+            }
+        )
+    else:
+        require(
+            args.session is None
+            and args.state is None
+            and args.generation is None
+            and args.predecessor is None
+            and args.value is None,
+            "touches accepts only touch paths or empty-touches",
+        )
+        require(
+            not (args.touch is not None and args.empty_touches),
+            "touches cannot combine touch paths with empty-touches",
+        )
+        require(
+            args.touch is not None or args.empty_touches,
+            "touches requires touch paths or empty-touches",
+        )
+        touches = args.touch or []
+        require(
+            all(bool(path.strip()) for path in touches),
+            "touches paths must be nonblank strings",
+        )
+        require(len(touches) == len(set(touches)), "touches paths must be unique")
+        payload["value"] = touches
+    marker = profile["tracker"]["queue_metadata"]["marker"]
+    body = marker + "\n" + json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+    return {
+        "event_id": payload["event_id"],
+        "input": {"issueId": args.issue_id, "body": body},
+    }
+
+
+def require_mutations(profile: dict[str, object]) -> None:
+    capability = profile["writes"]["mutation_capability"]
+    if not capability["supported"]:
+        fail(f"Linear mutations unsupported: {capability['reason']}")
+
+
+def duplicate_config(profile: dict[str, object]) -> dict[str, object]:
+    close = profile["writes"]["close"]
+    require(close["supported"], "Linear close capability is unsupported")
+    return close["duplicate"]
+
+
+def render_duplicate(
+    profile: dict[str, object], args: argparse.Namespace
+) -> dict[str, object]:
+    require_mutations(profile)
+    config = duplicate_config(profile)
+    require(
+        isinstance(args.issue_id, str) and bool(args.issue_id.strip()),
+        "duplicate issue-id must be nonblank",
+    )
+    require(
+        isinstance(args.canonical_issue_id, str)
+        and bool(args.canonical_issue_id.strip()),
+        "duplicate canonical-issue-id must be nonblank",
+    )
+    require(
+        args.issue_id != args.canonical_issue_id,
+        "duplicate and canonical issue IDs must differ",
+    )
+    return {
+        "input": {
+            "issueId": args.issue_id,
+            "relatedIssueId": args.canonical_issue_id,
+            "type": config["relation_type"],
+        }
+    }
+
+
+def verify_duplicate(
+    profile: dict[str, object],
+    args: argparse.Namespace,
+    document: object,
+) -> dict[str, object]:
+    config = duplicate_config(profile)
+    require(isinstance(document, dict), "duplicate response must be an object")
+    require(
+        document.get("id") == args.issue_id,
+        "duplicate response must identify the duplicate issue",
+    )
+    team = document.get("team")
+    require(
+        isinstance(team, dict)
+        and team.get("key") == profile["tracker"]["team_key"],
+        "duplicate issue must belong to the configured team",
+    )
+    expected_state = config["resulting_status"]
+    state = document.get("state")
+    require(isinstance(state, dict), "duplicate response needs a workflow state")
+    require(
+        state.get("id") == expected_state["id"]
+        and state.get("name") == expected_state["name"]
+        and state.get("type") == expected_state["type"],
+        "duplicate response does not have the system-managed Duplicate state",
+    )
+    relations = document.get("relations")
+    require(
+        isinstance(relations, dict),
+        "duplicate response needs outgoing relations",
+    )
+    page_info = relations.get("pageInfo")
+    require(
+        isinstance(page_info, dict)
+        and page_info.get("hasPreviousPage") is False
+        and page_info.get("hasNextPage") is False,
+        "duplicate verification needs complete outgoing relations",
+    )
+    nodes = relations.get("nodes")
+    require(isinstance(nodes, list), "duplicate relation nodes must be an array")
+    relation_ids: set[str] = set()
+    duplicate_targets: list[str] = []
+    for relation in nodes:
+        require(isinstance(relation, dict), "every relation must be an object")
+        relation_id = relation.get("id")
+        require(
+            isinstance(relation_id, str) and bool(relation_id),
+            "every relation needs an id",
+        )
+        require(relation_id not in relation_ids, "duplicate relation id")
+        relation_ids.add(relation_id)
+        if relation.get("type") != config["relation_type"]:
+            continue
+        issue = relation.get("issue")
+        related = relation.get("relatedIssue")
+        require(
+            isinstance(issue, dict) and isinstance(related, dict),
+            "duplicate relations need issue and relatedIssue",
+        )
+        require(
+            issue.get("id") == args.issue_id,
+            "duplicate relation must point from duplicate to canonical",
+        )
+        target = related.get("id")
+        require(
+            isinstance(target, str) and bool(target),
+            "duplicate relation needs a canonical target",
+        )
+        duplicate_targets.append(target)
+    require(
+        duplicate_targets == [args.canonical_issue_id],
+        "duplicate relation must resolve to exactly the required canonical target",
+    )
+    return {
+        "canonical_issue_id": args.canonical_issue_id,
+        "relation": True,
+        "state": True,
+        "valid": True,
+    }
+
+
+def validate_statuses(
+    profile: dict[str, object], document: object
+) -> dict[str, object]:
+    require(isinstance(document, dict), "workflow response must be an object")
+    require(
+        document.get("complete") is True,
+        "workflow validation needs the complete configured status set",
+    )
+    nodes = document.get("nodes")
+    require(isinstance(nodes, list), "workflow state nodes must be an array")
+    tracker = profile["tracker"]
+    expected: dict[str, tuple[str, str, str]] = {
+        status_id: (
+            canonical,
+            tracker["status_names"][canonical],
+            tracker["status_types"][canonical],
+        )
+        for canonical, status_id in tracker["statuses"].items()
+    }
+    close = profile["writes"]["close"]
+    if close["supported"]:
+        expected.update(
+            {
+                status_id: (
+                    canonical,
+                    close["status_names"][canonical],
+                    close["status_types"][canonical],
+                )
+                for canonical, status_id in close["statuses"].items()
+            }
+        )
+        duplicate = close["duplicate"]["resulting_status"]
+        expected[duplicate["id"]] = (
+            "duplicate",
+            duplicate["name"],
+            duplicate["type"],
+        )
+    seen: set[str] = set()
+    for state in nodes:
+        require(isinstance(state, dict), "every workflow state must be an object")
+        state_id = state.get("id")
+        require(
+            isinstance(state_id, str) and bool(state_id),
+            "every workflow state needs an id",
+        )
+        team = state.get("team")
+        require(
+            team
+            == {
+                "id": tracker["team_id"],
+                "key": tracker["team_key"],
+                "name": tracker["team_name"],
+            },
+            "configured workflow state belongs to another team",
+        )
+        if state_id not in expected:
+            continue
+        require(state_id not in seen, "duplicate configured workflow state")
+        seen.add(state_id)
+        canonical, expected_name, expected_type = expected[state_id]
+        require(
+            state.get("name") == expected_name,
+            f"{canonical} workflow state name must be {expected_name}",
+        )
+        require(
+            state.get("type") == expected_type,
+            f"{canonical} workflow state type must be {expected_type}",
+        )
+    missing = expected.keys() - seen
+    require(
+        not missing,
+        "live workflow states are missing configured status IDs",
+    )
+    return {"valid": True, "validated": len(seen)}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="linear-adapter")
+    parser.add_argument(
+        "command",
+        choices=(
+            "blockers",
+            "comments",
+            "statuses",
+            "event",
+            "duplicate",
+            "verify-duplicate",
+        ),
+    )
+    parser.add_argument("--profile", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--issue-id")
+    parser.add_argument("--canonical-issue-id")
+    parser.add_argument(
+        "--kind",
+        choices=(
+            "claim-cycle",
+            "claim-cycle-activate",
+            "claim-marker",
+            "claim",
+            "touches",
+        ),
+    )
+    parser.add_argument("--session")
+    parser.add_argument("--state")
+    parser.add_argument("--generation")
+    parser.add_argument("--predecessor")
+    parser.add_argument("--value")
+    parser.add_argument("--touch", action="append")
+    parser.add_argument("--empty-touches", action="store_true")
+    parser.add_argument("--queue-state")
+    parser.add_argument("--recover-root", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    profile = load_profile(args.profile)
+    if args.command == "event":
+        require(
+            args.input is None
+            and args.canonical_issue_id is None
+            and args.queue_state is None,
+            "event does not accept input, canonical-issue-id, or queue-state",
+        )
+        require(not args.recover_root, "event does not accept recover-root")
+        result = render_event(profile, args)
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        return
+    if args.command == "duplicate":
+        require(args.input is None, "duplicate does not accept input")
+        require(
+            args.kind is None
+            and args.session is None
+            and args.state is None
+            and args.generation is None
+            and args.predecessor is None
+            and args.value is None
+            and args.touch is None
+            and not args.empty_touches,
+            "duplicate does not accept event arguments",
+        )
+        require(args.queue_state is None, "duplicate does not accept queue-state")
+        require(not args.recover_root, "duplicate does not accept recover-root")
+        result = render_duplicate(profile, args)
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        return
+    require(args.input is not None, f"{args.command} requires input")
+    require(
+        args.kind is None
+        and args.session is None
+        and args.state is None
+        and args.generation is None
+        and args.predecessor is None
+        and args.value is None
+        and args.touch is None
+        and not args.empty_touches,
+        f"{args.command} does not accept event arguments",
+    )
+    document = load_json(args.input, "input")
+    if args.command == "verify-duplicate":
+        require(
+            args.issue_id is not None and args.canonical_issue_id is not None,
+            "verify-duplicate needs issue-id and canonical-issue-id",
+        )
+        require(
+            args.queue_state is None,
+            "verify-duplicate does not accept queue-state",
+        )
+        require(
+            not args.recover_root,
+            "verify-duplicate does not accept recover-root",
+        )
+        result = verify_duplicate(profile, args, document)
+    else:
+        require(
+            args.issue_id is None and args.canonical_issue_id is None,
+            f"{args.command} does not accept issue IDs",
+        )
+        if args.command == "blockers":
+            require(args.queue_state is None, "blockers does not accept queue-state")
+            require(not args.recover_root, "blockers does not accept recover-root")
+            result = normalize_blockers(profile, document)
+        elif args.command == "comments":
+            require(
+                args.queue_state is not None,
+                "comments requires queue-state",
+            )
+            result = normalize_comments(
+                profile,
+                document,
+                args.queue_state,
+                args.recover_root,
+            )
+        else:
+            require(args.queue_state is None, "statuses does not accept queue-state")
+            require(not args.recover_root, "statuses does not accept recover-root")
+            result = validate_statuses(profile, document)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

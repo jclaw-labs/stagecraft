@@ -1,0 +1,887 @@
+#!/usr/bin/env bash
+# pr-stack-section: render the "## PR stack" outline for a stacked PR chain and
+#                   splice it into the body of every PR in that chain.
+#
+# Usage: pr-stack-section [--apply] <pr-number | branch>
+#
+# A reviewer who lands on one PR of a stack should be able to see the whole stack
+# and where this PR sits in it — including the parts that have already landed. The
+# outline is DERIVED rather than written by hand, because N hand-written copies go
+# stale the moment a PR is added, merged, or reordered. But it also REMEMBERS,
+# because deriving it from live state alone can only ever show the open remainder.
+#
+# WHY IT HAS TO REMEMBER: the shape comes from GitHub base refs, and a merge
+# destroys them. When the bottom PR squash-merges, GitHub deletes its branch and
+# retargets the child onto trunk, so the fact that the child was ever stacked on
+# that parent is gone — no API call brings it back. So the block carries its own
+# record of the tree, one line of PR-number edges in an HTML comment inside it:
+#
+#     <!-- pr-stack-tree: 100:0 101:100 102:101 -->
+#
+# ("child:parent", with 0 meaning the trunk.) Every PR in the stack carries the
+# same record, so any one body is enough to recover the whole tree. Each run reads
+# the record off every PR it can reach, unions it with what the live base refs
+# say, renders that, and writes the union back. Live base refs win wherever they
+# exist, so a deliberate retarget still moves a PR; a recorded parent is believed
+# only once that parent has stopped being open, which is exactly the
+# merge-retarget case and not a PR you detached on purpose.
+#
+# The corollary: a stack only has the history you recorded. Run --apply when you
+# OPEN the stack, not just when you land it.
+#
+# Takes any PR in the stack — it walks down to the bottom and then back up over
+# every branch above it, so there is no "run it on the right one". Without --apply
+# it prints the block for the named PR so you can eyeball it. With --apply it
+# writes the block into EVERY PR in the stack — the same tree each time, with the
+# you-are-here marker moving and the folds (below) chosen around that reader.
+#
+# Two PRs based on the same branch are a fan-out, and they render as siblings at
+# one level rather than being refused. That's why this walks the tree itself
+# instead of calling rc_detect_children: restack/restack-refresh have to rebase a
+# single linear path and must keep dying on a branch point, but an outline can
+# just draw it.
+#
+# LAYOUT, and why it is the way it is: GitHub only expands a bare PR URL into a
+# rich link (status icon + title + number) inside a LIST ITEM. Not in a table
+# cell, not in a <br>-joined paragraph — both of those collapse it to a bare
+# "#1234". So every entry is a bullet, and the tree gets drawn INSIDE the bullet:
+# plain &nbsp; for the indent, then a <samp> run holding the rails, the connector
+# and the node. <samp> keeps those monospace so the rails line up, without the
+# gray pill a code span would paint over them — the trunk is in <samp> too, so it
+# starts in the same font.
+#
+# The tree grows UPWARD: the trunk sits at the foot of the drawing and the tip of
+# the stack at the top. That's the orientation GitHub's own stack map uses, and
+# the one people describe a stack in. A walk has to reach a parent before its
+# children, so the rows are built parent-first and printed in reverse. Reversing
+# is all it takes, because a rail segment records whether a fork continues past
+# that row on the side AWAY from the parent, which doesn't depend on which way the
+# drawing runs. Only one glyph has to be mirrored: the corner on the arm furthest
+# from the fork, drawn ┌─ so it turns back down toward it where a downward drawing
+# would have used └─.
+#
+# Every PR is a node on the rail, and each glyph means exactly one thing:
+#
+#     ✓  landed        ○  still open
+#     ✗  closed        ●  the one you're reading, whatever its state
+#
+# So exactly one node is ever filled and it's always the one you're looking at.
+# The state under a ● is not lost: GitHub's rich link right beside it draws the
+# live purple-merged or red-closed icon, always correct with no re-run, which is
+# also why the entries carry no titles.
+#
+# The TRUNK LINE is a waterline rather than a heading. Everything below it has
+# landed into it; everything above is still stacked on it. So it rises through the
+# drawing as the stack lands, and when the last PR merges it goes away entirely —
+# at that point the stack IS the trunk, and saying so twice is noise. With nothing
+# merged it sits at the very bottom, under the whole stack. See trunk_row_index
+# for the two conditions that have to hold for it to be true.
+#
+# Only a FORK indents — a PR stacked singly on its parent sits at the same column
+# with no connector, so a linear stack never drifts right no matter how deep it
+# gets. That also keeps the drawing unambiguous: a ├─/┌─ connector appears if and
+# only if a branch starts on that line, so two children of one PR can't be
+# mistaken for a chain, and a chain can't be mistaken for two children.
+#
+# A MERGED PR stays in the tree for good — that's the whole point. A CLOSED one
+# doesn't: it drops out as soon as nothing is stacked on it, and --apply strips
+# its block, so closing a PR is how you take a dead arm out of the picture.
+#
+# The block is delimited by HTML comment markers, and every run strips it from
+# wherever it sits and re-inserts it at the top of the body — under the tracker
+# line, above the Summary. Position is part of what's generated, so a block that
+# ends up somewhere else gets moved back rather than left there. Nothing outside
+# the block is re-rendered. It fetches each body before transforming, but has no
+# immediate freshness or compare-and-swap check. Until body writers gain structured freshness or
+# compare-and-swap protection, callers must avoid concurrent browser edits during `pr-stack-section --apply`.
+#
+# Env: TRUNK  (default: origin's default branch, else master)
+#      AUTHOR (default: @me) — PR author scope for the stack search
+set -euo pipefail
+
+RC_PROG="pr-stack-section"
+RC_SELF="${BASH_SOURCE[0]}"
+while [ -L "$RC_SELF" ]; do
+  RC_DIR="$(cd -P "$(dirname "$RC_SELF")" && pwd)"
+  RC_SELF="$(readlink "$RC_SELF")"
+  [[ "$RC_SELF" != /* ]] && RC_SELF="$RC_DIR/$RC_SELF"
+done
+source "$(cd -P "$(dirname "$RC_SELF")" && pwd)/lib/restack-common.sh"
+
+MARK_BEGIN_RE='^<!-- pr-stack-section'
+MARK_BEGIN='<!-- pr-stack-section: generated; re-run `pr-stack-section --apply` rather than editing by hand -->'
+MARK_END='<!-- /pr-stack-section -->'
+REC_OPEN='<!-- pr-stack-tree:'
+
+NBSP='&nbsp;'
+NODE_FIELDS='number,headRefName,baseRefName,url,state'
+
+usage() {
+  cat >&2 <<'EOF'
+usage: pr-stack-section [--apply] <pr-number | branch>
+
+  (no flag)  resolve the stack and print the block for the named PR
+  --apply    write the block into every PR in the stack
+
+The block records the tree it drew, so PRs that have already merged stay in it.
+
+env: TRUNK (default origin's default branch), AUTHOR (default @me)
+EOF
+}
+
+apply=0
+arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) apply=1 ;;
+    -h | --help) usage; exit 0 ;;
+    -*) usage; rc_die "unknown flag '$1'" ;;
+    *)
+      [ -z "$arg" ] || { usage; rc_die "unexpected extra argument '$1'"; }
+      arg="$1"
+      ;;
+  esac
+  shift
+done
+[ -n "$arg" ] || { usage; exit 1; }
+rc_require gh jq awk
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-stack-section.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/bodies"
+
+trunk="$(rc_trunk)"
+
+# --- the node table ----------------------------------------------------------
+#
+# Keyed by PR NUMBER, not head branch: a merged PR's branch is deleted, and two
+# PRs can even reuse a name over time, while the number is permanent. The open
+# PRs come from one list call; everything else — a merged parent named only by a
+# record — is pulled in by number as it's discovered.
+
+NODES="$(rc_pr_list | jq -c 'map({number, headRefName, baseRefName, url, state: "OPEN"})')"
+
+node_add() {
+  NODES="$(jq -c --argjson add "$1" \
+    '(if ($add | type) == "array" then $add else [$add] end) as $a
+     | . + $a | unique_by(.number)' <<<"$NODES")"
+}
+
+node_field() {
+  jq -r --argjson n "$1" --arg f "$2" 'map(select(.number == $n)) | .[0][$f] // empty' <<<"$NODES"
+}
+
+node_known() {
+  [ -n "$(jq -r --argjson n "$1" 'map(select(.number == $n)) | .[0].number // empty' <<<"$NODES")" ]
+}
+
+# node_pull <number>: read a PR we know only by number. `gh pr view` works on a
+# merged or closed PR (and on another author's), which the open list can't do.
+# A number that won't resolve is remembered, so the gather loop stops asking.
+PULL_FAILED=""
+node_pull() {
+  local n="$1" rec
+  if node_known "$n"; then return 0; fi
+  case " $PULL_FAILED " in *" $n "*) return 1 ;; esac
+  rec="$(gh pr view "$n" --json "$NODE_FIELDS" 2>/dev/null | jq -c 'select(type == "object" and .number != null)' 2>/dev/null || true)"
+  if [ -z "$rec" ]; then
+    PULL_FAILED="$PULL_FAILED $n"
+    rc_log "  note: #$n is in the recorded tree but can't be read — leaving it out"
+    return 1
+  fi
+  node_add "$rec"
+}
+
+# --- the recorded tree -------------------------------------------------------
+
+RECORD='{}'
+
+# record_read <body-file>: echo the edge spec out of the body's record line.
+# Only inside the block's own markers: a body is allowed to talk about this format
+# — quote an old block, document the line in a code fence — and none of that is
+# history. A record read from loose prose would invent edges out of an example.
+record_read() {
+  awk -v beginre="$MARK_BEGIN_RE" -v endmark="$MARK_END" -v recopen="$REC_OPEN" '
+    BEGIN { inblk = 0 }
+    { s = $0; sub(/\r$/, "", s)
+      if (!inblk) { if (s ~ beginre) inblk = 1; next }
+      if (s == endmark) { inblk = 0; next }
+      sub(/^[[:space:]]+/, "", s)
+      if (index(s, recopen) == 1) {
+        s = substr(s, length(recopen) + 1)
+        sub(/[[:space:]]*-->[[:space:]]*$/, "", s)
+        sub(/^[[:space:]]+/, "", s)
+        rec = s
+      } }
+    END { if (rec != "") print rec }
+  ' "$1"
+}
+
+# record_merge <edge-spec>: fold one body's record into the union. A real parent
+# beats a "based on trunk" entry, so one body that missed a run can't erase an
+# edge the others still remember.
+record_merge() {
+  local pair child parent
+  for pair in ${1:-}; do
+    child="${pair%%:*}"
+    parent="${pair#*:}"
+    case "$child" in '' | *[!0-9]*) continue ;; esac
+    case "$parent" in '' | *[!0-9]*) continue ;; esac
+    RECORD="$(jq -c --arg c "$child" --argjson p "$parent" \
+      '.[$c] = (if ((.[$c] // 0) != 0) then .[$c] else $p end)' <<<"$RECORD")"
+  done
+}
+
+record_numbers() {
+  jq -r '[(keys_unsorted[] | tonumber), .[]] | unique | .[] | select(. != 0)' <<<"$RECORD"
+}
+
+# --- edges: live base refs, with the record filling in what a merge erased ----
+
+EDGES='{}'
+
+# Each PR's parent is the live base ref where that points at a PR we know about,
+# and otherwise the recorded parent — but only once that parent has stopped being
+# open. That proviso is the whole discriminator: a child whose base flipped to
+# trunk because its parent merged keeps the edge, while one you retargeted off a
+# still-open parent loses it. Resolved for the whole table in one pass, because a
+# jq call per PR adds up fast on an author with a hundred open ones.
+resolve_edges() {
+  EDGES="$(jq -c --argjson rec "$RECORD" '
+    . as $nodes
+    | (reduce $nodes[] as $x ({};
+        .[$x.headRefName] =
+          (if (.[$x.headRefName] // null) == null then $x.number
+           else ([.[$x.headRefName], $x.number] | min) end))) as $byhead
+    | (reduce $nodes[] as $x ({}; .[$x.number | tostring] = $x.state)) as $state
+    | reduce $nodes[] as $x ({};
+        (($byhead[$x.baseRefName] // 0) as $live
+         | if $live != 0 and $live != $x.number then $live
+           else (($rec[$x.number | tostring] // 0) as $r
+                 | if $r != 0 and ($state[$r | tostring] // "OPEN") != "OPEN" then $r else 0 end)
+           end) as $p
+        | .[$x.number | tostring] = $p)
+  ' <<<"$NODES")"
+}
+
+edge_parent() { jq -r --arg c "$1" '.[$c] // 0' <<<"$EDGES"; }
+edge_children() {
+  jq -r --argjson p "$1" 'to_entries | map(select(.value == $p)) | map(.key | tonumber) | sort | .[]' <<<"$EDGES"
+}
+
+# --- walking the tree --------------------------------------------------------
+
+root_of() {
+  local cur="$1" p seen=""
+  while :; do
+    case " $seen " in *" $cur "*) rc_die "cycle detected at #$cur" ;; esac
+    seen="$seen $cur"
+    p="$(edge_parent "$cur")"
+    [ "$p" != 0 ] || break
+    node_known "$p" || break
+    cur="$p"
+  done
+  printf '%s\n' "$cur"
+}
+
+WALK_SEEN=""
+subtree_of() {
+  local kid
+  case " $WALK_SEEN " in *" $1 "*) rc_die "cycle detected at #$1" ;; esac
+  WALK_SEEN="$WALK_SEEN $1"
+  printf '%s\n' "$1"
+  for kid in $(edge_children "$1"); do subtree_of "$kid"; done
+}
+
+# component_of <number>: the whole tree the PR belongs to, in render order.
+# Captured with $(...) at every call site rather than piped, because a cycle makes
+# these die — and inside a process substitution that only kills the subshell, so
+# the refusal would read as "nothing found".
+component_of() {
+  local root
+  root="$(root_of "$1")" || exit 1
+  WALK_SEEN=""
+  subtree_of "$root"
+}
+
+# prune_closed <start-number>: a closed PR that nothing is stacked on drops out
+# of the tree, and keeps dropping upward while that leaves another closed leaf.
+# Merged PRs never drop — they're the history this whole thing exists to keep.
+# The PR you named is never pruned; you asked about it.
+PRUNED=""
+prune_closed() {
+  local start="$1" changed=1 comp n
+  PRUNED=""
+  while [ "$changed" = 1 ]; do
+    changed=0
+    comp="$(component_of "$start")" || exit 1
+    for n in $comp; do
+      [ "$n" != "$start" ] || continue
+      [ "$(node_field "$n" state)" = CLOSED ] || continue
+      [ -z "$(edge_children "$n")" ] || continue
+      EDGES="$(jq -c --arg c "$n" 'del(.[$c])' <<<"$EDGES")"
+      PRUNED="$PRUNED $n"
+      changed=1
+    done
+  done
+}
+
+# Flattened into walk order (a pre-order DFS, siblings by PR number); render_block
+# prints it in reverse. Each node carries the rail context it inherits — one
+# segment per fork level between it and the trunk, R where that arm still has
+# siblings further out from the fork (so the line needs a │) and B where it
+# doesn't — plus its own connector, which it only has if its parent forked.
+NODE_NUM=()
+NODE_RAILS=()
+NODE_CONN=()
+# PRs the walk leaves out, with everything stacked on them. Only render_block sets
+# it, to redraw the tree without the merged history it folds (see plan_merged_fold).
+WALK_HIDE=""
+
+tree_walk() { # <number> <inherited-rails> <own-connector: L|N|empty>
+  local num="$1" rails="$2" conn="$3"
+  local seen kids=() kid child_rails n i
+  for seen in ${NODE_NUM[@]+"${NODE_NUM[@]}"}; do
+    if [ "$seen" = "$num" ]; then rc_die "cycle detected at #$num"; fi
+  done
+  NODE_NUM+=("$num")
+  NODE_RAILS+=("$rails")
+  NODE_CONN+=("$conn")
+
+  while IFS= read -r kid; do
+    [ -n "$kid" ] || continue
+    case " $WALK_HIDE " in *" $kid "*) continue ;; esac
+    kids+=("$kid")
+  done <<<"$(edge_children "$num")"
+
+  n="${#kids[@]}"
+  [ "$n" -gt 0 ] || return 0
+  # This node's own connector, if it had one, becomes a rail segment for everything
+  # above it: still-open (R) unless it was the last arm of its fork (B).
+  child_rails="$rails"
+  case "$conn" in
+    L) child_rails="${rails}B" ;;
+    N) child_rails="${rails}R" ;;
+  esac
+  # One child is a chain: same column, no connector, so nothing indents. Two or
+  # more is a fork, and each arm gets a connector.
+  if [ "$n" -eq 1 ]; then
+    tree_walk "${kids[0]}" "$child_rails" ""
+    return 0
+  fi
+  for ((i = 0; i < n; i++)); do
+    if [ "$i" -eq $((n - 1)) ]; then
+      tree_walk "${kids[$i]}" "$child_rails" L
+    else
+      tree_walk "${kids[$i]}" "$child_rails" N
+    fi
+  done
+}
+
+# --- rendering ---------------------------------------------------------------
+
+# node_glyph <number> <is-this-pr>
+# The whole formatting decision for a node, in one place, because it's the part we
+# keep wanting to try differently. One glyph, one meaning: ✓ landed, ✗ closed
+# without landing, ○ still open, and ● the one you're reading, whatever its state.
+# So exactly one node is ever filled, and it's always the one you're looking at.
+node_glyph() {
+  if [ "$2" = 1 ]; then printf '●'; return; fi
+  case "$(node_field "$1" state)" in
+    MERGED) printf '✓' ;;
+    CLOSED) printf '✗' ;;
+    *) printf '○' ;;
+  esac
+}
+
+# node_prefix <index> <is-this-pr> [glyph]
+# Every line starts two spaces in, so the tree sits inboard of the trunk line. Past
+# that every rail level goes inside one <samp>, blank ones included: a blank level
+# stands in for a "┌─" on the row below, and only monospace spaces are as wide as it.
+node_prefix() {
+  local idx="$1" isthis="$2" glyph="${3:-}"
+  local rails="${NODE_RAILS[$idx]}" conn="${NODE_CONN[$idx]}"
+  local i c tail="" out="${NBSP}${NBSP}"
+  for ((i = 0; i < ${#rails}; i++)); do
+    c="${rails:$i:1}"
+    if [ "$c" = "R" ]; then tail="${tail}│${NBSP}"; else tail="${tail}${NBSP}${NBSP}"; fi
+  done
+  # L is the last arm in walk order, which the reversal puts furthest from the
+  # fork — so its corner turns back down toward it rather than up.
+  case "$conn" in
+    L) tail="${tail}┌─" ;;
+    N) tail="${tail}├─" ;;
+  esac
+  [ -n "$glyph" ] || glyph="$(node_glyph "${NODE_NUM[$idx]}" "$isthis")"
+  printf '%s<samp>%s%s</samp>' "$out" "$tail" "$glyph"
+}
+
+# trunk_row_index: the walk-order entry the trunk line is inserted before, which
+# after the reversal puts it directly BELOW that entry. -1 means leave it out.
+#
+# The trunk line is a waterline, not a heading: everything below it has landed
+# INTO it, everything above is still stacked ON it. So it rises through the drawing
+# as the stack lands, and when the last PR merges there is nothing left under it
+# and it goes away — the stack is main at that point, and saying so twice is
+# noise. With nothing merged yet it sits at the very bottom.
+#
+# Two things have to hold for the line to mean that, and it's drawn only when they
+# do. Every merged node must be on the landed side of it — otherwise a landed PR
+# ends up above a line that claims it hasn't landed. And no fork may be open
+# across it, because the trunk row is unindented and would cut the │ rail passing
+# through it. A fork wholly on one side of the line is fine; one that straddles it
+# isn't. Neither can happen in a linear stack, so in practice this is always drawn.
+trunk_row_index() {
+  local total="${#NODE_NUM[@]}" first=-1 i
+  for ((i = 0; i < total; i++)); do
+    if [ "$(node_field "${NODE_NUM[$i]}" state)" != MERGED ]; then first="$i"; break; fi
+  done
+  [ "$first" -ge 0 ] || { printf '%s\n' '-1'; return; }
+  [ "$first" -gt 0 ] || { printf '0\n'; return; }
+  for ((i = first; i < total; i++)); do
+    if [ "$(node_field "${NODE_NUM[$i]}" state)" = MERGED ]; then printf '0\n'; return; fi
+  done
+  [ -z "${NODE_RAILS[$first]}" ] || { printf '0\n'; return; }
+  printf '%s\n' "$first"
+}
+
+# The edge list this run resolved, so the next one can still see the shape after
+# GitHub has retargeted the survivors onto trunk.
+record_line() {
+  local i n p spec=""
+  for ((i = 0; i < ${#ALL_NUM[@]}; i++)); do
+    n="${ALL_NUM[$i]}"
+    p="$(edge_parent "$n")"
+    spec="${spec:+$spec }${n}:${p}"
+  done
+  printf '%s %s -->' "$REC_OPEN" "$spec"
+}
+
+# --- shrinking a long block ---------------------------------------------------
+#
+# A big stack draws a block that fills the screen before the Summary starts, and
+# most of those rows are history or far-off arms the reader isn't on. So two parts
+# of the drawing fold into one row each. Neither touches the PR you're reading or
+# its open neighbours, and every folded PR is still a link in its row. The record
+# line always keeps every edge: folding is presentation only.
+#
+# MERGED HISTORY: every landed PR nothing still open is stacked on, plus the
+# landed PRs under the point where the open ones meet. "Landed" here means merged
+# with every PR under it merged too, so it all reached the trunk. Once that's
+# MERGED_FOLD_MIN PRs or more, wherever they sit — a straight foot, a fork, or an
+# arm that landed whole — they draw as one ✓ row under the trunk line, and the
+# tree is redrawn from the meeting point up, as if it were based on the trunk.
+# When that meeting point has landed itself, it stays drawn as the stack's root,
+# since it shows where the open arms fork. The PR you're reading is never in the
+# row, nor is anything stacked on it, nor anything on an open PR: a PR merged
+# into an open parent hasn't reached the trunk, so it can't sit under the trunk
+# line.
+#
+# FAR ARMS: a whole subtree whose root starts an arm (it has its own fork
+# connector) DEEP_FOLD_DEPTH fork levels or more from the trunk, and that holds
+# none of: the PR you're reading, its ancestors, its siblings, or anything
+# stacked on it. It draws as one ⋯ row at its root's position, with the rail
+# and connector the root is drawn with. A subtree is a contiguous run in walk
+# order and nothing outside it inherits a rail from inside it, so dropping its rows
+# leaves every other row drawn as it was. A one-PR subtree is never folded,
+# because the fold row would be no shorter and would lose the rich link. The
+# merged history folds first, but whether a PR starts an arm, and how far out,
+# still counts in the whole tree, so that fold never stops a far arm from folding.
+MERGED_FOLD_MIN=3
+DEEP_FOLD_DEPTH=2
+
+# Per walk-order entry: "" draws the node, "skip" hides it, and "deep" draws the
+# fold row standing for FOLD_LIST[i] (walk-order indices).
+FOLD=()
+FOLD_LIST=()
+PARENT_IDX=()
+# The merged-history fold, as PR numbers in walk order, and the PR the redrawn
+# tree starts from.
+MERGED_FOLD=""
+DRAW_ROOT=""
+
+# The whole tree as walked from its root. render_block redraws NODE_* for each
+# reader and puts this back when it's done.
+ALL_NUM=()
+ALL_RAILS=()
+ALL_CONN=()
+save_walk() {
+  ALL_NUM=(${NODE_NUM[@]+"${NODE_NUM[@]}"})
+  ALL_RAILS=(${NODE_RAILS[@]+"${NODE_RAILS[@]}"})
+  ALL_CONN=(${NODE_CONN[@]+"${NODE_CONN[@]}"})
+}
+restore_walk() {
+  NODE_NUM=(${ALL_NUM[@]+"${ALL_NUM[@]}"})
+  NODE_RAILS=(${ALL_RAILS[@]+"${ALL_RAILS[@]}"})
+  NODE_CONN=(${ALL_CONN[@]+"${ALL_CONN[@]}"})
+}
+
+arm_depth() { # <index>: fork levels from the trunk if the node starts an arm in the whole tree, else 0
+  local j
+  for ((j = 0; j < ${#ALL_NUM[@]}; j++)); do
+    [ "${ALL_NUM[$j]}" = "${NODE_NUM[$1]}" ] || continue
+    [ -n "${ALL_CONN[$j]}" ] || break
+    printf '%s\n' $((${#ALL_RAILS[$j]} + 1))
+    return
+  done
+  printf '0\n'
+}
+
+# is_desc <index> <ancestor-index>: true when the first sits in the second's subtree
+is_desc() {
+  local k="$1"
+  while [ "$k" -ge 0 ]; do
+    [ "$k" != "$2" ] || return 0
+    k="${PARENT_IDX[$k]}"
+  done
+  return 1
+}
+
+# set_parents: PARENT_IDX[i] is the walk-order index of entry i's parent, or -1
+# when its parent isn't drawn.
+set_parents() {
+  local total="${#NODE_NUM[@]}" i j
+  local -a parents
+  PARENT_IDX=()
+  # One jq call for the lot: this runs per reader, and a call per PR adds up.
+  # shellcheck disable=SC2016 # $n is the filter's, bound by nums_jq
+  read -r -a parents <<<"$(nums_jq "$EDGES" '.[$n | tostring] // 0' "${NODE_NUM[@]}")"
+  for ((i = 0; i < total; i++)); do
+    PARENT_IDX+=(-1)
+    for ((j = 0; j < i; j++)); do
+      if [ "${NODE_NUM[$j]}" = "${parents[$i]}" ]; then PARENT_IDX[i]="$j"; fi
+    done
+  done
+}
+
+# nums_jq <json> <filter> <number>...: the filter's result for each number (bound
+# to $n), space-separated on one line, in the order given.
+nums_jq() {
+  local json="$1" filter="$2"
+  shift 2
+  jq -r --argjson ns "[$(IFS=,; printf '%s' "$*")]" \
+    "[\$ns[] as \$n | ($filter) | tostring] | join(\" \")" <<<"$json"
+}
+
+# plan_merged_fold <reader>: choose the merged history to fold, on the whole tree.
+# Sets MERGED_FOLD and DRAW_ROOT, or leaves MERGED_FOLD empty when there's too
+# little to fold.
+plan_merged_fold() {
+  local this="$1" total="${#NODE_NUM[@]}" i k p r arm arms here=-1 list="" count=0
+  local -a merged=() landed=() need=() states
+  MERGED_FOLD=""
+  DRAW_ROOT="${NODE_NUM[0]}"
+  set_parents
+  # shellcheck disable=SC2016 # $n is the filter's, bound by nums_jq
+  read -r -a states <<<"$(nums_jq "$NODES" 'map(select(.number == $n)) | .[0].state' "${NODE_NUM[@]}")"
+  # Walk order puts a parent before its children, so one pass forward settles
+  # "landed", and one pass back carries "something here must be drawn" down to
+  # every ancestor.
+  for ((i = 0; i < total; i++)); do
+    merged[i]=0
+    if [ "${states[$i]}" = MERGED ]; then merged[i]=1; fi
+    landed[i]="${merged[$i]}"
+    p="${PARENT_IDX[$i]}"
+    if [ "$p" -ge 0 ] && [ "${landed[$p]}" = 0 ]; then landed[i]=0; fi
+    need[i]=0
+    if [ "${merged[$i]}" = 0 ]; then need[i]=1; fi
+    if [ "${NODE_NUM[$i]}" = "$this" ]; then need[i]=1; here="$i"; fi
+  done
+  for ((i = total - 1; i > 0; i--)); do
+    p="${PARENT_IDX[$i]}"
+    if [ "${need[$i]}" = 1 ] && [ "$p" -ge 0 ]; then need[p]=1; fi
+  done
+  # The meeting point: climb from the root while the PR there is landed history
+  # and only one of its arms leads to anything that must be drawn.
+  r=0
+  while [ "${need[$r]}" = 1 ] && [ "${merged[$r]}" = 1 ] && [ "${NODE_NUM[$r]}" != "$this" ]; do
+    arm=-1
+    arms=0
+    for ((k = r + 1; k < total; k++)); do
+      if [ "${PARENT_IDX[$k]}" = "$r" ] && [ "${need[$k]}" = 1 ]; then arm="$k"; arms=$((arms + 1)); fi
+    done
+    [ "$arms" = 1 ] || break
+    r="$arm"
+  done
+  for ((i = 0; i < total; i++)); do
+    [ "$i" != "$r" ] || continue
+    # what's stacked on you is yours to see, landed or not
+    if [ "$here" -ge 0 ] && is_desc "$i" "$here"; then continue; fi
+    if is_desc "$r" "$i" || { [ "${landed[$i]}" = 1 ] && [ "${need[$i]}" = 0 ]; }; then
+      list="${list:+$list }${NODE_NUM[$i]}"
+      count=$((count + 1))
+    fi
+  done
+  [ "$count" -ge "$MERGED_FOLD_MIN" ] || return 0
+  MERGED_FOLD="$list"
+  DRAW_ROOT="${NODE_NUM[$r]}"
+}
+
+# plan_folds <reader>: the far-arm folds, on the tree as drawn.
+plan_folds() {
+  local this="$1" total="${#NODE_NUM[@]}" i k here=-1 end list keep
+  FOLD=()
+  FOLD_LIST=()
+  set_parents
+  for ((i = 0; i < total; i++)); do
+    FOLD+=("")
+    FOLD_LIST+=("")
+    if [ "${NODE_NUM[$i]}" = "$this" ]; then here="$i"; fi
+  done
+
+  # Without a reader (here = -1) nothing counts as near, which doesn't arise from
+  # the CLI but keeps the rule total.
+  for ((i = 0; i < total; i++)); do
+    [ -z "${FOLD[$i]}" ] || continue
+    [ "$(arm_depth "$i")" -ge "$DEEP_FOLD_DEPTH" ] || continue
+    end="$i"
+    while [ $((end + 1)) -lt "$total" ] && is_desc $((end + 1)) "$i"; do end=$((end + 1)); done
+    [ "$end" -gt "$i" ] || continue
+    keep=0
+    if [ "$here" -ge 0 ]; then
+      for ((k = i; k <= end; k++)); do
+        # you, your ancestors, anything stacked on you, your siblings
+        if [ "$k" = "$here" ] || is_desc "$here" "$k" || is_desc "$k" "$here" \
+          || [ "${PARENT_IDX[$k]}" = "$here" ] \
+          || [ "${PARENT_IDX[$k]}" = "${PARENT_IDX[$here]}" ]; then
+          keep=1
+          break
+        fi
+      done
+    fi
+    [ "$keep" = 0 ] || continue
+    FOLD[i]=deep
+    list=""
+    for ((k = i; k <= end; k++)); do
+      list="${list:+$list }$k"
+      [ "$k" = "$i" ] || FOLD[k]=skip
+    done
+    FOLD_LIST[i]="$list"
+  done
+}
+
+# links <number>...: the PRs as links, top-down, the same order the drawing reads
+# in — so the reverse of the walk order they're given in.
+links() {
+  local out="" i
+  local -a nums=("$@")
+  for ((i = ${#nums[@]} - 1; i >= 0; i--)); do
+    out="${out:+$out }[#${nums[$i]}]($(node_field "${nums[$i]}" url))"
+  done
+  printf '%s' "$out"
+}
+
+# merged_row: the one row the merged history folds into. It sits at the foot of
+# the drawing, under the trunk line, with no rail: all of it is in the trunk.
+merged_row() {
+  local -a members
+  read -r -a members <<<"$MERGED_FOLD"
+  printf -- '- %s<samp>✓</samp> %s merged: %s' "${NBSP}${NBSP}" "${#members[@]}" "$(links "${members[@]}")"
+}
+
+# fold_row <index>: the ⋯ row a folded far arm draws at its root's position.
+fold_row() {
+  local idx="$1" i
+  local -a members nums=()
+  read -r -a members <<<"${FOLD_LIST[$idx]}"
+  for i in "${members[@]}"; do nums+=("${NODE_NUM[$i]}"); done
+  printf -- '- %s %s PRs: %s' "$(node_prefix "$idx" 0 '⋯')" "${#nums[@]}" "$(links "${nums[@]}")"
+}
+
+# GitHub expands a bare PR URL into a rich link carrying the title and the live
+# open/merged/closed state, so the entry is just the URL — repeating either here
+# renders it twice and goes stale on the next retitle or merge.
+#
+# The rows are collected in walk order and emitted last-first, which is what puts
+# the trunk at the foot of the drawing and the tip of the stack at the top.
+render_block() {
+  local this="$1" i n isthis at
+  local rows=()
+  restore_walk
+  plan_merged_fold "$this"
+  if [ -n "$MERGED_FOLD" ]; then
+    NODE_NUM=()
+    NODE_RAILS=()
+    NODE_CONN=()
+    WALK_HIDE="$MERGED_FOLD"
+    tree_walk "$DRAW_ROOT" "" ""
+    WALK_HIDE=""
+    rows+=("$(merged_row)")
+  fi
+  at="$(trunk_row_index)"
+  plan_folds "$this"
+  for ((i = 0; i < ${#NODE_NUM[@]}; i++)); do
+    if [ "$i" = "$at" ]; then rows+=("$(printf -- '- <samp>%s</samp>' "$trunk")"); fi
+    case "${FOLD[$i]}" in
+      skip) continue ;;
+      deep) rows+=("$(fold_row "$i")"); continue ;;
+    esac
+    n="${NODE_NUM[$i]}"
+    isthis=0
+    if [ "$n" = "$this" ]; then isthis=1; fi
+    rows+=("$(printf -- '- %s %s' "$(node_prefix "$i" "$isthis")" "$(node_field "$n" url)")")
+  done
+  restore_walk
+  printf '%s\n\n' "$MARK_BEGIN"
+  printf '## PR stack\n\n'
+  for ((i = ${#rows[@]} - 1; i >= 0; i--)); do printf '%s\n' "${rows[$i]}"; done
+  printf '\n%s\n' "$(record_line)"
+  printf '%s\n' "$MARK_END"
+}
+
+# strip_block <body-file>
+# Drop every marked region, plus the blank lines that trailed it, so the body is
+# left as it would read with no block at all. Everything else passes through
+# untouched, CRLF included.
+strip_block() {
+  awk -v beginre="$MARK_BEGIN_RE" -v endmark="$MARK_END" '
+    BEGIN { inblk = 0; eat = 0 }
+    {
+      s = $0; sub(/\r$/, "", s)
+      if (inblk) { if (s == endmark) { inblk = 0; eat = 1 } ; next }
+      if (s ~ beginre) { inblk = 1; next }
+      if (eat) { if (s ~ /^[[:space:]]*$/) next; eat = 0 }
+      print
+    }
+  ' "$1"
+}
+
+# insert_block <stripped-body-file> <block-file>
+# Put the block at the top of the body: under the tracker line when the body opens
+# with one (`Linear: …`, `Issue: …`, a bare URL), otherwise above everything. That
+# lands it above the Summary, which is where a reviewer looks first.
+insert_block() {
+  awk -v blockfile="$2" '
+    function emit(   line) { while ((getline line < blockfile) > 0) print line; close(blockfile) }
+    BEGIN { trackerre = "^([A-Za-z][A-Za-z0-9 ._-]*:[[:space:]]*(\\[|https?://)|https?://[^[:space:]]+$)" }
+    { L[NR] = $0 }
+    END {
+      after = 0
+      for (i = 1; i <= NR; i++) {
+        s = L[i]; sub(/\r$/, "", s)
+        if (s ~ /[^[:space:]]/) { if (s ~ trackerre) after = i; break }
+      }
+      for (i = 1; i <= after; i++) print L[i]
+      if (after > 0) print ""
+      emit()
+      j = after + 1
+      while (j <= NR) { s = L[j]; sub(/\r$/, "", s); if (s ~ /[^[:space:]]/) break; j++ }
+      if (j <= NR) { print ""; for (i = j; i <= NR; i++) print L[i] }
+    }
+  ' "$1"
+}
+
+trim_trailing_blanks() {
+  awk '
+    { line[NR] = $0 }
+    END {
+      last = 0
+      for (i = 1; i <= NR; i++) if (line[i] ~ /[^[:space:]]/) last = i
+      for (i = 1; i <= last; i++) print line[i]
+    }
+  '
+}
+
+# --- resolve the starting PR -------------------------------------------------
+#
+# Not restricted to open PRs any more: you have to be able to point this at a
+# merged PR to see the stack it belonged to.
+
+start_num=""
+if [[ "$arg" =~ ^[0-9]+$ ]]; then
+  if node_known "$arg"; then
+    start_num="$arg"
+  elif node_pull "$arg"; then
+    start_num="$arg"
+  fi
+else
+  start_num="$(jq -r --arg b "$arg" 'map(select(.headRefName == $b)) | .[0].number // empty' <<<"$NODES")"
+  if [ -z "$start_num" ]; then
+    hit="$(gh pr list --head "$arg" --state all --limit 1 --json "$NODE_FIELDS" 2>/dev/null | jq -c '.[0] // empty' || true)"
+    if [ -n "$hit" ]; then
+      node_add "$hit"
+      start_num="$(jq -r '.number' <<<"$hit")"
+    fi
+  fi
+fi
+[ -n "$start_num" ] || rc_die "no PR matching '$arg' (try TRUNK/AUTHOR overrides)"
+
+# --- gather the recorded tree ------------------------------------------------
+#
+# The record lives in the bodies, so reading it means fetching them — but only the
+# ones in this stack, never every open PR the author has. So: resolve the tree
+# from what's known, read those bodies, and go round again if the record named a
+# PR that pulls more of the tree into view.
+
+READ_BODIES=""
+pass=0
+while [ "$pass" -lt 10 ]; do
+  pass=$((pass + 1))
+  resolve_edges
+  grew=0
+  comp="$(component_of "$start_num")" || exit 1
+  for num in $comp; do
+    case " $READ_BODIES " in *" $num "*) continue ;; esac
+    READ_BODIES="$READ_BODIES $num"
+    gh pr view "$num" --json body --jq '.body // ""' >"$tmp/bodies/$num" 2>/dev/null || : >"$tmp/bodies/$num"
+    record_merge "$(record_read "$tmp/bodies/$num")"
+    grew=1
+  done
+  for num in $(record_numbers); do
+    if ! node_known "$num" && node_pull "$num"; then grew=1; fi
+  done
+  [ "$grew" = 1 ] || break
+done
+
+resolve_edges
+prune_closed "$start_num"
+root="$(root_of "$start_num")" || exit 1
+tree_walk "$root" "" ""
+save_walk
+
+stacked=1
+[ "${#NODE_NUM[@]}" -ge 2 ] || stacked=0
+
+if [ "$stacked" = 0 ]; then
+  rc_log ""
+  rc_log "#$start_num ($(node_field "$start_num" headRefName)) is not stacked — no other PR, open or recorded, sits under or on it."
+  [ "$apply" = 1 ] || exit 0
+fi
+
+if [ "$apply" != 1 ]; then
+  rc_log ""
+  render_block "$start_num"
+  exit 0
+fi
+
+# A pruned PR still carries last run's block, and that block now draws a tree it
+# is no longer in — so visit it too, to take the block back out.
+rc_log ""
+for num in ${ALL_NUM[@]+"${ALL_NUM[@]}"} ${PRUNED:+$PRUNED}; do
+  keep=0
+  if [ "$stacked" = 1 ]; then
+    for member in ${ALL_NUM[@]+"${ALL_NUM[@]}"}; do
+      if [ "$member" = "$num" ]; then keep=1; fi
+    done
+  fi
+  gh pr view "$num" --json body --jq '.body // ""' >"$tmp/body.raw"
+  trim_trailing_blanks <"$tmp/body.raw" >"$tmp/body"
+  strip_block "$tmp/body" >"$tmp/stripped"
+  if [ "$keep" = 1 ]; then
+    render_block "$num" >"$tmp/block"
+    insert_block "$tmp/stripped" "$tmp/block" | trim_trailing_blanks >"$tmp/new"
+  else
+    trim_trailing_blanks <"$tmp/stripped" >"$tmp/new"
+  fi
+  branch="$(node_field "$num" headRefName)"
+  if cmp -s "$tmp/body" "$tmp/new"; then
+    rc_log "  unchanged  #$num  $branch"
+    continue
+  fi
+  CREATE_PR_SKILL=1 gh pr edit "$num" --body-file "$tmp/new" >/dev/null
+  if [ "$keep" = 1 ]; then
+    rc_log "  updated    #$num  $branch"
+  else
+    rc_log "  removed    #$num  $branch"
+  fi
+done
