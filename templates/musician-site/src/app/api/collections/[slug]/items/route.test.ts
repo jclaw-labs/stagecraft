@@ -167,6 +167,20 @@ describe("POST /api/collections/[slug]/items", () => {
     expect(res.status).toBe(409);
   });
 
+  it("reports a taken slug before validating values", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@b.c" });
+    await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
+    // Missing required title: on a fresh slug this would be a 400.
+    const res = await POST(
+      jsonReq("POST", {
+        slug: TEST_SLUG,
+        values: { [PAGES_FIELD_IDS.body]: { type: "puckContent", value: { content: [], root: { props: {} } } } },
+      }),
+      ctx("pages"),
+    );
+    expect(res.status).toBe(409);
+  });
+
   it("rejects values that fail the per-collection schema", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     // Missing required title.

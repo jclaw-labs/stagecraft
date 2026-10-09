@@ -22,7 +22,7 @@ export type ItemRouteIssue = {
   message: string;
 };
 
-/** The failure body of the generic item routes (POST / PUT / GET). */
+/** The failure body of the generic item routes (every method). */
 export type ItemRouteFailureBody = {
   ok: false;
   error?: string;
