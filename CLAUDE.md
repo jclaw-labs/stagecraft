@@ -41,9 +41,8 @@ provider: 'github' | 'netlify'
 ```
 
 - Check `packages/shared/src/types.ts` first. `JobStatus`, `JobType`,
-  `EditMode`, `ChangeRequestStatus`, `SiteStatus`, `BlueprintType`,
-  `IntegrationProvider`, `AssetUploadStatus`, `PreviewStatus`, and
-  others already exist — import them.
+  `SiteStatus`, `IntegrationProvider`, `AssetUploadStatus`,
+  `PreviewStatus`, and others already exist — import them.
 - A union used in one file only can live locally; if it ends up in
   two, promote it to `packages/shared` (see §4).
 

@@ -280,6 +280,62 @@ export async function setRepoArchived(
   });
 }
 
+export async function createBranch(
+  userId: string,
+  owner: string,
+  repo: string,
+  baseBranch: string,
+  newBranch: string
+): Promise<void> {
+  const token = await getGitHubToken(userId);
+
+  const ref = await githubApi(token, `/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`);
+  const sha = ref.object.sha as string;
+
+  await githubApi(token, `/repos/${owner}/${repo}/git/refs`, {
+    method: "POST",
+    body: JSON.stringify({ ref: `refs/heads/${newBranch}`, sha }),
+  });
+}
+
+interface CreatePullRequestOptions {
+  title: string;
+  body: string;
+  head: string;
+  base: string;
+}
+
+export interface PullRequestResult {
+  number: number;
+  htmlUrl: string;
+  state: string;
+}
+
+export async function createPullRequest(
+  userId: string,
+  owner: string,
+  repo: string,
+  options: CreatePullRequestOptions
+): Promise<PullRequestResult> {
+  const token = await getGitHubToken(userId);
+
+  const data = await githubApi(token, `/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: options.title,
+      body: options.body,
+      head: options.head,
+      base: options.base,
+    }),
+  });
+
+  return {
+    number: data.number as number,
+    htmlUrl: data.html_url as string,
+    state: data.state as string,
+  };
+}
+
 interface GithubInstallation {
   id: number;
   app_slug: string;
