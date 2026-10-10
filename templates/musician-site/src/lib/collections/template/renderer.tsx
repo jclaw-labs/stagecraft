@@ -1,15 +1,13 @@
 /**
- * Top-level entry point for rendering a block tree against an item.
+ * The template walker: resolves a block tree against an item.
  *
- * Pipeline:
- *
- *   1. Walk `template.content` top-down (`resolveTemplate`). Each block's
- *      bindable props (`BINDABLE_SLOTS`) resolve against `item`; a
- *      Collection block resolves its items from `loadedCollections`. Every
- *      array of nested blocks (Section.children, Columns.col1, …) is walked
- *      the same way. The result is a tree of plain literal props.
- *   2. Pass the resolved data to Puck's `<Render>` with the render config
- *      from `buildPuckConfig`. Puck handles slot rendering natively.
+ * `resolveTemplate` walks `template.content` top-down. Each block's
+ * bindable props (`BINDABLE_SLOTS`) resolve against `item`; a Collection
+ * block resolves its items from `loadedCollections`. Every array of nested
+ * blocks (Section.children, Columns.col1, …) is walked the same way. The
+ * result is a tree of plain literal props, which `<Render>` draws with the
+ * render config from `@/puck/render-config` (`TemplateRenderer` there does
+ * both steps).
  *
  * Pages, templates and item bodies all go through this one walker and one
  * block library (#349): a page body is a tree whose bindable props happen
@@ -17,13 +15,17 @@
  *
  * Resolution and rendering are decoupled: block components never see a
  * binding, never reach into the current item, and don't need
- * `"use client"`. The whole tree is Server-Component-friendly.
+ * `"use client"`. This module renders nothing itself, so it imports no
+ * Puck config and sits below the render config in the import graph.
+ *
+ * The walker also warns, outside production, on a block type the library
+ * doesn't know and on a Section width outside `SECTION_WIDTHS`. Both are
+ * what content written in the pre-#349 vocabulary looks like when
+ * `scripts/migrate-block-library.mjs` hasn't been run over it; they render
+ * nothing or full-width rather than failing.
  */
 
-import type { ReactNode } from "react";
-import { Render } from "@puckeditor/core";
-
-import { buildPuckConfig } from "@/puck/build-config";
+import { BLOCKS, SECTION_WIDTHS } from "@/puck/config";
 
 import { BINDABLE_SLOTS, type BindableSlotKind } from "./bindable-slots";
 import {
@@ -33,81 +35,11 @@ import {
   resolveStringBindable,
 } from "./binding";
 import { blockNameForCollection, resolveCollectionBlockProps } from "./collection-block";
-import type { BlockInstance, Template } from "./types";
+import type { BlockInstance, LoadedCollections, ResolveContext, Template } from "./types";
 import type { Bindable, CollectionDef, Item } from "../schema";
 import type { ImageMetadata } from "../../image-types";
 
-/**
- * Context handed to a Collection block's resolver.
- *
- * `item` is the item bindings resolve against — it changes as nested
- * templates iterate (a Collection block resolves its children against each
- * iterated item). `currentItem` is the item the *surrounding* template is
- * rendering — it stays the same all the way down so Collection-block filters
- * can reference it (ADR §5.1's `currentItemId` / `currentItemField`
- * FilterValue arms). For non-Collection-block walks the two are equal.
- */
-export type ResolveContext = {
-  item: Item;
-  currentItem: Item;
-  /**
-   * The def of `item` — supplies field metadata (e.g. a `select` field's
-   * option labels) so a binding's `format` can apply.
-   */
-  itemDef?: CollectionDef;
-  loadedCollections: LoadedCollections;
-};
-
-export type TemplateRendererProps = {
-  /** The template's Puck data (item / detail / list — same shape). */
-  template: Template | null;
-  /** The item to render against. Drives every binding's resolution. */
-  item: Item;
-  /** The item's collection. Supplies field metadata for `format`. */
-  collection: CollectionDef;
-  /**
-   * The surrounding template's item — defaults to `item`. See
-   * `ResolveContext`.
-   */
-  currentItem?: Item;
-  /**
-   * Collections whose Collection blocks (`<Slug>View`) this tree may embed.
-   * Leave empty for item templates: they can't embed Collection blocks
-   * (ADR §4.3 cycle safety), so any they contain render nothing.
-   */
-  collectionSlugs?: ReadonlyArray<string>;
-  /** Items + defs the tree's Collection blocks iterate. */
-  loadedCollections?: LoadedCollections;
-};
-
-export function TemplateRenderer({
-  template,
-  item,
-  collection,
-  currentItem,
-  collectionSlugs = [],
-  loadedCollections,
-}: TemplateRendererProps): ReactNode {
-  if (!template) return null;
-  const resolved = resolveTemplate(template, item, {
-    collectionSlugs,
-    currentItem,
-    itemDef: collection,
-    loadedCollections,
-  });
-  return <Render config={buildPuckConfig({ variant: "render", collectionSlugs })} data={resolved} />;
-}
-
-/**
- * Items + defs that Collection blocks can iterate. Keyed by
- * collection slug — the renderer pre-loads these server-side so the
- * walker stays sync. Each entry pairs the source collection's def
- * (for itemTemplate lookup + field metadata) with its current items
- * (already validated and ordered as `listItemsInOrder` returns).
- */
-export type LoadedCollections = Readonly<
-  Record<string, { def: CollectionDef; items: ReadonlyArray<Item> }>
->;
+export type { LoadedCollections, ResolveContext };
 
 /** Options bag for `resolveTemplate`. Every field is optional. */
 export type ResolveTemplateOptions = {
@@ -173,6 +105,13 @@ function resolveBlocks(
   return out;
 }
 
+function isDeclaredArrayField(blockType: string, propName: string): boolean {
+  const fields = (BLOCKS as Record<string, { fields?: Record<string, { type?: unknown }> }>)[
+    blockType
+  ]?.fields;
+  return fields?.[propName]?.type === "array";
+}
+
 function isBlockInstance(value: unknown): value is BlockInstance {
   return (
     !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string"
@@ -189,6 +128,7 @@ function resolveBlock(
   ctx: ResolveContext,
   collectionBlocks: ReadonlySet<string>,
 ): BlockInstance | null {
+  warnOnUnmigratedBlock(block, collectionBlocks);
   const props = block.props;
   if (!props || typeof props !== "object") return block;
 
@@ -219,12 +159,59 @@ function resolveBlock(
   }
   // Recurse into every array of nested blocks. Any prop may be a slot —
   // Section.children, Columns.col1…col4, Stack.children — so the walk is
-  // structural rather than per-block.
+  // structural rather than per-block. A prop the library declares as a
+  // Puck `array` field is data, even when its rows carry a `type`
+  // (NewsletterSignup's `additionalFields: [{ name, type: "text" }]`).
   for (const [key, value] of Object.entries(props)) {
     if (!Array.isArray(value) || !value.some(isBlockInstance)) continue;
+    if (isDeclaredArrayField(block.type, key)) continue;
     (next ??= { ...props })[key] = resolveBlocks(value, ctx, collectionBlocks);
   }
   return next ? { ...block, props: next } : block;
+}
+
+// ---------------------------------------------------------------------------
+// Unmigrated content
+// ---------------------------------------------------------------------------
+
+const LIBRARY_BLOCKS: ReadonlySet<string> = new Set(Object.keys(BLOCKS));
+const KNOWN_SECTION_WIDTHS: ReadonlySet<unknown> = new Set(SECTION_WIDTHS);
+const warnedUnmigrated = new Set<string>();
+
+/**
+ * Warn (once per message, outside production) when a block is something the
+ * library can't draw: a type it doesn't know, or a Section width outside
+ * `SECTION_WIDTHS`. Old-vocabulary content (`RichTextRender`, Section
+ * `narrow` / `default` / `wide`) lands here when
+ * `scripts/migrate-block-library.mjs` hasn't been run over it, and would
+ * otherwise vanish or go full-width without a trace. A Collection block the
+ * caller didn't allow (one inside an item template, or for a collection that
+ * no longer exists) is unknown here too, and renders nothing for the same
+ * reason. The render itself is unchanged.
+ */
+function warnOnUnmigratedBlock(block: BlockInstance, collectionBlocks: ReadonlySet<string>): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (!LIBRARY_BLOCKS.has(block.type) && !collectionBlocks.has(block.type)) {
+    warnUnmigratedOnce(
+      `unknown block type "${block.type}" — it renders nothing. If it's from the old ` +
+        `template vocabulary, run scripts/migrate-block-library.mjs over the content.`,
+    );
+    return;
+  }
+  const width = (block.props as { width?: unknown } | undefined)?.width;
+  if (block.type === "Section" && width !== undefined && !KNOWN_SECTION_WIDTHS.has(width)) {
+    warnUnmigratedOnce(
+      `Section width ${JSON.stringify(width)} isn't one of ${SECTION_WIDTHS.join(" / ")} — ` +
+        `it renders full-width. If it's from the old template vocabulary, run ` +
+        `scripts/migrate-block-library.mjs over the content.`,
+    );
+  }
+}
+
+function warnUnmigratedOnce(message: string): void {
+  if (warnedUnmigrated.has(message)) return;
+  warnedUnmigrated.add(message);
+  console.warn(`[collections] resolveTemplate: ${message}`);
 }
 
 function resolveSlot(value: unknown, kind: BindableSlotKind, ctx: ResolveContext): unknown {

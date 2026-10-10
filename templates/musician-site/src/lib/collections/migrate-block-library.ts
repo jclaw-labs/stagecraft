@@ -130,7 +130,7 @@ export function migrateCollectionDef<T extends Pick<CollectionDef, (typeof TEMPL
 }
 
 /** Migrate every puckContent value in an item's values map. Same object when unchanged. */
-export function migrateItemValues<T extends Record<string, FieldValue>>(values: T): T {
+export function migrateBlockLibraryValues<T extends Record<string, FieldValue>>(values: T): T {
   let next: Record<string, FieldValue> | undefined;
   for (const [fieldId, value] of Object.entries(values)) {
     if (value?.type !== "puckContent") continue;

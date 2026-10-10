@@ -142,6 +142,77 @@ describe("PublishPendingChangesButton > statusForFetchResponse", () => {
       publishedAt: FIXED_NOW,
     });
   });
+
+  it("carries a publish warning into in_flight (per-item publish shipped, reconcile pending)", () => {
+    const body = {
+      ok: true as const,
+      commitSha: "abc",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-pending" as const,
+    };
+    expect(statusForFetchResponse(fakeRes(true, 200), body, FIXED_NOW)).toEqual({
+      kind: "in_flight",
+      publishedAt: FIXED_NOW,
+      warning: "draft-resync-pending",
+    });
+  });
+
+  it("carries a publish warning into live on the dev fallback", () => {
+    const body = {
+      ok: true as const,
+      commitSha: null,
+      mode: "local",
+      alreadyInSync: false,
+      warning: "draft-resync-conflict" as const,
+    };
+    expect(statusForFetchResponse(fakeRes(true, 200), body, FIXED_NOW)).toEqual({
+      kind: "live",
+      warning: "draft-resync-conflict",
+    });
+  });
+
+  it("drops a warning this build doesn't know instead of rendering an empty note", () => {
+    const body = {
+      ok: true as const,
+      commitSha: "abc",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-someday",
+    };
+    expect(statusForFetchResponse(fakeRes(true, 200), body, FIXED_NOW)).toEqual({
+      kind: "in_flight",
+      publishedAt: FIXED_NOW,
+    });
+  });
+});
+
+describe("PublishPendingChangesButton > StatusLine publish warnings", () => {
+  it.each([
+    [{ kind: "in_flight" as const, publishedAt: FIXED_NOW }, "Deploy is queued."],
+    [{ kind: "live" as const }, "Live."],
+    [{ kind: "stalled" as const }, "Build still running"],
+  ])("shows the resync note under %o as a note, not an alert", (status, primary) => {
+    const html = renderToStaticMarkup(
+      <StatusLine status={{ ...status, warning: "draft-resync-pending" }} deployStatus={null} />,
+    );
+    expect(html).toContain(primary);
+    expect(html).toContain("Your draft will resync with the live site on your next save");
+    expect(html).toContain('role="note"');
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it("shows the conflict copy for draft-resync-conflict", () => {
+    const html = renderToStaticMarkup(
+      <StatusLine status={{ kind: "live", warning: "draft-resync-conflict" }} deployStatus={null} />,
+    );
+    expect(html).toContain("conflict with the live site");
+  });
+
+  it("renders no note without a warning", () => {
+    const html = renderToStaticMarkup(<StatusLine status={{ kind: "live" }} deployStatus={null} />);
+    expect(html).not.toContain('role="note"');
+  });
 });
 
 describe("PublishPendingChangesButton > isDegraded", () => {

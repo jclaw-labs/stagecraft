@@ -26,11 +26,9 @@
  * the route handler can surface a 5xx. Successful reads that return
  * `null` (file genuinely missing on `draft`) flow through unchanged
  * — fallback only fires on typed errors, never on absence. Masking
- * a deletion would be worse than seeing it. `too-large` is treated
- * as recoverable: the live draft has grown past the Contents-API
- * limit and we can't fetch it via this path, but the FS snapshot
- * has a (stale-but-parseable) copy. Better that than 5xx until a
- * Git-Blob-API fallback ships.
+ * a deletion would be worse than seeing it. Files past the
+ * Contents-API ~1 MB limit are read live through the Git Blob API
+ * inside `draft-store`, so they never fall back to the snapshot.
  *
  * Per-request lifecycle: prefer `getRequestReadStore()` over
  * `getReadStore()` for server-component / route-handler callers —
@@ -115,17 +113,11 @@ export interface ReadStore {
  * - `rate-limited`: hammered the App's quota. Fall back rather than
  *   surface 5xx; the cache + amortisation in draft-store should
  *   normally keep us under, so hitting this is itself a signal.
- * - `too-large`: draft has a file past the Contents-API ~1 MB
- *   limit. We can't fetch the live version via the existing path,
- *   but the FS snapshot has a (stale-but-parseable) copy. Falling
- *   back keeps the admin usable until a Git-Blob-API fallback
- *   ships in `draft-store`.
  */
 const RECOVERABLE_CODES: ReadonlySet<DraftReadError["code"]> = new Set([
   "branch-missing",
   "github-unreachable",
   "rate-limited",
-  "too-large",
 ]);
 
 function isRecoverable(err: unknown): err is DraftReadError {
@@ -139,9 +131,6 @@ function isRecoverable(err: unknown): err is DraftReadError {
  *
  * - `branch-missing` is a normal fresh-site state (the FS snapshot is
  *   the truth), not an outage — no banner.
- * - `too-large` is a single oversized file; the draft is still
- *   reachable, so the site isn't in read-only-fallback mode — no
- *   banner for one file.
  */
 const DEGRADED_CODES: ReadonlySet<DraftReadError["code"]> = new Set([
   "github-unreachable",

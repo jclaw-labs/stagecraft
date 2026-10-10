@@ -20,6 +20,7 @@ import {
   type Item,
 } from "@/lib/collections";
 import { DefaultItemDetail } from "@/lib/collections/template/item-detail";
+import { itemDetailMetadata } from "@/lib/collections/template/item-metadata";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
@@ -35,7 +36,8 @@ import {
   resolveRootPageSlug,
 } from "@/lib/content";
 import { pageSlugSchema } from "@/lib/site-config-types";
-import { buildPuckConfig } from "@/puck/build-config";
+import { deployedSiteOrigin } from "@/lib/site-origin";
+import { buildRenderConfig } from "@/puck/render-config";
 
 // ---------------------------------------------------------------------------
 // Per-request caches
@@ -63,6 +65,9 @@ const cachedReadPageOrNull = cache((slug: string) => readPageOrNull(slug, getFsR
 // this layer so root-URL requests don't trigger that read twice (once
 // per generateMetadata + render path).
 const cachedResolveRootPageSlug = cache(() => resolveRootPageSlug(getFsReadStore()));
+// `def` comes from `cachedAllDefs`, so the same object reaches both
+// callers and the cache key matches.
+const cachedReadItem = cache(readItem);
 
 /**
  * Load every collection's def in parallel, filter out nulls, and
@@ -243,7 +248,7 @@ async function renderPage({ segs }: { segs: string[] }) {
         />
       ) : null}
       <Render
-        config={buildPuckConfig({ variant: "render", collectionSlugs: slugs })}
+        config={buildRenderConfig(slugs)}
         data={resolvedPageData}
       />
     </PublicPageChrome>
@@ -269,7 +274,7 @@ async function renderCollectionItemDetail({
   // `itemSlugSchema.parse` throws on invalid slugs, which would bubble
   // as a 500. A malformed URL is a 404, not an internal error.
   if (!slugSchema.safeParse(itemSlug).success) notFound();
-  const item = await readItem(collectionSlug, itemSlug, def);
+  const item = await cachedReadItem(collectionSlug, itemSlug, def);
   if (!item) notFound();
 
   const [site, header, summaries] = await Promise.all([
@@ -368,7 +373,7 @@ async function CollectionItemBody({
     loadedCollections: loaded,
   });
 
-  return <Render config={buildPuckConfig({ variant: "render", collectionSlugs })} data={resolved} />;
+  return <Render config={buildRenderConfig(collectionSlugs)} data={resolved} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,13 +381,18 @@ async function CollectionItemBody({
 // ---------------------------------------------------------------------------
 
 /**
- * Per-page metadata (document title + meta description). Reads from site
- * config + the page's own root.title so each route surfaces a meaningful
- * tab name. Cached reads via the module-level cache wrappers above
- * share results with the page render in the same request.
+ * Per-page metadata (document title + meta description). A collection
+ * item's detail URL gets the item's own title, summary and cover
+ * (`itemDetailMetadata`); a page gets its root.title. Cached reads via
+ * the module-level cache wrappers above share results with the page
+ * render in the same request.
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug: segments } = await params;
+
+  const itemMetadata = await collectionItemMetadata(segments ?? []);
+  if (itemMetadata) return itemMetadata;
+
   const rawSlug = !segments || segments.length === 0
     ? await cachedResolveRootPageSlug()
     : segments[0];
@@ -408,4 +418,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: pageTitle ? `${pageTitle} — ${site.artistName}` : site.siteTitle,
     description: site.siteDescription,
   };
+}
+
+/**
+ * Metadata for a non-Pages detail URL, matched the same way the render
+ * dispatches it. Null when the URL isn't an item's or the item doesn't
+ * exist, so the caller falls through to the page lookup.
+ */
+async function collectionItemMetadata(segs: string[]): Promise<Metadata | null> {
+  const allDefs = await cachedAllDefs();
+  const itemUrl = resolveCollectionItemUrl(segs, allDefs);
+  if (!itemUrl || itemUrl.collectionSlug === "pages") return null;
+  const def = allDefs.find((d) => d.slug === itemUrl.collectionSlug);
+  if (!def || !slugSchema.safeParse(itemUrl.itemSlug).success) return null;
+
+  const [item, site] = await Promise.all([
+    cachedReadItem(def.slug, itemUrl.itemSlug, def),
+    cachedReadSiteConfig(),
+  ]);
+  if (!item) return null;
+  // `og:image` is root-relative; Next needs a base to make it absolute.
+  return { metadataBase: deployedSiteOrigin(), ...itemDetailMetadata(def, item, site) };
 }

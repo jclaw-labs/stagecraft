@@ -13,8 +13,15 @@
  *     block's Puck inspector, then resolved at render time against
  *     the surrounding template's `currentItem`.
  *   - They render each iterated item through the *source*
- *     collection's `itemTemplate` — a recursive `TemplateRenderer`
- *     call with `item = iteratedItem`, `currentItem = outerItem`.
+ *     collection's `itemTemplate` — a recursive walk with
+ *     `item = iteratedItem`, `currentItem = outerItem`.
+ *
+ * This module holds the data side: the on-disk and resolved props, the
+ * walker's resolver, block naming and source discovery. The render
+ * component (`CollectionBlockRender`) lives with the render config in
+ * `@/puck/render-config`, because it renders item templates through that
+ * same config. That keeps this module free of the walker and of any Puck
+ * config, so the walker can import it without an import cycle.
  *
  * Cycle safety (ADR §4.3): itemTemplates can't contain Collection
  * blocks. The editor offers them only on pages and detail templates,
@@ -23,21 +30,12 @@
  */
 
 import type { ReactNode } from "react";
-import { Render } from "@puckeditor/core";
 
 import { Image } from "@/components/Image";
 
-import { buildPuckConfig } from "@/puck/build-config";
-
 import { applyFilter, mapFilterFields } from "./filter";
-import { resolveTemplate, type ResolveContext } from "./renderer";
-import {
-  emptyMessageFor,
-  specialisedRendererForDef,
-  type SpecialisedRenderer,
-} from "./specialized-views";
-import { isSpecialisedViewSlug, viewFieldIdFor } from "./view-requirements";
-import type { Template } from "./types";
+import type { ResolveContext, Template } from "./types";
+import { viewFieldIdFor } from "./view-requirements";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
 
@@ -135,123 +133,9 @@ export function resolveCollectionBlockProps(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Render component
-// ---------------------------------------------------------------------------
-
 /**
- * Public render component for a Collection block. Server-renderable;
- * iterates the resolved items and renders each via the source
- * collection's itemTemplate.
- */
-export function CollectionBlockRender({
-  items,
-  sourceDef,
-  currentItem,
-}: CollectionBlockResolvedProps): ReactNode {
-  if (!sourceDef) {
-    // Source collection not loaded — render nothing rather than
-    // throwing. The resolver's empty `items` already covers this,
-    // but be defensive about render-time invariants.
-    return null;
-  }
-  if (items.length === 0) {
-    // Restore the bespoke views' empty-state copy (ADR-015 step 5). The
-    // message renders as a plain muted paragraph — no `data-collection-view`
-    // wrapper, so a grid-layout slug (releases / posts) doesn't lay the single
-    // line out as a grid cell. Slugs without bespoke copy fall back to the
-    // empty wrapper, matching the block's prior behaviour.
-    const message = emptyMessageFor(sourceDef.slug);
-    return message ? (
-      <p style={{ color: "var(--color-text-muted)", margin: 0 }}>{message}</p>
-    ) : (
-      <div data-collection-view={sourceDef.slug} />
-    );
-  }
-  // Specialised renderer (photos / videos / tour-dates / releases /
-  // posts) — hand-tuned per-slug cards. Null when no specialisation is
-  // registered, or when the artist's schema edits removed / retyped a
-  // field the card requires.
-  const specialised = specialisedRendererForDef(sourceDef);
-  // A specialised slug whose cards fell back to the default render drops
-  // the slug from its wrapper, so the default cards stack in normal flow
-  // instead of sitting in that view's grid tracks (`globals.css`). An
-  // itemTemplate isn't a fallback: it keeps the slug's layout.
-  const fellBack =
-    !sourceDef.itemTemplate && specialised === null && isSpecialisedViewSlug(sourceDef.slug);
-  return (
-    <div data-collection-view={fellBack ? undefined : sourceDef.slug}>
-      {items.map((item) => (
-        <CollectionBlockItem
-          key={item.id}
-          item={item}
-          sourceDef={sourceDef}
-          currentItem={currentItem}
-          specialised={specialised}
-        />
-      ))}
-    </div>
-  );
-}
-
-function CollectionBlockItem({
-  item,
-  sourceDef,
-  currentItem,
-  specialised,
-}: {
-  item: Item;
-  sourceDef: CollectionDef;
-  currentItem: Item;
-  specialised: SpecialisedRenderer | null;
-}): ReactNode {
-  const template = sourceDef.itemTemplate;
-  if (template) {
-    // The artist authored an explicit itemTemplate — always wins
-    // over a specialised renderer. Recursive resolve: this item's
-    // template, walked with `item = iteratedItem` but `currentItem`
-    // carried through unchanged so §5.1's currentItemId /
-    // currentItemField FilterValue arms still reference the
-    // surrounding (outer) item.
-    // No `collectionSlugs`: an itemTemplate can't embed Collection blocks.
-    const resolved = resolveTemplate(template as Template, item, {
-      currentItem,
-      itemDef: sourceDef,
-    });
-    return <Render config={buildPuckConfig({ variant: "render" })} data={resolved} />;
-  }
-  if (specialised) {
-    return specialised({ item, def: sourceDef });
-  }
-  // No itemTemplate, no specialisation — render a minimal default:
-  // every scalar field rendered as plain text + image. Keeps the
-  // block useful out of the box for arbitrary collections.
-  return <DefaultItemRender item={item} sourceDef={sourceDef} />;
-}
-
-/**
- * Fallback "render every scalar field as plain text" when the
- * source collection has no itemTemplate configured and no specialised
- * renderer. (Detail pages without a `detailTemplate` use
- * `DefaultItemDetail` in `./item-detail.tsx` instead.)
- */
-function DefaultItemRender({
-  item,
-  sourceDef,
-}: {
-  item: Item;
-  sourceDef: CollectionDef;
-}): ReactNode {
-  return (
-    <article style={{ marginBottom: "var(--space-4)" }}>
-      <DefaultItemFieldsList item={item} def={sourceDef} />
-    </article>
-  );
-}
-
-/**
- * The inner default body of `DefaultItemRender`, the in-block
- * iteration fallback.
+ * The default body of a Collection block item with no itemTemplate and
+ * no specialised renderer (`CollectionBlockRender`'s fallback).
  *
  * Renders `image` values as `<picture>` (so photo / cover-art / store
  * collections aren't visually empty out of the box), `url` values as

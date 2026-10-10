@@ -8,7 +8,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { publishErrorHttpStatus } from "./publish-types";
+import {
+  PUBLISH_WARNING_MESSAGES,
+  publishErrorHttpStatus,
+  publishWarningSchema,
+} from "./publish-types";
 
 describe("publishErrorHttpStatus", () => {
   it("maps concurrent-edit to 409 (recoverable client-side)", () => {
@@ -27,5 +31,15 @@ describe("publishErrorHttpStatus", () => {
     "no-platform-configured",
   ] as const)("maps %s to 500", (code) => {
     expect(publishErrorHttpStatus(code)).toBe(500);
+  });
+});
+
+describe("publish warnings", () => {
+  it.each(publishWarningSchema.options)("has editor copy for %s", (warning) => {
+    expect(PUBLISH_WARNING_MESSAGES[warning]).toMatch(/\S/);
+  });
+
+  it("rejects an unknown warning code", () => {
+    expect(publishWarningSchema.safeParse("draft-resync-later").success).toBe(false);
   });
 });

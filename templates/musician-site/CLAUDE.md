@@ -18,9 +18,13 @@ not a contract for *how* Puck is configured.
 
 The block library at `src/puck/config.tsx` is the source of truth for
 block schemas — one library for pages, collection templates and item
-bodies (#349). `buildPuckConfig` (`src/puck/build-config.tsx`) is the only
-place a Puck `Config` is assembled: an `editor` variant per surface (page,
-body, item template, detail template) and a `render` variant. Don't auto-generate it from Zod; don't share block
+bodies (#349). Puck `Config` objects are assembled in two places only:
+`buildPuckConfig` (`src/puck/build-config.tsx`) for the editor surfaces
+(page, body, item template, detail template), and `buildRenderConfig`
+(`src/puck/render-config.tsx`) for `<Render>`. Nothing on the render path
+imports `build-config.tsx`, so the template pickers and Collection block
+inspectors stay out of the public page's module graph
+(`src/puck/render-path.test.ts` fails if one comes back). Don't auto-generate either from Zod; don't share block
 schemas with the legacy template. ADR-007 explicitly exempts Puck
 block configs from the cross-system SSOT rule in the top-level
 `CLAUDE.md` §1.
@@ -73,8 +77,11 @@ src/
   puck/
     config.tsx              Block library — every block, page root
                             fields, drawer categories
-    build-config.tsx        buildPuckConfig: the one config factory
-                            (editor surfaces + render)
+    build-config.tsx        buildPuckConfig: editor configs per
+                            surface (pickers, drawer per surface)
+    render-config.tsx       buildRenderConfig + CollectionBlockRender:
+                            the render path (<TemplateRenderer> is
+                            walk + render in one, used by the tests)
     ImagePickerField.tsx    Custom field for image picking
   lib/
     fs-helpers.ts           Shared filesystem primitives used by every
@@ -129,8 +136,10 @@ src/
                                               take a Bindable<T>
                                               (BINDABLE_SLOTS)
                                 tiptap-render.tsx  Tiptap doc → React
-                                renderer.tsx  <TemplateRenderer> +
-                                              `resolveTemplate` walker
+                                renderer.tsx  `resolveTemplate` walker
+                                              (renders nothing itself)
+                                collection-block.tsx  Collection block
+                                              props, resolver, naming
                                 item-detail.tsx  Default detail page
                                               for items whose collection
                                               has no detailTemplate
