@@ -20,11 +20,11 @@ function secretMatches(incoming: string, expected: string): boolean {
  * `SiteJob` rows back to back until the queue is empty or the drain's
  * job / time limit is hit.
  *
- * Exists for hosts with no long-lived process (Cloudflare Workers, or a
- * scheduled function), where the in-process poller started from
- * instrumentation.ts never gets to tick. Call it on a schedule with
- * `Authorization: Bearer $CRON_SECRET`; set STAGECRAFT_INPROCESS_WORKER=false
- * on those hosts so only the cron path claims jobs.
+ * Called every five minutes by the Netlify scheduled function
+ * (netlify/functions/drain-jobs.ts) with `Authorization: Bearer $CRON_SECRET`,
+ * to resume jobs whose function was cut off. A host with no long-lived
+ * process at all can drive the whole queue this way: set
+ * STAGECRAFT_INPROCESS_WORKER=false there so only the cron path claims jobs.
  */
 export async function POST(request: Request) {
   const expected = process.env.CRON_SECRET;
