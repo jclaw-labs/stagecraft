@@ -112,7 +112,7 @@ export default function HomePage() {
           <div className={styles.heroCtas}>
             <Button href={SIGN_IN_HREF}>Start building</Button>
             <Button href="/examples" variant="secondary">
-              See examples
+              See what’s included
             </Button>
           </div>
           <a

@@ -10,7 +10,7 @@ export const SIGN_IN_HREF = "/login";
 export type NavLink = { label: string; href: string };
 
 export const PRIMARY_NAV: NavLink[] = [
-  { label: "Examples", href: "/examples" },
+  { label: "What's included", href: "/examples" },
   { label: "Migrate", href: "/migrate" },
 ];
 
