@@ -26,9 +26,10 @@ export function getWorker() {
  * not "false"), which today means Netlify: its functions freeze once the
  * response is sent, so the poller can't be relied on to pick the job up,
  * while `after()` keeps the invocation alive until the drain finishes.
- * Hosts with a cron drain (the Cloudflare Worker) leave it to the cron. If
+ * Hosts that set STAGECRAFT_INPROCESS_WORKER=false leave it to the cron. If
  * the invocation dies part way anyway, the job's lease expires and the next
- * drain resumes it from its last finished step.
+ * drain (on Netlify, the scheduled function every five minutes) resumes it
+ * from its last finished step.
  */
 export function drainAfterResponse(): void {
   if (process.env.STAGECRAFT_INPROCESS_WORKER === "false") return;

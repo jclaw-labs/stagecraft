@@ -843,6 +843,53 @@ describe("drain", () => {
     }
   });
 
+  it("waits for a run the poller already started instead of returning 0", async () => {
+    mockFindFirst.mockResolvedValueOnce(makeJob({ id: "job-1" })).mockResolvedValue(null);
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler }, pollIntervalMs: 60_000 });
+
+    // start() kicks off a run without awaiting it, as on a cold start just
+    // before the cron request drains.
+    worker.start();
+    try {
+      await expect(worker.drain({ maxJobs: 1 })).resolves.toBe(1);
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      worker.stop();
+    }
+  });
+
+  it("runs the queued job itself when the poller's run found nothing", async () => {
+    mockFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(makeJob({ id: "job-1" })).mockResolvedValue(null);
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler }, pollIntervalMs: 60_000 });
+
+    worker.start();
+    try {
+      await expect(worker.drain({ maxJobs: 1 })).resolves.toBe(1);
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      worker.stop();
+    }
+  });
+
+  it("keeps draining after waiting out the poller's run", async () => {
+    mockFindFirst
+      .mockResolvedValueOnce(makeJob({ id: "job-1" }))
+      .mockResolvedValueOnce(makeJob({ id: "job-2" }))
+      .mockResolvedValue(null);
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler }, pollIntervalMs: 60_000 });
+
+    worker.start();
+    try {
+      await expect(worker.drain()).resolves.toBe(2);
+      expect(handler).toHaveBeenCalledTimes(2);
+    } finally {
+      worker.stop();
+    }
+  });
+
   it("does not count a lost claim and keeps draining", async () => {
     mockFindFirst
       .mockResolvedValueOnce(makeJob({ id: "job-1" }))

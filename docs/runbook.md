@@ -13,7 +13,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 5. [Manually Retrying Failed Jobs](#5-manually-retrying-failed-jobs)
 6. [Verifying GitHub Integration](#6-verifying-github-integration)
 7. [Verifying Netlify Integration](#7-verifying-netlify-integration)
-8. [Cloudflare Worker](#8-cloudflare-worker)
+8. [Scheduled Queue Drain](#8-scheduled-queue-drain)
 9. [Credential Encryption](#9-credential-encryption)
 10. [Database Migrations](#10-database-migrations)
 
@@ -93,7 +93,7 @@ For production or CI, set the variables below directly in your hosting environme
 | `AUTH_GITHUB_SECRET` | GitHub OAuth App client secret |
 | `NETLIFY_CLIENT_ID` | Netlify OAuth App client ID |
 | `NETLIFY_CLIENT_SECRET` | Netlify OAuth App client secret |
-| `CRON_SECRET` | Bearer secret for `POST /api/cron/jobs`, the scheduled job-queue drain. Unset disables the route (503). |
+| `CRON_SECRET` | Bearer secret for `POST /api/cron/jobs`, the scheduled job-queue drain ([§8](#8-scheduled-queue-drain)). Unset disables the route (503). |
 | `STAGECRAFT_INPROCESS_WORKER` | Set to `false` to stop the in-process job poller (hosts with no long-lived process). Queue is then drained only via `/api/cron/jobs`. |
 | `STAGECRAFT_CREDENTIALS_KEY` | Current key for encrypting stored integration credentials, as `<keyId>:<base64 of 32 bytes>`. Unset in production, sign-in and the connect flows fail rather than store tokens in plaintext; unset elsewhere, tokens are stored in plaintext with a warning once per process (see `STAGECRAFT_CREDENTIALS_REQUIRED`). Generating it and the rollout order are in [§9](#9-credential-encryption). |
 
@@ -103,8 +103,8 @@ For production or CI, set the variables below directly in your hosting environme
 |---|---|
 | `STAGECRAFT_CREDENTIALS_OLD_KEYS` | Retired credential keys, comma-separated, same format as `STAGECRAFT_CREDENTIALS_KEY`. Used only to decrypt values written before a rotation ([§9](#9-credential-encryption)). |
 | `STAGECRAFT_CREDENTIALS_REQUIRED` | `true` or `false`. Whether a missing `STAGECRAFT_CREDENTIALS_KEY` makes credential writes fail instead of storing plaintext. Unset, it is on when `NODE_ENV=production` and off otherwise. Set `false` only for a deliberate deploy before the key exists ([§9](#when-the-key-is-missing)). |
-| `STAGECRAFT_CREDENTIALS_ACCEPT_V1` | `true` or `false`. Whether legacy, row-unbound `enc:v1:` credentials still decrypt. Unset or empty means `true`, and `true` / `false` are read in any case; any other value is a configuration error: the app's v1 reads fail with it, and the backfill stops before scanning. Set `false` once the backfill has left no v1 values, on both hosts ([§9](#first-rollout), step 5). |
-| `DATABASE_DRIVER` | How Prisma connects. Unset, empty or `engine`: Prisma's built-in TCP engine, whatever the `DATABASE_URL` host. `neon`: opt in to the Neon driver adapter (WebSockets), needed on Cloudflare Workers; it requires `DATABASE_URL` and a global `WebSocket` (Node 22+ or Workers) and fails at startup without them. Any other value fails at startup. |
+| `STAGECRAFT_CREDENTIALS_ACCEPT_V1` | `true` or `false`. Whether legacy, row-unbound `enc:v1:` credentials still decrypt. Unset or empty means `true`, and `true` / `false` are read in any case; any other value is a configuration error: the app's v1 reads fail with it, and the backfill stops before scanning. Set `false` once the backfill has left no v1 values ([§9](#first-rollout), step 5). |
+| `DATABASE_DRIVER` | How Prisma connects. Unset, empty or `engine`: Prisma's built-in TCP engine, whatever the `DATABASE_URL` host. `neon`: opt in to the Neon driver adapter (WebSockets); it requires `DATABASE_URL` and a global `WebSocket` (Node 22+ or Workers) and fails at startup without them. Any other value fails at startup. |
 
 ---
 
@@ -356,73 +356,15 @@ WHERE id = '<site-id>';
 
 ---
 
-## 8. Cloudflare Worker
+## 8. Scheduled Queue Drain
 
-`apps/web` also builds as a Cloudflare Worker named `stagecraft` (`apps/web/wrangler.jsonc`). It serves only the workers.dev preview, `https://stagecraft.<account-subdomain>.workers.dev`. It has no routes or custom domains, so stagecraft.website keeps serving from Netlify until the cutover.
+Routes that enqueue a job run it right after their response (`after()`, see [Job Lifecycle](#job-lifecycle)). A Netlify function can still be cut off part way. Once that job's lease expires, only a later enqueue or a warm function would pick it up again, and neither is guaranteed. The scheduled function `apps/web/netlify/functions/drain-jobs.ts` bounds that delay: every five minutes it calls `POST /api/cron/jobs` on the site's primary URL (Netlify's `URL` variable) with `Authorization: Bearer $CRON_SECRET`, and the route runs one job. A cut-off job is resumed within about ten minutes (the five-minute lease plus the five-minute schedule), and a backed-off retry waits for the next tick. If the function's own poller already has a job running (a cold start), the drain waits for that job instead of claiming another.
 
-The Worker has no long-lived process, so `wrangler.jsonc` sets `STAGECRAFT_INPROCESS_WORKER=false` and a Cron Trigger drains the job queue every minute through `POST /api/cron/jobs`. It also sets `DATABASE_DRIVER=neon`, because Prisma's default engine can't open a TCP socket on Workers. Those two are the only `vars`. Everything else is a Worker secret.
+**Setup:** set `CRON_SECRET` on the Netlify project (Site configuration → Environment variables, Production context) to a random value, e.g. `openssl rand -hex 32`, then redeploy. Until it is set, the route answers 503 and each scheduled run fails with `CRON_SECRET is not set`, visible under Logs → Functions → `drain-jobs`. Leave `STAGECRAFT_INPROCESS_WORKER` unset on Netlify, so enqueueing routes keep running jobs right away.
 
-### Worker secrets
+Scheduled functions run only on the published production deploy, never on Deploy Previews. After a production deploy that changes the drain, check the first `drain-jobs` run under Logs → Functions: a run with no error means the route answered 2xx, and a failure logs the thrown error (a missing secret or URL, or the route's status and body).
 
-`wrangler deploy` replaces `vars` on every deploy and stores them in plain text, but leaves secrets alone. So every value below is a secret, including `AUTH_URL`, which isn't sensitive but differs between the preview and production. `apps/web/cloudflare/wrangler-config.test.ts` fails if one of these names shows up in `vars`.
-
-| Secret | Required | What reads it |
-|---|---|---|
-| `DATABASE_URL` | yes | Prisma client (`packages/db`); must be a Neon URL, since the Worker uses the Neon driver. Until the preview passes the end-to-end checks, use a separate Neon database, not production's (see below) |
-| `AUTH_SECRET` | yes | NextAuth session signing |
-| `AUTH_URL` | yes | NextAuth, Netlify OAuth redirect, install URLs. The Worker's own origin, e.g. `https://stagecraft.<account-subdomain>.workers.dev` |
-| `AUTH_GITHUB_ID` | yes | NextAuth GitHub sign-in |
-| `AUTH_GITHUB_SECRET` | yes | NextAuth GitHub sign-in |
-| `STAGECRAFT_STATE_SIGNING_SECRET` | yes | Signed install-URL state and Resend verification tokens |
-| `NETLIFY_CLIENT_ID` | yes | Netlify OAuth |
-| `NETLIFY_CLIENT_SECRET` | yes | Netlify OAuth |
-| `GITHUB_APP_ID` | yes | `stagecraft-bot` GitHub App tokens |
-| `GITHUB_APP_PRIVATE_KEY` | yes | `stagecraft-bot` GitHub App tokens. Multi-line, `\n`-escaped or space-flattened PEM all work |
-| `GITHUB_APP_WEBHOOK_SECRET` | yes | GitHub App webhook signature check |
-| `CRON_SECRET` | yes | Cron Trigger → `POST /api/cron/jobs` bearer token. Unset, every cron run fails |
-| `STAGECRAFT_CREDENTIALS_KEY` | yes | Encrypts and decrypts stored integration credentials (`apps/web/src/lib/credential-crypto.ts`). Must be the same value as on Netlify whenever both read the same database. Unset, sign-in and the connect flows fail (the Worker runs with `NODE_ENV=production`) and encrypted tokens can't be read. See [§9](#9-credential-encryption) |
-| `STAGECRAFT_CREDENTIALS_OLD_KEYS` | no | Retired credential keys, decrypt only. Same value as on Netlify ([§9](#rotating-the-key)) |
-| `STAGECRAFT_CREDENTIALS_REQUIRED` | no | `false` lets writes store plaintext with no key set. Leave unset ([§9](#when-the-key-is-missing)) |
-| `STAGECRAFT_CREDENTIALS_ACCEPT_V1` | no | `false` refuses legacy, row-unbound `enc:v1:` credentials. Set once the backfill has left none, same value as on Netlify ([§9](#first-rollout), step 5) |
-| `GITHUB_APP_INSTALLATION_ID_NETLIFY` | no | Fallback installation id when `/user/installations` can't find the Netlify app |
-| `GITHUB_APP_INSTALLATION_ID_STAGECRAFT_BOT` | no | Same fallback for `stagecraft-bot` |
-
-Resend, Netlify and Vercel API keys aren't platform secrets: each user connects their own account, and the tokens live in the database (`IntegrationAccount`), encrypted with `STAGECRAFT_CREDENTIALS_KEY`.
-
-Sign-in on the preview only works if the GitHub OAuth App (`AUTH_GITHUB_ID`) accepts `<AUTH_URL>/api/auth/callback/github` as a callback URL, and Netlify OAuth needs `<AUTH_URL>/api/integrations/netlify/callback` registered the same way.
-
-### Setting secrets
-
-**Give the preview its own database until it has passed end to end.** The every-minute cron claims queued jobs from whatever `DATABASE_URL` points at, and a job whose handler throws is marked `failed` with no retry (`packages/queue/src/worker.ts`). With production's `DATABASE_URL`, the preview would share real users' `create_site` and `migrate_site` jobs with Netlify's in-process worker, on Worker code nobody has checked end to end yet, and it starts doing so as soon as the secret is set. So set `DATABASE_URL` to a separate Neon database, not the Netlify value, until sign-in, create-site and migrate-site have passed on the preview. Switching to production's database is part of the cutover (#312).
-
-Nothing in CI migrates that database (CI's "DB migrations applied to production" job and `npm run db:migrate:prod` both target production), so apply the schema to it yourself before setting the secret, and again whenever a migration lands on main, or sign-in and the cron fail on missing tables. Use its direct (unpooled) URL, the one without `-pooler` in the host. Run the command below as one line from the repo root: after you press Enter it shows a prompt, where you paste the URL and press Enter again. Paste the URL only at that prompt, not together with the command. The URL isn't echoed or kept in shell history, and the migration runs only once `read` has a non-empty URL: an empty Enter stops instead of migrating with an empty `DATABASE_URL`, which Prisma would replace with `packages/db/.env`'s local database. The parentheses run it in a subshell, so your shell stays in the repo root and doesn't keep the URL afterwards. It works the same in bash and zsh.
-
-```bash
-(cd packages/db && printf 'Preview DATABASE_URL (direct, unpooled): ' && read -rs PREVIEW_DATABASE_URL && echo && [ -n "$PREVIEW_DATABASE_URL" ] && DATABASE_URL="$PREVIEW_DATABASE_URL" npx prisma migrate deploy)
-```
-
-From `apps/web`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exported (or after `npx wrangler login`):
-
-```bash
-# One at a time (prompts for the value, so it stays out of shell history)
-npx wrangler secret put CRON_SECRET
-
-# Or all at once from a JSON file ({"NAME": "value", ...}) or a KEY=VALUE .env file.
-# Keep the file outside the repo and delete it afterwards.
-npx wrangler secret bulk /path/to/worker-secrets.json
-
-# Check which names are set (values are never shown)
-npx wrangler secret list
-```
-
-Each `secret put` or `secret bulk` deploys a new version of the Worker with the change, so no redeploy is needed. If the Worker doesn't exist yet, run `npm run deploy:worker` first. Until they're set, the cron runs fail on the missing `CRON_SECRET`.
-
-### Deploying
-
-- **From CI:** `.github/workflows/deploy-worker.yml` runs `npm run deploy:worker` after CI passes on a push to main, or by hand from main via Actions → Deploy Worker → Run workflow. It needs the repository secrets `CLOUDFLARE_API_TOKEN` (a token with Workers Scripts: Edit on the account) and `CLOUDFLARE_ACCOUNT_ID`; without them it skips with a notice.
-- **By hand:** from `apps/web`, after `npm ci` and `npm run db:generate` at the repo root, run `npm run deploy:worker` with the same two variables exported.
-
-`npm run build:worker` builds and bundles without deploying or logging in, which is what CI runs on every PR.
+The platform used to build a Cloudflare Worker preview as well. That was dropped in #464 (issue #467): with a working Prisma engine the bundle exceeded the Workers Free size limit, and requests used far more than its 10 ms of CPU.
 
 ---
 
@@ -442,8 +384,6 @@ The app also still reads:
 
 A value with any other `enc:` version is refused, never treated as plaintext.
 
-Both Netlify and the Cloudflare Worker ([§8](#8-cloudflare-worker)) run this same code from `apps/web`, so everything below applies to both hosts.
-
 ### Generating a key
 
 The key is a key id (letters, digits, `_` or `-`, up to 32 characters) and 32 random bytes in standard base64 (44 characters ending in `=`), joined by `:`. Use a new id for each key, e.g. the date:
@@ -462,7 +402,7 @@ With `STAGECRAFT_CREDENTIALS_KEY` unset, what a credential write does depends on
 
 | `STAGECRAFT_CREDENTIALS_REQUIRED` | No key set: a write... |
 |---|---|
-| unset or empty, and `NODE_ENV=production` (every Netlify and Worker deploy) | fails. Sign-in and the connect flows error instead of storing a token in plaintext |
+| unset or empty, and `NODE_ENV=production` (every Netlify deploy) | fails. Sign-in and the connect flows error instead of storing a token in plaintext |
 | unset or empty, any other `NODE_ENV` (local dev, tests) | stores plaintext and logs `STAGECRAFT_CREDENTIALS_KEY is not set` once per process |
 | `true` | fails |
 | `false` | stores plaintext with the warning, even in production. Only for a deliberate first deploy before the key exists; remove it once the key is set |
@@ -488,7 +428,7 @@ KEY_TO_REENCODE="$KEY_TO_REENCODE" node -e 'const s=process.env.KEY_TO_REENCODE.
 unset KEY_TO_REENCODE
 ```
 
-Put the printed value in 1Password and set it on both hosts in place of the old one (with the build that is already deployed, which reads either form). Then re-run the check on the values the hosts now have before deploying this build. To check them without overwriting your shell's variables, do it in a subshell, which reads them at hidden prompts and discards them when it exits:
+Put the printed value in 1Password and set it on Netlify in place of the old one (with the build that is already deployed, which reads either form). Then re-run the check on the values Netlify now has before deploying this build. To check them without overwriting your shell's variables, do it in a subshell, which reads them at hidden prompts and discards them when it exits:
 
 ```bash
 (
@@ -517,8 +457,8 @@ Alternatively, keep them in a file outside the repo created with `umask 077` (or
 
 ### First rollout
 
-1. **Set the key** as `STAGECRAFT_CREDENTIALS_KEY` on Netlify (site environment variables) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_KEY`, which prompts for the value). Use the same value on both whenever they read the same database.
-2. **Deploy** the code that encrypts on write (Netlify needs a redeploy to pick up a new environment variable; a Worker `secret put` deploys by itself). From now on new and refreshed tokens are written as v2.
+1. **Set the key** as `STAGECRAFT_CREDENTIALS_KEY` on Netlify (site environment variables).
+2. **Deploy** the code that encrypts on write (Netlify needs a redeploy to pick up a new environment variable). From now on new and refreshed tokens are written as v2.
 
    Do step 1 first. In production a deploy without the key refuses to store tokens, so sign-in and the connect flows fail until it is set (see [When the key is missing](#when-the-key-is-missing)). If you really have to deploy to a host before its key exists, set `STAGECRAFT_CREDENTIALS_REQUIRED=false` there first: tokens are then stored in plaintext with a warning, as before. Set the key, remove the flag, redeploy, and run the backfill.
 3. **Run the backfill** against each database, from the repo root, with that database's `DATABASE_URL` and the same key exported as in [Setting the variables for the backfill](#setting-the-variables-for-the-backfill). Dry-run first:
@@ -541,7 +481,7 @@ Alternatively, keep them in a file outside the repo created with `umask 077` (or
       OR (id_token IS NOT NULL AND id_token NOT LIKE 'enc:v2:%');
    ```
 
-5. **Stop accepting v1.** Once both counts are 0 on every database the hosts read, set `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` on Netlify (site environment variables, then redeploy) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_ACCEPT_V1`, [§8](#worker-secrets)). From then on the app refuses `enc:v1:` values, so an old v1 ciphertext pasted into a row no longer decrypts, and the row binding covers every stored credential. Unset (the default) or `true` keeps accepting them (any case); any value other than `true` or `false` is a configuration error ([§2](#optional-env-vars)). A v1 value that turns up later (a restore from an older backup, say) fails to read with an error naming the flag, and the backfill lists it as `legacy v1 value, left as is`, counts it under `v1 left as is` and leaves it: have that user reconnect. Never pass `--upgrade-v1` after this step, whatever the backfill's output says.
+5. **Stop accepting v1.** Once both counts are 0 on every database the hosts read, set `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` on Netlify (site environment variables, then redeploy). From then on the app refuses `enc:v1:` values, so an old v1 ciphertext pasted into a row no longer decrypts, and the row binding covers every stored credential. Unset (the default) or `true` keeps accepting them (any case); any value other than `true` or `false` is a configuration error ([§2](#optional-env-vars)). A v1 value that turns up later (a restore from an older backup, say) fails to read with an error naming the flag, and the backfill lists it as `legacy v1 value, left as is`, counts it under `v1 left as is` and leaves it: have that user reconnect. Never pass `--upgrade-v1` after this step, whatever the backfill's output says.
 
    Until this step, the binding protects only values written as v2. Someone with database write access could have copied a v1 value into their own row before the backfill ran, and the backfill would then have re-encrypted that copy as v2 bound to their row. If database write access may have been exposed before step 5, have users reconnect their integrations, or revoke and reissue the tokens with the providers, so the stored tokens are new ones.
 
@@ -549,23 +489,22 @@ After step 3, don't remove the key or roll the app back to a build from before e
 
 #### Upgrading from v1
 
-If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails on both hosts. Then deploy this build to both hosts (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, passing `--upgrade-v1` to both backfill commands in step 3, and finish with step 5.
+If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails. Then deploy this build (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, passing `--upgrade-v1` to both backfill commands in step 3, and finish with step 5.
 
-**Mind the deploy timing across hosts.** A host still running the #354 build doesn't know `enc:v2:`: it takes a v2 value for plaintext and sends the ciphertext to GitHub, Netlify, Vercel or Resend as the bearer token, so that integration call fails. From the moment the first host runs this build, every sign-in and connect writes v2, so every host that reads that database has to be on this build too. Three ways to end up with a #354 build reading v2 values:
+**Mind the deploy timing across hosts.** A host still running the #354 build doesn't know `enc:v2:`: it takes a v2 value for plaintext and sends the ciphertext to GitHub, Netlify, Vercel or Resend as the bearer token, so that integration call fails. From the moment the first host runs this build, every sign-in and connect writes v2, so every host that reads that database has to be on this build too. Two ways to end up with a #354 build reading v2 values:
 
-- **A staggered deploy.** When Netlify and the Worker read the same database, deploy this build to both back to back, and run the backfill only once both are on it. Between the two deploys, tokens the new host writes fail on the old one; the gap closes when the second deploy lands.
-- **A Netlify instant rollback.** Publishing an older deploy from the Deploys list puts that build live without rebuilding it. Once this build has written any v2 value, never roll back to a #354 deploy (or anything older); fix forward instead. The same goes for a Worker rollback (`wrangler rollback`) when it reads that database.
-- **A preview deploy against the production database.** A preview built from an older branch runs that branch's build, so if it gets production's `DATABASE_URL` and key it reads and writes production's credentials with code that may not know v2. Before the first deploy of this build, check it on the production Netlify site: under Site configuration → Environment variables, open `DATABASE_URL` and `STAGECRAFT_CREDENTIALS_KEY` and confirm that each is scoped to the Production deploy context only, with no value for Deploy Previews or Branch deploys. If either has a value for those contexts, change that first. A Netlify Deploy Preview or Branch deploy, or a Worker preview version (`wrangler versions upload`, preview URLs), must never point at the production database. The Worker's own deploy reads production's database only once the #312 cutover switches it there ([§8](#setting-secrets)); until then it uses its separate database.
+- **A Netlify instant rollback.** Publishing an older deploy from the Deploys list puts that build live without rebuilding it. Once this build has written any v2 value, never roll back to a #354 deploy (or anything older); fix forward instead.
+- **A preview deploy against the production database.** A preview built from an older branch runs that branch's build, so if it gets production's `DATABASE_URL` and key it reads and writes production's credentials with code that may not know v2. Before the first deploy of this build, check it on the production Netlify site: under Site configuration → Environment variables, open `DATABASE_URL` and `STAGECRAFT_CREDENTIALS_KEY` and confirm that each is scoped to the Production deploy context only, with no value for Deploy Previews or Branch deploys. If either has a value for those contexts, change that first. A Netlify Deploy Preview or Branch deploy must never point at the production database.
 
 ### Rotating the key
 
-Netlify and the Cloudflare Worker share one database but are deployed separately, so for a while one host can be running with the new key and the other with the old one. Whatever one host writes, the other must be able to read. Either do the rotation in two deploys, as below, or change both hosts' variables and deploy both close together, accepting that a token written by one host fails on the other until the second deploy lands. The two-step version has no such gap:
+During a deploy, functions from the old build can still be running next to the new one, and whatever one writes the other must be able to read. Either do the rotation in two deploys, as below, or change both variables in one deploy, accepting that a token written by the new build can fail to read on a lingering old one. The two-step version has no such gap:
 
 1. **Generate** a new key with a new id.
 2. **Make the new key readable everywhere, then promote it.**
-   1. Append the new key to `STAGECRAFT_CREDENTIALS_OLD_KEYS` (comma-separated) on Netlify *and* the Worker, leaving `STAGECRAFT_CREDENTIALS_KEY` unchanged. Deploy both. Nothing writes with the new key yet, but both hosts can now decrypt it.
-   2. On both hosts, set `STAGECRAFT_CREDENTIALS_KEY` to the new key, and in `STAGECRAFT_CREDENTIALS_OLD_KEYS` replace the new key with the old current one (a key id may appear only once across the two variables). Deploy both. Whichever host deploys first writes with the new key, and the other can already read it.
-3. **Retire the old key** by re-encrypting under the new one: run the backfill with `--rotate`, with both variables exported as above. Besides encrypting plaintext as in the first rollout, it re-encrypts v2 values under any old key with the current one. Don't pass `--upgrade-v1`: a v1 value at this point is one the first rollout didn't produce, so the run lists it under `v1 left as is` instead of binding it to the row it was found in (have that user reconnect). Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS` on both hosts, and deploy, once that run exits 0 and reports `0 v1 left as is, 0 undecryptable` for both tables; a non-zero exit lists, by row, what is left: values it couldn't decrypt (key not configured, malformed, or a v2 value in a row it wasn't written for) (`undecryptable`), v1 values to have reconnected (`v1 left as is`), or rows with an unknown provider (`unbindable`). Each table's summary line counts every kind; the run's final error names only the first kind it finds (in that order), so read the summary lines, not just the error, to see everything that is left.
+   1. Append the new key to `STAGECRAFT_CREDENTIALS_OLD_KEYS` (comma-separated) on Netlify, leaving `STAGECRAFT_CREDENTIALS_KEY` unchanged. Deploy. Nothing writes with the new key yet, but every function can now decrypt it.
+   2. Set `STAGECRAFT_CREDENTIALS_KEY` to the new key, and in `STAGECRAFT_CREDENTIALS_OLD_KEYS` replace the new key with the old current one (a key id may appear only once across the two variables). Deploy. The new build writes with the new key, and the old one can already read it.
+3. **Retire the old key** by re-encrypting under the new one: run the backfill with `--rotate`, with both variables exported as above. Besides encrypting plaintext as in the first rollout, it re-encrypts v2 values under any old key with the current one. Don't pass `--upgrade-v1`: a v1 value at this point is one the first rollout didn't produce, so the run lists it under `v1 left as is` instead of binding it to the row it was found in (have that user reconnect). Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS`, and deploy, once that run exits 0 and reports `0 v1 left as is, 0 undecryptable` for both tables; a non-zero exit lists, by row, what is left: values it couldn't decrypt (key not configured, malformed, or a v2 value in a row it wasn't written for) (`undecryptable`), v1 values to have reconnected (`v1 left as is`), or rows with an unknown provider (`unbindable`). Each table's summary line counts every kind; the run's final error names only the first kind it finds (in that order), so read the summary lines, not just the error, to see everything that is left.
 
 ## 10. Database Migrations
 

@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
   // Provisioning runs in the job queue, not in this request: it makes a few
   // dozen calls to GitHub and the deploy target, which would hold the
-  // request open and, on Workers, count against its subrequest limit. The
+  // request open past the function's timeout. The
   // site page polls the site (and its latest job) until it leaves
   // `creating`. See handleCreateSite for the resumable steps.
   let job;

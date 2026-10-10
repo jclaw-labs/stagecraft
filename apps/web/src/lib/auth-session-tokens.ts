@@ -21,8 +21,7 @@ import { hashSessionToken, isSessionTokenHash } from "@stagecraft/shared";
  *
  * TODO(#411): the plaintext fallback (`migrateLegacySession` and its
  * callers) can be removed once the 30-day session maxAge has passed since
- * the later of the Netlify and Cloudflare Worker deploys of this change:
- * a host still on the old code keeps writing plaintext rows until then.
+ * the Netlify deploy of this change.
  */
 export function withHashedSessionTokens(adapter: Adapter): Adapter {
   const { createSession, getSessionAndUser, updateSession, deleteSession } = adapter;
