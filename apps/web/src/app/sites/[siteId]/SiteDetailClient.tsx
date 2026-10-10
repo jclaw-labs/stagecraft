@@ -5,27 +5,17 @@ import Button from "@/components/Button";
 import Input from "@/components/Input";
 import StatusBadge, { type BadgeTone } from "@/components/StatusBadge";
 import type { FailureCategory, JobStatus, JobType, SiteStatus } from "@stagecraft/shared";
+import {
+  MIGRATION_REPORT_ACTION_LABELS,
+  siteAdminLink,
+  siteServingState,
+  upgradeStoredReport,
+  type MigrationReport,
+  type MigrationReportItem,
+  type SiteAdminLink,
+} from "@/lib/migration/report-copy";
 
 import styles from "./site-detail.module.css";
-
-interface MigrationReportItem {
-  label: string;
-  status: "imported" | "partial" | "skipped" | "manual_review";
-  detail: string;
-}
-
-interface MigrationReport {
-  summary: string[];
-  overallConfidence: number;
-  importedItems: MigrationReportItem[];
-  manualReviewItems: MigrationReportItem[];
-  skippedItems: MigrationReportItem[];
-  pagesCrawled: number;
-  pagesMapped: number;
-  imagesFound: number;
-  embedsFound: number;
-  socialLinksFound: number;
-}
 
 interface MigrateJobResult {
   sourceUrl?: string;
@@ -301,7 +291,9 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
       : null;
 
   const migrationJob = site.jobs.find((j) => j.type === "migrate_site" && j.status === "completed");
-  const migrationReport = migrationJob?.resultPayload?.report ?? null;
+  const storedReport = migrationJob?.resultPayload?.report ?? null;
+  // Reports are stored at job time; older ones carry superseded copy (#427).
+  const migrationReport = storedReport ? upgradeStoredReport(storedReport) : null;
   const githubUrl = site.githubRepoOwner && site.githubRepoName
     ? `https://github.com/${site.githubRepoOwner}/${site.githubRepoName}`
     : null;
@@ -325,6 +317,12 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const isBuilding = isActive && deployFetched && deploy && IN_FLIGHT_STATES.has(deploy.state);
   const isDeployError = isActive && deployFetched && deploy?.state === "error";
   const isReady = isActive && deployFetched && deploy?.state === "ready";
+  // The report's "Open site admin" link targets the artist's own site, so it
+  // follows the Production URL row: live once the site is (or is presumed) up.
+  const adminLink = siteAdminLink(
+    site.productionUrl,
+    siteServingState({ isReady, isCheckingStatus, isCreating, isBuilding: Boolean(isBuilding) }),
+  );
 
   const statusTone = isCreating || isBuilding || isCheckingStatus
     ? styles.toneBuilding
@@ -539,10 +537,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
                   <h3 className={`${styles.reportGroupTitle} ${styles.ok}`}>Imported</h3>
                   <ul className={styles.reportItems}>
                     {migrationReport.importedItems.map((item, i) => (
-                      <li key={i} className={styles.reportItem}>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                      </li>
+                      <ReportItem key={i} item={item} adminLink={adminLink} />
                     ))}
                   </ul>
                 </div>
@@ -553,10 +548,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
                   <h3 className={`${styles.reportGroupTitle} ${styles.warn}`}>Needs your attention</h3>
                   <ul className={styles.reportItems}>
                     {migrationReport.manualReviewItems.map((item, i) => (
-                      <li key={i} className={styles.reportItem}>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                      </li>
+                      <ReportItem key={i} item={item} adminLink={adminLink} />
                     ))}
                   </ul>
                 </div>
@@ -567,10 +559,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
                   <h3 className={`${styles.reportGroupTitle} ${styles.muted}`}>Not imported</h3>
                   <ul className={styles.reportItems}>
                     {migrationReport.skippedItems.map((item, i) => (
-                      <li key={i} className={styles.reportItem}>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                      </li>
+                      <ReportItem key={i} item={item} adminLink={adminLink} />
                     ))}
                   </ul>
                 </div>
@@ -772,5 +761,25 @@ function Spinner() {
         marginRight: "0.25em",
       }}
     />
+  );
+}
+
+function ReportItem({ item, adminLink }: { item: MigrationReportItem; adminLink: SiteAdminLink }) {
+  return (
+    <li className={styles.reportItem}>
+      <strong>{item.label}</strong>
+      <p>{item.detail}</p>
+      {item.action === "open_site_admin" && (
+        <div className={styles.reportItemAction}>
+          {adminLink.state === "live" ? (
+            <Button href={adminLink.href} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
+              {MIGRATION_REPORT_ACTION_LABELS[item.action]}
+            </Button>
+          ) : (
+            <p className={styles.muted}>{adminLink.hint}</p>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
