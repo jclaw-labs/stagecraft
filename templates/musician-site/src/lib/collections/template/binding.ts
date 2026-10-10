@@ -10,8 +10,10 @@
  *
  * **The contract:** a binding to a field that doesn't exist on the item,
  * or whose type doesn't match what the block expects, resolves to
- * `undefined`. Blocks treat `undefined` as "render nothing" (the
- * implicit hide-if-empty rule from ADR-009 §4.1). Type-incompatible
+ * `undefined`. The walker then drops the whole block when the prop is
+ * marked `hidesBlockWhenUnbound` (the implicit hide-if-empty rule from
+ * ADR-009 §4.1), and does the same for a binding that resolves to `""`;
+ * literals, wrapped or plain, never hide a block. Type-incompatible
  * bindings are an authoring bug — the editor (PR 6) enforces type
  * compatibility at authoring time, so reaching the wrong-type branch
  * here means someone hand-edited a JSON file. We log a warning and

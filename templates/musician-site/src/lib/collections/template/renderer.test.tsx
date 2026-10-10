@@ -483,6 +483,12 @@ describe("TemplateRenderer — content primitives", () => {
       root: { props: {} },
     });
     expect(html).toContain("Tickets");
+    // The wrapped form the template editor's Literal mode writes.
+    const wrapped = render({
+      content: [{ type: "Button", props: { text: literal("Tickets"), href: literal("") } }],
+      root: { props: {} },
+    });
+    expect(wrapped).toContain("Tickets");
   });
 
   it("Link renders a plain anchor", () => {
