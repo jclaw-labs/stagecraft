@@ -8,27 +8,36 @@ import { DEFAULT_APPEARANCE } from "@/lib/site-config-types";
 
 // Stub Puck: the save handler is what's under test, not Puck's UI. The
 // stub renders the editor's header actions (where the save-state pill
-// lives) and a button that calls `onPublish` with the editor's data,
-// the way Puck's own "Publish" header button does. It also records the
-// canvas `iframe` override from each render.
-const iframeOverrides = vi.hoisted(() => [] as unknown[]);
+// lives), the drawer override (as a component, the way Puck does) and a
+// button that calls `onPublish` with the editor's data, the way Puck's
+// own "Publish" header button does. It also records the overrides from
+// each render.
+type StubOverrides = {
+  headerActions?: (p: { children: unknown }) => unknown;
+  iframe?: unknown;
+  drawer?: React.ComponentType<{ children: React.ReactNode }>;
+  drawerItem?: unknown;
+};
+const renderedOverrides = vi.hoisted(() => [] as StubOverrides[]);
 vi.mock("@puckeditor/core", () => ({
   Puck: ({
     data,
     onPublish,
-    overrides,
+    overrides = {},
   }: {
     data: unknown;
     onPublish: (data: unknown) => void;
-    overrides?: { headerActions?: (p: { children: unknown }) => unknown; iframe?: unknown };
+    overrides?: StubOverrides;
   }) => {
-    iframeOverrides.push(overrides?.iframe);
+    renderedOverrides.push(overrides);
+    const Drawer = overrides.drawer;
     return (
       <div>
         <button type="button" onClick={() => onPublish(data)}>
           Publish
         </button>
-        {overrides?.headerActions?.({ children: null }) as React.ReactNode}
+        {overrides.headerActions?.({ children: null }) as React.ReactNode}
+        {Drawer ? <Drawer>{null}</Drawer> : null}
       </div>
     );
   },
@@ -72,7 +81,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
-  iframeOverrides.length = 0;
+  renderedOverrides.length = 0;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -196,9 +205,10 @@ describe("<Editor> save", () => {
   });
 });
 
-describe("<Editor> canvas", () => {
-  // Puck renders the `iframe` override as the canvas's component type, so
-  // a new function on each render would remount every block in the canvas.
+describe("<Editor> overrides", () => {
+  // Puck renders the `iframe`, `drawer` and `drawerItem` overrides as
+  // component types, so a new function on each render would remount
+  // them: every block in the canvas, or the whole drawer.
   it("keeps the iframe override's identity when the editor re-renders", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(200, { ok: true, item: { values: CURRENT_VALUES } }))
@@ -207,8 +217,26 @@ describe("<Editor> canvas", () => {
     await save();
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Saved"));
 
-    expect(iframeOverrides.length, "renders").toBeGreaterThan(1);
-    expect(typeof iframeOverrides[0]).toBe("function");
-    expect(new Set(iframeOverrides).size).toBe(1);
+    const iframes = renderedOverrides.map((o) => o.iframe);
+    expect(iframes.length, "renders").toBeGreaterThan(1);
+    expect(typeof iframes[0]).toBe("function");
+    expect(new Set(iframes).size).toBe(1);
+  });
+
+  it("keeps the drawer mounted while the artist types a filter", () => {
+    renderEditor();
+    const input = screen.getByRole("searchbox", { name: "Filter blocks" });
+    input.focus();
+
+    fireEvent.change(input, { target: { value: "q" } });
+    fireEvent.change(input, { target: { value: "qu" } });
+
+    expect(renderedOverrides.length, "renders").toBeGreaterThan(2);
+    expect(new Set(renderedOverrides.map((o) => o.drawer)).size).toBe(1);
+    expect(new Set(renderedOverrides.map((o) => o.drawerItem)).size).toBe(1);
+    // The same input, still focused: a remount would have replaced it.
+    expect(screen.getByRole("searchbox", { name: "Filter blocks" })).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect((input as HTMLInputElement).value).toBe("qu");
   });
 });

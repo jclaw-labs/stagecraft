@@ -3,7 +3,16 @@
 import { createUsePuck, Puck } from "@puckeditor/core";
 import "@puckeditor/core/puck.css";
 import Link from "next/link";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { AppearanceStyles } from "@/components/AppearanceStyles";
@@ -158,109 +167,136 @@ export function Editor({
     [appearance],
   );
 
+  const drawerFilterState = useMemo<DrawerFilterState>(
+    () => ({ filter: drawerFilter, setFilter: setDrawerFilter, config }),
+    [drawerFilter, config],
+  );
+
   return (
-    <Puck
-      config={config}
-      data={initialData}
-      onPublish={savePageToDraft}
-      onChange={() => setIsDirty(true)}
-      overrides={{
-        iframe: CanvasFrame,
-        drawer: ({ children }) => {
-          const q = drawerFilter.trim().toLowerCase();
-          const hasMatch =
-            !q ||
-            Object.keys(config.components).some((name) =>
-              name.toLowerCase().includes(q),
-            );
-          return (
+    <DrawerFilterContext.Provider value={drawerFilterState}>
+      <Puck
+        config={config}
+        data={initialData}
+        onPublish={savePageToDraft}
+        onChange={() => setIsDirty(true)}
+        overrides={{
+          iframe: CanvasFrame,
+          drawer: FilteredDrawer,
+          drawerItem: FilteredDrawerItem,
+          fields: ({ children, itemSelector }) => (
             <>
-              <DrawerCategoryVisibilitySync
-                filter={drawerFilter}
-                categories={config.categories ?? {}}
-              />
-              <DrawerSearchInput
-                value={drawerFilter}
-                onChange={setDrawerFilter}
-              />
-              {q && !hasMatch ? (
-                <p
-                  role="status"
-                  style={{
-                    margin: "0 0 var(--space-3) 0",
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  No matching blocks.
-                </p>
-              ) : null}
+              {itemSelector ? <BlockHelp /> : null}
               {children}
             </>
-          );
-        },
-        drawerItem: ({ name, children }) => {
-          const q = drawerFilter.trim().toLowerCase();
-          if (q && !name.toLowerCase().includes(q)) {
-            // Render but hide so Puck's drag machinery keeps its DOM
-            // references; removing items outright can confuse the
-            // drawer-list virtualisation. `inert` keeps keyboard
-            // focus out of the hidden item (a tabbable drag handle
-            // would otherwise still be reachable).
-            return (
-              <div style={{ display: "none" }} aria-hidden inert>
-                {children}
-              </div>
-            );
-          }
-          return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
-        },
-        fields: ({ children, itemSelector }) => (
-          <>
-            {itemSelector ? <BlockHelp /> : null}
-            {children}
-          </>
-        ),
-        headerActions: ({ children }) => (
-          <>
-            <Link
-              href="/admin/pages"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "var(--space-1)",
-                padding: "var(--space-1) var(--space-3)",
-                fontSize: "var(--font-size-xs)",
-                fontWeight: "var(--font-weight-semibold)" as unknown as number,
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                textDecoration: "none",
-              }}
-              title="Back to pages list"
-            >
-              ← Pages
-            </Link>
-            <span
-              style={{
-                fontSize: "var(--font-size-xs)",
-                color: "var(--color-text-muted)",
-                fontFamily: "var(--font-mono)",
-              }}
-              title="Page slug"
-            >
-              /{pageSlug}
-            </span>
-            <SaveStatusPill state={saveState} />
-            {children}
-            <AdminAccountButton email={email} />
-          </>
-        ),
-      }}
-    />
+          ),
+          headerActions: ({ children }) => (
+            <>
+              <Link
+                href="/admin/pages"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-1)",
+                  padding: "var(--space-1) var(--space-3)",
+                  fontSize: "var(--font-size-xs)",
+                  fontWeight: "var(--font-weight-semibold)" as unknown as number,
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  textDecoration: "none",
+                }}
+                title="Back to pages list"
+              >
+                ← Pages
+              </Link>
+              <span
+                style={{
+                  fontSize: "var(--font-size-xs)",
+                  color: "var(--color-text-muted)",
+                  fontFamily: "var(--font-mono)",
+                }}
+                title="Page slug"
+              >
+                /{pageSlug}
+              </span>
+              <SaveStatusPill state={saveState} />
+              {children}
+              <AdminAccountButton email={email} />
+            </>
+          ),
+        }}
+      />
+    </DrawerFilterContext.Provider>
   );
+}
+
+/**
+ * The drawer search filter, shared with the `drawer` and `drawerItem`
+ * overrides. Puck renders those overrides as component types, so they
+ * have to keep their identity across Editor renders: an inline function
+ * remounts the whole drawer on every keystroke, which drops the search
+ * input's focus after one character and resets
+ * `DrawerCategoryVisibilitySync`, so clearing the filter never brought
+ * hidden categories back. Module-level components read the filter from
+ * this context instead.
+ */
+type DrawerFilterState = {
+  filter: string;
+  setFilter: (next: string) => void;
+  config: ReturnType<typeof buildPuckConfig>;
+};
+
+const DrawerFilterContext = createContext<DrawerFilterState | null>(null);
+
+function useDrawerFilter(): DrawerFilterState {
+  const state = useContext(DrawerFilterContext);
+  if (!state) throw new Error("useDrawerFilter: rendered outside the page Editor");
+  return state;
+}
+
+function FilteredDrawer({ children }: { children: ReactNode }) {
+  const { filter, setFilter, config } = useDrawerFilter();
+  const q = filter.trim().toLowerCase();
+  const hasMatch =
+    !q || Object.keys(config.components).some((name) => name.toLowerCase().includes(q));
+  return (
+    <>
+      <DrawerCategoryVisibilitySync filter={filter} categories={config.categories ?? {}} />
+      <DrawerSearchInput value={filter} onChange={setFilter} />
+      {q && !hasMatch ? (
+        <p
+          role="status"
+          style={{
+            margin: "0 0 var(--space-3) 0",
+            color: "var(--color-text-muted)",
+            fontSize: "var(--font-size-sm)",
+            fontStyle: "italic",
+          }}
+        >
+          No matching blocks.
+        </p>
+      ) : null}
+      {children}
+    </>
+  );
+}
+
+function FilteredDrawerItem({ name, children }: { name: string; children: ReactNode }) {
+  const q = useDrawerFilter().filter.trim().toLowerCase();
+  if (q && !name.toLowerCase().includes(q)) {
+    // Render but hide so Puck's drag machinery keeps its DOM
+    // references; removing items outright can confuse the
+    // drawer-list virtualisation. `inert` keeps keyboard
+    // focus out of the hidden item (a tabbable drag handle
+    // would otherwise still be reachable).
+    return (
+      <div style={{ display: "none" }} aria-hidden inert>
+        {children}
+      </div>
+    );
+  }
+  return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
 }
 
 function SaveStatusPill({ state }: { state: SaveState }) {
