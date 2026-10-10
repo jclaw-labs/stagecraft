@@ -196,6 +196,8 @@ describe("GET /api/sites", () => {
     const res = await GET();
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.sites[0]).toMatchObject({ id: "site-1" });
+    expect(body.sites[1]).toMatchObject({ id: "site-2" });
     expect(body.sites[0].jobs[0]).toEqual({ id: "job-1", type: null, status: null, failureCategory: "unknown" });
     expect(body.sites[1].jobs[0]).toEqual({ id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" });
   });

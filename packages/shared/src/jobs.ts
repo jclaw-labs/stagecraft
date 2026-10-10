@@ -28,9 +28,8 @@ export interface KnownJobFields {
  * Narrow a `SiteJob` row's string columns before handing it to a reader.
  *
  * The database doesn't constrain these columns, so rows written before a
- * value was retired keep that value: production can still hold April's
- * `edit_site` jobs, with `awaiting_review` statuses or `ai_error` failure
- * categories. An unrecognised type or status becomes null, which matches
+ * value was retired keep that value, such as April's `edit_site` type,
+ * `awaiting_review` status or `ai_error` failure category. An unrecognised type or status becomes null, which matches
  * none of the comparisons readers make. An unrecognised failure category
  * becomes `"unknown"`, the category's own catch-all value.
  */
