@@ -318,6 +318,12 @@ export type SquashBranchIntoResult = {
   /** SHA of the new squash commit on `toBranch`. */
   commitSha: string;
   /**
+   * The `fromBranch` HEAD whose tree the squash took. Set when a squash
+   * landed (`alreadyInSync: false`); {@link adoptSquashInto} uses it to
+   * bring `fromBranch` along.
+   */
+  squashedSha?: string;
+  /**
    * `true` when nothing was published because the branches already
    * matched. `commitSha` is `toBranch`'s existing HEAD in that case.
    */
@@ -331,9 +337,9 @@ export type SquashBranchIntoResult = {
  * The squash doesn't descend from `fromBranch`'s HEAD, so moving
  * `fromBranch` onto it would be a non-fast-forward that GitHub
  * rejects without `force` (and `force` could drop a save landing at
- * the same moment). The caller brings `fromBranch` along afterwards by
- * merging `toBranch` into it: the trees match, so that merge is clean
- * and leaves `fromBranch` a descendant of `toBranch` again.
+ * the same moment). The caller brings `fromBranch` along afterwards
+ * with {@link adoptSquashInto}, which leaves `fromBranch` a descendant
+ * of `toBranch` again without touching its content.
  *
  * Per ADR-010 §3 — this is the Publish flow. The per-save commits
  * on `fromBranch` between the previous and new `toBranch` HEAD
@@ -454,7 +460,77 @@ async function squashOnce(
     toSha,
   );
 
-  return { commitSha: squash.data.sha, alreadyInSync: false };
+  return { commitSha: squash.data.sha, alreadyInSync: false, squashedSha: fromSha };
+}
+
+export type AdoptSquashIntoArgs = {
+  token: string;
+  owner: string;
+  repo: string;
+  /** The branch that was squashed — the editor's draft. */
+  branch: string;
+  /** `SquashBranchIntoResult.squashedSha`: the draft HEAD the squash took. */
+  squashedSha: string;
+  /** `SquashBranchIntoResult.commitSha`: the squash commit now on `main`. */
+  squashSha: string;
+  message: string;
+  author?: { name: string; email: string };
+};
+
+export type AdoptSquashIntoResult =
+  | { kind: "adopted"; commitSha: string }
+  /** `branch` no longer descends from `squashedSha` (e.g. it was discarded). */
+  | { kind: "not-descendant" };
+
+/**
+ * After a full publish, make `branch` a descendant of the squash commit
+ * again without changing its content: a new commit with `branch`'s
+ * current tree and parents `[branch HEAD, squash]`, moved with a
+ * non-forced `updateRef` (a fast-forward).
+ *
+ * That is the right merge result whenever `branch` still descends from
+ * `squashedSha`: the squash's tree *is* `squashedSha`'s tree, so
+ * everything it carries is already in `branch`. A plain three-way merge
+ * (`mergeBranchInto`) would conflict if the editor saved again during
+ * the publish, on any path both edits touched, and leave the draft
+ * stuck. A save racing this call makes the `updateRef` stale, and the
+ * retry rebuilds on the new HEAD, so no save is dropped.
+ *
+ * Returns `not-descendant` when `branch` has moved off `squashedSha`
+ * (a discard reset it); the caller falls back to `mergeBranchInto`.
+ */
+export async function adoptSquashInto(args: AdoptSquashIntoArgs): Promise<AdoptSquashIntoResult> {
+  const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, branch } = args;
+
+  return retryOnStaleRef(`heads/${branch}`, async () => {
+    const ref = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    const headSha = ref.data.object.sha;
+    if (headSha !== args.squashedSha) {
+      const compare = await octokit.repos.compareCommitsWithBasehead({
+        owner,
+        repo,
+        basehead: `${args.squashedSha}...${headSha}`,
+        per_page: 1,
+      });
+      if (compare.data.status !== "ahead") return { kind: "not-descendant" } as const;
+    }
+    const head = await octokit.git.getCommit({ owner, repo, commit_sha: headSha });
+    const commit = await octokit.git.createCommit({
+      owner,
+      repo,
+      message: args.message,
+      tree: head.data.tree.sha,
+      parents: [headSha, args.squashSha],
+      author: args.author,
+    });
+    await updateRefOrSignalStale(
+      octokit,
+      { owner, repo, ref: `heads/${branch}`, sha: commit.data.sha },
+      headSha,
+    );
+    return { kind: "adopted", commitSha: commit.data.sha } as const;
+  });
 }
 
 function isNotFound(cause: unknown): boolean {

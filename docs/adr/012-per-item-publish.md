@@ -104,8 +104,9 @@ merge and the next attempt), that counts as a lost race: the new `main`
 is merged into the draft first, so the squash can't revert what the
 other publish shipped. Exhausting the retries surfaces as
 `concurrent-edit`, as for saves. A full publish only moves `main`; it
-then merges `main` back into the draft, the same reconcile step as
-below.
+then brings the draft along without a three-way merge (ADR-010
+"Publish"), so a save made during the publish can't conflict, and it
+reports a failure there with the same warnings as below.
 
 If step 3 succeeds but step 4 (reconcile) fails, `main` already has the
 selected changes (the deploy fired) while `draft` is behind on those

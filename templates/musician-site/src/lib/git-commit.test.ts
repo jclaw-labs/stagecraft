@@ -20,6 +20,7 @@ vi.mock("@octokit/rest", () => ({
 }));
 
 import {
+  adoptSquashInto,
   commitFiles,
   commitSelectedPathsInto,
   ConcurrentEditError,
@@ -581,6 +582,8 @@ describe("squashBranchInto", () => {
   let seq: number;
   /** Runs inside each updateRef of main, before the write (a racing publish). */
   let beforeMainUpdate: (() => void) | undefined;
+  /** Runs inside each updateRef of draft, before the write (a racing save). */
+  let beforeDraftUpdate: (() => void) | undefined;
 
   function treeSha(files: Files): string {
     const sha = `tree:${JSON.stringify(Object.entries(files).sort())}`;
@@ -613,6 +616,12 @@ describe("squashBranchInto", () => {
       response: { status, url: "x", headers: {}, data: { message } },
     });
   }
+  /** Save on the draft directly, as the editor's other tab would. */
+  function saveOnDraft(files: Files): string {
+    const sha = commit(files, [refs.get("heads/draft")!]);
+    refs.set("heads/draft", sha);
+    return sha;
+  }
   /** Land a commit on main directly, as another editor's publish would. */
   function landOnMain(files: Files): string {
     const sha = commit(files, [refs.get("heads/main")!]);
@@ -626,6 +635,7 @@ describe("squashBranchInto", () => {
     refs = new Map();
     seq = 0;
     beforeMainUpdate = undefined;
+    beforeDraftUpdate = undefined;
 
     getRef.mockImplementation(async ({ ref }: { ref: string }) => ({
       data: { object: { sha: refs.get(ref)! } },
@@ -643,6 +653,7 @@ describe("squashBranchInto", () => {
     updateRef.mockImplementation(
       async ({ ref, sha, force }: { ref: string; sha: string; force?: boolean }) => {
         if (ref === "heads/main") beforeMainUpdate?.();
+        if (ref === "heads/draft") beforeDraftUpdate?.();
         if (!force && !isAncestor(refs.get(ref)!, sha)) {
           throw requestError(422, "Update is not a fast forward");
         }
@@ -702,13 +713,13 @@ describe("squashBranchInto", () => {
     return { root, draft };
   }
 
-  it("lands the draft's tree on main as one commit and leaves the draft for the caller to merge", async () => {
+  it("lands the draft's tree on main as one commit and leaves the draft for the caller", async () => {
     const { root, draft } = setupDraftAhead();
 
     const result = await squashBranchInto(SQUASH_ARGS);
 
     const main = refs.get("heads/main")!;
-    expect(result).toEqual({ commitSha: main, alreadyInSync: false });
+    expect(result).toEqual({ commitSha: main, alreadyInSync: false, squashedSha: draft });
     expect(commits.get(main)).toEqual({ tree: commits.get(draft)!.tree, parents: [root] });
     expect(createCommit).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Publish", author: { name: "A", email: "a@e.com" } }),
@@ -718,7 +729,8 @@ describe("squashBranchInto", () => {
     expect(refs.get("heads/draft")).toBe(draft);
     expect(updateRef).toHaveBeenCalledTimes(1);
 
-    // The caller's follow-up merge is clean and restores the invariant.
+    // With no save in between, even a plain merge is clean and
+    // restores the invariant (adoptSquashInto below covers the rest).
     await expect(
       mergeBranchInto({ token: "t", owner: "o", repo: "r", from: "main", into: "draft" }),
     ).resolves.toMatchObject({ kind: "merged" });
@@ -790,6 +802,21 @@ describe("squashBranchInto", () => {
     expect(createCommit).toHaveBeenCalledTimes(1);
   });
 
+  it("merges main in first when the draft is behind it, instead of squashing the older tree", async () => {
+    // A discard reset the draft to an old main, then another editor
+    // published, all before this editor's auto-rebase.
+    const root = commit({ "a.json": "1" }, []);
+    refs.set("heads/main", root);
+    refs.set("heads/draft", root);
+    const other = landOnMain({ "a.json": "1", "c.json": "other-editor" });
+
+    const result = await squashBranchInto(SQUASH_ARGS);
+
+    expect(reposMerge).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ commitSha: other, alreadyInSync: true });
+    expect(refs.get("heads/main")).toBe(other);
+  });
+
   it("throws ConcurrentEditError when main keeps moving", async () => {
     setupDraftAhead();
     let n = 0;
@@ -830,6 +857,78 @@ describe("squashBranchInto", () => {
     await expect(squashBranchInto(SQUASH_ARGS)).rejects.toBe(notFound);
     expect(createCommit).toHaveBeenCalledTimes(1);
     expect(reposMerge).not.toHaveBeenCalled();
+  });
+
+  describe("adoptSquashInto", () => {
+    /** Run a squash and return what adoptSquashInto needs to follow it. */
+    async function publish() {
+      const result = await squashBranchInto(SQUASH_ARGS);
+      return {
+        token: "t",
+        owner: "o",
+        repo: "r",
+        branch: "draft",
+        squashedSha: result.squashedSha!,
+        squashSha: result.commitSha,
+        message: "Merge main into draft after publish [skip ci]",
+      };
+    }
+
+    it("makes the draft a descendant of main without changing its tree", async () => {
+      const { draft } = setupDraftAhead();
+      const args = await publish();
+
+      await expect(adoptSquashInto(args)).resolves.toMatchObject({ kind: "adopted" });
+
+      const head = refs.get("heads/draft")!;
+      expect(isAncestor(refs.get("heads/main")!, head)).toBe(true);
+      expect(isAncestor(draft, head)).toBe(true);
+      expect(filesAt(head)).toEqual(filesAt(draft));
+      expect(reposMerge).not.toHaveBeenCalled();
+    });
+
+    it("keeps a save made during the publish that a three-way merge would conflict on", async () => {
+      setupDraftAhead();
+      const args = await publish();
+      saveOnDraft({ "a.json": "1", "b.json": "draft-v2" });
+
+      // A plain merge of main into the draft conflicts on b.json here.
+      await expect(
+        mergeBranchInto({ token: "t", owner: "o", repo: "r", from: "main", into: "draft" }),
+      ).resolves.toEqual({ kind: "conflict" });
+
+      await adoptSquashInto(args);
+
+      expect(filesAt(refs.get("heads/draft")!)).toEqual({ "a.json": "1", "b.json": "draft-v2" });
+      await squashBranchInto(SQUASH_ARGS);
+      expect(filesAt(refs.get("heads/main")!)).toEqual({ "a.json": "1", "b.json": "draft-v2" });
+    });
+
+    it("retries on the new draft HEAD when a save races the update", async () => {
+      setupDraftAhead();
+      const args = await publish();
+      let raced = false;
+      beforeDraftUpdate = () => {
+        if (raced) return;
+        raced = true;
+        saveOnDraft({ "a.json": "1", "b.json": "draft-v2" });
+      };
+
+      await adoptSquashInto(args);
+
+      const head = refs.get("heads/draft")!;
+      expect(filesAt(head)).toEqual({ "a.json": "1", "b.json": "draft-v2" });
+      expect(isAncestor(refs.get("heads/main")!, head)).toBe(true);
+    });
+
+    it("reports not-descendant when the draft was reset off the squashed commit", async () => {
+      const { root } = setupDraftAhead();
+      const args = await publish();
+      refs.set("heads/draft", commit({ "a.json": "1" }, [root]));
+
+      await expect(adoptSquashInto(args)).resolves.toEqual({ kind: "not-descendant" });
+      expect(createCommit).toHaveBeenCalledTimes(1); // the squash only
+    });
   });
 });
 

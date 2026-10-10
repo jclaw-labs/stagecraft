@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  adoptSquashIntoMock,
   commitFilesMock,
   commitSelectedPathsIntoMock,
   ensureBranchExistsMock,
@@ -11,6 +12,7 @@ const {
   resetBranchToMock,
   squashBranchIntoMock,
 } = vi.hoisted(() => ({
+  adoptSquashIntoMock: vi.fn(),
   commitFilesMock: vi.fn(),
   commitSelectedPathsIntoMock: vi.fn(),
   ensureBranchExistsMock: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock("./git-commit", async () => {
   const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
   return {
     ...actual,
+    adoptSquashInto: adoptSquashIntoMock,
     commitFiles: commitFilesMock,
     commitSelectedPathsInto: commitSelectedPathsIntoMock,
     ensureBranchExists: ensureBranchExistsMock,
@@ -123,7 +126,8 @@ beforeEach(() => {
   // explicitly.
   squashBranchIntoMock
     .mockReset()
-    .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false });
+    .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false, squashedSha: "draft-head" });
+  adoptSquashIntoMock.mockReset().mockResolvedValue({ kind: "adopted", commitSha: "adopted-sha" });
   // Default: discard reports a real reset (draft went somewhere
   // different from main). Tests that exercise the alreadyInSync or
   // missing-branch paths override.
@@ -928,29 +932,44 @@ describe("publishDraftToMain", () => {
     });
   });
 
-  it("merges main back into the draft after the squash lands", async () => {
+  it("brings the draft along with adoptSquashInto after the squash lands, without a merge", async () => {
     configurePlatform();
-    await publishDraftToMain({ authorEmail: "a@e.com" });
-    // Call 1 is the pre-squash auto-rebase; call 2 the post-publish reconcile.
-    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(2);
-    expect(mergeBranchIntoMock.mock.invocationCallOrder[1]).toBeGreaterThan(
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({ commitSha: "squash-sha", mode: "github", alreadyInSync: false });
+    expect(adoptSquashIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft", squashedSha: "draft-head", squashSha: "squash-sha" }),
+    );
+    expect(adoptSquashIntoMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       squashBranchIntoMock.mock.invocationCallOrder[0],
     );
-    expect(mergeBranchIntoMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ from: "main", into: "draft" }),
-    );
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the pre-squash auto-rebase only
   });
 
   it("skips the reconcile when nothing was published", async () => {
     configurePlatform();
     squashBranchIntoMock.mockResolvedValue({ commitSha: "main-sha", alreadyInSync: true });
     const result = await publishDraftToMain({ authorEmail: "a@e.com" });
-    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the auto-rebase only
+    expect(adoptSquashIntoMock).not.toHaveBeenCalled();
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1);
     expect(result).not.toHaveProperty("warning");
   });
 
-  it("still succeeds with draft-resync-conflict when the reconcile conflicts", async () => {
+  it("falls back to merging main into the draft when the draft was reset mid-publish", async () => {
     configurePlatform();
+    adoptSquashIntoMock.mockResolvedValue({ kind: "not-descendant" });
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockResolvedValueOnce({ kind: "merged", mergeCommitSha: "m" });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(mergeBranchIntoMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+    expect(result).not.toHaveProperty("warning");
+  });
+
+  it("still succeeds with draft-resync-conflict when the fallback merge conflicts", async () => {
+    configurePlatform();
+    adoptSquashIntoMock.mockResolvedValue({ kind: "not-descendant" });
     mergeBranchIntoMock
       .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
       .mockResolvedValueOnce({ kind: "conflict" });
@@ -963,11 +982,9 @@ describe("publishDraftToMain", () => {
     });
   });
 
-  it("still succeeds with draft-resync-pending when the reconcile throws", async () => {
+  it("still succeeds with draft-resync-pending when adopting the squash throws", async () => {
     configurePlatform();
-    mergeBranchIntoMock
-      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
-      .mockRejectedValueOnce(new Error("GitHub 502"));
+    adoptSquashIntoMock.mockRejectedValue(new Error("GitHub 502"));
     const result = await publishDraftToMain({ authorEmail: "a@e.com" });
     expect(result).toMatchObject({ commitSha: "squash-sha", warning: "draft-resync-pending" });
   });

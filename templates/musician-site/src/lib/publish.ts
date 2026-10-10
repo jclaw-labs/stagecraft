@@ -18,6 +18,7 @@ import {
   writeText,
 } from "./fs-helpers";
 import {
+  adoptSquashInto,
   commitFiles,
   commitSelectedPathsInto,
   ConcurrentEditError,
@@ -26,6 +27,7 @@ import {
   resetBranchTo,
   squashBranchInto,
   type FileToCommit,
+  type SquashBranchIntoResult,
 } from "./git-commit";
 import { publishTokenResponseSchema, type PublishWarning } from "./publish-types";
 import { DRAFT_BRANCH, resolveDraftBranch } from "./draft-branch";
@@ -591,9 +593,9 @@ export type PublishDraftToMainResult = PublishResult & {
 /**
  * Publish every pending change on `draft` to `main` in one squash
  * commit. The squash's tree comes from `draft`'s HEAD; its parent is
- * `main`'s current HEAD. After the commit lands on `main`, `main` is
- * merged back into `draft` (a clean merge: the trees match) so the
- * draft is a descendant of `main` again. As with `publishSelectedToMain`,
+ * `main`'s current HEAD. After the commit lands on `main`, the draft is
+ * made a descendant of `main` again without changing its content
+ * (`adoptSquashInto`), so a save made during the publish is kept. As with `publishSelectedToMain`,
  * a failed reconcile doesn't fail the publish: it resolves with a
  * `warning`.
  *
@@ -626,7 +628,7 @@ export async function publishDraftToMain(
 
   await ensureDraftAndRebase({ token, owner, repo, mainBranch: env.branch, draftBranch, author });
 
-  let squash: { commitSha: string; alreadyInSync: boolean };
+  let squash: SquashBranchIntoResult;
   try {
     squash = await squashBranchInto({
       token,
@@ -650,15 +652,36 @@ export async function publishDraftToMain(
     mode: "github" as const,
     alreadyInSync: squash.alreadyInSync,
   };
-  if (squash.alreadyInSync) return published;
+  if (squash.alreadyInSync || !squash.squashedSha) return published;
 
-  const warning = await reconcileDraftAfterPublish({
-    token,
-    owner,
-    repo,
-    mainBranch: env.branch,
-    draftBranch,
-  });
+  let warning: PublishWarning | undefined;
+  try {
+    const adopted = await adoptSquashInto({
+      token,
+      owner,
+      repo,
+      branch: draftBranch,
+      squashedSha: squash.squashedSha,
+      squashSha: squash.commitSha,
+      message: `Merge ${env.branch} into ${draftBranch} after publish [skip ci]`,
+      author,
+    });
+    // The draft was reset (discarded) mid-publish: fall back to a plain merge.
+    if (adopted.kind === "not-descendant") {
+      warning = await reconcileDraftAfterPublish({
+        token,
+        owner,
+        repo,
+        mainBranch: env.branch,
+        draftBranch,
+      });
+    }
+  } catch (cause) {
+    console.warn(
+      `[publish] reconcile ${draftBranch} after publish failed; the next save's auto-rebase resyncs it: ${String(cause)}`,
+    );
+    warning = "draft-resync-pending";
+  }
   return warning ? { ...published, warning } : published;
 }
 

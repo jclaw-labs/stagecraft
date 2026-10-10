@@ -43,8 +43,8 @@ Defined here once; used throughout the rest of the ADR.
   `draft`. Does not trigger a deploy.
 - **Publish.** Admin operation that creates a single squash commit on
   `main` whose tree comes from `draft`. Triggers the production
-  deploy. After the commit, `main` is merged back into `draft`, so
-  `draft` is a descendant of `main` again.
+  deploy. After the commit, `draft` is made a descendant of `main`
+  again without changing its content.
 - **Discard.** Admin operation that force-updates `draft` to point at
   `main`'s current HEAD. Wipes out any pending Save's that hadn't
   been Published.
@@ -55,8 +55,8 @@ Defined here once; used throughout the rest of the ADR.
 
 Introduce a persistent `draft` branch alongside `main`. The admin's
 read and write source becomes `draft`. Publish creates a single
-squash commit on `main` from `draft`'s tree, then merges `main` back
-into `draft`. Discard resets `draft` back to `main`.
+squash commit on `main` from `draft`'s tree, then makes `draft` a
+descendant of it again. Discard resets `draft` back to `main`.
 
 Invariants:
 
@@ -130,15 +130,24 @@ Publish creates one new commit on `main`:
   Stagecraft-Publish-Id: <uuid>
   ```
 
-After the new commit lands on `main`, the publish flow merges `main`
-back into `draft`. The squash's parent is the old `main`, not `draft`'s
-HEAD, so moving `draft` onto it would be a non-fast-forward: GitHub
-rejects that without `force`, and `force` could drop a save landing at
-the same moment. The trees already match, so the merge is clean, the
-invariant holds, and the next edit cycle starts with nothing pending.
-If the merge fails, the publish still succeeded and returns the same
-`warning` as a per-item publish (ADR-012 "Concurrency & partial
-failure"); the next save's auto-rebase heals the draft.
+After the new commit lands on `main`, the publish flow brings `draft`
+along (`adoptSquashInto`). The squash's parent is the old `main`, not
+`draft`'s HEAD, so moving `draft` onto it would be a non-fast-forward:
+GitHub rejects that without `force`, and `force` could drop a save
+landing at the same moment. Instead it commits `draft`'s *current* tree
+with parents `[draft HEAD, squash]` and fast-forwards `draft` to it.
+The squash's tree is the draft commit it was built from, so everything
+it carries is already in `draft`; that commit is the correct merge
+result, even when the editor saved again during the publish (where a
+three-way merge would conflict on any path both edits touched). A save
+racing that update makes it stale and it retries on the new HEAD. If
+`draft` no longer descends from the squashed commit (it was discarded
+mid-publish), it falls back to merging `main` in. Either way the
+invariant holds and the next edit cycle starts with only the
+mid-publish save pending. If this step fails, the publish still
+succeeded and returns the same `warning` as a per-item publish (ADR-012
+"Concurrency & partial failure"); the next save's auto-rebase heals the
+draft.
 
 The per-save draft commits between the previous `main.sha` and the
 new one remain in GitHub's reflog for some retention window before
@@ -147,7 +156,7 @@ being garbage-collected, but aren't reachable from any active ref.
 **Implementation cost**: a handful of GitHub API calls — `getRef`
 for both branches, a compare confirming `draft` contains `main`,
 `createCommit` with the right parent + tree, `updateRef main`, then
-the merge of `main` into `draft`. The squash is implicit in
+the commit and fast-forward that bring `draft` along. The squash is implicit in
 how the commit's tree is built; we don't preserve draft's individual
 commits on main.
 
