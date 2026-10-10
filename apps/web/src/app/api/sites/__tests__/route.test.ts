@@ -134,8 +134,10 @@ describe("POST /api/sites", () => {
     const res = await POST(buildRequest({ name: "Sarah Chen" }));
 
     expect(res.status).toBe(201);
+    // Exact data: the route leaves Site.blueprintType out (#445). The Prisma
+    // client still sends its schema @default("solo-artist") in the INSERT.
     expect(prismaMock.site.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: "user-1", name: "Sarah Chen", slug: "sarah-chen", status: "creating" }),
+      data: { userId: "user-1", name: "Sarah Chen", slug: "sarah-chen", status: "creating" },
     });
     expect(prismaMock.siteJob.create).toHaveBeenCalledWith({
       data: {
