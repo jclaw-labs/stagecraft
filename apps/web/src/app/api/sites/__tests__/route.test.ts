@@ -137,6 +137,8 @@ describe("POST /api/sites", () => {
     expect(prismaMock.site.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: "user-1", name: "Sarah Chen", slug: "sarah-chen", status: "creating" }),
     });
+    // Site.blueprintType is filled by its DB default; the route no longer writes it (#445).
+    expect(prismaMock.site.create.mock.calls[0][0].data).not.toHaveProperty("blueprintType");
     expect(prismaMock.siteJob.create).toHaveBeenCalledWith({
       data: {
         siteId: "site-1",

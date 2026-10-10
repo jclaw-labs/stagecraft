@@ -6,9 +6,6 @@ import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
 import { connectedProviders, isValidHttpUrl, siteSetupIntegrationError } from "@stagecraft/shared";
 
-// Site.blueprintType is a required column, but every site gets the same blueprint.
-const DEFAULT_BLUEPRINT = "solo-artist";
-
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -60,7 +57,6 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
       name: body.name,
       slug,
-      blueprintType: DEFAULT_BLUEPRINT,
       status: "creating",
     },
   });

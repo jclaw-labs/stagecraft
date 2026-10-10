@@ -93,7 +93,7 @@ model Site {
   name                String
   slug                String   @unique
   status              String   @default("creating") // creating | active | error | archived
-  blueprintType       String   // always "solo-artist"
+  blueprintType       String   @default("solo-artist") // unused; no code writes it (#445), dropped in a later contract step
   githubRepoOwner       String?
   githubRepoName        String?
   githubDefaultBranch   String   @default("main")

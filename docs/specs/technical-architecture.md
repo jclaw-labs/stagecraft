@@ -184,7 +184,7 @@ Suggested platform entities:
 - name
 - slug
 - status
-- blueprintType (vestigial: always `solo-artist`; there are no blueprints, see product spec §14)
+- blueprintType (vestigial: always `solo-artist`, now filled by a DB default and no longer written by the app; to be dropped, see #445. There are no blueprints, see product spec §14)
 - githubRepoOwner
 - githubRepoName
 - githubDefaultBranch

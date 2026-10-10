@@ -60,7 +60,6 @@ export default async function captureSetup(): Promise<void> {
       name: "Sarah Chen",
       slug: "sarah-chen-capture",
       status: "active",
-      blueprintType: "solo-artist",
       githubRepoOwner: "stagecraft-demo",
       githubRepoName: "sarah-chen",
       githubInstallationId: 12_345_678,
