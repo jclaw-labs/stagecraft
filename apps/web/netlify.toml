@@ -1,6 +1,7 @@
 # Netlify reads this file from the package directory (apps/web). Paths here
 # are relative to the base directory, the repo root, so the functions
 # directory is spelled out in full. It holds the scheduled queue drain
-# (netlify/functions/drain-jobs.ts, docs/runbook.md §8).
+# (netlify/functions/drain-jobs.ts, docs/runbook.md §8). Every file in it
+# deploys as a function, so its test lives in netlify/ instead.
 [functions]
   directory = "apps/web/netlify/functions"

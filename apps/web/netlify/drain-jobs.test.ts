@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CRON_JOBS_PATH } from "../../src/lib/jobs/cron-drain";
-import drainJobs, { config } from "./drain-jobs";
+import { CRON_JOBS_PATH } from "../src/lib/jobs/cron-drain";
+import drainJobs, { config } from "./functions/drain-jobs";
 
 const fetchMock = vi.fn<typeof fetch>();
 
