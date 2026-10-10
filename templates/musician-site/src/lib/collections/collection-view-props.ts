@@ -38,7 +38,9 @@ export function defaultCollectionViewLimit(slug: string): number {
  * to the new field at render time (`viewFieldIdFor` in
  * `template/view-requirements.ts`), so the saved props never need
  * rewriting. Tour-date `status` opts out of that match (see its
- * `matchesByKey`).
+ * `matchesByKey`). A clause whose field is gone with nothing in its place
+ * is dropped, so deleting `status` lists cancelled shows too rather than
+ * hiding every show.
  *
  * Any other collection gets just `{ sourceCollection, limit }` — no opinionated
  * ordering, since its own `itemTemplate` (or the default card) decides

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyFilter, mapFilterFields } from "./filter";
+import { applyFilter, mapFilterFields, withoutClausesOnMissingFields } from "./filter";
 import type { Filter, Item } from "../schema";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
@@ -393,16 +393,129 @@ describe("mapFilterFields", () => {
     });
   });
 
-  it("leaves a currentItemField value alone: it names a field of the surrounding item", () => {
+  it("leaves a currentItemField value alone by default: it names a field of the surrounding item", () => {
     const filter: Filter = {
       all: [{ field: "f_venue", op: "equals", value: { kind: "currentItemField", fieldId: "f_date" } }],
     };
     expect(mapFilterFields(filter, rename)).toEqual(filter);
   });
 
+  it("maps currentItemField values (single and `in` lists) through the current-item mapper", () => {
+    const currentRename = (id: string) => (id === "f_city" ? "f_new_city" : id);
+    const filter: Filter = {
+      any: [
+        { field: "f_date", op: "equals", value: { kind: "currentItemField", fieldId: "f_city" } },
+        {
+          field: "f_venue",
+          op: "in",
+          values: [
+            { kind: "currentItemField", fieldId: "f_city" },
+            { kind: "literal", value: "f_city" },
+          ],
+        },
+        { field: "f_venue", op: "equals", value: { kind: "currentItemField", fieldId: "f_venue" } },
+      ],
+    };
+    expect(mapFilterFields(filter, rename, currentRename)).toEqual({
+      any: [
+        { field: "f_new_date", op: "equals", value: { kind: "currentItemField", fieldId: "f_new_city" } },
+        {
+          field: "f_venue",
+          op: "in",
+          values: [
+            { kind: "currentItemField", fieldId: "f_new_city" },
+            { kind: "literal", value: "f_city" },
+          ],
+        },
+        { field: "f_venue", op: "equals", value: { kind: "currentItemField", fieldId: "f_venue" } },
+      ],
+    });
+  });
+
   it("doesn't mutate the input", () => {
     const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
     mapFilterFields(filter, rename);
     expect(filter).toEqual({ all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withoutClausesOnMissingFields
+// ---------------------------------------------------------------------------
+
+describe("withoutClausesOnMissingFields", () => {
+  const present = new Set(["f_date", "f_venue"]);
+  const hasField = (id: string) => present.has(id);
+
+  it("drops a clause on a missing field and keeps clauses on present ones", () => {
+    const filter: Filter = {
+      all: [
+        { field: "f_date", op: "gte", value: { kind: "today" } },
+        { field: "f_status", op: "notEquals", value: { kind: "literal", value: "cancelled" } },
+        { field: "f_venue", op: "isNotEmpty" },
+      ],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toEqual({
+      all: [
+        { field: "f_date", op: "gte", value: { kind: "today" } },
+        { field: "f_venue", op: "isNotEmpty" },
+      ],
+    });
+  });
+
+  it("keeps excludeCurrentItem clauses in an `all` group", () => {
+    const filter: Filter = {
+      all: [{ excludeCurrentItem: true }, { field: "f_gone", op: "isNotEmpty" }],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toEqual({
+      all: [{ excludeCurrentItem: true }],
+    });
+  });
+
+  it("drops a whole `any` group with a clause on a missing field, since that clause matches every item", () => {
+    const filter: Filter = {
+      any: [
+        { field: "f_gone", op: "equals", value: { kind: "literal", value: "x" } },
+        { field: "f_venue", op: "equals", value: { kind: "literal", value: "Lido" } },
+      ],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toBeNull();
+  });
+
+  it("keeps an `any` group whose fields are all present", () => {
+    const filter: Filter = {
+      any: [{ excludeCurrentItem: true }, { field: "f_venue", op: "isNotEmpty" }],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toBe(filter);
+  });
+
+  it("never narrows what an `any` filter listed, even with `isEmpty` on the missing field", () => {
+    // `isEmpty` on a deleted field matched every item before; dropping
+    // just that disjunct would leave only the Lido show.
+    const filter: Filter = {
+      any: [
+        { field: "f_gone", op: "isEmpty" },
+        { field: "f_venue", op: "equals", value: { kind: "literal", value: "Lido" } },
+      ],
+    };
+    const before = applyFilter(ITEMS, filter, CURRENT).map((i) => i.slug);
+    const after = applyFilter(ITEMS, withoutClausesOnMissingFields(filter, hasField), CURRENT).map(
+      (i) => i.slug,
+    );
+    expect(before).toEqual(["paris", "lyon", "berlin", "madrid"]);
+    expect(after).toEqual(before);
+  });
+
+  it("returns the filter unchanged when every field is present", () => {
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toEqual(filter);
+  });
+
+  it("returns null when no clause is left, so an `any` doesn't turn into match-nothing", () => {
+    const anyGone: Filter = { any: [{ field: "f_gone", op: "isNotEmpty" }] };
+    const allGone: Filter = { all: [{ field: "f_gone", op: "isEmpty" }] };
+    expect(withoutClausesOnMissingFields(anyGone, hasField)).toBeNull();
+    expect(withoutClausesOnMissingFields(allGone, hasField)).toBeNull();
+    expect(withoutClausesOnMissingFields({ all: [] }, hasField)).toBeNull();
   });
 });

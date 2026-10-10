@@ -85,7 +85,8 @@ export type ViewFieldRequirement = {
    * is `cancelled`, and a filter clause on a missing value fails, so a
    * fresh status field (no show has a value yet) would hide every show
    * while the editor reported all clear. Left on the deleted id, the
-   * heads-up keeps saying what's wrong. Defaults to true.
+   * block drops the clause (cancelled shows are listed too) and the heads-up
+   * keeps saying the filter is ignored. Defaults to true.
    */
   matchesByKey?: boolean;
 };
@@ -162,9 +163,10 @@ export const VIEW_REQUIREMENTS = {
       country: { fieldId: TOUR_DATES_FIELD_IDS.country, label: "country", accepts: TEXTUAL, required: false },
       ticketUrl: { fieldId: TOUR_DATES_FIELD_IDS.ticketUrl, label: "ticket link", accepts: LINK, required: false },
       // Not read by the card: the default tour-dates Collection block
-      // filters out `status = cancelled` (`collection-view-props.ts`), and
-      // a filter clause on a missing value fails, so every show drops out.
-      // `notEquals` on a multi-choice value still works.
+      // filters out `status = cancelled` (`collection-view-props.ts`).
+      // Once the field is gone the block drops that clause
+      // (`resolveCollectionBlockProps`), so cancelled shows stop being
+      // filtered out. `notEquals` on a multi-choice value still works.
       status: {
         fieldId: TOUR_DATES_FIELD_IDS.status,
         label: "status",
@@ -172,8 +174,12 @@ export const VIEW_REQUIREMENTS = {
         required: false,
         matchesByKey: false,
         effect: {
-          will: "tour dates lists that hide cancelled shows (the default) will hide every show",
-          now: "tour dates lists that hide cancelled shows (the default) hide every show",
+          will:
+            "tour dates lists that hide cancelled shows (the default) will ignore that filter, " +
+            "so cancelled shows are listed too",
+          now:
+            "tour dates lists that hide cancelled shows (the default) ignore that filter, " +
+            "so cancelled shows are listed too",
         },
       },
     },

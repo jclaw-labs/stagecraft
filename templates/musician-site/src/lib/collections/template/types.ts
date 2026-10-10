@@ -57,5 +57,12 @@ export type ResolveContext = {
    * option labels) so a binding's `format` can apply.
    */
   itemDef?: CollectionDef;
+  /**
+   * The def of `currentItem`. A Collection block resolves a
+   * `currentItemField` filter value's field id against it, so a value
+   * naming a deleted-and-re-added field reads the new one
+   * (`viewFieldIdFor`). Absent, those ids are used as saved.
+   */
+  currentItemDef?: CollectionDef;
   loadedCollections: LoadedCollections;
 };
