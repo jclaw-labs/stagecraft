@@ -8,6 +8,7 @@ import type { FailureCategory, JobStatus, JobType, SiteStatus } from "@stagecraf
 import {
   MIGRATION_REPORT_ACTION_LABELS,
   siteAdminLink,
+  siteServingState,
   upgradeStoredReport,
   type MigrationReport,
   type MigrationReportItem,
@@ -320,7 +321,7 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   // follows the Production URL row: live once the site is (or is presumed) up.
   const adminLink = siteAdminLink(
     site.productionUrl,
-    isReady || isCheckingStatus ? "live" : isCreating || isBuilding ? "building" : "not_live",
+    siteServingState({ isReady, isCheckingStatus, isCreating, isBuilding: Boolean(isBuilding) }),
   );
 
   const statusTone = isCreating || isBuilding || isCheckingStatus

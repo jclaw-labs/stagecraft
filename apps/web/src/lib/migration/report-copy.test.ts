@@ -5,6 +5,7 @@ import {
   imagesSummaryLine,
   siteAdminLink,
   siteAdminUrl,
+  siteServingState,
   upgradeStoredReport,
   type MigrationReport,
   type MigrationReportItem,
@@ -165,5 +166,23 @@ describe("siteAdminLink", () => {
     expect(siteAdminLink(undefined, "live")).toEqual(noUrl);
     expect(siteAdminLink("ftp://sarah-chen.example.com", "live")).toEqual(noUrl);
     expect(siteAdminLink(undefined, "building")).toEqual(noUrl);
+  });
+});
+
+describe("siteServingState", () => {
+  const none = { isReady: false, isCheckingStatus: false, isCreating: false, isBuilding: false };
+
+  it("is live once the latest deploy is ready, or during the first status check", () => {
+    expect(siteServingState({ ...none, isReady: true })).toBe("live");
+    expect(siteServingState({ ...none, isCheckingStatus: true })).toBe("live");
+  });
+
+  it("is building while the site is created or a deploy is in flight", () => {
+    expect(siteServingState({ ...none, isCreating: true })).toBe("building");
+    expect(siteServingState({ ...none, isBuilding: true })).toBe("building");
+  });
+
+  it("is not live otherwise: a failed or unknown deploy, or an inactive site", () => {
+    expect(siteServingState(none)).toBe("not_live");
   });
 });

@@ -127,6 +127,22 @@ export function siteAdminUrl(productionUrl: string | null | undefined): string |
  */
 export type SiteServingState = "live" | "building" | "not_live";
 
+/**
+ * The site page's deploy flags as a serving state. The link follows the
+ * Production URL row: live once the latest deploy is ready, or during the
+ * first status check, when a freshly active site is presumed up.
+ */
+export function siteServingState(flags: {
+  isReady: boolean;
+  isCheckingStatus: boolean;
+  isCreating: boolean;
+  isBuilding: boolean;
+}): SiteServingState {
+  if (flags.isReady || flags.isCheckingStatus) return "live";
+  if (flags.isCreating || flags.isBuilding) return "building";
+  return "not_live";
+}
+
 /** The report's site-admin link for a site: the URL, or why it's held back. */
 export type SiteAdminLink = { state: "live"; href: string } | { state: "hidden"; hint: string };
 
