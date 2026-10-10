@@ -17,9 +17,9 @@
  *     call with `item = iteratedItem`, `currentItem = outerItem`.
  *
  * Cycle safety (ADR §4.3): itemTemplates can't contain Collection
- * blocks. The renderer enforces this by registering Collection
- * blocks only on the *detail* editor config; the item editor's
- * config has them removed.
+ * blocks. The editor offers them only on pages and detail templates,
+ * and the walker resolves them only when the caller passes
+ * `collectionSlugs` — an item template's walk passes none.
  */
 
 import type { ReactNode } from "react";
@@ -27,10 +27,10 @@ import { Render } from "@measured/puck";
 
 import { Image } from "@/components/Image";
 
+import { buildPuckConfig } from "@/puck/build-config";
+
 import { applyFilter } from "./filter";
-import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
-import { templatePuckConfig } from "./puck-config";
-import { resolveTemplate } from "./renderer";
+import { resolveTemplate, type ResolveContext } from "./renderer";
 import { emptyMessageFor, specialisedRendererFor } from "./specialized-views";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
@@ -187,14 +187,12 @@ function CollectionBlockItem({
     // carried through unchanged so §5.1's currentItemId /
     // currentItemField FilterValue arms still reference the
     // surrounding (outer) item.
+    // No `collectionSlugs`: an itemTemplate can't embed Collection blocks.
     const resolved = resolveTemplate(template as Template, item, {
-      registry: PRIMITIVE_BLOCKS,
       currentItem,
       itemDef: sourceDef,
     });
-    // Use the cached PRIMITIVE_BLOCKS-only config so this doesn't rebuild
-    // once per iterated item.
-    return <Render config={templatePuckConfig} data={resolved} />;
+    return <Render config={buildPuckConfig({ variant: "render" })} data={resolved} />;
   }
   // Specialised renderer (photos / videos today) — hand-tuned per-
   // slug layouts that match what the legacy template's PhotoGallery
@@ -288,54 +286,8 @@ function renderDefaultField(field: FieldDef, value: FieldValue): ReactNode {
 }
 
 // ---------------------------------------------------------------------------
-// Block registration — one entry per collection (ADR §5)
+// Block naming — one Collection block per collection (ADR §5)
 // ---------------------------------------------------------------------------
-
-/**
- * Build the BlockEntry that powers a single Collection block. The
- * block's "type" name (e.g. `TourDatesView`) is the dispatcher key
- * Puck uses to route to this entry's render function.
- *
- * Caller is `buildTemplatePuckConfigWithCollections` (sibling of
- * `buildTemplatePuckConfig`), which builds one entry per slug in
- * the registry. Editor-config callers (the Puck inspector surface)
- * use `buildCollectionBlockComponentConfig` instead — it adds the
- * authoring fields (filter / sort / limit / hideFields).
- */
-export function buildCollectionBlockEntry(): BlockEntry<
-  CollectionBlockRawProps,
-  CollectionBlockResolvedProps
-> {
-  return {
-    Component: CollectionBlockRender,
-    resolveProps: resolveCollectionBlockProps,
-    // The renderer config: every prop is data, no slot fields.
-    // Puck's `Render` will dispatch by block type and call
-    // `CollectionBlockRender` with the resolved props.
-    fields: {
-      items: { type: "custom" },
-      sourceDef: { type: "custom" },
-      hideFields: { type: "custom" },
-      currentItem: { type: "custom" },
-    },
-  };
-}
-
-/**
- * Build the dispatcher-name → block-entry map a renderer would
- * register. One entry per collection slug. Used by the public
- * renderer at request time.
- */
-export function buildCollectionBlockRegistry(
-  collectionSlugs: ReadonlyArray<string>,
-): Readonly<Record<string, BlockEntry>> {
-  const entry = buildCollectionBlockEntry();
-  const registry: Record<string, BlockEntry> = {};
-  for (const slug of collectionSlugs) {
-    registry[blockNameForCollection(slug)] = entry as unknown as BlockEntry;
-  }
-  return registry;
-}
 
 /**
  * Derive the Puck block name (e.g. `TourDatesView`) from a

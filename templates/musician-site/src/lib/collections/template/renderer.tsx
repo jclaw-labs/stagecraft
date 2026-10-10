@@ -1,63 +1,82 @@
 /**
- * Top-level entry point for rendering a template against an item.
+ * Top-level entry point for rendering a block tree against an item.
  *
  * Pipeline:
  *
- *   1. Walk `template.content` top-down. For each block, look up its
- *      entry in the registry and call `entry.resolveProps(raw, ctx)`.
- *      The result is a new block whose props are literal values —
- *      every `Bindable<T>` has been replaced with its resolved value
- *      against `item`. Slot props (arrays of nested blocks) get
- *      recursed.
- *   2. Pass the resolved data to Puck's `<Render>`. Puck handles
- *      slot rendering natively (the slot's `BlockInstance[]` becomes
- *      a `SlotComponent` the block's component calls).
+ *   1. Walk `template.content` top-down (`resolveTemplate`). Each block's
+ *      bindable props (`BINDABLE_SLOTS`) resolve against `item`; a
+ *      Collection block resolves its items from `loadedCollections`. Every
+ *      array of nested blocks (Section.children, Columns.col1, …) is walked
+ *      the same way. The result is a tree of plain literal props.
+ *   2. Pass the resolved data to Puck's `<Render>` with the render config
+ *      from `buildPuckConfig`. Puck handles slot rendering natively.
  *
- * Resolution and rendering are decoupled: block components never see
- * `Bindable`, never reach into the current item, and don't need
+ * Pages, templates and item bodies all go through this one walker and one
+ * block library (#349): a page body is a tree whose bindable props happen
+ * to hold plain literals, which pass through unchanged.
+ *
+ * Resolution and rendering are decoupled: block components never see a
+ * binding, never reach into the current item, and don't need
  * `"use client"`. The whole tree is Server-Component-friendly.
- *
- * Unknown block types (not in the registry) flow through with their
- * raw props untouched. Puck's `<Render>` skips components it doesn't
- * know about.
  */
 
 import type { ReactNode } from "react";
 import { Render } from "@measured/puck";
 
-import { PRIMITIVE_BLOCKS, type BlockEntry } from "./primitives";
-import { buildTemplatePuckConfig } from "./puck-config";
+import { buildPuckConfig } from "@/puck/build-config";
+
+import { BINDABLE_SLOTS, type BindableSlotKind } from "./bindable-slots";
+import {
+  isBindableRef,
+  resolveBindable,
+  resolveRichTextBindable,
+  resolveStringBindable,
+} from "./binding";
+import { blockNameForCollection, resolveCollectionBlockProps } from "./collection-block";
 import type { BlockInstance, Template } from "./types";
-import type { CollectionDef, Item } from "../schema";
+import type { Bindable, CollectionDef, Item } from "../schema";
+import type { ImageMetadata } from "../../image-types";
+
+/**
+ * Context handed to a Collection block's resolver.
+ *
+ * `item` is the item bindings resolve against — it changes as nested
+ * templates iterate (a Collection block resolves its children against each
+ * iterated item). `currentItem` is the item the *surrounding* template is
+ * rendering — it stays the same all the way down so Collection-block filters
+ * can reference it (ADR §5.1's `currentItemId` / `currentItemField`
+ * FilterValue arms). For non-Collection-block walks the two are equal.
+ */
+export type ResolveContext = {
+  item: Item;
+  currentItem: Item;
+  /**
+   * The def of `item` — supplies field metadata (e.g. a `select` field's
+   * option labels) so a binding's `format` can apply.
+   */
+  itemDef?: CollectionDef;
+  loadedCollections: LoadedCollections;
+};
 
 export type TemplateRendererProps = {
   /** The template's Puck data (item / detail / list — same shape). */
   template: Template | null;
   /** The item to render against. Drives every binding's resolution. */
   item: Item;
-  /** The item's collection. Reserved for future Collection-block use. */
+  /** The item's collection. Supplies field metadata for `format`. */
   collection: CollectionDef;
   /**
-   * The surrounding template's item — defaults to `item`. Collection
-   * blocks iterate other collections' items but their filters
-   * reference the outer (current) item; the inner walks pass this
-   * through unchanged. See `ResolveContext` for the full rationale.
+   * The surrounding template's item — defaults to `item`. See
+   * `ResolveContext`.
    */
   currentItem?: Item;
   /**
-   * Block registry. Defaults to `PRIMITIVE_BLOCKS`. Detail / page-
-   * body renders pass an extended registry that adds one Collection
-   * block per loaded collection — built from `buildCollectionBlockRegistry`
-   * and unioned with the primitives.
+   * Collections whose Collection blocks (`<Slug>View`) this tree may embed.
+   * Leave empty for item templates: they can't embed Collection blocks
+   * (ADR §4.3 cycle safety), so any they contain render nothing.
    */
-  registry?: Readonly<Record<string, BlockEntry>>;
-  /**
-   * Items + defs the template's Collection blocks iterate. The
-   * caller (catch-all route) pre-walks the template via
-   * `findCollectionBlockSources`, loads each in parallel, and passes
-   * the map here. Item-template renders skip this; Collection
-   * blocks aren't permitted inside them.
-   */
+  collectionSlugs?: ReadonlyArray<string>;
+  /** Items + defs the tree's Collection blocks iterate. */
   loadedCollections?: LoadedCollections;
 };
 
@@ -66,18 +85,17 @@ export function TemplateRenderer({
   item,
   collection,
   currentItem,
-  registry = PRIMITIVE_BLOCKS,
+  collectionSlugs = [],
   loadedCollections,
 }: TemplateRendererProps): ReactNode {
   if (!template) return null;
   const resolved = resolveTemplate(template, item, {
-    registry,
+    collectionSlugs,
     currentItem,
     itemDef: collection,
     loadedCollections,
   });
-  const config = registry === PRIMITIVE_BLOCKS ? undefined : buildTemplatePuckConfig(registry);
-  return <Render config={config ?? buildTemplatePuckConfig()} data={resolved} />;
+  return <Render config={buildPuckConfig({ variant: "render", collectionSlugs })} data={resolved} />;
 }
 
 /**
@@ -91,114 +109,129 @@ export type LoadedCollections = Readonly<
   Record<string, { def: CollectionDef; items: ReadonlyArray<Item> }>
 >;
 
-/**
- * Options bag for `resolveTemplate`. Optional: each field has a
- * sensible default. PR 7c adds `loadedCollections` for Collection
- * blocks that iterate over other collections; the renderer pre-
- * loads them so the walker stays pure / sync.
- */
+/** Options bag for `resolveTemplate`. Every field is optional. */
 export type ResolveTemplateOptions = {
-  /** Block dispatch registry. Defaults to `PRIMITIVE_BLOCKS`. */
-  registry?: Readonly<Record<string, BlockEntry>>;
   /**
-   * The surrounding template's item. Defaults to `item`. Inner walks
-   * (Collection blocks iterating in PR 7c) pass it explicitly so the
-   * outer-item context persists through iteration.
+   * Collections whose Collection blocks resolve. Empty (the default) for
+   * item templates — ADR §4.3 cycle safety.
    */
+  collectionSlugs?: ReadonlyArray<string>;
+  /** The surrounding template's item. Defaults to `item`. */
   currentItem?: Item;
   /**
    * The def of `item`. Threaded into binding resolution so a binding's
    * `format` can reach field metadata (e.g. a `select` field's option
-   * labels). Optional — omit it and `format: "label"` falls back to the
-   * raw value (date presets still work, they need only the value).
+   * labels). Omit it and `format: "label"` falls back to the raw value.
    */
   itemDef?: CollectionDef;
   /**
-   * Items + defs Collection blocks may iterate. Keys are collection
-   * slugs; the renderer pre-loads only the collections the template
-   * actually references. Empty / missing means no Collection blocks
-   * will find their source — they'll render nothing.
+   * Items + defs Collection blocks may iterate, keyed by collection slug.
+   * Missing means those blocks find no source and render nothing.
    */
   loadedCollections?: LoadedCollections;
 };
 
 /**
- * Walk a template top-down and produce a new template whose block
- * props contain literal values everywhere. Exported for tests and for
- * static-export pipelines that want to resolve once at build time and
- * cache.
+ * Walk a tree top-down and produce a new one whose block props contain
+ * literal values everywhere. Exported for tests and for static-export
+ * pipelines that want to resolve once at build time and cache.
  */
 export function resolveTemplate(
   template: Template,
   item: Item,
   options: ResolveTemplateOptions = {},
 ): Template {
-  const registry = options.registry ?? PRIMITIVE_BLOCKS;
-  const currentItem = options.currentItem ?? item;
-  const loadedCollections = options.loadedCollections ?? {};
-  const itemDef = options.itemDef;
-  const ctx = {
+  const collectionBlocks = new Set((options.collectionSlugs ?? []).map(blockNameForCollection));
+  const ctx: ResolveContext = {
     item,
-    currentItem,
-    itemDef,
-    loadedCollections,
-    recurse: (block: BlockInstance) =>
-      resolveBlock(block, item, currentItem, itemDef, loadedCollections, registry, ctx.recurse),
+    currentItem: options.currentItem ?? item,
+    itemDef: options.itemDef,
+    loadedCollections: options.loadedCollections ?? {},
   };
   return {
     ...template,
-    content: (template.content ?? []).map(ctx.recurse) as Template["content"],
+    content: resolveBlocks(template.content ?? [], ctx, collectionBlocks) as Template["content"],
   };
 }
 
-/** Resolve one block: dispatch to the registry entry's `resolveProps`. */
+function resolveBlocks(
+  blocks: ReadonlyArray<unknown>,
+  ctx: ResolveContext,
+  collectionBlocks: ReadonlySet<string>,
+): unknown[] {
+  const out: unknown[] = [];
+  for (const block of blocks) {
+    if (!isBlockInstance(block)) {
+      // Data, not a block (Gallery's `images: [{ image }]`, ButtonRow's
+      // `buttons`) — left untouched.
+      out.push(block);
+      continue;
+    }
+    const resolved = resolveBlock(block, ctx, collectionBlocks);
+    if (resolved) out.push(resolved);
+  }
+  return out;
+}
+
+function isBlockInstance(value: unknown): value is BlockInstance {
+  return (
+    !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string"
+  );
+}
+
+/**
+ * Resolve one block. Returns `null` when a bound prop marked
+ * `hidesBlockWhenUnbound` resolves to nothing — the implicit hide-if-empty
+ * rule (ADR-009 §4.1).
+ */
 function resolveBlock(
   block: BlockInstance,
-  item: Item,
-  currentItem: Item,
-  itemDef: CollectionDef | undefined,
-  loadedCollections: LoadedCollections,
-  registry: Readonly<Record<string, BlockEntry>>,
-  recurse: (b: BlockInstance) => BlockInstance,
-): BlockInstance {
-  const entry = registry[block.type];
-  if (!entry) {
-    // Unknown block — no resolver of its own (e.g. a page chrome block like
-    // Section / Columns, which the template registry doesn't define). It still
-    // has to be *traversed*: a Collection block (or any bound primitive) nested
-    // in one of its slot arrays must still resolve. So recurse structurally
-    // into every array-valued prop, descending only into block-shaped items
-    // (those with a string `type`) — non-block data arrays like Gallery's
-    // `images: [{ image }]` or ButtonRow's `buttons` are left untouched. The
-    // block's own props are returned verbatim; only its slots are rewritten.
-    const props = block.props;
-    if (!props || typeof props !== "object") return block;
-    let next: Record<string, unknown> | undefined;
-    for (const [key, value] of Object.entries(props)) {
-      if (!Array.isArray(value)) continue;
-      (next ??= { ...props })[key] = value.map((v) =>
-        v && typeof v === "object" && typeof (v as { type?: unknown }).type === "string"
-          ? recurse(v as BlockInstance)
-          : v,
-      );
-    }
-    return next ? { ...block, props: next } : block;
+  ctx: ResolveContext,
+  collectionBlocks: ReadonlySet<string>,
+): BlockInstance | null {
+  const props = block.props;
+  if (!props || typeof props !== "object") return block;
+
+  if (collectionBlocks.has(block.type)) {
+    const resolved = resolveCollectionBlockProps(
+      props as Parameters<typeof resolveCollectionBlockProps>[0],
+      ctx,
+    ) as Record<string, unknown>;
+    // Carry the block's `id` onto the resolved props: Puck keys rendered
+    // blocks by `props.id`, and the resolver returns only render fields.
+    const id = (props as { id?: unknown }).id;
+    return { type: block.type, props: id === undefined ? resolved : { id, ...resolved } };
   }
-  const resolved = entry.resolveProps(block.props, {
-    item,
-    currentItem,
-    itemDef,
-    loadedCollections,
-    recurse,
-  }) as Record<string, unknown>;
-  // Carry the block's `id` onto the resolved props. `resolveProps` returns only
-  // the render-facing fields (no `id`), but Puck keys rendered blocks by
-  // `props.id`; without it, walker-resolved blocks (Collection blocks,
-  // primitives) render keyless and React warns "unique key". `resolved` never
-  // carries an `id`, so this can't clobber one.
-  const id = (block.props as { id?: unknown })?.id;
-  return {
-    type: block.type,
-    props: id === undefined ? resolved : { id, ...resolved },
-  };
+
+  let next: Record<string, unknown> | undefined;
+  const slots = BINDABLE_SLOTS[block.type] ?? {};
+  for (const [propName, meta] of Object.entries(slots)) {
+    const value = props[propName];
+    if (value === undefined) continue;
+    const resolved = resolveSlot(value, meta.slotKind, ctx);
+    if (resolved === undefined && meta.hidesBlockWhenUnbound) return null;
+    if (resolved !== value) (next ??= { ...props })[propName] = resolved;
+  }
+  // Recurse into every array of nested blocks. Any prop may be a slot —
+  // Section.children, Columns.col1…col4, Stack.children — so the walk is
+  // structural rather than per-block.
+  for (const [key, value] of Object.entries(props)) {
+    if (!Array.isArray(value) || !value.some(isBlockInstance)) continue;
+    (next ??= { ...props })[key] = resolveBlocks(value, ctx, collectionBlocks);
+  }
+  return next ? { ...block, props: next } : block;
+}
+
+function resolveSlot(value: unknown, kind: BindableSlotKind, ctx: ResolveContext): unknown {
+  // A plain literal resolves to itself — returned by identity so page
+  // bodies come out of the walk unchanged.
+  if (!isBindableRef(value)) return value;
+  switch (kind) {
+    case "string":
+      return resolveStringBindable(value as Bindable<string>, ctx.item, ctx.itemDef);
+    case "image":
+      return resolveBindable(value as Bindable<ImageMetadata>, ctx.item, "image");
+    case "richText":
+      return resolveRichTextBindable(value as Bindable<string>, ctx.item, ctx.itemDef);
+  }
 }

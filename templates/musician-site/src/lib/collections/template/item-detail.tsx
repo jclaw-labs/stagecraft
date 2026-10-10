@@ -28,12 +28,11 @@ import { Render } from "@measured/puck";
 
 import { Image } from "@/components/Image";
 import type { ImageMetadata } from "@/lib/image-types";
+import { buildPuckConfig } from "@/puck/build-config";
 
 import { itemDisplayLabel, selectOptionLabel } from "../accessors";
 import { TOUR_DATES_FIELD_IDS } from "../field-ids";
 import type { CollectionDef, FieldDef, FieldId, Item, TiptapJSON } from "../schema";
-import { PRIMITIVE_BLOCKS } from "./primitives";
-import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
 import { renderTiptap } from "./tiptap-render";
 import type { Template } from "./types";
@@ -262,9 +261,8 @@ export function DefaultItemDetail({
             renderTiptap(body.doc)
           ) : (
             <Render
-              config={templatePuckConfig}
+              config={buildPuckConfig({ variant: "render" })}
               data={resolveTemplate(body.template, item, {
-                registry: PRIMITIVE_BLOCKS,
                 currentItem: item,
                 itemDef: def,
               })}

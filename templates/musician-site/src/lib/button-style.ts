@@ -1,11 +1,9 @@
 import type { CSSProperties } from "react";
 
 /**
- * Shared button styling for both render paths — the page-editor blocks
- * (`src/puck/config.tsx`) and the collection-template renderer
- * (`src/lib/collections/template/primitives.tsx`). One source so the two
- * can't drift. Pure values only (no node imports) → safe for the client
- * bundle and the pure template renderer.
+ * Shared button styling for the Button and ButtonRow blocks
+ * (`src/puck/config.tsx`). Pure values only (no node imports) → safe for
+ * the client bundle and the pure template renderer.
  *
  * Theme-aware: AppearanceStyles emits `--btn-*` tokens from the artist's
  * button-fill / button-shape choices; each falls back to a solid accent

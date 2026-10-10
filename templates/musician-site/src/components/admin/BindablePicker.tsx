@@ -3,31 +3,30 @@
  * between a literal value and a binding to a field on the collection
  * (ADR-009 PR 6).
  *
- * Used inside `buildEditorPuckConfig` (sibling) — Puck renders this in
- * the block inspector whenever the underlying field is declared as a
- * `Bindable<T>` slot.
+ * Used by `buildPuckConfig`'s template surfaces — Puck renders this in
+ * the block inspector for every prop listed in `BINDABLE_SLOTS`.
  *
  * Two variants:
  *
  *   - <BindableStringPicker>  for `Bindable<string>` (Text content,
- *                             Button label, Link href, …). Literal
- *                             mode = text input. Binding mode = a
- *                             dropdown of `STRING_VALUED_FIELD_TYPES`
- *                             fields.
- *   - <BindableImagePicker>   for `Bindable<ImageMetadata>` (Image src).
+ *                             Button text, Link href, RichText text, …).
+ *                             Literal mode = text input (a textarea for
+ *                             RichText). Binding mode = a dropdown of the
+ *                             compatible fields.
+ *   - <BindableImagePicker>   for `Bindable<ImageMetadata>` (Image image).
  *                             Literal mode wraps the existing
  *                             `ImagePickerField`. Binding mode = a
  *                             dropdown of image fields.
  *
- * Both store the same shape: `{ kind: "literal", value: T } |
- * { kind: "binding", fieldId }`. The renderer (PR 2) does the
+ * Both take and store the object form (`BindableRef<T>`); the caller
+ * wraps a plain literal with `toBindableRef` first. The walker does the
  * resolution.
  */
 
 "use client";
 
 import type { ImageMetadata } from "@/lib/image-types";
-import type { Bindable, FieldDef } from "@/lib/collections";
+import type { BindableRef, FieldDef } from "@/lib/collections";
 
 import { ImagePickerField } from "@/puck/ImagePickerField";
 
@@ -136,12 +135,24 @@ export function BindableStringPicker({
   onChange,
   stringFields,
   placeholder = "",
+  isMultiline = false,
 }: {
-  value: Bindable<string>;
-  onChange: (next: Bindable<string>) => void;
+  value: BindableRef<string>;
+  onChange: (next: BindableRef<string>) => void;
   stringFields: ReadonlyArray<FieldDef>;
   placeholder?: string;
+  /** Literal mode edits paragraphs in a textarea (RichText). */
+  isMultiline?: boolean;
 }) {
+  const inputStyle = {
+    width: "100%",
+    padding: "var(--space-2) var(--space-3)",
+    fontSize: "var(--font-size-sm)",
+    border: "1px solid var(--color-border-strong)",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--color-surface)",
+    color: "var(--color-text)",
+  };
   return (
     <div>
       <ModeToggle
@@ -151,21 +162,21 @@ export function BindableStringPicker({
           else onChange({ kind: "binding", fieldId: stringFields[0]?.id ?? "" });
         }}
       />
-      {value.kind === "literal" ? (
+      {value.kind === "literal" && isMultiline ? (
+        <textarea
+          value={value.value}
+          placeholder={placeholder}
+          rows={5}
+          onChange={(e) => onChange({ kind: "literal", value: e.target.value })}
+          style={inputStyle}
+        />
+      ) : value.kind === "literal" ? (
         <input
           type="text"
           value={value.value}
           placeholder={placeholder}
           onChange={(e) => onChange({ kind: "literal", value: e.target.value })}
-          style={{
-            width: "100%",
-            padding: "var(--space-2) var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-            border: "1px solid var(--color-border-strong)",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-          }}
+          style={inputStyle}
         />
       ) : (
         <FieldDropdown
@@ -187,8 +198,8 @@ export function BindableImagePicker({
   onChange,
   imageFields,
 }: {
-  value: Bindable<ImageMetadata | null>;
-  onChange: (next: Bindable<ImageMetadata | null>) => void;
+  value: BindableRef<ImageMetadata | null>;
+  onChange: (next: BindableRef<ImageMetadata | null>) => void;
   imageFields: ReadonlyArray<FieldDef>;
 }) {
   return (
@@ -214,20 +225,4 @@ export function BindableImagePicker({
       )}
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Rich-field picker (RichTextRender.field — fieldId only, no literal mode)
-// ---------------------------------------------------------------------------
-
-export function FieldIdPicker({
-  value,
-  onChange,
-  fields,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  fields: ReadonlyArray<FieldDef>;
-}) {
-  return <FieldDropdown value={value} options={fields} onChange={onChange} />;
 }

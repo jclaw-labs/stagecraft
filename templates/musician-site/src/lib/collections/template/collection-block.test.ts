@@ -203,7 +203,7 @@ describe("findCollectionBlockSources", () => {
   it("ignores blocks with no `sourceCollection` prop", () => {
     const t = template([
       { type: "Text", props: { content: { kind: "literal", value: "Hello" } } },
-      { type: "Image", props: { src: { kind: "literal", value: null } } },
+      { type: "Image", props: { image: { kind: "literal", value: null } } },
     ]);
     expect(findCollectionBlockSources(t)).toEqual([]);
   });

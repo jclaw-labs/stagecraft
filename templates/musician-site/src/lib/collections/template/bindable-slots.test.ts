@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   BINDABLE_SLOTS,
-  RICH_FIELDS,
+  bindableFieldsByKind,
   compatibleFields,
-  getCollectionContextForEditor,
-} from "./editor-config";
+  isFieldTypeCompatible,
+} from "./bindable-slots";
 import type { CollectionDef } from "../schema";
 
 function def(): CollectionDef {
@@ -44,25 +44,37 @@ describe("compatibleFields", () => {
   });
 });
 
-describe("BINDABLE_SLOTS / RICH_FIELDS", () => {
-  it("declares Text.content as a string slot", () => {
-    expect(BINDABLE_SLOTS.Text.content.slotKind).toBe("string");
+describe("richText slots", () => {
+  it("accept richText fields and every string-valued field", () => {
+    const got = compatibleFields("richText", def().fields).map((f) => f.key);
+    expect(got).toEqual(["date", "venue", "city", "body"]);
   });
 
-  it("declares Image.src as an image slot", () => {
-    expect(BINDABLE_SLOTS.Image.src.slotKind).toBe("image");
-  });
-
-  it("declares RichTextRender.field as a richText-only picker", () => {
-    expect(RICH_FIELDS.RichTextRender.field.fieldType).toBe("richText");
+  it("reject image and number fields", () => {
+    expect(isFieldTypeCompatible("richText", "image")).toBe(false);
+    expect(isFieldTypeCompatible("richText", "number")).toBe(false);
   });
 });
 
-describe("getCollectionContextForEditor", () => {
+describe("BINDABLE_SLOTS", () => {
+  it("names the unified library's bindable props", () => {
+    expect(BINDABLE_SLOTS.Text.content.slotKind).toBe("string");
+    expect(BINDABLE_SLOTS.Image.image.slotKind).toBe("image");
+    expect(BINDABLE_SLOTS.Button.text.slotKind).toBe("string");
+    expect(BINDABLE_SLOTS.RichText.text.slotKind).toBe("richText");
+  });
+
+  it("keeps the image when only its alt override fails to resolve", () => {
+    expect(BINDABLE_SLOTS.Image.image.hidesBlockWhenUnbound).toBe(true);
+    expect(BINDABLE_SLOTS.Image.altOverride.hidesBlockWhenUnbound).toBe(false);
+  });
+});
+
+describe("bindableFieldsByKind", () => {
   it("partitions a collection's fields into pickable slices", () => {
-    const ctx = getCollectionContextForEditor(def());
-    expect(ctx.stringFields.map((f) => f.key)).toEqual(["date", "venue", "city"]);
-    expect(ctx.imageFields.map((f) => f.key)).toEqual(["image"]);
-    expect(ctx.richTextFields.map((f) => f.key)).toEqual(["body"]);
+    const got = bindableFieldsByKind(def());
+    expect(got.string.map((f) => f.key)).toEqual(["date", "venue", "city"]);
+    expect(got.image.map((f) => f.key)).toEqual(["image"]);
+    expect(got.richText.map((f) => f.key)).toEqual(["date", "venue", "city", "body"]);
   });
 });

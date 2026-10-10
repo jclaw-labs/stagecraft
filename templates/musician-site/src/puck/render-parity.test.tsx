@@ -21,14 +21,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getFsReadStore, listCollectionSlugs } from "@/lib/collections";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { pagesCollectionDef } from "@/lib/collections/seeds";
-import { buildCollectionBlockRegistry } from "@/lib/collections/template/collection-block";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
 import { resolveTemplate } from "@/lib/collections/template/renderer";
 import type { Template } from "@/lib/collections/template/types";
 import { readPageOrNull } from "@/lib/content";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
 
-import { buildUnifiedPublicConfig } from "./unified-config";
+import { buildPuckConfig } from "./build-config";
 
 const PINNED_NOW = new Date("2026-06-01T12:00:00Z");
 const PAGES_DIR = path.join(process.cwd(), "src/content/collections/pages/items");
@@ -42,13 +41,16 @@ async function renderPageBody(slug: string, data: Template): Promise<string> {
     updatedAt: PINNED_NOW.toISOString(),
   });
   const resolved = resolveTemplate(data, pageItem, {
-    registry: buildCollectionBlockRegistry(slugs),
+    collectionSlugs: slugs,
     currentItem: pageItem,
     itemDef: pagesCollectionDef,
     loadedCollections: await loadCollectionsForTemplate(data),
   });
   return renderToStaticMarkup(
-    <Render config={buildUnifiedPublicConfig(slugs)} data={resolved as Data} />,
+    <Render
+      config={buildPuckConfig({ variant: "render", collectionSlugs: slugs })}
+      data={resolved as Data}
+    />,
   );
 }
 

@@ -1,19 +1,17 @@
 /**
  * Page-editor config for the generic Collection block (ADR-015 step 5).
  *
- * The public render path (`buildUnifiedPublicConfig`) walks the page and hands
- * `<Render>` *resolved* items; the editor never resolves collection data (the
+ * The public render path walks the page and hands `<Render>` *resolved*
+ * items; the editor never resolves collection data (the
  * live items only exist server-side at request time). So the editor needs its
  * own ComponentConfig per collection: a `limit` control + a read-only note
  * naming the source, an editor placeholder for the canvas, and `defaultProps`
  * (source + sort + filter) shared with the seeds via `collectionViewProps` so a
  * freshly dragged-in block matches the seeded one.
  *
- * `buildUnifiedEditorConfig` layers these over `puckConfig`'s chrome blocks +
- * root fields — replacing the bespoke `TourDatesView` / `ReleasesView` /
- * `PostsView` and registering every other embeddable collection — which is what
- * lets the editor drop the bespoke `*View` blocks (PR-6) and makes *any*
- * collection embeddable on a page (ADR-015's headline outcome).
+ * `buildPuckConfig`'s page surface registers one of these per embeddable
+ * collection, which makes *any* collection embeddable on a page (ADR-015's
+ * headline outcome).
  *
  * Client-safe (no node / server imports): it's imported by the `"use client"`
  * page editor. `blockNameForCollection` is a pure slug→name transform;
@@ -29,9 +27,6 @@ import {
   collectionViewProps,
   defaultCollectionViewLimit,
 } from "@/lib/collections/collection-view-props";
-import { blockNameForCollection } from "@/lib/collections/template/collection-block";
-
-import { puckConfig } from "./config";
 
 export type EmbeddableCollection = {
   /** Collection slug (e.g. `tour-dates`). */
@@ -110,33 +105,4 @@ export function buildCollectionViewComponentConfig(
     ) as unknown as CollectionViewEditorProps,
     render: () => <CollectionViewEditorPlaceholder label={label} />,
   };
-}
-
-/**
- * The page editor's unified config: `puckConfig` chrome + root fields, with the
- * collection blocks swapped for the generic authoring config above. Mirrors
- * `buildUnifiedPublicConfig`, but carries authoring fields + an editor
- * placeholder instead of the resolved-data render. The `collections` drawer
- * category is rebuilt to list every embeddable collection so artist-created
- * collections (beyond the three demos) appear in it.
- */
-export function buildUnifiedEditorConfig(
-  collections: ReadonlyArray<EmbeddableCollection>,
-): typeof puckConfig {
-  const components: Record<string, unknown> = { ...puckConfig.components };
-  const collectionBlockNames: string[] = [];
-  for (const { slug, label } of collections) {
-    const name = blockNameForCollection(slug);
-    components[name] = buildCollectionViewComponentConfig(slug, label);
-    collectionBlockNames.push(name);
-  }
-  const categories = {
-    ...(puckConfig.categories ?? {}),
-    collections: { title: "Collections", components: collectionBlockNames },
-  };
-  // Cast back to the bespoke config's precise type so `<Puck>` keeps inferring
-  // the `PageData` shape for `data` / `onPublish`. The added generic Collection
-  // blocks are runtime-only entries (dynamic keys TS can't know) that Puck
-  // handles structurally.
-  return { ...puckConfig, components, categories } as unknown as typeof puckConfig;
 }

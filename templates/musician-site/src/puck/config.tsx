@@ -1,3 +1,18 @@
+/**
+ * The block library (#349, ADR-015 step 3).
+ *
+ * One set of blocks for every Puck surface: hand-authored pages, collection
+ * item / detail templates and an item's own puckContent body. Each block is
+ * written natively as a Puck `ComponentConfig` (`fields`, `defaultProps`,
+ * `render`); `buildPuckConfig` (`./build-config.tsx`) assembles the editor
+ * and render configs from it.
+ *
+ * Props listed in `BINDABLE_SLOTS` (`@/lib/collections/template/
+ * bindable-slots`) are `Bindable<T>`: a page stores a plain literal, a
+ * template may store a binding to a field of the item being rendered. The
+ * walker resolves bindings before `render` runs, so every `render` below
+ * sees plain literals — `BlockProps` is that resolved shape.
+ */
 import type { Config, Slot } from "@measured/puck";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 
@@ -34,6 +49,8 @@ import {
   inferCardMediaKind,
   type CardMediaKind,
 } from "@/lib/card-media";
+import { renderTiptap } from "@/lib/collections/template/tiptap-render";
+import type { TiptapJSON } from "@/lib/collections/schema";
 import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
 import type { ImageMetadata } from "@/lib/image-types";
 
@@ -43,6 +60,11 @@ import { PageOverlayField } from "./PageOverlayField";
 export const HEADING_LEVELS = ["h1", "h2", "h3"] as const;
 export type HeadingLevel = (typeof HEADING_LEVELS)[number];
 
+// One width scale for every Section, page or template. The sm / md / lg
+// steps match the scale the rest of the library uses (Spacer, Card size,
+// Columns gap), and every committed page body already stores it, so only
+// template layouts written with the old `narrow / default / wide` names
+// needed migrating (`migrate-block-library.ts`).
 export const SECTION_WIDTHS = ["sm", "md", "lg", "full"] as const;
 export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 
@@ -53,9 +75,8 @@ export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 export const SECTION_VARIANTS = ["plain", "card", "accent"] as const;
 export type SectionVariant = (typeof SECTION_VARIANTS)[number];
 
-// Button variants + styling are defined in @/lib/button-style (shared with the
-// collection-template renderer); re-exported as part of the config's public
-// surface (block field options + tests).
+// Button variants + styling are defined in @/lib/button-style; re-exported as
+// part of the library's public surface (block field options + tests).
 export { BUTTON_VARIANTS };
 export type { ButtonVariant };
 
@@ -173,6 +194,57 @@ export const TEXT_ALIGNMENT_LABELS: Record<TextAlignment, string> = {
   start: "Start (default)",
   center: "Center",
   end: "End",
+};
+
+// Text block (a single line or short run of text, typically bound to a
+// field in a template).
+export const TEXT_VARIANTS = ["body", "small", "lead", "label"] as const;
+export type TextVariant = (typeof TEXT_VARIANTS)[number];
+
+const TEXT_VARIANT_STYLE: Record<TextVariant, CSSProperties> = {
+  body: { fontSize: "var(--font-size-base)" },
+  small: { fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" },
+  lead: { fontSize: "var(--font-size-lg)" },
+  label: {
+    fontSize: "var(--font-size-xs)",
+    textTransform: "uppercase",
+    letterSpacing: "var(--tracking-sm)",
+    color: "var(--color-text-muted)",
+  },
+};
+
+// Stack block (flex container, vertical or horizontal).
+export const STACK_DIRECTIONS = ["vertical", "horizontal"] as const;
+export type StackDirection = (typeof STACK_DIRECTIONS)[number];
+
+export const STACK_GAPS = ["none", "small", "default", "large"] as const;
+export type StackGap = (typeof STACK_GAPS)[number];
+
+export const STACK_ALIGNMENTS = ["start", "center", "end", "stretch"] as const;
+export type StackAlignment = (typeof STACK_ALIGNMENTS)[number];
+
+export const STACK_JUSTIFICATIONS = ["start", "center", "end", "between"] as const;
+export type StackJustification = (typeof STACK_JUSTIFICATIONS)[number];
+
+const STACK_GAP_VALUE: Record<StackGap, string> = {
+  none: "0",
+  small: "var(--space-2)",
+  default: "var(--space-4)",
+  large: "var(--space-8)",
+};
+
+const STACK_ALIGN_VALUE: Record<StackAlignment, string> = {
+  start: "flex-start",
+  center: "center",
+  end: "flex-end",
+  stretch: "stretch",
+};
+
+const STACK_JUSTIFY_VALUE: Record<StackJustification, string> = {
+  start: "flex-start",
+  center: "center",
+  end: "flex-end",
+  between: "space-between",
 };
 
 // CenteredBlock max-width presets. `narrow` is intro-paragraph /
@@ -420,8 +492,8 @@ const SPACER_HEIGHT: Record<SpacerSize, string> = {
   xl: "var(--space-32)",
 };
 
-// Button styling (base + variants) is shared via @/lib/button-style — the
-// collection-template renderer (primitives.tsx) consumes the same source.
+// Button styling (base + variants) is shared via @/lib/button-style by the
+// Button and ButtonRow blocks.
 
 export type BlockProps = {
   Heading: { text: string; level: HeadingLevel; textAlign: TextAlignment };
@@ -460,12 +532,15 @@ export type BlockProps = {
     col3: Slot;
     col4: Slot;
   };
-  RichText: { text: string; align: TextAlignment };
+  /** `text` is paragraph text, or a Tiptap doc when bound to a richText field. */
+  RichText: { text: string | TiptapJSON; align: TextAlignment };
   Quote: { text: string; attribution: string };
   Button: { text: string; href: string; variant: ButtonVariant; isExternal: boolean };
   Image: {
     /** Full ImageMetadata returned by /api/upload-image, or null when not yet picked. */
     image: ImageMetadata | null;
+    /** Replaces the upload's stored alt text when non-empty. */
+    altOverride?: string;
     caption: string;
     /** Shape of the themed gradient placeholder shown before an upload. */
     aspectRatio: ImageAspectRatio;
@@ -530,6 +605,15 @@ export type BlockProps = {
      */
     isHoverable: boolean;
   };
+  Text: { content: string; variant: TextVariant; align: TextAlignment };
+  Stack: {
+    direction: StackDirection;
+    gap: StackGap;
+    align: StackAlignment;
+    justify: StackJustification;
+    children: Slot;
+  };
+  Link: { label: string; href: string };
 };
 
 /**
@@ -957,18 +1041,28 @@ export const BLOCK_DESCRIPTIONS: Record<keyof BlockProps, string> = {
   Divider: "A horizontal line between blocks.",
   ContactForm: "Built-in form (name / email / subject / message). Sends to your contact email.",
   NewsletterSignup: "Email-signup form for a newsletter service (Mailchimp, Buttondown, etc).",
+  Text: "A single line of text in one of four styles — body, small, lead or label.",
+  Stack: "Stacks the blocks inside it in a row or a column, with a gap between them.",
+  Link: "A plain inline text link.",
 };
 
-export const puckConfig: Config<
-  BlockProps,
-  {
-    title: string;
-    isSplashPage: boolean;
-    isFooterHidden: boolean;
-    pageBackground: ImageMetadata | null;
-    pageBackgroundOverlay: number | null;
-  }
-> = {
+/** Per-page settings stored on `data.root.props` (see `PAGE_ROOT`). */
+export type PageRootProps = {
+  title: string;
+  isSplashPage: boolean;
+  isFooterHidden: boolean;
+  pageBackground: ImageMetadata | null;
+  pageBackgroundOverlay: number | null;
+};
+
+/** A `Config` typed against the library's blocks and the page root. */
+export type BlockLibraryConfig = Config<BlockProps, PageRootProps>;
+
+// One literal for the whole library so Puck's `Config` typing checks every
+// block's fields / defaultProps / render together. Split into `PAGE_ROOT`,
+// `BLOCK_CATEGORIES` and `BLOCKS` at the bottom of the file;
+// `buildPuckConfig` assembles those into each surface's config.
+const blockLibrary: BlockLibraryConfig = {
   // Per-page settings — surfaced in Puck's right-hand "Page" inspector when
   // no block is selected. These map to the on-disk `data.root.props` shape
   // and are read by the public renderer (Header / Footer / splash logic).
@@ -1039,13 +1133,24 @@ export const puckConfig: Config<
         "FullscreenSection",
         "CenteredBlock",
         "Columns",
+        "Stack",
         "Spacer",
         "Divider",
       ],
     },
     content: {
       title: "Content",
-      components: ["Heading", "Eyebrow", "RichText", "Quote", "Button", "ButtonRow", "Card"],
+      components: [
+        "Heading",
+        "Eyebrow",
+        "Text",
+        "RichText",
+        "Quote",
+        "Button",
+        "ButtonRow",
+        "Link",
+        "Card",
+      ],
     },
     media: {
       title: "Media",
@@ -1055,9 +1160,9 @@ export const puckConfig: Config<
       title: "Forms",
       components: ["ContactForm", "NewsletterSignup"],
     },
-    // The "Collections" category is added by the page editor's
-    // `buildUnifiedEditorConfig` (one generic Collection block per embeddable
-    // collection) — not here, where the bespoke `*View` blocks used to live.
+    // The "Collections" category is added by `buildPuckConfig` on the
+    // surfaces that can embed a collection (pages, detail templates) — one
+    // generic Collection block per collection.
   },
   components: {
     Heading: {
@@ -1109,11 +1214,8 @@ export const puckConfig: Config<
       // owns the page-level chrome (max-width, padding, text-align)
       // while the children own the content.
       //
-      // A separate Section block lives in `buildEditorPuckConfig.tsx`
-      // for the template-editor surface. ADR-007 exempts Puck block
-      // configs from cross-system SSOT — the two intentionally diverge
-      // (template Section has `padding` instead of `textAlign`,
-      // outlines its bounds with a dashed border for editor clarity).
+      // The same Section serves templates (#349): there's no separate
+      // template Section any more.
       fields: {
         width: {
           type: "select",
@@ -1445,7 +1547,9 @@ export const puckConfig: Config<
         align: "start",
       },
       render: ({ text, align = "start" }) => (
-        <div style={{ textAlign: align }}>{renderParagraphs(text, "rt")}</div>
+        <div style={{ textAlign: align }}>
+          {typeof text === "string" ? renderParagraphs(text, "rt") : renderTiptap(text)}
+        </div>
       ),
     },
     Quote: {
@@ -1594,6 +1698,7 @@ export const puckConfig: Config<
             />
           ),
         },
+        altOverride: { type: "text", label: "Alt text override" },
         caption: { type: "text" },
         aspectRatio: {
           type: "select",
@@ -1604,8 +1709,14 @@ export const puckConfig: Config<
           options: IMAGE_TONES.map((v) => ({ label: v, value: v })),
         },
       },
-      defaultProps: { image: null, caption: "", aspectRatio: "auto", tone: "accent" },
-      render: ({ image, caption, aspectRatio = "auto", tone = "accent" }) => {
+      defaultProps: {
+        image: null,
+        altOverride: "",
+        caption: "",
+        aspectRatio: "auto",
+        tone: "accent",
+      },
+      render: ({ image, altOverride, caption, aspectRatio = "auto", tone = "accent" }) => {
         // Theme image treatment (plain / rounded / framed) via --img-* vars.
         const frame: CSSProperties = {
           borderRadius: "var(--img-radius, var(--radius))",
@@ -1636,10 +1747,11 @@ export const puckConfig: Config<
         // properties form during type mapping, so `image` here is no longer
         // structurally assignable to ImageMetadata even though its runtime
         // shape is identical. Cast at the render boundary.
+        const shown = image as ImageMetadata;
         return (
           <figure style={{ margin: 0 }}>
             <div style={frame}>
-              <PublicImage image={image as ImageMetadata} />
+              <PublicImage image={altOverride ? { ...shown, alt: altOverride } : shown} />
             </div>
             {caption ? (
               <figcaption
@@ -2314,5 +2426,95 @@ export const puckConfig: Config<
         );
       },
     },
+    Text: {
+      // A single run of text in one of four type styles. Mostly used in
+      // templates bound to a field (`{title}`, `{date}`), where the
+      // block disappears when the bound field is empty.
+      fields: {
+        content: { type: "text" },
+        variant: {
+          type: "select",
+          options: TEXT_VARIANTS.map((v) => ({ label: v, value: v })),
+        },
+        align: {
+          type: "select",
+          options: TEXT_ALIGNMENTS.map((v) => ({ label: TEXT_ALIGNMENT_LABELS[v], value: v })),
+        },
+      },
+      defaultProps: { content: "Text", variant: "body", align: "start" },
+      render: ({ content, variant = "body", align = "start" }) => {
+        if (!content) return <></>;
+        return (
+          <p style={{ ...TEXT_VARIANT_STYLE[variant], textAlign: align, margin: 0 }}>{content}</p>
+        );
+      },
+    },
+    Stack: {
+      fields: {
+        direction: {
+          type: "select",
+          options: STACK_DIRECTIONS.map((v) => ({ label: v, value: v })),
+        },
+        gap: { type: "select", options: STACK_GAPS.map((v) => ({ label: v, value: v })) },
+        align: {
+          type: "select",
+          options: STACK_ALIGNMENTS.map((v) => ({ label: v, value: v })),
+        },
+        justify: {
+          type: "select",
+          options: STACK_JUSTIFICATIONS.map((v) => ({ label: v, value: v })),
+        },
+        children: { type: "slot" },
+      },
+      defaultProps: {
+        direction: "vertical",
+        gap: "default",
+        align: "stretch",
+        justify: "start",
+        children: [],
+      },
+      render: ({
+        direction = "vertical",
+        gap = "default",
+        align = "stretch",
+        justify = "start",
+        children: Children,
+      }) => (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: direction === "vertical" ? "column" : "row",
+            gap: STACK_GAP_VALUE[gap],
+            alignItems: STACK_ALIGN_VALUE[align],
+            justifyContent: STACK_JUSTIFY_VALUE[justify],
+          }}
+        >
+          <Children />
+        </div>
+      ),
+    },
+    Link: {
+      fields: {
+        label: { type: "text" },
+        href: { type: "text" },
+      },
+      defaultProps: { label: "Read more", href: "#" },
+      render: ({ label, href }) => {
+        if (!label || !href) return <></>;
+        return <a href={href}>{label}</a>;
+      },
+    },
   },
 };
+
+/** Page settings (title, splash, footer, background) — the page editor's root. */
+export const PAGE_ROOT = blockLibrary.root as NonNullable<BlockLibraryConfig["root"]>;
+
+/** Drawer grouping, in display order. Every block appears in exactly one. */
+export const BLOCK_CATEGORIES = blockLibrary.categories as NonNullable<
+  BlockLibraryConfig["categories"]
+>;
+
+/** Every block, keyed by the name stored as `type` in Puck JSON. */
+export const BLOCKS = blockLibrary.components;
+export type BlockName = keyof BlockProps;

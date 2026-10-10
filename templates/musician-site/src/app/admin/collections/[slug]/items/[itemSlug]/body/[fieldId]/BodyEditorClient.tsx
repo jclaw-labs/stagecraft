@@ -2,8 +2,8 @@
  * Client wrapper for the embedded puckContent editor (ADR-009 PR 6).
  *
  * Loads the item's current value for the chosen puckContent field,
- * mounts Puck against the public templatePuckConfig (no bindings — see
- * sibling `page.tsx`), saves via the standard item PUT endpoint
+ * mounts Puck with the block library's `body` surface (plain literal
+ * props, no bindings — see sibling `page.tsx`), saves via the standard item PUT endpoint
  * (`/api/collections/<slug>/items/<itemSlug>`).
  */
 
@@ -22,7 +22,7 @@ import {
 } from "@/components/admin/PuckEditorChrome";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { puckContentValue } from "@/lib/collections/puck-content-value";
-import { templatePuckConfig } from "@/lib/collections/template/puck-config";
+import { buildPuckConfig } from "@/puck/build-config";
 
 import type { Item } from "@/lib/collections";
 
@@ -35,6 +35,9 @@ type Props = {
   initialItem: Item;
   email: string;
 };
+
+// Built once: Puck resets editor state when its config identity changes.
+const BODY_CONFIG = buildPuckConfig({ variant: "editor", surface: "body" });
 
 export function BodyEditorClient({
   collectionSlug,
@@ -101,7 +104,7 @@ export function BodyEditorClient({
 
   return (
     <Puck
-      config={templatePuckConfig}
+      config={BODY_CONFIG}
       data={initialData}
       onPublish={onPublish}
       onChange={() => setIsDirty(true)}

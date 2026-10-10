@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { BindableStringPicker, BindableImagePicker, FieldIdPicker } from "./BindablePicker";
+import { BindableStringPicker, BindableImagePicker } from "./BindablePicker";
 
 import type { FieldDef } from "@/lib/collections";
 
@@ -100,22 +100,17 @@ describe("<BindableImagePicker>", () => {
   });
 });
 
-describe("<FieldIdPicker>", () => {
-  it("renders the field dropdown directly (no mode toggle)", () => {
+describe("<BindableStringPicker isMultiline>", () => {
+  it("edits a literal in a textarea", () => {
     const html = renderToStaticMarkup(
-      <FieldIdPicker value="" onChange={vi.fn()} fields={STRING_FIELDS} />,
+      <BindableStringPicker
+        value={{ kind: "literal", value: "Line one" }}
+        onChange={vi.fn()}
+        stringFields={STRING_FIELDS}
+        isMultiline
+      />,
     );
-    expect(html).toContain("Pick a field…");
-    expect(html).toContain("title (text)");
-    // No literal/binding toggle.
-    expect(html).not.toContain("Literal");
-    expect(html).not.toContain("From field");
-  });
-
-  it("marks the currently-selected field", () => {
-    const html = renderToStaticMarkup(
-      <FieldIdPicker value="f_title" onChange={vi.fn()} fields={STRING_FIELDS} />,
-    );
-    expect(html).toContain('value="f_title" selected');
+    expect(html).toContain("<textarea");
+    expect(html).toContain("Line one");
   });
 });

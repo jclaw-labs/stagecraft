@@ -71,6 +71,13 @@ Consumers-first, deletion-last (mirrors ADR-014):
    `primitives ∪ page-chrome ∪ collection-blocks`. This is the bulk of the work
    (the template primitive set is currently the smaller Section/Stack/Text/
    Image/Button/Link/RichText).
+   *Done in #349:* one block library (`src/puck/config.tsx`) serves pages,
+   templates and item bodies, built into every editor and render config by
+   one factory (`buildPuckConfig`). The clashing blocks kept the page
+   vocabulary (Section `sm/md/lg/full`, Button `text`, Image `image`,
+   RichText `text`); their bindable props take `Bindable<T>`, which also
+   accepts a plain literal, so page JSON is unchanged and only old template
+   layouts migrate (`scripts/migrate-block-library.mjs`).
 4. **Render the three demo collections via specialised renderers** (revised
    during implementation — originally planned as `itemTemplate`s for
    releases/posts). All three (`tour-dates`, `releases`, `posts`) get a per-slug

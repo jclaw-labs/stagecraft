@@ -33,10 +33,9 @@ describe("resolveTemplate", () => {
     };
     const item = makeItem({ fld_v: { type: "text", value: "Hello" } });
     const out = resolveTemplate(template, item);
-    expect(out.content[0]).toEqual({
-      type: "Text",
-      props: { content: "Hello", variant: "body", align: "start" },
-    });
+    // Only the bound prop changes; Puck fills the block's defaultProps for
+    // missing keys at render time.
+    expect(out.content[0]).toEqual({ type: "Text", props: { content: "Hello" } });
   });
 
   it("preserves a literal Bindable unchanged", () => {
@@ -48,13 +47,13 @@ describe("resolveTemplate", () => {
     expect(out.content[0]).toMatchObject({ type: "Text", props: { content: "Hi" } });
   });
 
-  it("resolves to undefined for a missing field", () => {
+  it("drops a block whose bound field is missing (hide-if-empty)", () => {
     const template: Template = {
       content: [{ type: "Text", props: { content: binding("fld_missing") } }],
       root: { props: {} },
     };
     const out = resolveTemplate(template, makeItem({}));
-    expect(out.content[0]).toMatchObject({ props: { content: undefined } });
+    expect(out.content).toEqual([]);
   });
 
   it("recurses into a layout block's children slot", () => {
@@ -143,12 +142,12 @@ describe("resolveTemplate", () => {
     expect(out.content[0].type).toBe("Text");
   });
 
-  it("returns an empty children array when the layout block has no children prop", () => {
+  it("leaves a layout block with no children prop as it is", () => {
     const template: Template = {
       content: [{ type: "Section", props: {} }],
       root: { props: {} },
     };
     const out = resolveTemplate(template, makeItem({}));
-    expect((out.content[0].props as { children: unknown }).children).toEqual([]);
+    expect(out.content[0]).toEqual({ type: "Section", props: {} });
   });
 });

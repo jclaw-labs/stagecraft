@@ -35,10 +35,9 @@ import {
 } from "./schema";
 import {
   BINDABLE_SLOTS,
-  RICH_FIELDS,
+  isFieldTypeCompatible,
   type BindableSlotKind,
-} from "./template/editor-config";
-import { STRING_VALUED_FIELD_TYPES } from "./template/binding";
+} from "./template/bindable-slots";
 
 // ---------------------------------------------------------------------------
 // Allowed type transitions (ADR §11)
@@ -139,8 +138,7 @@ export type SchemaChangeIssue =
     }
   | {
       /**
-       * A template binds (via `Bindable.binding` or a raw-fieldId prop
-       * like `RichTextRender.field`) to a fieldId that doesn't exist
+       * A template binds (via `Bindable.binding`) to a fieldId that doesn't exist
        * in the new def. Renderer silently hides at runtime — surfacing
        * here so the artist can't save the broken state.
        */
@@ -551,9 +549,6 @@ function transformValueForTransition(
 //   - Block props named in `BINDABLE_SLOTS` carrying `{ kind: "binding",
 //     fieldId }` — the artist authored a binding via the editor's
 //     literal/binding toggle.
-//   - Block props named in `RICH_FIELDS` carrying a raw field id string
-//     — RichTextRender's `field` prop, and any future "embed-this-field"
-//     block.
 //
 // Slot fields (Section.children / Stack.children) hold `BlockInstance[]`
 // inline on the parent's props, so the walker recurses into any array
@@ -606,22 +601,6 @@ function walkBlocks(blocks: unknown[], out: TemplateBinding[]): void {
       }
     }
 
-    // Raw-fieldId props (RichTextRender.field today).
-    const richForBlock = RICH_FIELDS[blockName];
-    if (richForBlock) {
-      for (const [propName, meta] of Object.entries(richForBlock)) {
-        const value = propsObj[propName];
-        if (typeof value === "string" && value !== "") {
-          out.push({
-            fieldId: value,
-            expectedKind: meta.fieldType,
-            blockName,
-            propName,
-          });
-        }
-      }
-    }
-
     // Recurse into any array-valued prop (slot children).
     for (const value of Object.values(propsObj)) {
       if (Array.isArray(value)) walkBlocks(value, out);
@@ -633,10 +612,9 @@ function isFieldCompatibleWithSlot(
   field: FieldDef,
   expected: BindableSlotKind | FieldType,
 ): boolean {
-  if (expected === "string") {
-    return (STRING_VALUED_FIELD_TYPES as ReadonlyArray<FieldType>).includes(field.type);
+  if (expected === "string" || expected === "image" || expected === "richText") {
+    return isFieldTypeCompatible(expected, field.type);
   }
-  if (expected === "image") return field.type === "image";
   return field.type === expected;
 }
 

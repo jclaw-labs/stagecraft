@@ -5,9 +5,8 @@
  * than the individual files so the surface stays curated.
  */
 
+export * from "./bindable-slots";
 export * from "./binding";
-export * from "./primitives";
-export * from "./puck-config";
 export * from "./renderer";
 export * from "./tiptap-render";
 export type { BlockInstance, Template } from "./types";
