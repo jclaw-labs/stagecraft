@@ -9,12 +9,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { buildFirstRunSeed, homePageItemValues } from "@/lib/first-run-seeds";
-import { buildPuckConfig } from "@/puck/build-config";
+import { buildRenderConfig } from "@/puck/render-config";
 
 import {
   migrateBlocks,
   migrateCollectionDef,
-  migrateItemValues,
+  migrateBlockLibraryValues,
   migratePuckData,
 } from "./migrate-block-library";
 import type { CollectionDef, FieldValue, Item } from "./schema";
@@ -111,7 +111,7 @@ describe("migration leaves page JSON and first-run seeds untouched", () => {
       const files = await readdir(itemsDir).catch(() => [] as string[]);
       for (const file of files.filter((f) => f.endsWith(".json") && f !== "_order.json")) {
         const item = JSON.parse(await readFile(path.join(itemsDir, file), "utf-8")) as Item;
-        expect(migrateItemValues(item.values), `${slug}/${file}`).toBe(item.values);
+        expect(migrateBlockLibraryValues(item.values), `${slug}/${file}`).toBe(item.values);
         checked += 1;
       }
       const def = JSON.parse(
@@ -128,7 +128,7 @@ describe("migration leaves page JSON and first-run seeds untouched", () => {
       expect(migratePuckData(page.data), page.slug).toBe(page.data);
     }
     const homeValues = homePageItemValues(seed.homePage) as Record<string, FieldValue>;
-    expect(migrateItemValues(homeValues)).toBe(homeValues);
+    expect(migrateBlockLibraryValues(homeValues)).toBe(homeValues);
     for (const def of Object.values(PREBAKED_COLLECTIONS)) expect(migrateCollectionDef(def)).toBe(def);
   });
 });
@@ -151,7 +151,7 @@ describe("a migrated template renders through the one library", () => {
   it("keeps every bound value and drops the block whose image field is empty", () => {
     const resolved = resolveTemplate(migratePuckData(oldVocabTemplate()), item);
     const html = renderToStaticMarkup(
-      <Render config={buildPuckConfig({ variant: "render" })} data={resolved as Data} />,
+      <Render config={buildRenderConfig()} data={resolved as Data} />,
     );
     expect(html).toContain("max-width:var(--max-width-narrow)");
     expect(html).toContain("The Long Way Home");

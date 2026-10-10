@@ -7,7 +7,7 @@
  * mysterious HTML differences.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { binding, literal } from "./binding";
 import { resolveTemplate } from "./renderer";
@@ -149,5 +149,81 @@ describe("resolveTemplate", () => {
     };
     const out = resolveTemplate(template, makeItem({}));
     expect(out.content[0]).toEqual({ type: "Section", props: {} });
+  });
+});
+
+// Content in the pre-#349 template vocabulary that nobody migrated. The
+// walker can't fix it, but it shouldn't vanish without a word either.
+describe("resolveTemplate — unmigrated content warnings", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  // Warnings are deduplicated per message for the life of the module, so
+  // each case uses a type name or width no other case uses.
+  function warningsFor(content: Template["content"], collectionSlugs?: string[]): string[] {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warn.mockClear();
+    resolveTemplate({ content, root: { props: {} } }, makeItem({}), { collectionSlugs });
+    return warn.mock.calls.map((call) => String(call[0]));
+  }
+
+  it("warns on a block type the library doesn't know, and leaves the block in the tree", () => {
+    const content = [{ type: "RichTextRender", props: { field: "fld_body" } }];
+    const warnings = warningsFor(content);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('unknown block type "RichTextRender"');
+    expect(warnings[0]).toContain("migrate-block-library.mjs");
+    expect(resolveTemplate({ content, root: { props: {} } }, makeItem({})).content).toEqual(content);
+  });
+
+  it("warns on a Section width outside SECTION_WIDTHS, nested or not", () => {
+    const warnings = warningsFor([
+      {
+        type: "Stack",
+        props: { children: [{ type: "Section", props: { width: "narrow", children: [] } }] },
+      },
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Section width "narrow"');
+    expect(warnings[0]).toContain("sm / md / lg / full");
+  });
+
+  it("warns once per message, however many blocks repeat it", () => {
+    const section = { type: "Section", props: { width: "wide", children: [] } };
+    expect(warningsFor([section, section, section])).toHaveLength(1);
+    expect(warningsFor([section])).toEqual([]);
+  });
+
+  it("stays quiet on library blocks, valid widths and a Section with no width", () => {
+    expect(
+      warningsFor([
+        { type: "Section", props: { width: "md", children: [{ type: "Text", props: {} }] } },
+        { type: "Section", props: { children: [] } },
+        { type: "Button", props: { text: "Tickets", href: "/t" } },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("doesn't read a declared array field's rows as blocks", () => {
+    // NewsletterSignup's extra form fields carry a `type` of their own.
+    // `"url"` isn't used as a block type elsewhere in this file, so the
+    // once-per-message dedupe can't hide a warning here.
+    const additionalFields = [{ label: "Website", name: "WEBSITE", type: "url" }];
+    expect(warningsFor([{ type: "NewsletterSignup", props: { additionalFields } }])).toEqual([]);
+  });
+
+  it("treats an allowed Collection block as known and a disallowed one as unknown", () => {
+    const block = { type: "TourDatesView", props: { sourceCollection: "tour-dates" } };
+    expect(warningsFor([block], ["tour-dates"])).toEqual([]);
+    const warnings = warningsFor([block]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('unknown block type "TourDatesView"');
+  });
+
+  it("doesn't warn in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(warningsFor([{ type: "OldPrimitive", props: {} }])).toEqual([]);
   });
 });

@@ -1,33 +1,33 @@
 /**
- * The one Puck config factory (#349).
+ * The Puck config factory for the editor surfaces (#349).
  *
- * Every Puck surface builds its config here from the one block library
+ * Every editor surface builds its config here from the one block library
  * (`./config.tsx`):
  *
- *   - `render` — what `<Render>` uses on the public site, in the template
- *     editor's preview pane and inside Collection blocks. Every block plus
- *     one Collection block (`<Slug>View`) per `collectionSlugs` entry. The
- *     walker (`resolveTemplate`) has already resolved every binding, so
- *     blocks render their own `render` with plain props.
- *   - `editor`, by surface:
- *       - `page`   — the page editor: page root fields (title, splash,
- *                    footer, background), plain literal fields, and a
- *                    placeholder Collection block per embeddable collection.
- *       - `body`   — an item's own puckContent body: plain literal fields,
- *                    no Collection blocks (an item has nothing to embed).
- *       - `item-template` / `detail-template` — the template editor:
- *                    bindable props get a literal / "from field" picker
- *                    over the collection's fields, and the canvas shows a
- *                    bound prop as `{fieldKey}`. Detail templates also get
- *                    a Collection block per collection; item templates
- *                    can't (ADR §4.3 cycle safety).
+ *   - `page`   — the page editor: page root fields (title, splash,
+ *                footer, background), plain literal fields, and a
+ *                placeholder Collection block per embeddable collection.
+ *   - `body`   — an item's own puckContent body: plain literal fields,
+ *                no Collection blocks (an item has nothing to embed).
+ *   - `item-template` / `detail-template` — the template editor:
+ *                bindable props get a literal / "from field" picker
+ *                over the collection's fields, and the canvas shows a
+ *                bound prop as `{fieldKey}`. Detail templates also get
+ *                a Collection block per collection; item templates
+ *                can't (ADR §4.3 cycle safety).
  *
- * Client-safe: the editor surfaces run in `"use client"` editors and the
- * render surface on the server. Editor-only modules are imported here but
- * only called from the editor branches.
+ * Some blocks don't belong on every surface (`HIDDEN_BLOCKS`): a form or a
+ * fullscreen hero inside an item template would repeat once per item in
+ * every Collection block. Those stay registered, so a tree that already
+ * holds one still loads and renders, but the drawer doesn't offer them.
+ *
+ * The render config (`<Render>` on the public site, the preview pane and
+ * inside Collection blocks) is `./render-config.tsx`. It doesn't import
+ * this module, so the pickers and inspectors here stay off the server
+ * render path.
  */
 
-import type { ComponentConfig, Config, Field } from "@puckeditor/core";
+import type { ComponentConfig, Field } from "@puckeditor/core";
 
 import { BindableImagePicker, BindableStringPicker } from "@/components/admin/BindablePicker";
 import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
@@ -37,31 +37,27 @@ import {
   type BindableSlotKind,
 } from "@/lib/collections/template/bindable-slots";
 import { isBindableRef, toBindableRef } from "@/lib/collections/template/binding";
-import {
-  blockNameForCollection,
-  CollectionBlockRender,
-} from "@/lib/collections/template/collection-block";
+import { blockNameForCollection } from "@/lib/collections/template/collection-block";
 import type { Bindable, CollectionDef, FieldDef } from "@/lib/collections/schema";
 import type { ImageMetadata } from "@/lib/image-types";
 
 import { buildCollectionViewComponentConfig, type EmbeddableCollection } from "./collection-view-editor";
-import { BLOCK_CATEGORIES, BLOCKS, PAGE_ROOT, type BlockLibraryConfig } from "./config";
+import {
+  BLOCK_CATEGORIES,
+  BLOCKS,
+  PAGE_ROOT,
+  type BlockLibraryConfig,
+  type BlockName,
+} from "./config";
 
 export type BuildPuckConfigOptions =
   | {
-      variant: "render";
-      /** Collections whose Collection blocks the rendered tree may contain. */
-      collectionSlugs?: ReadonlyArray<string>;
-    }
-  | {
-      variant: "editor";
       surface: "page";
       /** Collections the artist can embed on a page. */
       collections: ReadonlyArray<EmbeddableCollection>;
     }
-  | { variant: "editor"; surface: "body" }
+  | { surface: "body" }
   | {
-      variant: "editor";
       surface: "item-template" | "detail-template";
       /** The collection whose template is being edited — bindings pick its fields. */
       def: CollectionDef;
@@ -69,24 +65,36 @@ export type BuildPuckConfigOptions =
       collectionDefs?: ReadonlyArray<CollectionDef>;
     };
 
+export type EditorSurface = BuildPuckConfigOptions["surface"];
+
 type AnyComponent = ComponentConfig<Record<string, unknown>>;
 type AnyField = Field<unknown>;
+type Category = { title?: string; components?: string[]; visible?: boolean };
 
-const renderConfigCache = new Map<string, Config>();
+const FORM_BLOCKS: ReadonlyArray<BlockName> = ["ContactForm", "NewsletterSignup"];
 
 /**
- * Build the Puck config for one surface. Typed as the library's config so
- * `<Puck>` keeps inferring the page `Data` shape; the Collection blocks are
- * runtime-only entries (dynamic names TS can't know) that Puck handles
- * structurally.
+ * Blocks the drawer leaves out per surface. An item template renders once
+ * per item in every Collection block, so a form or a fullscreen hero there
+ * would repeat down the list. Item bodies hide the forms too: a contact or
+ * newsletter form belongs on a page, not inside one post.
+ */
+const HIDDEN_BLOCKS: Readonly<Record<EditorSurface, ReadonlyArray<BlockName>>> = {
+  page: [],
+  "detail-template": [],
+  body: FORM_BLOCKS,
+  "item-template": [...FORM_BLOCKS, "FullscreenSection"],
+};
+
+/**
+ * Build the Puck config for one editor surface. Typed as the library's
+ * config so `<Puck>` keeps inferring the page `Data` shape; the Collection
+ * blocks are runtime-only entries (dynamic names TS can't know) that Puck
+ * handles structurally.
  */
 export function buildPuckConfig(options: BuildPuckConfigOptions): BlockLibraryConfig {
-  if (options.variant === "render") return buildRenderConfig(options.collectionSlugs ?? []);
-
   const components: Record<string, AnyComponent> = {};
-  const categories: Record<string, { title?: string; components?: string[] }> = {
-    ...(BLOCK_CATEGORIES as Record<string, { title?: string; components?: string[] }>),
-  };
+  const categories = drawerCategories(HIDDEN_BLOCKS[options.surface]);
   const bindTo = options.surface === "item-template" || options.surface === "detail-template"
     ? options.def
     : undefined;
@@ -122,25 +130,22 @@ export function buildPuckConfig(options: BuildPuckConfigOptions): BlockLibraryCo
   } as unknown as BlockLibraryConfig;
 }
 
-function buildRenderConfig(collectionSlugs: ReadonlyArray<string>): BlockLibraryConfig {
-  // Cached per slug set: Collection blocks render an item template per
-  // iterated item, and each asks for the render config.
-  const key = [...collectionSlugs].sort().join(",");
-  let config = renderConfigCache.get(key);
-  if (!config) {
-    const components: Record<string, AnyComponent> = {
-      ...(BLOCKS as unknown as Record<string, AnyComponent>),
-    };
-    for (const slug of collectionSlugs) {
-      components[blockNameForCollection(slug)] = {
-        fields: {},
-        render: CollectionBlockRender as unknown as AnyComponent["render"],
-      };
-    }
-    config = { components, root: {} } as Config;
-    renderConfigCache.set(key, config);
+/**
+ * The library's drawer categories with `hidden` moved into a category Puck
+ * doesn't show. Hidden blocks need a category of their own: a block in no
+ * category would land in Puck's visible "Other" group.
+ */
+function drawerCategories(hidden: ReadonlyArray<BlockName>): Record<string, Category> {
+  const library = BLOCK_CATEGORIES as Record<string, Category>;
+  if (hidden.length === 0) return { ...library };
+  const isHidden = (name: string) => (hidden as ReadonlyArray<string>).includes(name);
+  const categories: Record<string, Category> = {};
+  for (const [key, category] of Object.entries(library)) {
+    const shown = (category.components ?? []).filter((name) => !isHidden(name));
+    if (shown.length > 0) categories[key] = { ...category, components: shown };
   }
-  return config as unknown as BlockLibraryConfig;
+  categories.hidden = { components: [...hidden], visible: false };
+  return categories;
 }
 
 // ---------------------------------------------------------------------------

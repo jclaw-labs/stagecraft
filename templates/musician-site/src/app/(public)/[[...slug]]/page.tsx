@@ -37,7 +37,7 @@ import {
 } from "@/lib/content";
 import { pageSlugSchema } from "@/lib/site-config-types";
 import { deployedSiteOrigin } from "@/lib/site-origin";
-import { buildPuckConfig } from "@/puck/build-config";
+import { buildRenderConfig } from "@/puck/render-config";
 
 // ---------------------------------------------------------------------------
 // Per-request caches
@@ -248,7 +248,7 @@ async function renderPage({ segs }: { segs: string[] }) {
         />
       ) : null}
       <Render
-        config={buildPuckConfig({ variant: "render", collectionSlugs: slugs })}
+        config={buildRenderConfig(slugs)}
         data={resolvedPageData}
       />
     </PublicPageChrome>
@@ -373,7 +373,7 @@ async function CollectionItemBody({
     loadedCollections: loaded,
   });
 
-  return <Render config={buildPuckConfig({ variant: "render", collectionSlugs })} data={resolved} />;
+  return <Render config={buildRenderConfig(collectionSlugs)} data={resolved} />;
 }
 
 // ---------------------------------------------------------------------------
