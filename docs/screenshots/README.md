@@ -92,9 +92,9 @@ global setup seeds a user + a Resend integration + an active site + a
 session row, then boots its own dev server with a minimal env (real
 `DATABASE_URL` + dummy auth secrets — no 1Password needed). The seeded
 session works because the platform uses Auth.js's database session
-strategy: the cookie value is the raw `Session.sessionToken`, looked up
-verbatim. Output lands in the repo-root `.pr-screenshots/`; override
-with `PR_SCREENSHOTS_DIR=...`.
+strategy: the cookie value is the raw session token, and the row stores
+its SHA-256 hash, which is what the adapter looks up. Output lands in the
+repo-root `.pr-screenshots/`; override with `PR_SCREENSHOTS_DIR=...`.
 
 **`apps/web` public pages — no database needed.** The public marketing
 routes (`/`, `/examples`, `/migrate`, `/privacy`, `/terms`) query no DB
