@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   migrateCollectionDef,
-  migrateItemValues,
+  migrateBlockLibraryValues,
 } from "../src/lib/collections/migrate-block-library.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -59,7 +59,7 @@ for (const slug of await readdir(collectionsDir)) {
   for (const itemPath of await listJson(join(collectionsDir, slug, "items"))) {
     if (itemPath.endsWith("_order.json")) continue;
     const migrateItem = (item) => {
-      const values = migrateItemValues(item.values ?? {});
+      const values = migrateBlockLibraryValues(item.values ?? {});
       return values === item.values ? item : { ...item, values };
     };
     if (await migrateFile(itemPath, migrateItem)) changed.push(itemPath);

@@ -42,6 +42,7 @@ import {
 } from "@/lib/collections/template/renderer";
 import type { Template } from "@/lib/collections/template/types";
 import { buildPuckConfig } from "@/puck/build-config";
+import { buildRenderConfig } from "@/puck/render-config";
 
 export type TemplateKind = "item" | "detail";
 
@@ -99,9 +100,8 @@ export function TemplateEditorClient({
     // collection); item templates can't, per ADR §4.3 cycle safety.
     () =>
       kind === "item"
-        ? buildPuckConfig({ variant: "editor", surface: "item-template", def })
+        ? buildPuckConfig({ surface: "item-template", def })
         : buildPuckConfig({
-            variant: "editor",
             surface: "detail-template",
             def,
             collectionDefs: iterableCollectionDefs,
@@ -176,7 +176,7 @@ export function TemplateEditorClient({
   );
 
   const previewPuckConfig = useMemo(
-    () => buildPuckConfig({ variant: "render", collectionSlugs: previewCollectionSlugs }),
+    () => buildRenderConfig(previewCollectionSlugs),
     [previewCollectionSlugs],
   );
 
@@ -370,7 +370,7 @@ function PreviewPane({
   selectedSlug,
 }: {
   collectionSlug: string;
-  config: ReturnType<typeof buildPuckConfig>;
+  config: ReturnType<typeof buildRenderConfig>;
   data: Template | null;
   hasItems: boolean;
   selectedSlug: string | null;

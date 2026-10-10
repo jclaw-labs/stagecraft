@@ -27,7 +27,7 @@ import type { Template } from "@/lib/collections/template/types";
 import { readPageOrNull } from "@/lib/content";
 import { buildFirstRunSeed } from "@/lib/first-run-seeds";
 
-import { buildPuckConfig } from "./build-config";
+import { buildRenderConfig } from "./render-config";
 
 const PINNED_NOW = new Date("2026-06-01T12:00:00Z");
 const PAGES_DIR = path.join(process.cwd(), "src/content/collections/pages/items");
@@ -48,7 +48,7 @@ async function renderPageBody(slug: string, data: Template): Promise<string> {
   });
   return renderToStaticMarkup(
     <Render
-      config={buildPuckConfig({ variant: "render", collectionSlugs: slugs })}
+      config={buildRenderConfig(slugs)}
       data={resolved as Data}
     />,
   );

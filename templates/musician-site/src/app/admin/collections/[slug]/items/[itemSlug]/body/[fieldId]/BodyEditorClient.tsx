@@ -37,7 +37,7 @@ type Props = {
 };
 
 // Built once: Puck resets editor state when its config identity changes.
-const BODY_CONFIG = buildPuckConfig({ variant: "editor", surface: "body" });
+const BODY_CONFIG = buildPuckConfig({ surface: "body" });
 
 export function BodyEditorClient({
   collectionSlug,

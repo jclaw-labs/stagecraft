@@ -3,9 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { CollectionDef } from "@/lib/collections";
-import { CollectionBlockRender } from "@/lib/collections/template/collection-block";
 
-import { buildPuckConfig } from "./build-config";
+import { buildPuckConfig, HIDDEN_BLOCKS } from "./build-config";
 import { BLOCK_CATEGORIES, BLOCKS, PAGE_ROOT } from "./config";
 
 type AnyBlock = ComponentConfig<Record<string, unknown>>;
@@ -39,8 +38,25 @@ function components(config: { components: unknown }): Record<string, AnyBlock> {
   return config.components as Record<string, AnyBlock>;
 }
 
+type Category = { components?: string[]; visible?: boolean };
+
 function categories(config: { categories?: unknown }) {
-  return (config.categories ?? {}) as Record<string, { components?: string[] } | undefined>;
+  return (config.categories ?? {}) as Record<string, Category | undefined>;
+}
+
+/** The blocks the drawer shows: every category except the hidden ones. */
+function drawerBlocks(config: { categories?: unknown }): string[] {
+  return Object.values(categories(config))
+    .filter((c) => c?.visible !== false)
+    .flatMap((c) => c?.components ?? [])
+    .sort();
+}
+
+/** Every block a category names, shown or not. */
+function categorisedBlocks(config: { categories?: unknown }): string[] {
+  return Object.values(categories(config))
+    .flatMap((c) => c?.components ?? [])
+    .sort();
 }
 
 function fieldType(block: AnyBlock | undefined, prop: string): string | undefined {
@@ -53,40 +69,23 @@ function renderCanvas(block: AnyBlock | undefined, props: Record<string, unknown
   return renderToStaticMarkup(<Render {...block.defaultProps} {...props} />);
 }
 
-describe("buildPuckConfig — render", () => {
-  it("renders every library block with the library's own render", () => {
-    const c = components(buildPuckConfig({ variant: "render" }));
-    for (const name of libraryNames) expect(c[name]?.render).toBe(LIBRARY[name].render);
-  });
-
-  it("registers a Collection block per slug, and none without slugs", () => {
-    const withSlugs = components(
-      buildPuckConfig({ variant: "render", collectionSlugs: ["tour-dates", "store-items"] }),
-    );
-    expect(withSlugs.TourDatesView?.render).toBe(CollectionBlockRender);
-    expect(withSlugs.StoreItemsView?.render).toBe(CollectionBlockRender);
-    expect(Object.keys(components(buildPuckConfig({ variant: "render" }))).sort()).toEqual(
-      libraryNames,
-    );
-  });
-
-  it("returns the same config for the same slug set", () => {
-    expect(buildPuckConfig({ variant: "render", collectionSlugs: ["a", "b"] })).toBe(
-      buildPuckConfig({ variant: "render", collectionSlugs: ["b", "a"] }),
-    );
-  });
-});
-
 describe("buildPuckConfig — page editor", () => {
   const embeddable = [
     { slug: "tour-dates", label: "Tour dates" },
     { slug: "store-items", label: "Store items" },
   ];
-  const config = buildPuckConfig({ variant: "editor", surface: "page", collections: embeddable });
+  const config = buildPuckConfig({ surface: "page", collections: embeddable });
   const c = components(config);
 
   it("carries the page root fields", () => {
     expect(config.root).toBe(PAGE_ROOT);
+  });
+
+  it("offers every library block in the drawer", () => {
+    expect(drawerBlocks(config)).toEqual(
+      [...libraryNames, "StoreItemsView", "TourDatesView"].sort(),
+    );
+    expect(categories(config).hidden).toBeUndefined();
   });
 
   it("uses the library blocks unchanged (plain literal fields)", () => {
@@ -107,21 +106,40 @@ describe("buildPuckConfig — page editor", () => {
 });
 
 describe("buildPuckConfig — item body editor", () => {
-  const config = buildPuckConfig({ variant: "editor", surface: "body" });
+  const config = buildPuckConfig({ surface: "body" });
 
-  it("offers the library with no page root and no Collection blocks", () => {
+  it("registers the library with no page root and no Collection blocks", () => {
     expect(Object.keys(components(config)).sort()).toEqual(libraryNames);
     expect(config.root?.fields).toEqual({});
     expect(categories(config).collections).toBeUndefined();
   });
+
+  it("leaves the forms out of the drawer", () => {
+    expect(drawerBlocks(config)).toEqual(
+      libraryNames.filter((n) => n !== "ContactForm" && n !== "NewsletterSignup"),
+    );
+    expect(categories(config).forms).toBeUndefined();
+    expect(categories(config).layout?.components).toContain("FullscreenSection");
+  });
 });
 
 describe("buildPuckConfig — template editors", () => {
-  const item = buildPuckConfig({ variant: "editor", surface: "item-template", def: def() });
+  const item = buildPuckConfig({ surface: "item-template", def: def() });
   const c = components(item);
 
-  it("offers the whole library, not a separate primitive set", () => {
+  it("registers the whole library, not a separate primitive set", () => {
     expect(Object.keys(c).sort()).toEqual(libraryNames);
+  });
+
+  // An item template repeats once per item in every Collection block.
+  it("leaves forms and FullscreenSection out of the item template's drawer", () => {
+    const hidden = ["ContactForm", "FullscreenSection", "NewsletterSignup"];
+    expect(drawerBlocks(item)).toEqual(libraryNames.filter((n) => !hidden.includes(n)));
+    expect(categories(item).hidden).toEqual({ components: HIDDEN_BLOCKS["item-template"], visible: false });
+    // Hidden, not unregistered: a template that already holds one still
+    // loads, and nothing falls through to Puck's visible "Other" group.
+    expect(c.ContactForm).toBe(LIBRARY.ContactForm);
+    expect(categorisedBlocks(item)).toEqual(libraryNames);
   });
 
   it("swaps bindable props for pickers and leaves the rest of the block alone", () => {
@@ -153,7 +171,6 @@ describe("buildPuckConfig — template editors", () => {
   // an item template that could embed one would recurse.
   it("never offers Collection blocks on an item template", () => {
     const withDefs = buildPuckConfig({
-      variant: "editor",
       surface: "item-template",
       def: def(),
       collectionDefs: [def()],
@@ -163,12 +180,13 @@ describe("buildPuckConfig — template editors", () => {
 
   it("offers a Collection block per collection on a detail template", () => {
     const detail = buildPuckConfig({
-      variant: "editor",
       surface: "detail-template",
       def: def(),
       collectionDefs: [def()],
     });
     expect(components(detail).TourDatesView).toBeDefined();
     expect(categories(detail).collections?.components).toEqual(["TourDatesView"]);
+    // A detail template renders once per page, so it keeps the full drawer.
+    expect(drawerBlocks(detail)).toEqual([...libraryNames, "TourDatesView"].sort());
   });
 });

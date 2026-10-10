@@ -28,7 +28,7 @@ import { Render } from "@puckeditor/core";
 
 import { Image } from "@/components/Image";
 import type { ImageMetadata } from "@/lib/image-types";
-import { buildPuckConfig } from "@/puck/build-config";
+import { buildRenderConfig } from "@/puck/render-config";
 
 import { itemDisplayLabel, selectOptionLabel } from "../accessors";
 import { TOUR_DATES_FIELD_IDS } from "../field-ids";
@@ -261,7 +261,7 @@ export function DefaultItemDetail({
             renderTiptap(body.doc)
           ) : (
             <Render
-              config={buildPuckConfig({ variant: "render" })}
+              config={buildRenderConfig()}
               data={resolveTemplate(body.template, item, {
                 currentItem: item,
                 itemDef: def,

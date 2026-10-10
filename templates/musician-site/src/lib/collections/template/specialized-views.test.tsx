@@ -390,7 +390,7 @@ describe("CollectionBlockRender — specialised dispatch", () => {
    * single-item render asserts the right tile component fires.
    */
   it("dispatches to the photos specialisation when the source slug is `photos`", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const item: Item = {
       id: "p1",
       slug: "p1",
@@ -428,7 +428,7 @@ describe("CollectionBlockRender — specialised dispatch", () => {
     // dispatch priority documented at the dispatch site: a
     // non-null itemTemplate routes through the template renderer
     // path, not the registry.
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const item: Item = {
       id: "p1",
       slug: "p1",
@@ -682,7 +682,7 @@ describe("CollectionBlockRender — empty state", () => {
   });
 
   it("renders the per-slug message (no grid wrapper) when items is empty", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const item: Item = { id: "x", slug: "x", ...TS, values: {} };
     const html = renderToStaticMarkup(
       <>
@@ -700,7 +700,7 @@ describe("CollectionBlockRender — empty state", () => {
   });
 
   it("renders an empty data-collection-view wrapper for slugs without copy", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const item: Item = { id: "x", slug: "x", ...TS, values: {} };
     const html = renderToStaticMarkup(
       <>
@@ -846,7 +846,7 @@ describe("specialisedRendererForDef", () => {
   });
 
   it("falls back to the default card in CollectionBlockRender when a required field is missing", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.venue);
     const item = tourDateItem({
       date: "2026-08-01",
@@ -868,7 +868,7 @@ describe("specialisedRendererForDef", () => {
   });
 
   it("keeps a fallen-back slug's wrapper when an itemTemplate renders the items", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const def: CollectionDef = {
       ...withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.venue),
       itemTemplate: { root: { props: {} }, content: [] },
@@ -881,7 +881,7 @@ describe("specialisedRendererForDef", () => {
   });
 
   it("renders the specialised row in CollectionBlockRender when the schema is intact", async () => {
-    const { CollectionBlockRender } = await import("./collection-block");
+    const { CollectionBlockRender } = await import("@/puck/render-config");
     const item = tourDateItem({ date: "2026-08-01", venue: "Sala Apolo", city: "Madrid" });
     const html = renderToStaticMarkup(
       <>

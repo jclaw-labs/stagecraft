@@ -78,7 +78,7 @@ export function Editor({
   // Puck doesn't re-init on every keystroke (a fresh config identity resets
   // editor state).
   const config = useMemo(
-    () => buildPuckConfig({ variant: "editor", surface: "page", collections: embeddableCollections }),
+    () => buildPuckConfig({ surface: "page", collections: embeddableCollections }),
     [embeddableCollections],
   );
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
