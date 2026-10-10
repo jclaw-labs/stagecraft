@@ -1,12 +1,10 @@
 import type { JobContext, JobResult } from "@stagecraft/queue";
-import type { BlueprintType } from "@stagecraft/shared";
 
 import { checkProvisionPreconditions, PROVISION_STEPS, provisionSite, runProvisionJob } from "./provision-site";
 
 interface CreateSitePayload {
   name: string;
   slug: string;
-  blueprintType: BlueprintType;
 }
 
 /**

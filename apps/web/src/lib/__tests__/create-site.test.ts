@@ -107,7 +107,7 @@ function makeContext(overrides = {}): JobContext {
       userId: "user-1",
       type: "create_site",
       status: "running",
-      requestPayload: { name: "Sarah Chen Music", slug: "sarah-chen-music", blueprintType: "solo-artist" },
+      requestPayload: { name: "Sarah Chen Music", slug: "sarah-chen-music" },
       resultPayload: null,
       errorMessage: null,
       failureCategory: null,

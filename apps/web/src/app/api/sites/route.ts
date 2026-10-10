@@ -6,6 +6,7 @@ import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
 import { connectedProviders, siteSetupIntegrationError } from "@stagecraft/shared";
 
+// Site.blueprintType is a required column, but every site gets the same blueprint.
 const DEFAULT_BLUEPRINT = "solo-artist";
 
 export async function POST(req: NextRequest) {
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
       siteId: site.id,
       userId: session.user.id,
       type: "create_site",
-      payload: { name, slug, blueprintType: DEFAULT_BLUEPRINT },
+      payload: { name, slug },
     });
   } catch (cause) {
     // Without a job nothing would ever move the site out of `creating`, so

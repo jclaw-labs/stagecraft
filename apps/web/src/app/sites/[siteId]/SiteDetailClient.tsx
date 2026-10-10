@@ -57,7 +57,6 @@ interface Site {
   name: string;
   slug: string;
   status: SiteStatus;
-  blueprintType: string;
   githubRepoOwner?: string;
   githubRepoName?: string;
   githubInstallationId?: number | null;
