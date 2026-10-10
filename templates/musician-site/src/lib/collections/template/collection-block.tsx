@@ -33,7 +33,7 @@ import type { ReactNode } from "react";
 
 import { Image } from "@/components/Image";
 
-import { applyFilter, mapFilterFields, withoutClausesOnMissingFields } from "./filter";
+import { applyFilter, filterForDefs } from "./filter";
 import type { ResolveContext, Template } from "./types";
 import { viewFieldIdFor } from "./view-requirements";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
@@ -113,26 +113,19 @@ export function resolveCollectionBlockProps(
   // new field, the same way the card does (`viewFieldIdFor`). A
   // `currentItemField` value names a field of the surrounding item, so it
   // resolves against that item's def.
-  const fieldIdFor = (fieldId: FieldId): FieldId => viewFieldIdFor(loaded.def, fieldId);
-  const { currentItemDef } = ctx;
-  const currentItemFieldIdFor = currentItemDef
-    ? (fieldId: FieldId): FieldId => viewFieldIdFor(currentItemDef, fieldId)
-    : undefined;
+  //
   // A clause still naming a field the collection no longer has (deleted
   // with no stand-in, or a role like tour-date `status` that never takes
   // one) would hide every item for good; it's dropped, so that filter
-  // stops filtering instead.
-  const sourceFieldIds = new Set(loaded.def.fields.map((f) => f.id));
-  const filter = raw.filter
-    ? withoutClausesOnMissingFields(
-        mapFilterFields(raw.filter, fieldIdFor, currentItemFieldIdFor),
-        (fieldId) => sourceFieldIds.has(fieldId),
-      )
-    : null;
+  // stops filtering instead. The same goes for a `currentItemField` value
+  // naming a field the surrounding item's def no longer has, when that
+  // def is known. `filterForDefs` does both, and the filter inspector
+  // calls it too.
+  const filter = raw.filter ? filterForDefs(raw.filter, loaded.def, ctx.currentItemDef) : null;
   let filtered = applyFilter(loaded.items, filter, ctx.currentItem);
 
   if (raw.sort) {
-    const fieldId = fieldIdFor(raw.sort.fieldId);
+    const fieldId = viewFieldIdFor(loaded.def, raw.sort.fieldId);
     const { direction } = raw.sort;
     filtered = filtered.slice().sort((a, b) => compareItemsByField(a, b, fieldId, direction));
   }

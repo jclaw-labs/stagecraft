@@ -319,6 +319,25 @@ describe("resolveCollectionBlockProps — declared ids saved by the default bloc
       // The saved id is gone from the current item, so nothing compares equal.
       expect(resolveOn(undefined)).toEqual([]);
     });
+
+    it("ignores the clause when the surrounding item's def has no such field even after mapping", () => {
+      // Deleted from the surrounding collection with no same-name stand-in:
+      // the clause would compare against a missing value and hide every show.
+      const noCity: CollectionDef = {
+        ...def,
+        fields: def.fields.filter((f) => f.id !== "fld_new_city"),
+      };
+      const cityless = item("here", {});
+      const resolved = resolveCollectionBlockProps(raw, {
+        item: cityless,
+        currentItem: cityless,
+        itemDef: noCity,
+        currentItemDef: noCity,
+        loadedCollections: { [def.slug]: { def, items: [cityless, ...shows.slice(1)] } },
+      });
+      // `excludeCurrentItem` still applies.
+      expect(resolved.items.map((i) => i.slug)).toEqual(["same", "other"]);
+    });
   });
 });
 
