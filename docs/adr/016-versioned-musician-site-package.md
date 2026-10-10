@@ -227,13 +227,18 @@ on `main` publishes the release. `@stagecraft/content-upgraders` is
 versioned in lockstep and goes out first in the same workflow run. In the
 monorepo the template depends on it through
 `file:../../packages/content-upgraders`, because the template isn't a root
-workspace; the release job rewrites that to the exact version it just
-published before packing the template, so a site never resolves a version
-that isn't on npm. CI checks that any PR touching package
-source adds a `CHANGELOG.md` entry marked patch, minor or major. Before
-publishing, CI runs `npm pack`, installs the tarball into a fresh copy of
-the shell **without a lockfile**, and runs `next build`, which is what
-Netlify and Vercel will do. Release candidates go to an `rc` dist-tag
+workspace. One script, `pack-musician-site`, packs both packages and
+rewrites that dependency: to the upgraders tarball for local checks, or to
+the exact published version for a release. Every pack-and-build check and
+the release workflow use it, so no check runs against a dangling `file:`
+link and no site resolves a version that isn't on npm. The release builds
+from local tarballs before it publishes either package, and skips the
+upgraders publish when that version is already on npm, so a rerun after a
+failed template publish isn't stuck. CI checks that any PR touching
+package source adds a `CHANGELOG.md` entry marked patch, minor or major.
+Before publishing, CI runs `pack-musician-site`, installs the tarballs
+into a fresh copy of the shell **without a lockfile**, and runs
+`next build`, which is what Netlify and Vercel will do. Release candidates go to an `rc` dist-tag
 (not `next`, which reads as the framework), so a test site can opt in by
 hand. Generated shells only ever pin a release from `latest`: Dependabot
 offers prerelease updates to a dependency already pinned to a prerelease,
@@ -377,7 +382,8 @@ How it runs:
   template's CI runs every step's golden fixtures through the template's
   zod schemas, so a step's output is validated where the schemas live.
   The target release's `schemaVersion` comes from a
-  `stagecraft.schemaVersion` field in the package's `package.json`, which
+  `stagecraft.schemaVersion` field in the package's `package.json` (a
+  test keeps it equal to `CURRENT_COLLECTION_SCHEMA_VERSION`), which
   the job reads from the npm registry's metadata for that version. `apps/web`
   imports it from the workspace, so the platform doesn't take on the
   template's dependency tree or its `next` peer range. Steps are append-only
@@ -550,12 +556,16 @@ changing behavior (ADR-016 §1).
 - [ ] Create `packages/content-upgraders` (`@stagecraft/content-upgraders`,
       no dependencies, an empty chain at `schemaVersion` 1), depend on it
       through `file:../../packages/content-upgraders`, add
-      `stagecraft.schemaVersion` to the template's `package.json`, and add
+      `stagecraft.schemaVersion` to the template's `package.json` with a
+      test that it equals `CURRENT_COLLECTION_SCHEMA_VERSION`, and add
       the package to `CLAUDE.md`'s repo structure
+- [ ] Add the `pack-musician-site` script: pack both packages and rewrite
+      the template's `file:` dep to the upgraders tarball (local) or the
+      published version (release)
 - [ ] Test that every source file with `"use client"` keeps it in `dist/`
-- [ ] Exit check: `npm pack`, install the tarball into a minimal Next app
-      with no lockfile and run `next build` (global CSS imported from
-      `node_modules`, `"use client"` boundaries), and run
+- [ ] Exit check: `pack-musician-site`, install both tarballs into a
+      minimal Next app with no lockfile and run `next build` (global CSS
+      imported from `node_modules`, `"use client"` boundaries), and run
       `stagecraft-site --help` from the tarball under plain `node`
 - [ ] Existing unit and e2e suites stay green
 
@@ -601,9 +611,10 @@ Publish on a version bump, gated on a build that matches the hosts, then
 scaffold new sites from the shell (ADR-016 §1, §2, §3).
 
 - [ ] `release-musician-site.yml`: on `main`, when the version isn't on
-      npm yet, publish `@stagecraft/content-upgraders` at the same
-      version, rewrite the template's `file:` dep to it, then publish the
-      template and tag `musician-site@x.y.z`. Don't pass
+      npm yet, run the pre-publish check on local tarballs, publish
+      `@stagecraft/content-upgraders` at the same version unless it's
+      already there, pin the template to it with `pack-musician-site`,
+      then publish the template and tag `musician-site@x.y.z`. Don't pass
       `--provenance`: trusted publishing adds it while the repo is public
 - [ ] First publish (owner): publish `1.0.0-rc.0` by hand with 2FA and
       `--tag rc` (and `@stagecraft/content-upgraders` the same way),
@@ -612,8 +623,8 @@ scaffold new sites from the shell (ADR-016 §1, §2, §3).
       note the setup in `docs/runbook.md`
 - [ ] Require review on `main` for `templates/musician-site/**`,
       `packages/content-upgraders/**` and the release workflow
-- [ ] Pre-publish check: `npm pack`, install the tarball into a clean copy
-      of the shell with no lockfile, then run `next build`
+- [ ] Pre-publish check: `pack-musician-site`, install both tarballs into
+      a clean copy of the shell with no lockfile, then run `next build`
 - [ ] PR check: a change under `templates/musician-site/src` needs a
       `CHANGELOG.md` entry marked patch, minor or major
 - [ ] Release candidates publish to the `rc` dist-tag
