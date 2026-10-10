@@ -69,7 +69,7 @@ npm run capture:screenshots       # writes .pr-screenshots/artist-*.{jpg,png}
 It's a Playwright capture config (`playwright.capture.config.ts`) that
 boots its own dev server against a seeded, completed site and signs in
 via the dev-login escape hatch — so no manual server/auth setup. Output
-lands directly in the repo-root `.pr-screenshots/` (the relay path).
+lands directly in the repo-root `.pr-screenshots/`.
 Override the dir with `PR_SCREENSHOTS_DIR=...`.
 
 **`apps/web` (platform dashboard).** One command captures the
@@ -114,7 +114,8 @@ screenshots of public UI.
 ### Commit to `pr-assets` (default)
 
 Follow the vendored `capture-pr-screenshots` skill's cloud-session
-section:
+section (it also covers creating `pr-assets` if the branch is ever
+missing):
 
 ```bash
 WT="$(mktemp -d)/pr-assets"
@@ -123,7 +124,12 @@ mkdir -p "$WT/pr-<N>" && cp .pr-screenshots/* "$WT/pr-<N>/"
 git -C "$WT" add "pr-<N>" && git -C "$WT" commit -m "Screenshots for PR #<N>, <what they show>"
 git -C "$WT" push origin HEAD:pr-assets
 SHA=$(git -C "$WT" rev-parse HEAD) && git worktree remove "$WT"
+rm -rf .pr-screenshots
 ```
+
+Clear `.pr-screenshots/` once the push lands. It isn't gitignored, and a
+commit that adds it to a PR branch puts binaries there and triggers the
+legacy gist relay below, which can't authenticate (#434).
 
 Embed each image by that commit SHA, not the branch name, so later
 pushes don't move it:
@@ -136,12 +142,23 @@ pushes don't move it:
 
 Never rewrite, force-push or delete `pr-assets`; being in its history is
 what keeps the linked commits alive. Verify every image before calling
-the PR done, through the contents API:
+the PR done. Read the URLs back from the saved PR body, not from what
+you meant to write, and check each through the contents API:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/pr-<N>/admin-releases.png?ref=<SHA>" -i | head -1
-# HTTP/2.0 200 OK
+gh api "repos/<owner>/<repo>/pulls/<N>" --jq .body \
+  | grep -o 'blob/[0-9a-f]*/pr-[^?"]*' | sort -u \
+  | while read -r p; do
+      sha=${p#blob/}; sha=${sha%%/*}; path=${p#blob/*/}
+      gh api "repos/<owner>/<repo>/contents/$path?ref=$sha" -i | head -1
+    done
+# one 200 status line per image (HTTP/1.1 or HTTP/2.0)
 ```
+
+PR-body writes from cloud sessions have been seen to wrap image URLs
+whose filename contains `-sidebar` in backticks, which breaks the image
+(PR #433). The `grep` above won't catch that, so look at the rendered
+PR too, and avoid `-sidebar` in capture filenames.
 
 ### Path A: Automated gist relay (legacy)
 

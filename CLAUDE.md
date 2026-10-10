@@ -145,15 +145,16 @@ artist-site admin) must embed screenshots hosted on the orphan
 `pr-assets` branch. Commit the captures under `pr-<N>/` with `git push`
 (this works from cloud sessions, which can't reach gists or GitHub's
 attachment upload) and embed them by commit SHA, not branch:
-`https://github.com/<owner>/<repo>/blob/<sha>/pr-<N>/<file>.png?raw=true`.
+`https://github.com/<owner>/<repo>/blob/<sha>/pr-<N>/<file>?raw=true`
+(`<file>` with its extension, `.png` or `.jpg`).
 The repo is public, so these render for everyone. Never rewrite,
 force-push or delete `pr-assets`; its history is what keeps the linked
 commits alive.
 
 Full workflow in `docs/screenshots/README.md`: capture → commit to
-`pr-assets` → embed in PR body → verify each image returns 200 through
-the contents API
-(`gh api "repos/<owner>/<repo>/contents/pr-<N>/<file>.png?ref=<sha>" -i | head -1`).
+`pr-assets` → embed in PR body → verify that each image URL in the
+saved PR body returns 200 through the contents API
+(`gh api "repos/<owner>/<repo>/contents/pr-<N>/<file>?ref=<sha>" -i | head -1`).
 Refactor-only or backend-only PRs may omit screenshots — note this
 explicitly in the PR body.
 
