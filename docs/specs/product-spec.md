@@ -2,17 +2,23 @@
 
 > **Status (2026-10-10): partly superseded.** This is the original product
 > spec. The goals it states still hold: artist-owned repos and hosting,
-> structured content, low cost. Two parts of how it gets there don't:
+> structured content, low cost. One part of how it gets there doesn't:
+> **AI edits through pull requests** (natural-language change requests,
+> the request classifier, the AI worker, PR review, §16, §17.2, and the
+> AI wording elsewhere) were cut in issue #344. Artists edit their site
+> directly in its built-in editor; saves go to a draft branch and Publish
+> merges them (ADR-010). §15.3 says this; the other AI sections are kept
+> as originally written.
 >
-> - **AI edits through pull requests** (natural-language change requests,
->   the request classifier, the AI worker, PR review, §16, §17.2) were cut
->   in issue #344. Artists edit their site directly in its built-in
->   editor; saves go to a draft branch and Publish merges them (ADR-010).
-> - **Astro** (§9 and the stack lists) was replaced by Next.js + Puck
->   (ADR-007, ADR-014).
+> The stack is current: §1, §7.2, §8.2, §8.4, §9, §10, §13.3, §21.2 and
+> the stack lines in §25–§29 describe the Next.js + Puck template
+> (ADR-007) that replaced the original Astro template (ADR-014). The
+> file paths in §11 and §12 are
+> still the original design; `templates/musician-site/CLAUDE.md` lists
+> where content and images actually live.
 >
 > `docs/specs/technical-architecture.md` describes the system as built.
-> §14 (seeded site and themes) is current.
+> §14 (seeded site and themes) and §15.1 (new site creation) are current.
 
 ## 1. Overview
 
@@ -23,7 +29,7 @@ The platform should target non-technical users who currently pay too much for si
 The platform itself should act as an orchestration layer around:
 
 - GitHub repos
-- Netlify deployment and deploy previews
+- Vercel or Netlify deployment
 - AI-driven code and content changes
 - Structured content and asset workflows
 - A lightweight backend for contact form delivery
@@ -36,13 +42,12 @@ The generated websites should be:
 - easy to edit through AI prompting
 - strongly constrained by framework, typing, schemas, and tests
 
-The default technical stack for generated websites should be:
+The technical stack for generated websites is (ADR-007):
 
-- Astro
-- React integration enabled
-- TypeScript
-- Netlify hosting
-- repo-owned content and assets
+- Next.js (App Router) with React and TypeScript
+- Puck as the built-in visual editor at `/admin`
+- Vercel or Netlify hosting, in the artist's own account
+- repo-owned content (JSON files) and assets
 - no CMS database for site content
 
 ## 2. Product Vision
@@ -147,7 +152,7 @@ The system consists of two layers:
 A web app that users interact with. Responsibilities:
 
 - user authentication into the platform
-- linking external accounts (GitHub, Netlify)
+- linking external accounts (GitHub, Vercel or Netlify, Resend)
 - onboarding and site creation
 - migration flow from an existing site URL
 - gathering user content and assets
@@ -160,7 +165,7 @@ A web app that users interact with. Responsibilities:
 
 Each customer site is a normal GitHub repo that the customer owns or has access to. Responsibilities:
 
-- Astro site code
+- Next.js + Puck site code (from `templates/musician-site`)
 - content files
 - image assets
 - tests
@@ -186,14 +191,13 @@ Use GitHub for:
 
 The platform should prefer a GitHub App or OAuth-based integration with appropriate permissions.
 
-### 8.2 Netlify
+### 8.2 Deploy target: Vercel or Netlify
 
-Netlify should be used for:
+The artist connects either Vercel or Netlify. The chosen host is used for:
 
 - site hosting
-- production deploys
-- deploy previews for branches / pull requests
-- environment variables for contact-form backend
+- production deploys, rebuilt when the editor publishes to `main`
+- environment variables for the site's editor sign-in and contact form
 
 ### 8.3 AI provider
 
@@ -211,53 +215,62 @@ Rationale:
 
 Use Resend plus a serverless endpoint for form submission delivery.
 
-Preferred initial architecture:
+The template's architecture:
 
-- static site frontend
-- Netlify Function or equivalent lightweight backend endpoint
-- Resend API for email delivery
+- prerendered public pages
+- the site's own `POST /api/contact` route handler, running as a serverless
+  function on the artist's host
+- Resend API for email delivery (the same Resend account also sends the
+  editor's magic-link sign-in emails)
 
 Do not introduce a submissions database in v1.
 
 ## 9. Framework decision
 
-Generated sites should use:
+Generated sites use the Next.js + Puck template at `templates/musician-site`
+(ADR-007):
 
-- Astro
-- React integration enabled
+- Next.js (App Router)
+- React
 - TypeScript strict mode
+- Puck (`@puckeditor/core`) for the visual editor
 
-### 9.1 Why Astro
+The original plan was Astro + React. The template was rebuilt on Next.js +
+Puck, and the Astro template was removed (ADR-014).
 
-Astro is the best default fit because generated sites are mostly brochure-style, content-heavy, and static-first.
+### 9.1 Why Next.js + Puck
 
-Benefits:
-
-- minimal client-side JS by default
-- strong fit for content-centric websites
-- support for reusable `.astro` components
-- support for React islands where richer interactivity is needed
-- excellent fit for repo-owned image and content workflows
-- simpler static mental model for AI-generated code
-
-### 9.2 Why enable React by default
-
-Every generated site should initialize with Astro + React + TypeScript even if many sites do not use much React initially.
+The artist needs a visual editor on their live site: drag-to-reorder blocks,
+inline preview, image and section controls. Astro's `.astro` components
+render only on the server, so a browser-side editor can't manipulate the same
+component tree the public site renders. Puck can: its blocks are React
+components with typed props, and its page output is plain JSON stored in the
+artist's repo (ADR-007).
 
 Benefits:
 
-- one canonical project structure across all sites
-- easy support for richer widgets when needed
-- consistent AI generation paths
-- familiar escape hatch for technical users
+- one renderer: the same Puck block library renders the public pages and the
+  editor preview
+- one deployable unit serves the public site, the `/admin` editor, and the
+  `/api/*` routes the editor and contact form use
+- public pages are prerendered at build time (`generateStaticParams`)
+- no hosted CMS or vendor backend; content stays as JSON files in the repo
+- the same framework as the platform app (ADR-001)
+
+### 9.2 Why React
+
+Puck blocks are React components, so React is the rendering layer for the
+whole site rather than an optional add-on. Technical users get a standard
+Next.js project they can run and change themselves.
 
 ### 9.3 Rendering model
 
 Use:
 
-- `.astro` components for most presentational UI
-- native Astro `<script>` blocks for lightweight custom JS
-- React components only for more complex interactive widgets
+- Puck blocks (`src/puck/config.tsx`) for page content; block components are
+  pure and render on the server
+- client components (`"use client"`) only where the browser needs state, such
+  as the contact form, image carousel and photo lightbox
 
 ## 10. Generated repo requirements
 
@@ -265,42 +278,42 @@ Each customer site repo should follow a standard layout.
 
 Example:
 
+Every repo starts as a copy of `templates/musician-site`. Abridged:
+
 ```txt
 /
-  astro.config.mjs
+  next.config.ts
   package.json
   tsconfig.json
-  netlify.toml
-  README.md
   CLAUDE.md
-  EDITING.md
+  .env.example
   /src
+    /app
+      /(public)     public pages (one catch-all route)
+      /admin        the Puck editor and settings forms
+      /api          editor, publish, image upload and contact routes
     /components
-    /layouts
-    /pages
-    /assets
+    /puck
     /lib
-    /styles
     /content
+      /collections
   /public
-    /favicons
-    /downloads
-  /tests
+    /images         added by image uploads
+  /e2e
   /.github
-    /workflows
+    /workflows      added at provisioning
 ```
 
 ### 10.1 Repo conventions
 
-1. `src/components/` contains reusable presentational and interactive components.
-2. `src/layouts/` contains site shells and shared layouts.
-3. `src/pages/` contains route files.
-4. `src/assets/` contains source images that should be optimized.
-5. `public/` should only contain assets that should be copied as-is, such as favicons, robots.txt, or downloadable PDFs.
-6. `src/lib/` contains helper utilities.
-7. `tests/` contains smoke/integration tests.
+1. `src/app/` holds the routes: the public site, `/admin`, and `/api/*`.
+2. `src/puck/` holds the block library, the source of truth for block schemas.
+3. `src/components/` contains reusable presentational and interactive components.
+4. `src/lib/` contains helper utilities, content reads, and the save and publish paths.
+5. `src/content/collections/<slug>/` holds all site content as JSON, one directory per collection (ADR-009).
+6. `public/images/` holds uploaded images and their generated variants.
+7. Unit tests sit next to the code (`*.test.ts`); `e2e/` holds Playwright tests.
 8. `CLAUDE.md` contains agent-specific instructions for editing within the repo.
-9. `EDITING.md` contains user-facing explanations of repo structure and common manual edits.
 
 ## 11. Content model
 
@@ -314,7 +327,7 @@ The platform must not treat arbitrary component code as the primary content-edit
 Content schemas should be concrete enough to be self-documenting. Use specific named fields (`headline`, `bio`, `altText`) rather than generic blobs. Schemas should expand to cover common musician-site needs without requiring a rewrite.
 
 **Make common edits explicit.**
-Anything a user is likely to change — bio, headline, social links, hero image — should be a named field in a schema, not buried in component code. If editing a piece of content requires touching a `.astro` or `.tsx` file, that is a design smell.
+Anything a user is likely to change — bio, headline, social links, hero image — should be a named field in a schema, not buried in component code. If editing a piece of content requires touching a `.tsx` file, that is a design smell.
 
 **Content should be understandable in Git diffs.**
 A change to the artist bio should produce a diff that reads like a content change, not a code change. JSON and Markdown files accomplish this. Inline JSX strings do not.
@@ -335,7 +348,7 @@ Examples: bio, headline, social links, release metadata, photo alt text, press q
 **2. Theme and config** — site-level settings that control appearance and navigation.
 Examples: site name, contact email, nav items, color palette, font choices, dark/light mode preference.
 
-**3. Layout and component code** — the `.astro` and React files that render content. These should rarely need editing for routine content requests.
+**3. Layout and component code** — the React components and Puck blocks that render content. These should rarely need editing for routine content requests.
 
 **4. AI-only structural changes** — page additions, nav restructuring, new section types. These require editing both content and component code and must be explicitly classified as structural changes, not content edits.
 
@@ -508,9 +521,8 @@ Support lightweight custom interactions such as:
 
 Use the least complex tool that satisfies the request:
 
-1. static `.astro` component
-2. `.astro` component with small `<script>` block
-3. React component hydrated as an island
+1. server-rendered component (the default for Puck blocks)
+2. a small client component (`"use client"`) for the interactive part only
 
 ### 13.4 Constraint
 
@@ -605,25 +617,10 @@ rather than inventing an unconstrained site structure from scratch.
 6. User reviews and requests fixes.
 7. User approves production launch.
 
-### 15.3 Edit request workflow
+### 15.3 Editing a site
 
-1. User enters a plain-language request.
-2. Platform classifies the request into one or more categories:
-   - content edit
-   - asset update
-   - page add/remove
-   - style update
-   - interactive feature
-   - repair/fix
-3. Platform creates a working branch.
-4. AI makes the requested changes.
-5. Platform runs validations.
-6. If checks pass, open PR and surface preview link.
-7. User can:
-   - approve
-   - ask for revision
-   - discard
-8. If approved, merge to main and deploy production.
+Artists edit their site in its own editor at `/admin` (Puck, ADR-007):
+saves go to a draft branch and Publish merges them to `main` (ADR-010).
 
 ## 16. AI orchestration requirements
 
@@ -646,7 +643,7 @@ Define separate modes:
 
 Claude Code should:
 
-- **prefer editing schema-driven content files over component code** — the content model exists precisely so that the vast majority of requests never require touching a `.astro` or `.tsx` file
+- **prefer editing schema-driven content files over component code** — the content model exists precisely so that the vast majority of requests never require touching a `.tsx` file
 - **prefer editing a named schema field over freeform string insertion** — if a piece of content has a dedicated field (e.g. `bio`, `headline`, `altText`), edit that field rather than finding where it's interpolated in a template
 - preserve template architecture unless a structural change is requested
 - avoid broad refactors unless necessary
@@ -774,7 +771,7 @@ Handle at least:
 5. missing/invalid asset
 6. user changed mind mid-request
 7. user wants to revert
-8. GitHub/Netlify auth issues
+8. GitHub/Vercel/Netlify auth issues
 
 ### 19.2 Required responses
 
@@ -821,7 +818,7 @@ Users must always be able to:
 - run locally
 - make manual edits
 - commit/push outside the platform
-- continue using Netlify independently if they choose
+- continue using their Vercel or Netlify account independently if they choose
 
 Every repo should therefore include:
 
@@ -848,10 +845,10 @@ The contact form should:
 
 Preferred initial architecture:
 
-- frontend form on the Astro site
-- Netlify Function endpoint
-- Resend API call from the function
-- recipient configured via environment variable or structured site config
+- `ContactForm` component on the public site
+- the site's `POST /api/contact` route handler
+- Resend API call from the route handler
+- recipient read from the site settings (`contactEmail`)
 
 ### 21.3 Spam considerations
 
@@ -888,11 +885,11 @@ External integrations should request the minimum required permissions.
 Store secrets such as:
 
 - GitHub app credentials
-- Netlify tokens if applicable
+- Vercel or Netlify tokens
 - Resend API keys
 - environment variables for generated sites
 
-securely in the platform backend and/or Netlify env config.
+securely in the platform backend and/or the host's environment config.
 
 Do not commit secrets to customer repos.
 
@@ -931,8 +928,8 @@ Build:
 
 - platform auth
 - GitHub linking
-- Netlify linking
-- repo generator for Astro + React + TypeScript starter
+- Vercel or Netlify linking
+- repo generator for the Next.js + Puck template
 - one or two musician templates
 - structured content model
 - image upload into repo assets
@@ -965,19 +962,19 @@ Build:
 
 Claude Code should assume the following defaults unless explicitly changed:
 
-1. framework: Astro + React + TypeScript
-2. hosting: Netlify
+1. framework: Next.js + Puck + TypeScript (ADR-007)
+2. hosting: Vercel or Netlify
 3. content source of truth: repo files
-4. images: stored in `src/assets/`, optimized responsively at build time
-5. interactivity: Astro-first, React islands only where justified
+4. images: stored in `public/images/`, with responsive variants generated at upload time
+5. interactivity: server-rendered components, client components only where justified
 6. review model: branch + PR + deploy preview
-7. contact form: Netlify Function + Resend
+7. contact form: the site's `/api/contact` route + Resend
 8. tests: lint + typecheck + build + smoke tests
 9. portability: always preserved
 
 ## 27. Explicit implementation rules for generated sites
 
-1. Prefer `.astro` components over React unless stateful interactivity is needed.
+1. Prefer server-rendered components; add a client component only when stateful interactivity is needed.
 2. Prefer structured content edits over JSX/component edits.
 3. Keep diff surface area as small as possible.
 4. Keep all site-critical content and assets in the repo.
@@ -1006,8 +1003,8 @@ These are not blockers for initial implementation, but should be resolved during
 Claude Code should begin by implementing a minimal but production-shaped v1 foundation with the following sequence:
 
 1. create the platform architecture skeleton
-2. implement GitHub and Netlify integration scaffolding
-3. implement a canonical Astro + React + TypeScript musician-site starter template
+2. implement GitHub, Vercel/Netlify and Resend integration scaffolding
+3. implement a canonical Next.js + Puck musician-site template
 4. implement structured content and asset conventions
 5. implement image upload and repo asset placement
 6. implement AI request -> branch -> change -> validate -> PR -> preview flow
@@ -1016,5 +1013,5 @@ Claude Code should begin by implementing a minimal but production-shaped v1 foun
 
 ## 30. Summary
 
-Build a platform that orchestrates AI-driven creation and maintenance of simple musician websites, while keeping the websites themselves static-first, repo-owned, preview-driven, portable, and easy to edit both manually and through natural language. The platform is an orchestration layer around GitHub, Netlify, structured repo content, and AI coding workflows—not a proprietary site runtime or CMS.
+Build a platform that orchestrates AI-driven creation and maintenance of simple musician websites, while keeping the websites themselves static-first, repo-owned, preview-driven, portable, and easy to edit both manually and through natural language. The platform is an orchestration layer around GitHub, Vercel or Netlify, structured repo content, and AI coding workflows—not a proprietary site runtime or CMS.
 
