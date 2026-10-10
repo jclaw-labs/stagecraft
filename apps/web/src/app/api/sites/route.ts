@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
+import { toClientSite } from "@/lib/client-site";
 import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
-import { connectedProviders, narrowJobFields, siteSetupIntegrationError } from "@stagecraft/shared";
+import { connectedProviders, siteSetupIntegrationError } from "@stagecraft/shared";
 
 // Site.blueprintType is a required column, but every site gets the same blueprint.
 const DEFAULT_BLUEPRINT = "solo-artist";
@@ -109,12 +110,5 @@ export async function GET() {
     },
   });
 
-  // Old rows can hold a retired job type, status or failure category (#447).
-  // The broker secret hash never leaves the server, as in the detail route.
-  return NextResponse.json({
-    sites: sites.map(({ brokerSecretHash, ...site }) => {
-      void brokerSecretHash;
-      return { ...site, jobs: site.jobs.map(narrowJobFields) };
-    }),
-  });
+  return NextResponse.json({ sites: sites.map(toClientSite) });
 }
