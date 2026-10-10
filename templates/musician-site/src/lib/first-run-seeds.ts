@@ -28,7 +28,7 @@
  * is safe to import from anywhere (no node:fs dependency).
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 
 import { collectionViewProps } from "./collections/collection-view-props";
 import { PAGES_FIELD_IDS } from "./collections/field-ids";

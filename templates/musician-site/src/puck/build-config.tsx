@@ -27,7 +27,7 @@
  * only called from the editor branches.
  */
 
-import type { ComponentConfig, Config, Field } from "@measured/puck";
+import type { ComponentConfig, Config, Field } from "@puckeditor/core";
 
 import { BindableImagePicker, BindableStringPicker } from "@/components/admin/BindablePicker";
 import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";

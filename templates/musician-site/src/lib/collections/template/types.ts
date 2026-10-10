@@ -7,7 +7,7 @@
  * and dispatches each entry to a block component by `type`.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 
 import type { Bindable, FieldId } from "../schema";
 
@@ -17,7 +17,7 @@ export type BlockInstance = {
   props: Record<string, unknown>;
 };
 
-/** Convenience re-export so consumers don't have to reach into @measured/puck. */
+/** Convenience re-export so consumers don't have to reach into @puckeditor/core. */
 export type Template = PuckData;
 
 /**

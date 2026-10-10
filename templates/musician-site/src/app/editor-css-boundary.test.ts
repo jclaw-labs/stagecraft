@@ -1,9 +1,13 @@
 /**
- * Puck's stylesheet (`@measured/puck/puck.css`) is editor chrome: ~55 KB
+ * Puck's stylesheet (`@puckeditor/core/puck.css`) is editor chrome: ~105 KB
  * of drag-and-drop UI rules plus a third-party `@import` of Inter. The
  * server `<Render>` the public site uses emits none of its class names,
  * so the stylesheet must stay behind `/admin` — a public module importing
  * it ships the whole thing to every visitor (issue #348).
+ *
+ * Since Puck 0.22 the editor also injects these styles at runtime when the
+ * import is missing; only `<Puck>` does that, never `<Render>`. The editors
+ * keep the static import so the chrome is styled on first paint.
  *
  * Static source scan rather than a render test: the import is a side
  * effect the bundler resolves, which a unit render can't observe.
@@ -17,7 +21,7 @@ const SRC = path.resolve(import.meta.dirname, "..");
 const ADMIN = path.join(SRC, "app", "admin") + path.sep;
 
 const PUCK_CSS_IMPORT =
-  /(?:\bimport\b[^"';]*|require\()\s*["']@measured\/puck\/(?:puck\.css|no-external\.css|dist\/[^"']+\.css)["']/;
+  /(?:\bimport\b[^"';]*|require\()\s*["']@puckeditor\/core\/(?:puck\.css|no-external\.css|dist\/[^"']+\.css)["']/;
 
 function sourceFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -64,11 +68,11 @@ describe("puck.css import boundary", () => {
   });
 
   it("recognises the import forms it guards against", () => {
-    expect(PUCK_CSS_IMPORT.test('import "@measured/puck/puck.css";')).toBe(true);
-    expect(PUCK_CSS_IMPORT.test("import '@measured/puck/no-external.css';")).toBe(true);
-    expect(PUCK_CSS_IMPORT.test('import "@measured/puck/dist/index.css";')).toBe(true);
-    expect(PUCK_CSS_IMPORT.test('import styles from "@measured/puck/puck.css";')).toBe(true);
-    expect(PUCK_CSS_IMPORT.test('import { Render } from "@measured/puck";')).toBe(false);
-    expect(PUCK_CSS_IMPORT.test("// No `@measured/puck/puck.css` here")).toBe(false);
+    expect(PUCK_CSS_IMPORT.test('import "@puckeditor/core/puck.css";')).toBe(true);
+    expect(PUCK_CSS_IMPORT.test("import '@puckeditor/core/no-external.css';")).toBe(true);
+    expect(PUCK_CSS_IMPORT.test('import "@puckeditor/core/dist/index.css";')).toBe(true);
+    expect(PUCK_CSS_IMPORT.test('import styles from "@puckeditor/core/puck.css";')).toBe(true);
+    expect(PUCK_CSS_IMPORT.test('import { Render } from "@puckeditor/core";')).toBe(false);
+    expect(PUCK_CSS_IMPORT.test("// No `@puckeditor/core/puck.css` here")).toBe(false);
   });
 });

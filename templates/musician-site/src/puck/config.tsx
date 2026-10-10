@@ -13,7 +13,7 @@
  * walker resolves bindings before `render` runs, so every `render` below
  * sees plain literals — `BlockProps` is that resolved shape.
  */
-import type { Config, Slot } from "@measured/puck";
+import type { Config, Slot } from "@puckeditor/core";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 import { ContactForm } from "@/components/ContactForm";

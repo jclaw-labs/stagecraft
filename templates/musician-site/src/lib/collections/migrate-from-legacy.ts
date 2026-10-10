@@ -10,7 +10,7 @@
  * without dragging crypto into the browser bundle.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 
 import { generateItemId } from "./id-gen";
 import type { Item } from "./schema";

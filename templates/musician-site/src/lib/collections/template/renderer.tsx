@@ -21,7 +21,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Render } from "@measured/puck";
+import { Render } from "@puckeditor/core";
 
 import { buildPuckConfig } from "@/puck/build-config";
 

@@ -16,7 +16,7 @@
  * needs the runtime crypto import.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 
 import type { ImageMetadata } from "../image-types";
 import {

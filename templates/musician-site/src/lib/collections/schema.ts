@@ -26,7 +26,7 @@
  * are silently stripped on read.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 import { z, type ZodTypeAny } from "zod";
 
 import { imageMetadataSchema } from "../image-types";
