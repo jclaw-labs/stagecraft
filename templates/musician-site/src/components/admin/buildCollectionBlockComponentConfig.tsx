@@ -41,7 +41,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { Config, Field } from "@measured/puck";
+import type { Config, Field } from "@puckeditor/core";
 
 import { FilterField } from "./FilterField";
 import { ManageCollectionLink } from "./ManageCollectionLink";

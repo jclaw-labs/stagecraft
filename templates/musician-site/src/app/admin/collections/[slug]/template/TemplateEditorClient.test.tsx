@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // internals of `<Puck>` itself. The stub renders a marker we can
 // inspect and exposes the `overrides.headerActions` content (which
 // contains our dropdown).
-vi.mock("@measured/puck", () => ({
+vi.mock("@puckeditor/core", () => ({
   Puck: ({ overrides }: { overrides?: { headerActions?: (p: { children: unknown }) => unknown } }) => {
     const header = overrides?.headerActions?.({ children: null });
     return (

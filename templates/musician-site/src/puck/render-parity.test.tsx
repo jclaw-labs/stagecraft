@@ -13,8 +13,8 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
 
-import type { Data } from "@measured/puck";
-import { Render } from "@measured/puck";
+import type { Data } from "@puckeditor/core";
+import { Render } from "@puckeditor/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 

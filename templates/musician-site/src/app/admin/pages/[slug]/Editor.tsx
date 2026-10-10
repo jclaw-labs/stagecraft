@@ -1,7 +1,7 @@
 "use client";
 
-import { Puck, usePuck } from "@measured/puck";
-import "@measured/puck/puck.css";
+import { createUsePuck, Puck } from "@puckeditor/core";
+import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,6 +22,11 @@ import {
   isVisibilityDispatchTrivial,
 } from "./drawer-visibility";
 import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
+
+// Selector-based access to Puck's state: a component re-renders only when
+// the slice it selects changes. (Bare `usePuck()` subscribes to the whole
+// store and logs a dev warning saying so.)
+const usePuck = createUsePuck();
 
 type Props = {
   initialData: PageData;
@@ -356,7 +361,7 @@ function Dot() {
  * memoised config doesn't work — we have to dispatch `setUi`.
  *
  * Renders nothing; effect-only. Lives inside the `drawer` override
- * so it has Puck context (`usePuck`).
+ * so it has Puck context (`usePuck`, from `createUsePuck`).
  *
  * Three subtleties:
  *
@@ -386,7 +391,7 @@ function DrawerCategoryVisibilitySync({
   filter: string;
   categories: Record<string, CategoryConfig | undefined>;
 }) {
-  const { dispatch } = usePuck();
+  const dispatch = usePuck((s) => s.dispatch);
   const hasDispatchedRef = useRef(false);
   useEffect(() => {
     // Initial mount with empty filter: every category is visible
@@ -466,7 +471,7 @@ function DrawerSearchInput({
  * (root focus or a stale selector), this renders nothing.
  */
 function BlockHelp() {
-  const { selectedItem } = usePuck();
+  const selectedItem = usePuck((s) => s.selectedItem);
   if (!selectedItem) return null;
   const description =
     BLOCK_DESCRIPTIONS[selectedItem.type as keyof typeof BLOCK_DESCRIPTIONS];

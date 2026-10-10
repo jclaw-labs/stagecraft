@@ -23,7 +23,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Render } from "@measured/puck";
+import { Render } from "@puckeditor/core";
 
 import { Image } from "@/components/Image";
 

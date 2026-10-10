@@ -9,8 +9,8 @@
 
 "use client";
 
-import { Puck, type Data } from "@measured/puck";
-import "@measured/puck/puck.css";
+import { Puck, type Data } from "@puckeditor/core";
+import "@puckeditor/core/puck.css";
 import { useCallback, useMemo, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";

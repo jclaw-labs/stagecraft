@@ -20,7 +20,7 @@ The existing Astro template is renamed to `templates/musician-site-legacy/`; the
 - Static export for public pages where possible; functions for the editor's write path only.
 - Same framework as the platform app (ADR-001), reducing context-switch for contributors.
 
-### 2. Editor: Puck (`@measured/puck`)
+### 2. Editor: Puck (`@puckeditor/core`; published as `@measured/puck` up to 0.20)
 - MIT-licensed React library; embedded as a route component at `/admin`. No vendor backend.
 - Block schema = React components + typed props. Output is plain JSON.
 - Ships a complete editor UI (drag handles, inspector, preview, undo) — avoids months of editor-UI work.
