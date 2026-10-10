@@ -128,7 +128,8 @@ git -C "$WT" push origin HEAD:pr-assets \
 ```
 
 If the push is rejected (another session pushed first), nothing after it
-runs: `git -C "$WT" pull --rebase origin pr-assets` and push again.
+runs: `git -C "$WT" pull --rebase origin pr-assets`, then re-run the
+whole chained command so `SHA` names the rebased commit.
 Clear `.pr-screenshots/` only once the push lands. It isn't gitignored, and a
 commit that adds it to a PR branch puts binaries there and triggers the
 legacy gist relay below, which can't authenticate (#434).
@@ -156,7 +157,8 @@ gh api "repos/<owner>/<repo>/pulls/<N>" --jq .body \
     done
 # one 200 status line per image (HTTP/1.1 or HTTP/2.0)
 gh api "repos/<owner>/<repo>/pulls/<N>" --jq .body | grep -o 'blob/pr-assets/[^?"]*'
-# no output: no image is embedded by branch name instead of SHA
+# no output: no image uses the branch-name `blob/pr-assets/` form
+# (§5 allows only `blob/<sha>/` URLs, so also check the rendered PR)
 ```
 
 PR-body writes from cloud sessions have been seen to wrap image URLs
