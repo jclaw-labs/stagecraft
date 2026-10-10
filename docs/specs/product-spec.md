@@ -20,20 +20,27 @@
 >   flow), §27 rule 10, §28 question 8, §29 step 6 and §30 (its AI,
 >   preview and natural-language wording);
 > - §4 non-goals 4 and 8 (an admin panel and drag-and-drop editing),
->   which the built-in Puck editor now provides (ADR-007);
-> - §11 apart from §11.6, and §12.4: the original Astro content layout,
->   image fields and AI editing rules;
-> - §18.1's content, asset and link validation scripts, which the
->   template doesn't have;
+>   which the built-in Puck editor now provides (ADR-007), and non-goal 5
+>   (multi-user editing): a site can have several editors, each with their
+>   own draft branch (ADR-011);
+> - §11.1's AI-editing and Markdown mentions and its last paragraph (Puck
+>   is the editor it anticipates), §11.2–§11.5, §11.7 and §12.4: the
+>   original Astro content layout, image fields and AI editing rules;
+> - §18.1's CI, smoke tests and content, asset and link validation
+>   scripts. The template has no validation scripts, a generated repo's
+>   only CI builds Dependabot PRs (`apps/web/src/lib/site-scaffold.ts`),
+>   and its Playwright tests can't run as shipped (§10.1), which also
+>   holds for §26 item 8's smoke tests;
 > - §20's README and setup docs, which generated repos don't include.
 >
-> **Current:** §3.1 goal 4, §7.2, §8.2, §8.4, §9, §10, §11.6,
-> §12.1–§12.3, §13.3, §14 (except §14.3), §15.1, §15.3, §21.2, §26 and
-> §27 rule 1, and the stack wording (Next.js + Puck, Vercel or Netlify,
-> Resend) in §1, §7.1, §19.1, §20, §23.2, §25, §29 and §30. These
-> describe the Next.js + Puck template (ADR-007) that replaced the
-> original Astro template (ADR-014). Sections in neither list are general
-> requirements that haven't been checked against the code.
+> **Current:** §3.1 goal 4, §7.2, §8.2, §8.4, §9, §10, §11's intro,
+> the rest of §11.1, §11.6, §12.1–§12.3, §13.3, §14 (except §14.3),
+> §15.1, §15.3, §21.2, §26 (except item 8's smoke tests) and §27 rule 1,
+> and the stack wording (Next.js + Puck, Vercel or Netlify, Resend) in
+> §1, §7.1, §19.1, §20, §23.2, §25, §29 and §30. These describe the
+> Next.js + Puck template (ADR-007) that replaced the original Astro
+> template (ADR-014). Sections in neither list are general requirements
+> that haven't been checked against the code.
 >
 > `docs/specs/technical-architecture.md` describes the system as built.
 
@@ -294,7 +301,8 @@ Use:
 
 Each customer site repo should follow a standard layout.
 
-Every repo starts as a copy of `templates/musician-site`. Abridged:
+Every repo starts as a copy of `templates/musician-site`, minus the files
+provisioning skips (§10.1). Abridged:
 
 ```txt
 /
@@ -329,9 +337,14 @@ Every repo starts as a copy of `templates/musician-site`. Abridged:
 6. `public/images/` holds uploaded images and their generated variants.
 7. Unit tests sit next to the code (`*.test.ts`); `e2e/` holds Playwright tests.
 
-Provisioning doesn't copy the template's `CLAUDE.md` into the repo
-(`apps/web/scripts/generate-template-bundle.mjs`); it stays in this monorepo
-as the template's documentation.
+Provisioning doesn't copy the template's `CLAUDE.md`, `package-lock.json`,
+`playwright.config.ts` or `scripts/` into the repo
+(`TEMPLATE_SKIP_FILES` and `TEMPLATE_SKIP_DIRS` in
+`apps/web/scripts/generate-template-bundle.mjs`). `CLAUDE.md` stays in this
+monorepo as the template's documentation. Because `playwright.config.ts` is
+left out, the `e2e/` suite, whose global setup and seed helper import it,
+can't run in a generated repo as shipped, and the unit test for
+`scripts/migrate-block-library.mjs` has no script to run.
 
 ## 11. Content model
 
