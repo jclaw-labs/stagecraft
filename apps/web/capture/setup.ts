@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { prisma } from "@stagecraft/db";
+import { hashSessionToken } from "@stagecraft/shared";
 
 import {
   CAPTURE_SESSION_TOKEN,
@@ -29,7 +30,7 @@ import {
  *      strategy).
  */
 export default async function captureSetup(): Promise<void> {
-  // 7-day session; the cookie value below matches this token verbatim.
+  // 7-day session; the cookie below carries the raw token, the row its hash.
   const expires = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
 
   try {
@@ -73,10 +74,16 @@ export default async function captureSetup(): Promise<void> {
       create: { id: CAPTURE_SITE_ID, ...siteData },
     });
 
+    // The row stores the token's hash, as the app's adapter does
+    // (withHashedSessionTokens); the cookie below carries the raw token.
+    // Drop a plaintext row left by a seed from before hashing, so the
+    // adapter's legacy rewrite can't collide with the hashed row.
+    const sessionToken = await hashSessionToken(CAPTURE_SESSION_TOKEN);
+    await prisma.session.deleteMany({ where: { sessionToken: CAPTURE_SESSION_TOKEN } });
     await prisma.session.upsert({
-      where: { sessionToken: CAPTURE_SESSION_TOKEN },
+      where: { sessionToken },
       update: { userId: user.id, expires },
-      create: { sessionToken: CAPTURE_SESSION_TOKEN, userId: user.id, expires },
+      create: { sessionToken, userId: user.id, expires },
     });
   } catch (err) {
     throw new Error(
