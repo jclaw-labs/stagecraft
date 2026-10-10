@@ -657,6 +657,36 @@ describe("FilterField — clauses on unfilterable fields", () => {
     expect(screen.getByLabelText("Current item field").hasAttribute("aria-describedby")).toBe(false);
   });
 
+  it("keeps the note off the current-item pickers of an array value too", () => {
+    const filter: Filter = {
+      all: [
+        {
+          field: "f_poster",
+          op: "in",
+          values: [
+            { kind: "currentItemField", fieldId: "p_title" },
+            { kind: "currentItemField", fieldId: "p_title" },
+          ],
+        },
+      ],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={WITH_IMAGE}
+        currentItemDef={CURRENT_ITEM_DEF}
+      />,
+    );
+
+    expect(screen.getByLabelText("Operator").hasAttribute("aria-describedby")).toBe(true);
+    const currentItemSelects = screen.getAllByLabelText("Current item field");
+    expect(currentItemSelects).toHaveLength(2);
+    for (const select of currentItemSelects) {
+      expect(select.hasAttribute("aria-describedby")).toBe(false);
+    }
+  });
+
   it("names the re-added same-name image field a declared id now reads", () => {
     const posts: CollectionDef = {
       ...SOURCE_DEF,

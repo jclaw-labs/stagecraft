@@ -479,7 +479,7 @@ function FilterValueEditor({
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
@@ -551,7 +551,7 @@ function CurrentItemFieldSelect({
   onChange: (fieldId: string) => void;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   const pick = currentItemDef ? fieldPickFor(currentItemDef, fieldId) : null;
@@ -595,7 +595,7 @@ function ArrayValueEditor({
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   return (
