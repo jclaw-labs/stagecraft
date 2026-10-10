@@ -80,7 +80,7 @@ describe("DELETE /api/sites/[siteId]", () => {
     vercelTeamId: null,
   };
 
-  it("deletes the site row and runs external cleanup (which keeps the repo)", async () => {
+  it("deletes the site row after running external cleanup", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     prismaMock.site.findFirst.mockResolvedValue(SITE_ROW);
 

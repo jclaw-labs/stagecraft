@@ -12,7 +12,5 @@
  */
 export const GITHUB_OAUTH_SCOPES = ["read:user", "user:email", "repo", "workflow"] as const;
 
-export type GitHubOAuthScope = (typeof GITHUB_OAUTH_SCOPES)[number];
-
 /** Space-separated scope string for the GitHub authorize URL. */
 export const GITHUB_OAUTH_SCOPE = GITHUB_OAUTH_SCOPES.join(" ");

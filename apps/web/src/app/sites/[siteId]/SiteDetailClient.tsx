@@ -611,7 +611,9 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
               <div className={styles.dangerRepoNote}>
                 <p className={styles.dangerText}>
                   Your GitHub repository <strong>{site.githubRepoOwner}/{site.githubRepoName}</strong> is
-                  kept. To delete it as well, use the Danger Zone in its GitHub settings.
+                  kept. To delete it as well, use the Danger Zone in its GitHub settings. Until it is
+                  archived or deleted, it keeps receiving Dependabot pull requests. Creating a new site
+                  with the same name needs this repository deleted or renamed first.
                 </p>
                 <Button
                   variant="secondary"

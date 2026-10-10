@@ -47,8 +47,8 @@ describe("POST /api/admin/nuke-my-sites", () => {
   it("for the allowlisted operator: deletes every Site they own, calling cleanup per row", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", email: "jclaw3456@gmail.com" } });
     prismaMock.site.findMany.mockResolvedValue([
-      { id: "s1", name: "S1", slug: "s1", githubRepoOwner: "o", githubRepoName: "s1", netlifySiteId: null, vercelProjectId: "prj_1", vercelTeamId: null },
-      { id: "s2", name: "S2", slug: "s2", githubRepoOwner: "o", githubRepoName: "s2", netlifySiteId: "ntl_2", vercelProjectId: null, vercelTeamId: null },
+      { id: "s1", name: "S1", slug: "s1", netlifySiteId: null, vercelProjectId: "prj_1", vercelTeamId: null },
+      { id: "s2", name: "S2", slug: "s2", netlifySiteId: "ntl_2", vercelProjectId: null, vercelTeamId: null },
     ]);
 
     const res = await POST();
@@ -69,7 +69,7 @@ describe("POST /api/admin/nuke-my-sites", () => {
   it("surfaces per-site cleanup errors but still deletes the DB row", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", email: "jclaw3456@gmail.com" } });
     prismaMock.site.findMany.mockResolvedValue([
-      { id: "s1", name: "S1", slug: "s1", githubRepoOwner: "o", githubRepoName: "s1", netlifySiteId: null, vercelProjectId: "prj_1", vercelTeamId: null },
+      { id: "s1", name: "S1", slug: "s1", netlifySiteId: null, vercelProjectId: "prj_1", vercelTeamId: null },
     ]);
     deleteResourcesMock.mockResolvedValueOnce(["Vercel: 404 Not Found"]);
 

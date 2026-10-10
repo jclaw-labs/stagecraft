@@ -37,8 +37,6 @@ export async function POST() {
       id: true,
       name: true,
       slug: true,
-      githubRepoOwner: true,
-      githubRepoName: true,
       netlifySiteId: true,
       vercelProjectId: true,
       vercelTeamId: true,

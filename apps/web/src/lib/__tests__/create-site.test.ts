@@ -209,13 +209,37 @@ describe("handleCreateSite — common preconditions", () => {
     expect(mockCreateRepo).not.toHaveBeenCalled();
   });
 
-  it("fails without retrying when the repo name is already taken on a first attempt", async () => {
+  it("fails without retrying, naming the kept repo, when a deleted site's repo has the name", async () => {
+    // Deleting a site keeps its repo, so recreating a site with the same
+    // name hits GitHub's 422 on the kept repo.
     mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, name: "stagecraft-site-sarah-chen-music" });
+    const result = await handleCreateSite(makeContext());
+    expect(result.success).toBe(false);
+    expect(result.message).toBe(
+      "A repository named jclaw/stagecraft-site-sarah-chen-music already exists on your GitHub account, " +
+        "probably from a site you deleted. Delete or rename it on GitHub, or choose a different site name.",
+    );
+    expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music");
+    // A first attempt never adopts: the repo isn't this job's.
+    expect(mockPushFiles).not.toHaveBeenCalled();
+    expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
+  });
+
+  it("keeps GitHub's message on a first-attempt 422 when no repo has the name", async () => {
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"Validation Failed"}'));
+    const result = await handleCreateSite(makeContext());
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Validation Failed");
+    expect(mockPushFiles).not.toHaveBeenCalled();
+  });
+
+  it("keeps GitHub's message on a first-attempt 422 when the repo lookup fails", async () => {
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockRejectedValueOnce(new GitHubApiError(502, "bad gateway"));
     const result = await handleCreateSite(makeContext());
     expect(result.success).toBe(false);
     expect(result.message).toContain("name already exists");
-    // Not an earlier run's repo, so it isn't adopted.
-    expect(mockGetOwnRepo).not.toHaveBeenCalled();
     expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
   });
 });
@@ -649,7 +673,7 @@ describe("handleCreateSite — resumable steps", () => {
     const result = await handleCreateSite(makeContext({ retryAttempts: 1 }));
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain("name already exists");
+    expect(result.message).toContain("A repository named jclaw/stagecraft-site-sarah-chen-music already exists");
     expect(mockPushFiles).not.toHaveBeenCalled();
   });
 

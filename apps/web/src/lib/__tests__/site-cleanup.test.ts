@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { netlifyDeleteMock, vercelDeleteMock } = vi.hoisted(() => ({
+const { netlifyDeleteMock, vercelDeleteMock, fetchMock } = vi.hoisted(() => ({
   netlifyDeleteMock: vi.fn(),
   vercelDeleteMock: vi.fn(),
+  fetchMock: vi.fn(),
 }));
 
 vi.mock("@/lib/integrations/netlify", () => ({ deleteSite: netlifyDeleteMock }));
@@ -25,20 +26,25 @@ beforeEach(() => {
   netlifyDeleteMock.mockReset().mockResolvedValue(undefined);
   vercelDeleteMock.mockReset().mockResolvedValue(undefined);
   vi.spyOn(console, "error").mockImplementation(() => {});
+  // Every test runs with fetch stubbed, so a reintroduced raw-fetch repo
+  // delete can't reach api.github.com and fails the test that triggers it.
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  expect(fetchMock).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
 });
 
 describe("deleteSiteResources", () => {
   it("keeps the GitHub repo: no GitHub call, no errors", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
     const errors = await deleteSiteResources("u1", BASE_SITE);
 
     expect(errors).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(netlifyDeleteMock).not.toHaveBeenCalled();
     expect(vercelDeleteMock).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
   });
 
   it("deletes the Netlify site when one is linked", async () => {

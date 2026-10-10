@@ -113,6 +113,14 @@ function hostProjectName(slug: string): string {
   return `stagecraft-site-${slug}`;
 }
 
+/** Shown when the site's repo name is already taken, usually by a deleted site's kept repo. */
+function repoNameTakenMessage(owner: string, repoName: string): string {
+  return (
+    `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
+    `probably from a site you deleted. Delete or rename it on GitHub, or choose a different site name.`
+  );
+}
+
 /** Clock skew allowed between us and a provider when comparing creation times. */
 const ADOPT_CLOCK_SKEW_MS = 2 * 60_000;
 
@@ -393,10 +401,22 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
         isPrivate: true,
       });
     } catch (cause) {
-      const nameTaken = cause instanceof GitHubApiError && cause.status === 422;
-      const existing = nameTaken && interrupted ? await getOwnRepo(userId, repoName) : null;
-      const adopted = existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
-      if (!adopted) throw nameTaken ? new PermanentProvisionError(errorMessage(cause, "")) : cause;
+      if (!(cause instanceof GitHubApiError && cause.status === 422)) throw cause;
+      // 422 is how GitHub reports "name already exists". Look the repo up:
+      // an interrupted run may adopt it, and otherwise the artist is told
+      // which repo is in the way. Deleting a site keeps its repo, so this is
+      // the usual outcome of deleting a site and recreating it by name. On
+      // a first attempt a failed lookup falls back to GitHub's own message.
+      const existing = interrupted
+        ? await getOwnRepo(userId, repoName)
+        : await getOwnRepo(userId, repoName).catch(() => null);
+      const adopted =
+        interrupted && existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
+      if (!adopted) {
+        throw new PermanentProvisionError(
+          existing ? repoNameTakenMessage(existing.owner, repoName) : errorMessage(cause, ""),
+        );
+      }
       created = adopted;
     }
     await prisma.site.update({
