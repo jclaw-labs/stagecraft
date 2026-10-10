@@ -1,8 +1,9 @@
 /**
  * Build-time entry points of the public catch-all: the set of URLs
  * `generateStaticParams` prerenders, the routing-conflict check that
- * runs there (so a conflict fails `next build`), and `dynamicParams`
- * turning every other URL into a 404.
+ * runs there (so a conflict fails `next build`), `dynamicParams`
+ * turning every other URL into a 404, and `generateMetadata`'s
+ * dispatch between detail pages and pages.
  *
  * Uses an isolated tmpdir content dir, matching layout.test.tsx.
  */
@@ -12,11 +13,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { dynamicParams, generateStaticParams } from "./page";
+import { dynamicParams, generateMetadata, generateStaticParams } from "./page";
 import { writeCollectionDef, writeItem, type CollectionDef } from "@/lib/collections";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { tourDateItem, tourDatesDef } from "@/lib/collections/test-fixtures";
+import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
 import { __resetBootstrapCacheForTests } from "@/lib/content";
 import { emptyPageData } from "@/lib/page-data";
 
@@ -113,5 +115,27 @@ describe("public catch-all — generateStaticParams", () => {
 describe("public catch-all — unknown URLs", () => {
   it("turns off dynamic params so any URL outside the static set 404s", () => {
     expect(dynamicParams).toBe(false);
+  });
+});
+
+describe("public catch-all — generateMetadata", () => {
+  const metadataFor = (slug: string[]) => generateMetadata({ params: Promise.resolve({ slug }) });
+
+  it("gives a collection item's detail URL the item's own title", async () => {
+    await seedSite({ pageSlugs: ["home"] });
+    expect(await metadataFor(["shows", "mercury-lounge"])).toEqual({
+      title: `Mercury Lounge — ${DEFAULT_SITE_CONFIG.artistName}`,
+      description: DEFAULT_SITE_CONFIG.siteDescription,
+    });
+  });
+
+  it("falls back to the site title for a detail URL with no item", async () => {
+    await seedSite({ pageSlugs: ["home"] });
+    expect((await metadataFor(["shows", "nowhere"])).title).toBe(DEFAULT_SITE_CONFIG.siteTitle);
+  });
+
+  it("keeps a page's own title", async () => {
+    await seedSite({ pageSlugs: ["home", "about"] });
+    expect((await metadataFor(["about"])).title).toBe(`about — ${DEFAULT_SITE_CONFIG.artistName}`);
   });
 });
