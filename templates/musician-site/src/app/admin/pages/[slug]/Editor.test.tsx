@@ -9,7 +9,9 @@ import { DEFAULT_APPEARANCE } from "@/lib/site-config-types";
 // Stub Puck: the save handler is what's under test, not Puck's UI. The
 // stub renders the editor's header actions (where the save-state pill
 // lives) and a button that calls `onPublish` with the editor's data,
-// the way Puck's own "Publish" header button does.
+// the way Puck's own "Publish" header button does. It also records the
+// canvas `iframe` override from each render.
+const iframeOverrides = vi.hoisted(() => [] as unknown[]);
 vi.mock("@measured/puck", () => ({
   Puck: ({
     data,
@@ -18,15 +20,18 @@ vi.mock("@measured/puck", () => ({
   }: {
     data: unknown;
     onPublish: (data: unknown) => void;
-    overrides?: { headerActions?: (p: { children: unknown }) => unknown };
-  }) => (
-    <div>
-      <button type="button" onClick={() => onPublish(data)}>
-        Publish
-      </button>
-      {overrides?.headerActions?.({ children: null }) as React.ReactNode}
-    </div>
-  ),
+    overrides?: { headerActions?: (p: { children: unknown }) => unknown; iframe?: unknown };
+  }) => {
+    iframeOverrides.push(overrides?.iframe);
+    return (
+      <div>
+        <button type="button" onClick={() => onPublish(data)}>
+          Publish
+        </button>
+        {overrides?.headerActions?.({ children: null }) as React.ReactNode}
+      </div>
+    );
+  },
   usePuck: () => ({ dispatch: () => {}, selectedItem: null }),
 }));
 vi.mock("@measured/puck/puck.css", () => ({}));
@@ -64,6 +69,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
+  iframeOverrides.length = 0;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -184,5 +190,22 @@ describe("<Editor> save", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.getAttribute("title")).toBe("offline");
     expect(screen.queryByText("Saved")).toBeNull();
+  });
+});
+
+describe("<Editor> canvas", () => {
+  // Puck renders the `iframe` override as the canvas's component type, so
+  // a new function on each render would remount every block in the canvas.
+  it("keeps the iframe override's identity when the editor re-renders", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, item: { values: CURRENT_VALUES } }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, item: {} }));
+    renderEditor();
+    await save();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Saved"));
+
+    expect(iframeOverrides.length, "renders").toBeGreaterThan(1);
+    expect(typeof iframeOverrides[0]).toBe("function");
+    expect(new Set(iframeOverrides).size).toBe(1);
   });
 });

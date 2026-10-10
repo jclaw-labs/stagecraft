@@ -3,7 +3,7 @@
 import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { AppearanceStyles } from "@/components/AppearanceStyles";
@@ -133,6 +133,28 @@ export function Editor({
     [pageSlug],
   );
 
+  // The canvas iframe renders the page's blocks outside the public
+  // layout, so on its own it misses the theme that layout applies.
+  // Wrapping the canvas root in `.stagecraft-site` with the site's
+  // AppearanceStyles gives it the same tokens, typography and gallery
+  // layout as the published page (#395). The <style> lands in the
+  // iframe's document, so its `:root` tokens don't reach the editor
+  // chrome. Only the theme comes along: the header, footer, page
+  // background image and lightbox stay on the public layout.
+  //
+  // Puck renders this override as the canvas's component type, so it has
+  // to keep its identity across renders: a new function would remount the
+  // whole canvas on every edit, save-state change and drawer keystroke.
+  const CanvasFrame = useCallback(
+    ({ children }: { children: ReactNode }) => (
+      <div className="stagecraft-site">
+        <AppearanceStyles appearance={appearance} />
+        {children}
+      </div>
+    ),
+    [appearance],
+  );
+
   return (
     <Puck
       config={config}
@@ -140,20 +162,7 @@ export function Editor({
       onPublish={savePageToDraft}
       onChange={() => setIsDirty(true)}
       overrides={{
-        // The canvas iframe renders the page's blocks outside the public
-        // layout, so on its own it misses the theme that layout applies.
-        // Wrapping the canvas root in `.stagecraft-site` with the site's
-        // AppearanceStyles gives it the same tokens, typography and gallery
-        // layout as the published page (#395). The <style> lands in the
-        // iframe's document, so its `:root` tokens don't reach the editor
-        // chrome. Only the theme comes along: the header, footer, page
-        // background image and lightbox stay on the public layout.
-        iframe: ({ children }) => (
-          <div className="stagecraft-site">
-            <AppearanceStyles appearance={appearance} />
-            {children}
-          </div>
-        ),
+        iframe: CanvasFrame,
         drawer: ({ children }) => {
           const q = drawerFilter.trim().toLowerCase();
           const hasMatch =

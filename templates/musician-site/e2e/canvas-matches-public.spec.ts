@@ -66,13 +66,19 @@ async function publicLayout(page: Page): Promise<Layout> {
   return page.locator(".stagecraft-site").evaluate(measureLayout);
 }
 
-async function canvasLayout(page: Page): Promise<Layout> {
+/**
+ * Opens the editor and returns a function that measures its canvas.
+ * Puck mounts the blocks before it has copied the host stylesheets into
+ * the iframe, so a single early measurement can see an unstyled canvas;
+ * the caller polls instead.
+ */
+async function openCanvas(page: Page): Promise<() => Promise<Layout>> {
   await page.goto("/admin/pages/home");
   // A frame locator re-resolves the iframe, which Puck can remount while
   // the editor hydrates.
   const frame = page.frameLocator("#preview-frame");
   await frame.locator("#frame-root section").first().waitFor();
-  return frame.locator("#frame-root").evaluate(measureLayout);
+  return () => frame.locator("#frame-root").evaluate(measureLayout);
 }
 
 test.describe("the editor canvas matches the published page", () => {
@@ -86,13 +92,13 @@ test.describe("the editor canvas matches the published page", () => {
     await page.setViewportSize(VIEWPORT);
 
     const published = await publicLayout(page);
-    const canvas = await canvasLayout(page);
+    const measureCanvas = await openCanvas(page);
 
     // The demo home page has `md` and `lg` Sections, and a card variant.
     expect(published.sections.length).toBeGreaterThan(1);
     // Puck sizes the iframe to its viewport setting and scales it to fit
     // the canvas, so this also checks the iframe lays out at the public
     // page's width; otherwise the section widths couldn't be compared.
-    expect(canvas).toEqual(published);
+    await expect.poll(measureCanvas).toEqual(published);
   });
 });
