@@ -444,6 +444,22 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
     );
   });
 
+  it("leaves out the existing-values caveat for a retype to Long text, which always saves", () => {
+    const ticketsAsText = tourDatesWith(TICKETS.fieldId, {
+      ...tourDatesCollectionDef.fields.find((f) => f.id === TICKETS.fieldId)!,
+      type: "text",
+    } as FieldDef);
+    const impact = viewFieldImpact(ticketsAsText, TICKETS.fieldId, {
+      kind: "retype",
+      from: "text",
+      to: "longText",
+    })!;
+    expect(describeViewFieldImpact(impact, "ticketUrl")).toBe(
+      'Changing "ticketUrl" to Long text means the ticket link will no longer show on the ' +
+        "public tour dates list. Continue?",
+    );
+  });
+
   it("explains a hidden piece for an optional field, naming the new type on retype", () => {
     const impact = viewFieldImpact(tourDatesCollectionDef, COUNTRY.fieldId, {
       kind: "retype",

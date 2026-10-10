@@ -386,10 +386,11 @@ export function viewFieldImpact(
  * Whether a saveable retype can still be rejected by an existing value.
  * A retype's save re-validates every item under the new type
  * (`validateSchemaChange`), so free text that isn't a valid URL blocks
- * it. select → multi-choice can't fail: each value is wrapped.
+ * it. select → multi-choice can't fail (each value is wrapped), and
+ * neither can a retype to Long text, which has no constraints.
  */
 function retypeCanFailOnValues(from: FieldType, to: FieldType): boolean {
-  return !(from === "select" && to === "multiSelect");
+  return !(to === "longText" || (from === "select" && to === "multiSelect"));
 }
 
 /** The caveat both the confirm and the heads-up add to a retype that existing values can block. */

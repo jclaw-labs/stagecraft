@@ -148,6 +148,18 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     expect(screen.queryByText("Heads-up")).toBeNull();
   });
 
+  it("judges a remove against the saved type", () => {
+    // city saved as Short text, retyped to Number in the draft: the save
+    // API blocks that retype, so the draft doesn't count as already
+    // broken and removing city still explains the view impact.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderEditor(draftWithType(TOUR_DATES_FIELD_IDS.city, "number"));
+    fireEvent.click(fieldCard("city").querySelector("button")!);
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Removing "city" means the city will no longer show on the public tour dates list. Continue?',
+    );
+  });
+
   it("doesn't ask for a retype the view still renders", () => {
     const confirmSpy = vi.spyOn(window, "confirm");
     const onChange = renderEditor();
