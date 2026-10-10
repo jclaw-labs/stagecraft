@@ -93,7 +93,7 @@ model Site {
   name                String
   slug                String   @unique
   status              String   @default("creating") // creating | active | error | archived
-  blueprintType       String   @default("solo-artist") // unused (#445). Routes omit it but the client still sends this @default; the DB default is for the @ignore step, then the column drop
+  blueprintType       String   @default("solo-artist") // unused by app code (#445). Routes omit it but the client still sends this @default; the DB default is for the @ignore step, then the column drop
   githubRepoOwner       String?
   githubRepoName        String?
   githubDefaultBranch   String   @default("main")
