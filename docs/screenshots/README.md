@@ -7,8 +7,8 @@ pulling the branch.
 This is stagecraft's screenshot convention. The vendored `create-pr` and
 `capture-pr-screenshots` skills (synced from local-config into
 `.claude/skills/`) handle the PR mechanics; this file holds the
-repo-specific parts they defer to: where captures go, how they reach a
-public gist, and how to verify they render.
+repo-specific parts they defer to: where captures go, how they reach the
+`pr-assets` branch, and how to verify they render.
 
 ## When screenshots apply
 
@@ -19,14 +19,15 @@ public gist, and how to verify they render.
 - **Admin-only tweaks** (derived select options, schema-driven UI):
   still capture one admin view to confirm rendering.
 
-## Why a public gist
+## Why the `pr-assets` branch
 
-This repo is private. `raw.githubusercontent.com` URLs 404 for anyone
-not authenticated with repo access, so in-tree images don't render in
-the PR body for most viewers. `gist.githubusercontent.com` content is
-anonymously reachable even when the author's repos are private — that
-is exactly what a PR-body image embed needs. Not committing
-screenshots also keeps the repo free of per-PR binary bloat.
+Screenshots live on `pr-assets`, an orphan branch that holds nothing but
+`pr-<N>/` folders of captures, never on a PR's own branch. Cloud
+sessions can `git push` but can't reach gists or GitHub's attachment
+upload, so this is the one host every session can write to. The repo is
+public, so a commit-pinned `blob/<sha>/...?raw=true` link renders for
+everyone, and keeping captures off PR branches keeps per-PR binaries out
+of `main`.
 
 ## Naming
 
@@ -48,9 +49,9 @@ views, append the item slug: `admin-releases-item-first-album.png`.
 
 ## Workflow
 
-There are two paths. Cloud Claude Code sessions (sandboxed VMs without
-`gh` CLI access) use the **automated relay**. Local sessions with a
-working `gh` auth can use either, but the relay is shorter.
+Capture, then commit the captures to `pr-assets` (below). The gist paths
+A and B further down are legacy: the relay's `GIST_TOKEN` no longer
+authenticates, so use them only if that is fixed.
 
 ### Capture
 
@@ -110,7 +111,39 @@ It builds the app and serves it with `next start` under dummy env
 at `/opt/pw-browsers`. A missing database is never a reason to skip
 screenshots of public UI.
 
-### Path A: Automated relay (cloud sessions, default)
+### Commit to `pr-assets` (default)
+
+Follow the vendored `capture-pr-screenshots` skill's cloud-session
+section:
+
+```bash
+WT="$(mktemp -d)/pr-assets"
+git fetch origin pr-assets && git worktree add --detach "$WT" origin/pr-assets
+mkdir -p "$WT/pr-<N>" && cp .pr-screenshots/* "$WT/pr-<N>/"
+git -C "$WT" add "pr-<N>" && git -C "$WT" commit -m "Screenshots for PR #<N>, <what they show>"
+git -C "$WT" push origin HEAD:pr-assets
+SHA=$(git -C "$WT" rev-parse HEAD) && git worktree remove "$WT"
+```
+
+Embed each image by that commit SHA, not the branch name, so later
+pushes don't move it:
+
+```markdown
+## Screenshots
+
+![Releases admin](https://github.com/<owner>/<repo>/blob/<SHA>/pr-<N>/admin-releases.png?raw=true)
+```
+
+Never rewrite, force-push or delete `pr-assets`; being in its history is
+what keeps the linked commits alive. Verify every image before calling
+the PR done, through the contents API:
+
+```bash
+gh api "repos/<owner>/<repo>/contents/pr-<N>/admin-releases.png?ref=<SHA>" -i | head -1
+# HTTP/2.0 200 OK
+```
+
+### Path A: Automated gist relay (legacy)
 
 1. Capture screenshots into `.pr-screenshots/` at the repo root.
 2. **Get the captures onto the PR branch with a commit made via the
@@ -178,7 +211,7 @@ screenshots of public UI.
    signal. Instead confirm the gist actually holds the files by fetching
    the gist *page* (`WebFetch https://gist.github.com/<user>/<ID>`).
 
-### Path B: Manual gist upload (fallback)
+### Path B: Manual gist upload (legacy)
 
 For local sessions when you'd rather skip the CI round-trip:
 
