@@ -253,7 +253,14 @@ import via sibling submodules that have no node imports:
 
 - `lib/collections/filter-schema.ts` — `filterSchema` + Filter types
 - `lib/collections/field-classification.ts` — `SLUG_SOURCE_COMPATIBLE_TYPES`,
-  `SORTABLE_FIELD_TYPES`
+  `SORTABLE_FIELD_TYPES`, `FIELD_TYPE_OPTIONS` / `fieldTypeLabel`,
+  `LOSSLESS_TYPE_TRANSITIONS` / `canTransition` (re-exported by
+  `schema-changes.ts`)
+- `lib/collections/template/view-requirements.ts` — which fields each
+  specialised card view (`specialized-views.tsx`) reads, by role and
+  accepted type (plus the tour-dates `status` the default block filters
+  on); drives the default-card fallback and the schema editor's remove /
+  retype warnings
 - `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
 - `lib/collections/field-ids.ts` — stable field-id constants for the
   prebaked collections (`PAGES_FIELD_IDS` etc.). `seeds.ts` re-exports

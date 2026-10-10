@@ -19,6 +19,7 @@ import {
   extractVimeoId,
   extractYouTubeId,
   specialisedRendererFor,
+  specialisedRendererForDef,
   SPECIALISED_RENDERERS,
 } from "./specialized-views";
 import {
@@ -28,7 +29,7 @@ import {
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
 } from "../field-ids";
-import type { Item } from "../schema";
+import type { CollectionDef, Item } from "../schema";
 import {
   photosCollectionDef,
   postsCollectionDef,
@@ -406,19 +407,11 @@ describe("CollectionBlockRender — specialised dispatch", () => {
         [PHOTOS_FIELD_IDS.caption]: { type: "longText", value: "Soundcheck" },
       },
     };
+    // The seed's fields: the specialisation only fires when the live
+    // schema satisfies the view's required fields (#352).
     const def = {
-      schemaVersion: 1 as const,
-      slug: "photos",
-      singularName: "photo",
-      pluralName: "photos",
-      fields: [],
-      slugSourceFieldId: null,
-      detailUrlPrefix: null,
-      defaultSort: null,
+      ...photosCollectionDef,
       itemTemplate: null, // no override → specialisation fires
-      detailTemplate: null,
-      listTemplate: null,
-      isSingleton: false,
     };
     const html = renderToStaticMarkup(
       <>
@@ -765,5 +758,109 @@ describe("card links to detail pages", () => {
     );
     expect(html).toContain('href="https://tix.example/v"');
     expect(html).not.toContain("/shows/");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema-edit resilience (#352) — views resolve fields through
+// `view-requirements.ts`; a broken required field falls back to the default
+// card, a missing optional one just doesn't render.
+// ---------------------------------------------------------------------------
+
+describe("specialisedRendererForDef", () => {
+  const withoutField = (def: CollectionDef, fieldId: string): CollectionDef => ({
+    ...def,
+    fields: def.fields.filter((f) => f.id !== fieldId),
+  });
+  const withCityAs = (type: "number" | "longText"): CollectionDef => ({
+    ...tourDatesCollectionDef,
+    fields: tourDatesCollectionDef.fields.map((f) =>
+      f.id === TOUR_DATES_FIELD_IDS.city ? { id: f.id, key: f.key, type, required: true } : f,
+    ),
+  });
+
+  it("returns the specialisation when the schema satisfies the view", () => {
+    expect(specialisedRendererForDef(tourDatesCollectionDef)).toBe(
+      specialisedRendererFor("tour-dates"),
+    );
+  });
+
+  it("returns null for slugs without a specialisation", () => {
+    expect(specialisedRendererForDef({ slug: "store-items", fields: [] })).toBeNull();
+  });
+
+  it("returns null when a required field was deleted", () => {
+    expect(
+      specialisedRendererForDef(withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city)),
+    ).toBeNull();
+  });
+
+  it("returns null when a required field was retyped to an incompatible type", () => {
+    expect(specialisedRendererForDef(withCityAs("number"))).toBeNull();
+  });
+
+  it("keeps the specialisation when only an optional field was deleted", () => {
+    expect(
+      specialisedRendererForDef(withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.ticketUrl)),
+    ).not.toBeNull();
+  });
+
+  it("drops the Tickets affordance entirely once the ticketUrl field is gone", () => {
+    const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.ticketUrl);
+    const html = renderToStaticMarkup(
+      <>
+        {specialisedRendererFor("tour-dates")!({
+          item: tourDateItem({ date: "2026-08-01", venue: "V", city: "Madrid" }),
+          def,
+        })}
+      </>,
+    );
+    expect(html).toContain("Madrid");
+    expect(html).not.toContain("Tickets");
+  });
+
+  it("renders a lossless retype (city text → longText) in the specialised row", () => {
+    const def = withCityAs("longText");
+    const item = tourDateItem({ date: "2026-08-01", venue: "V" });
+    item.values[TOUR_DATES_FIELD_IDS.city] = { type: "longText", value: "Lisbon" };
+    const html = renderToStaticMarkup(<>{specialisedRendererForDef(def)!({ item, def })}</>);
+    expect(html).toContain("Lisbon");
+  });
+
+  it("falls back to the default card in CollectionBlockRender when a required field is missing", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city);
+    const item = tourDateItem({
+      date: "2026-08-01",
+      venue: "Sala Apolo",
+      country: "Spain",
+      ticketUrl: "https://tix.example/madrid",
+    });
+    const html = renderToStaticMarkup(
+      <>{CollectionBlockRender({ items: [item], sourceDef: def, hideFields: [], currentItem: item })}</>,
+    );
+    // Default field stack: "<key>: value" rows, every remaining field shown.
+    expect(html).toContain("<strong>venue:</strong> Sala Apolo");
+    expect(html).toContain("<strong>country:</strong> Spain");
+    expect(html).toContain('href="https://tix.example/madrid"');
+    // Not the specialised row (whose CTA is the literal "Tickets").
+    expect(html).not.toContain(">Tickets<");
+  });
+
+  it("renders the specialised row in CollectionBlockRender when the schema is intact", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const item = tourDateItem({ date: "2026-08-01", venue: "Sala Apolo", city: "Madrid" });
+    const html = renderToStaticMarkup(
+      <>
+        {CollectionBlockRender({
+          items: [item],
+          sourceDef: tourDatesCollectionDef,
+          hideFields: [],
+          currentItem: item,
+        })}
+      </>,
+    );
+    expect(html).toContain(">Tickets<");
+    expect(html).not.toContain("<strong>venue:</strong>");
   });
 });

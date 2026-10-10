@@ -38,49 +38,17 @@ import {
   isFieldTypeCompatible,
   type BindableSlotKind,
 } from "./template/bindable-slots";
+import { canTransition } from "./field-classification";
 
 // ---------------------------------------------------------------------------
 // Allowed type transitions (ADR §11)
 // ---------------------------------------------------------------------------
 
-/**
- * The lossless type transitions. Format: `<from>` → `<to>[]`. Adding
- * a transition here doesn't automatically make it "safe" — it means
- * the structural shape can be coerced; per-instance validity still
- * runs through the per-collection Zod schema.
- *
- * Notable transitions:
- *   - text ↔ longText (string ↔ string)
- *   - text → url / email / color: only if every existing value
- *     parses; the caller runs the parse check.
- *   - select → multiSelect: wrap each scalar in a 1-element array
- *   - multiSelect → select: only if every item has ≤ 1 option set
- *
- * Everything not listed is blocked.
- */
-export const LOSSLESS_TYPE_TRANSITIONS: Readonly<Record<FieldType, ReadonlyArray<FieldType>>> = {
-  text: ["longText", "url", "email", "color"],
-  longText: ["text"],
-  richText: [],
-  number: [],
-  boolean: [],
-  select: ["multiSelect"],
-  multiSelect: ["select"],
-  date: [],
-  url: ["text"],
-  email: ["text"],
-  color: ["text"],
-  image: [],
-  file: [],
-  collectionRef: [],
-  multiCollectionRef: [],
-  puckContent: [],
-};
-
-export function canTransition(from: FieldType, to: FieldType): boolean {
-  if (from === to) return true;
-  return LOSSLESS_TYPE_TRANSITIONS[from].includes(to);
-}
+// The table and `canTransition` live in the node-free
+// `field-classification.ts` so the client-side schema editor can check a
+// retype before warning about it (#352). Re-exported here for existing
+// importers.
+export { canTransition, LOSSLESS_TYPE_TRANSITIONS } from "./field-classification";
 
 // ---------------------------------------------------------------------------
 // Counting affected items
