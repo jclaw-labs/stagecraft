@@ -206,6 +206,14 @@ describe("resolveTemplate — unmigrated content warnings", () => {
     ).toEqual([]);
   });
 
+  it("doesn't read a declared array field's rows as blocks", () => {
+    // NewsletterSignup's extra form fields carry a `type` of their own.
+    // `"url"` isn't used as a block type elsewhere in this file, so the
+    // once-per-message dedupe can't hide a warning here.
+    const additionalFields = [{ label: "Website", name: "WEBSITE", type: "url" }];
+    expect(warningsFor([{ type: "NewsletterSignup", props: { additionalFields } }])).toEqual([]);
+  });
+
   it("treats an allowed Collection block as known and a disallowed one as unknown", () => {
     const block = { type: "TourDatesView", props: { sourceCollection: "tour-dates" } };
     expect(warningsFor([block], ["tour-dates"])).toEqual([]);

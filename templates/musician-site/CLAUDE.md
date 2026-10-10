@@ -23,7 +23,8 @@ bodies (#349). Puck `Config` objects are assembled in two places only:
 (page, body, item template, detail template), and `buildRenderConfig`
 (`src/puck/render-config.tsx`) for `<Render>`. Nothing on the render path
 imports `build-config.tsx`, so the template pickers and Collection block
-inspectors stay out of the public page's module graph. Don't auto-generate either from Zod; don't share block
+inspectors stay out of the public page's module graph
+(`src/puck/render-path.test.ts` fails if one comes back). Don't auto-generate either from Zod; don't share block
 schemas with the legacy template. ADR-007 explicitly exempts Puck
 block configs from the cross-system SSOT rule in the top-level
 `CLAUDE.md` §1.
@@ -78,8 +79,9 @@ src/
                             fields, drawer categories
     build-config.tsx        buildPuckConfig: editor configs per
                             surface (pickers, drawer per surface)
-    render-config.tsx       buildRenderConfig + CollectionBlockRender +
-                            <TemplateRenderer>: the render path
+    render-config.tsx       buildRenderConfig + CollectionBlockRender:
+                            the render path (<TemplateRenderer> is
+                            walk + render in one, used by the tests)
     ImagePickerField.tsx    Custom field for image picking
   lib/
     fs-helpers.ts           Shared filesystem primitives used by every

@@ -79,7 +79,7 @@ const FORM_BLOCKS: ReadonlyArray<BlockName> = ["ContactForm", "NewsletterSignup"
  * would repeat down the list. Item bodies hide the forms too: a contact or
  * newsletter form belongs on a page, not inside one post.
  */
-export const HIDDEN_BLOCKS: Readonly<Record<EditorSurface, ReadonlyArray<BlockName>>> = {
+const HIDDEN_BLOCKS: Readonly<Record<EditorSurface, ReadonlyArray<BlockName>>> = {
   page: [],
   "detail-template": [],
   body: FORM_BLOCKS,

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CollectionDef } from "@/lib/collections";
 
-import { buildPuckConfig, HIDDEN_BLOCKS } from "./build-config";
+import { buildPuckConfig } from "./build-config";
 import { BLOCK_CATEGORIES, BLOCKS, PAGE_ROOT } from "./config";
 
 type AnyBlock = ComponentConfig<Record<string, unknown>>;
@@ -120,6 +120,12 @@ describe("buildPuckConfig — item body editor", () => {
     );
     expect(categories(config).forms).toBeUndefined();
     expect(categories(config).layout?.components).toContain("FullscreenSection");
+    // Hidden, not dropped into Puck's visible "Other" group.
+    expect(categories(config).hidden).toEqual({
+      components: ["ContactForm", "NewsletterSignup"],
+      visible: false,
+    });
+    expect(categorisedBlocks(config)).toEqual(libraryNames);
   });
 });
 
@@ -135,7 +141,10 @@ describe("buildPuckConfig — template editors", () => {
   it("leaves forms and FullscreenSection out of the item template's drawer", () => {
     const hidden = ["ContactForm", "FullscreenSection", "NewsletterSignup"];
     expect(drawerBlocks(item)).toEqual(libraryNames.filter((n) => !hidden.includes(n)));
-    expect(categories(item).hidden).toEqual({ components: HIDDEN_BLOCKS["item-template"], visible: false });
+    expect(categories(item).hidden).toEqual({
+      components: ["ContactForm", "NewsletterSignup", "FullscreenSection"],
+      visible: false,
+    });
     // Hidden, not unregistered: a template that already holds one still
     // loads, and nothing falls through to Puck's visible "Other" group.
     expect(c.ContactForm).toBe(LIBRARY.ContactForm);

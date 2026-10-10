@@ -105,6 +105,13 @@ function resolveBlocks(
   return out;
 }
 
+function isDeclaredArrayField(blockType: string, propName: string): boolean {
+  const fields = (BLOCKS as Record<string, { fields?: Record<string, { type?: unknown }> }>)[
+    blockType
+  ]?.fields;
+  return fields?.[propName]?.type === "array";
+}
+
 function isBlockInstance(value: unknown): value is BlockInstance {
   return (
     !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string"
@@ -152,9 +159,12 @@ function resolveBlock(
   }
   // Recurse into every array of nested blocks. Any prop may be a slot —
   // Section.children, Columns.col1…col4, Stack.children — so the walk is
-  // structural rather than per-block.
+  // structural rather than per-block. A prop the library declares as a
+  // Puck `array` field is data, even when its rows carry a `type`
+  // (NewsletterSignup's `additionalFields: [{ name, type: "text" }]`).
   for (const [key, value] of Object.entries(props)) {
     if (!Array.isArray(value) || !value.some(isBlockInstance)) continue;
+    if (isDeclaredArrayField(block.type, key)) continue;
     (next ??= { ...props })[key] = resolveBlocks(value, ctx, collectionBlocks);
   }
   return next ? { ...block, props: next } : block;
