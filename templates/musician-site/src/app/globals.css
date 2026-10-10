@@ -133,7 +133,7 @@
    canvas (`#frame-root`, which renders the same blocks without the
    wrapper), so the editor uses the published box model and margins
    while the admin and Puck chrome keep theirs. (The canvas still lacks
-   the theme tokens set under `.stagecraft-site`; see #392.) */
+   the theme tokens set under `.stagecraft-site`; see #395.) */
 body:has(> .stagecraft-site) {
   margin: 0;
   background: var(--color-background);

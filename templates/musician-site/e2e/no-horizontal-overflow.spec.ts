@@ -32,23 +32,25 @@ function isPublicPath(pathname: string): boolean {
 /**
  * Returns a description of the overflow, or null when the page fits.
  *
- * `overflow-x: hidden` (or `clip`) on `html`, `body` or the
- * `.stagecraft-site` wrapper every public page renders in would hide a
- * too-wide page from the scrollWidth check while still clipping its
- * content, so that counts as a failure too. Elements inside the wrapper
- * are left alone: image frames and carousels clip on purpose.
+ * Any `overflow-x` other than `visible` on `html`, `body` or the
+ * `.stagecraft-site` wrapper every public page renders in counts as a
+ * failure too: `hidden` or `clip` would clip a too-wide page, and `auto`
+ * or `scroll` would scroll it inside the wrapper, both out of sight of the
+ * scrollWidth check. Elements inside the wrapper are left alone: image
+ * frames and carousels clip on purpose.
  */
 async function overflowAt(page: Page, pathname: string, width: number): Promise<string | null> {
-  const { scrollWidth, clientWidth, clipped } = await page.evaluate(() => ({
+  const { scrollWidth, clientWidth, contained } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
-    clipped: (["html", "body", ".stagecraft-site"] as const).filter((selector) => {
+    contained: (["html", "body", ".stagecraft-site"] as const).flatMap((selector) => {
       const el = document.querySelector(selector);
-      return el !== null && ["hidden", "clip"].includes(getComputedStyle(el).overflowX);
+      const overflowX = el ? getComputedStyle(el).overflowX : "visible";
+      return overflowX === "visible" ? [] : [`overflow-x: ${overflowX} on ${selector}`];
     }),
   }));
-  if (clipped.length > 0) {
-    return `${pathname} at ${width}px: overflow-x clipped on ${clipped.join(", ")}`;
+  if (contained.length > 0) {
+    return `${pathname} at ${width}px: ${contained.join(", ")}`;
   }
   return scrollWidth > clientWidth ? `${pathname} at ${width}px: ${scrollWidth}px wide` : null;
 }
