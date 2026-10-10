@@ -84,7 +84,11 @@ export async function GET(
               );
               provisioned = true;
             } else if (site.deployTarget === "netlify" && site.netlifySiteId) {
-              await setNetlifyEnvVars(session.user.id, site.netlifySiteId, envVars);
+              // A reconnect or re-key finds these keys already set, and
+              // Netlify's bulk POST only creates, so overwrite them.
+              await setNetlifyEnvVars(session.user.id, site.netlifySiteId, envVars, {
+                replace: true,
+              });
               await triggerNetlifyBuild(session.user.id, site.netlifySiteId);
               provisioned = true;
             }

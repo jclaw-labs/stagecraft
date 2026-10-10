@@ -133,7 +133,11 @@ async function provisionBrokerSecret(args: {
       if (!args.site.netlifySiteId) {
         return { ok: false, reason: "Site has no Netlify site id on file" };
       }
-      await setNetlifyEnvVars(args.userId, args.site.netlifySiteId, envVars);
+      // A reconnect or re-key finds these keys already set, and Netlify's
+      // bulk POST only creates, so overwrite them.
+      await setNetlifyEnvVars(args.userId, args.site.netlifySiteId, envVars, {
+        replace: true,
+      });
       await triggerNetlifyBuild(args.userId, args.site.netlifySiteId);
       return { ok: true };
     }

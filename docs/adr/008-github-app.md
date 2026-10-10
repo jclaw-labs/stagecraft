@@ -121,7 +121,7 @@ The platform exposes `POST /api/github/webhook` to receive App lifecycle events.
 
 - **New platform endpoints.** `/api/publish-token` (POST, token broker — landed in PR #72), `/api/github/install-callback` (GET, install completion), `/api/github/webhook` (POST, lifecycle events).
 - **`Site` schema gains fields** (landed in PR #72): `githubInstallationId Int?`, `githubAppSuspended Boolean`, `brokerSecretHash String?`. (`githubRepoOwner` and `githubRepoName` already existed.)
-- **Three GitHub App env vars enter the platform's environment:** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`. The install URL is not configurable: it's the constant `STAGECRAFT_GITHUB_APP_INSTALL_URL` in `apps/web/src/lib/install-url.ts`, built from the App slug.
+- **Four env vars enter the platform's environment:** the GitHub App's `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_WEBHOOK_SECRET`, plus `STAGECRAFT_STATE_SIGNING_SECRET`, which signs the install `state`. The install URL is not configurable: it's the constant `STAGECRAFT_GITHUB_APP_INSTALL_URL` in `apps/web/src/lib/install-url.ts`, built from the App slug.
 - **Octokit becomes a platform dependency.** `@octokit/auth-app` mints installation tokens; `@octokit/rest` issues commits. Artist sites only see `@octokit/rest` configured with the broker-issued token — not the App auth flow.
 - **First-time artist onboarding gains a step:** install GitHub App after platform sign-in. Platform UI needs a "Connect GitHub App" CTA and a one-time "broker secret reveal" view.
 - **Repo transfers (artist moves the repo to a new owner) require reinstall.** Documented behavior; the platform detects via `installation_repositories.removed` and prompts.

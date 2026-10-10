@@ -253,6 +253,7 @@ describe("GET /api/github/install-callback", () => {
         STAGECRAFT_SITE_ID: "site-1",
         STAGECRAFT_BROKER_SECRET: expect.stringMatching(/^scbs_[0-9a-f]{64}$/),
       },
+      { replace: true },
     );
     expect(triggerNetlifyBuildMock).toHaveBeenCalledWith("user-1", "netlify-abc");
     expect(setVercelEnvVarsMock).not.toHaveBeenCalled();
