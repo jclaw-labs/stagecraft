@@ -5,7 +5,7 @@ import { SIGN_IN_HREF } from "../_components/site-links";
 import styles from "./examples.module.css";
 
 export const metadata: Metadata = {
-  title: "What's included — Stagecraft",
+  title: "What’s included — Stagecraft",
   description:
     "What a Stagecraft site can start with: home, music, updates, about, and contact pages, a tour-date list, and themes to set the look.",
 };
