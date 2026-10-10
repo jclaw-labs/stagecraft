@@ -97,7 +97,7 @@ describe("puck.css import boundary", () => {
  * comments, missing semicolons and template-literal `import()` calls read
  * the way the bundler reads them.
  */
-function valueImports(source: string): string[] {
+function valueImports(source: string, fileName = "module.tsx"): string[] {
   const specifiers: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -135,7 +135,9 @@ function valueImports(source: string): string[] {
     }
     ts.forEachChild(node, visit);
   };
-  visit(ts.createSourceFile("module.tsx", source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX));
+  // `<T>(x) => …` and `<T>value` only parse as TypeScript outside TSX.
+  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  visit(ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, kind));
   return specifiers;
 }
 
@@ -172,7 +174,7 @@ function pathToPuckMainEntry(entry: string): string[] | null {
   const visit = (file: string): string[] | null => {
     if (seen.has(file)) return null;
     seen.add(file);
-    const imports = valueImports(fs.readFileSync(file, "utf-8"));
+    const imports = valueImports(fs.readFileSync(file, "utf-8"), file);
     if (imports.includes(PUCK_MAIN_ENTRY)) return [file];
     for (const specifier of imports) {
       const next = resolveLocal(specifier, file);
@@ -251,6 +253,11 @@ describe("@puckeditor/core value-import boundary", () => {
     expect(
       valueImports('export type P = { a: string }\nimport { Render } from "@puckeditor/core"'),
     ).toEqual([PUCK_MAIN_ENTRY]);
+  });
+
+  it("parses .ts modules without JSX, so generic arrows don't hide later imports", () => {
+    const source = 'const id = <T>(x: T) => x;\nexport { Render } from "@puckeditor/core";';
+    expect(valueImports(source, "helper.ts")).toEqual([PUCK_MAIN_ENTRY]);
   });
 
   it("resolves a .js-suffixed local specifier to its TypeScript source", () => {
