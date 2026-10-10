@@ -106,6 +106,7 @@ For production or CI, set the variables below directly in your hosting environme
 |---|---|
 | `STAGECRAFT_CREDENTIALS_OLD_KEYS` | Retired credential keys, comma-separated, same format as `STAGECRAFT_CREDENTIALS_KEY`. Used only to decrypt values written before a rotation ([§9](#9-credential-encryption)). |
 | `STAGECRAFT_CREDENTIALS_REQUIRED` | `true` or `false`. Whether a missing `STAGECRAFT_CREDENTIALS_KEY` makes credential writes fail instead of storing plaintext. Unset, it is on when `NODE_ENV=production` and off otherwise. Set `false` only for a deliberate deploy before the key exists ([§9](#when-the-key-is-missing)). |
+| `STAGECRAFT_CREDENTIALS_ACCEPT_V1` | `true` or `false`. Whether legacy, row-unbound `enc:v1:` credentials still decrypt. Unset or empty, they do (`true`); any other value refuses them. Set `false` once the backfill has left no v1 values, on both hosts ([§9](#first-rollout), step 5). |
 | `DATABASE_DRIVER` | How Prisma connects. Unset, empty or `engine`: Prisma's built-in TCP engine, whatever the `DATABASE_URL` host. `neon`: opt in to the Neon driver adapter (WebSockets), needed on Cloudflare Workers; it requires `DATABASE_URL` and a global `WebSocket` (Node 22+ or Workers) and fails at startup without them. Any other value fails at startup. |
 
 ---
@@ -480,13 +481,23 @@ Before deploying a build from issue #370 or later with an existing key, check th
 npx tsx -e 'import("./apps/web/src/lib/credential-crypto.ts").then((m) => m.currentCredentialKeyId()).then((id) => { if (!id) throw new Error("STAGECRAFT_CREDENTIALS_KEY is not set"); console.log("ok"); }).catch((e) => { console.error(e.message); process.exit(1); })'
 ```
 
-It checks `STAGECRAFT_CREDENTIALS_KEY` and every entry of `STAGECRAFT_CREDENTIALS_OLD_KEYS` exactly as the app will, including that the base64 is canonical and that no key id appears twice, and its error names the variable and key id, never the key. If it doesn't print `ok`, re-encode the same 32 bytes as standard base64 under the same key id. The bytes don't change, so values already encrypted under it still decrypt:
+It checks `STAGECRAFT_CREDENTIALS_KEY` and every entry of `STAGECRAFT_CREDENTIALS_OLD_KEYS` exactly as the app will, including that the base64 is canonical and that no key id appears twice, and its error names the variable and key id, never the key. If it doesn't print `ok`, re-encode the same 32 bytes as standard base64 under the same key id. The bytes don't change, so values already encrypted under it still decrypt. Read the key to re-encode (the current key, or one entry of `STAGECRAFT_CREDENTIALS_OLD_KEYS` on its own) into a separate variable, so the exported `STAGECRAFT_CREDENTIALS_KEY` and `STAGECRAFT_CREDENTIALS_OLD_KEYS` stay as they were and the check above still means what it says when you re-run it:
 
 ```bash
-node -e 'const s=process.env.STAGECRAFT_CREDENTIALS_KEY.trim();const i=s.indexOf(":");const b=Buffer.from(s.slice(i+1),"base64");if(i<1||b.length!==32){console.error("not <id>:<32 bytes>");process.exit(1)}console.log(s.slice(0,i)+":"+b.toString("base64"))'
+printf 'Key to re-encode: ' && read -rs KEY_TO_REENCODE && echo
+KEY_TO_REENCODE="$KEY_TO_REENCODE" node -e 'const s=process.env.KEY_TO_REENCODE.trim();const i=s.indexOf(":");const b=Buffer.from(s.slice(i+1),"base64");if(i<1||b.length!==32){console.error("not <id>:<32 bytes>");process.exit(1)}console.log(s.slice(0,i)+":"+b.toString("base64"))'
+unset KEY_TO_REENCODE
 ```
 
-For an entry of `STAGECRAFT_CREDENTIALS_OLD_KEYS`, read that entry alone into `STAGECRAFT_CREDENTIALS_KEY` at the hidden prompt and run the same command. Put the printed value in 1Password and set it on both hosts in place of the old one (with the build that is already deployed, which reads either form), and re-run the check on it, before deploying this build.
+Put the printed value in 1Password and set it on both hosts in place of the old one (with the build that is already deployed, which reads either form). Then re-run the check on the values the hosts now have before deploying this build. To check them without overwriting your shell's variables, do it in a subshell, which reads them at hidden prompts and discards them when it exits:
+
+```bash
+(
+  printf 'STAGECRAFT_CREDENTIALS_KEY: ' && read -rs STAGECRAFT_CREDENTIALS_KEY && echo && export STAGECRAFT_CREDENTIALS_KEY
+  printf 'STAGECRAFT_CREDENTIALS_OLD_KEYS (Enter if none): ' && read -rs STAGECRAFT_CREDENTIALS_OLD_KEYS && echo && export STAGECRAFT_CREDENTIALS_OLD_KEYS
+  npx tsx -e 'import("./apps/web/src/lib/credential-crypto.ts").then((m) => m.currentCredentialKeyId()).then((id) => { if (!id) throw new Error("STAGECRAFT_CREDENTIALS_KEY is not set"); console.log("ok"); }).catch((e) => { console.error(e.message); process.exit(1); })'
+)
+```
 
 ### Setting the variables for the backfill
 
@@ -518,7 +529,7 @@ Alternatively, keep them in a file outside the repo created with `umask 077` (or
    npx tsx apps/web/scripts/encrypt-credentials.ts
    ```
 
-   It encrypts plaintext values as v2 and leaves v2 values alone. Only with `--upgrade-v1`, which is for [Upgrading from v1](#upgrading-from-v1) alone, does it upgrade `enc:v1:` values to v2 (decrypting with whichever configured key they were written under, re-encrypting under the current one); without it, it lists each v1 value as undecryptable, leaves it and exits non-zero. A v1 value decrypts in any row, so upgrading one binds it to whatever row it sits in: only pass the flag before step 5. A second run finds nothing to do, so it is safe to re-run, and it refuses to run without a key. A row rewritten by a sign-in during the run is reported as a conflict and left alone (the app already encrypted it). It also test-decrypts every encrypted value. Any it can't decrypt (key not configured, a malformed value, or a v2 value sitting in a row it wasn't written for) are listed by table, row id and column, left as they are, and make the run exit non-zero once every other row is done. So does an `IntegrationAccount` row whose `provider` isn't one the app knows. Add the missing key to `STAGECRAFT_CREDENTIALS_OLD_KEYS`, or have those users reconnect, and re-run.
+   It encrypts plaintext values as v2 and leaves v2 values alone. Only with `--upgrade-v1`, which is for [Upgrading from v1](#upgrading-from-v1) alone, does it upgrade `enc:v1:` values to v2 (decrypting with whichever configured key they were written under, re-encrypting under the current one); without it, it lists each v1 value as `legacy v1 value, left as is`, leaves it, counts it under `v1 left as is` (not `undecryptable`: its key is fine) and exits non-zero. That line is not a prompt to re-run with the flag: whether to pass it depends only on where you are in the rollout. A v1 value decrypts in any row, so upgrading one binds it to whatever row it sits in: only pass the flag before step 5. A second run finds nothing to do, so it is safe to re-run, and it refuses to run without a key. A row rewritten by a sign-in during the run is reported as a conflict and left alone (the app already encrypted it). It also test-decrypts every encrypted value. Any it can't decrypt (key not configured, a malformed value, or a v2 value sitting in a row it wasn't written for) are listed by table, row id and column, left as they are, and make the run exit non-zero once every other row is done. So does an `IntegrationAccount` row whose `provider` isn't one the app knows. Add the missing key to `STAGECRAFT_CREDENTIALS_OLD_KEYS`, or have those users reconnect, and re-run.
 4. **Check** nothing is left in plaintext or v1; both counts should be 0:
 
    ```sql
@@ -531,7 +542,7 @@ Alternatively, keep them in a file outside the repo created with `umask 077` (or
       OR (id_token IS NOT NULL AND id_token NOT LIKE 'enc:v2:%');
    ```
 
-5. **Stop accepting v1.** Once both counts are 0 on every database the hosts read, set `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` on Netlify (site environment variables, then redeploy) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_ACCEPT_V1`, [§8](#worker-secrets)). From then on the app refuses `enc:v1:` values, so an old v1 ciphertext pasted into a row no longer decrypts, and the row binding covers every stored credential. Unset (the default) or `true` keeps accepting them; any other value refuses them. A v1 value that turns up later (a restore from an older backup, say) fails to read with an error naming the flag, and the backfill lists it as undecryptable and leaves it: have that user reconnect. Never pass `--upgrade-v1` after this step.
+5. **Stop accepting v1.** Once both counts are 0 on every database the hosts read, set `STAGECRAFT_CREDENTIALS_ACCEPT_V1=false` on Netlify (site environment variables, then redeploy) and as a Worker secret (`npx wrangler secret put STAGECRAFT_CREDENTIALS_ACCEPT_V1`, [§8](#worker-secrets)). From then on the app refuses `enc:v1:` values, so an old v1 ciphertext pasted into a row no longer decrypts, and the row binding covers every stored credential. Unset (the default) or `true` keeps accepting them; any other value refuses them. A v1 value that turns up later (a restore from an older backup, say) fails to read with an error naming the flag, and the backfill lists it as `legacy v1 value, left as is`, counts it under `v1 left as is` and leaves it: have that user reconnect. Never pass `--upgrade-v1` after this step, whatever the backfill's output says.
 
    Until this step, the binding protects only values written as v2. Someone with database write access could have copied a v1 value into their own row before the backfill ran, and the backfill would then have re-encrypted that copy as v2 bound to their row. If database write access may have been exposed before step 5, have users reconnect their integrations, or revoke and reissue the tokens with the providers, so the stored tokens are new ones.
 
@@ -541,6 +552,12 @@ After step 3, don't remove the key or roll the app back to a build from before e
 
 If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails on both hosts. Then deploy this build to both hosts (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, passing `--upgrade-v1` to both backfill commands in step 3, and finish with step 5.
 
+**Mind the deploy timing across hosts.** A host still running the #354 build doesn't know `enc:v2:`: it takes a v2 value for plaintext and sends the ciphertext to GitHub, Netlify, Vercel or Resend as the bearer token, so that integration call fails. From the moment the first host runs this build, every sign-in and connect writes v2, so every host that reads that database has to be on this build too. Three ways to end up with a #354 build reading v2 values:
+
+- **A staggered deploy.** When Netlify and the Worker read the same database, deploy this build to both back to back, and run the backfill only once both are on it. Between the two deploys, tokens the new host writes fail on the old one; the gap closes when the second deploy lands.
+- **A Netlify instant rollback.** Publishing an older deploy from the Deploys list puts that build live without rebuilding it. Once this build has written any v2 value, never roll back to a #354 deploy (or anything older); fix forward instead. The same goes for a Worker rollback (`wrangler rollback`) when it reads that database.
+- **A preview deploy against the production database.** On the production Netlify site, `STAGECRAFT_CREDENTIALS_KEY` and `DATABASE_URL` are both set for the Production context only: Deploy Previews and Branch deploys get an empty `DATABASE_URL` and no key, so they never get production's variables, and a preview built from an older branch can't read production's credentials. Keep it that way: a preview or branch deploy must never point at the production database, on Netlify or on the Worker ([§8](#worker-secrets)).
+
 ### Rotating the key
 
 Netlify and the Cloudflare Worker share one database but are deployed separately, so for a while one host can be running with the new key and the other with the old one. Whatever one host writes, the other must be able to read. Either do the rotation in two deploys, as below, or change both hosts' variables and deploy both close together, accepting that a token written by one host fails on the other until the second deploy lands. The two-step version has no such gap:
@@ -549,7 +566,7 @@ Netlify and the Cloudflare Worker share one database but are deployed separately
 2. **Make the new key readable everywhere, then promote it.**
    1. Append the new key to `STAGECRAFT_CREDENTIALS_OLD_KEYS` (comma-separated) on Netlify *and* the Worker, leaving `STAGECRAFT_CREDENTIALS_KEY` unchanged. Deploy both. Nothing writes with the new key yet, but both hosts can now decrypt it.
    2. On both hosts, set `STAGECRAFT_CREDENTIALS_KEY` to the new key, and in `STAGECRAFT_CREDENTIALS_OLD_KEYS` replace the new key with the old current one (a key id may appear only once across the two variables). Deploy both. Whichever host deploys first writes with the new key, and the other can already read it.
-3. **Retire the old key** by re-encrypting under the new one: run the backfill with `--rotate`, with both variables exported as above. Besides encrypting plaintext as in the first rollout, it re-encrypts v2 values under any old key with the current one. Don't pass `--upgrade-v1`: a v1 value at this point is one the first rollout didn't produce, so the run lists it as undecryptable instead of binding it to the row it was found in. Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS` on both hosts, and deploy, once that run exits 0 and reports `0 undecryptable` for both tables; a non-zero exit means some values are still under a key the run couldn't use (they are listed by row).
+3. **Retire the old key** by re-encrypting under the new one: run the backfill with `--rotate`, with both variables exported as above. Besides encrypting plaintext as in the first rollout, it re-encrypts v2 values under any old key with the current one. Don't pass `--upgrade-v1`: a v1 value at this point is one the first rollout didn't produce, so the run lists it under `v1 left as is` instead of binding it to the row it was found in (have that user reconnect). Only remove the old key from `STAGECRAFT_CREDENTIALS_OLD_KEYS` on both hosts, and deploy, once that run exits 0 and reports `0 v1 left as is, 0 undecryptable` for both tables; a non-zero exit means some values are still under a key the run couldn't use (they are listed by row).
 
 ## 10. Database Migrations
 

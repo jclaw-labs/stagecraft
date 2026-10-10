@@ -8,12 +8,13 @@
  * - Plaintext values are encrypted in the row-bound `enc:v2:` format.
  * - Legacy `enc:v1:` values (encrypted, but not bound to their row) are
  *   decrypted and re-encrypted as v2 under the current key, but only with
- *   `--upgrade-v1`. Without it they are reported as undecryptable and left
- *   as they are, so a v1 copy pasted into another row after the v1 cut-off
+ *   `--upgrade-v1`. Without it they are left as they are and counted on
+ *   their own (`v1LeftAsIs`, not `undecryptable`: nothing is wrong with
+ *   their key), so a v1 copy pasted into another row after the v1 cut-off
  *   isn't re-bound to that row by a later run (a `--rotate`, a re-run)
  *   whatever the operator's shell has for STAGECRAFT_CREDENTIALS_ACCEPT_V1.
  *   With `--upgrade-v1`, STAGECRAFT_CREDENTIALS_ACCEPT_V1=false still
- *   refuses them.
+ *   refuses them, and they are counted the same way.
  * - `enc:v2:` values are left alone, unless `--rotate` is given and they are
  *   under an older key, in which case they are re-encrypted with the
  *   current one, after which that old key can be dropped from
@@ -28,8 +29,9 @@
  * key isn't configured, it's malformed, or a v2 value sits in a row it
  * wasn't written for) is logged by row and column, counted as undecryptable
  * and skipped, so the rest of the run still happens; the run then exits
- * non-zero. So does an `IntegrationAccount` row whose `provider` isn't a
- * known provider, since its values can't be bound to it.
+ * non-zero. So does a v1 value left as it is, and an `IntegrationAccount`
+ * row whose `provider` isn't a known provider, since its values can't be
+ * bound to it.
  *
  * Usage, from the repo root, with DATABASE_URL and STAGECRAFT_CREDENTIALS_KEY
  * (plus STAGECRAFT_CREDENTIALS_OLD_KEYS if any) exported with the deployed
@@ -42,11 +44,13 @@ import type { PrismaClient } from "@stagecraft/db";
 import { isIntegrationProvider } from "@stagecraft/shared";
 import {
   ACCOUNT_TOKEN_COLUMNS,
+  CREDENTIALS_ACCEPT_V1_ENV,
   CREDENTIALS_KEY_ENV,
   CREDENTIALS_OLD_KEYS_ENV,
   INTEGRATION_TOKEN_COLUMNS,
   credentialFormat,
   credentialKeyId,
+  credentialsAcceptV1,
   currentCredentialKeyId,
   decryptCredential,
   encryptCredential,
@@ -77,6 +81,12 @@ export interface TableStats {
   valuesRotated: number;
   /** v2 values left as they are. */
   valuesAlreadyEncrypted: number;
+  /**
+   * Legacy v1 values left as they are: run without `--upgrade-v1`, or with
+   * STAGECRAFT_CREDENTIALS_ACCEPT_V1=false. Counted apart from
+   * `undecryptable` so a skipped upgrade doesn't read as a missing key.
+   */
+  v1LeftAsIs: number;
   undecryptable: number;
   /** Values in rows whose `provider` isn't known, so they can't be bound. */
   unbindable: number;
@@ -99,6 +109,7 @@ function emptyStats(): TableStats {
     valuesUpgraded: 0,
     valuesRotated: 0,
     valuesAlreadyEncrypted: 0,
+    v1LeftAsIs: 0,
     undecryptable: 0,
     unbindable: 0,
     conflicts: 0,
@@ -142,8 +153,21 @@ async function planRow<C extends AccountTokenColumn | IntegrationTokenColumn>(
       const format = credentialFormat(value);
       if (format === "v1" && !upgradeV1) {
         // Checked before decrypting: an unbound v1 value decrypts in any row.
-        stats.undecryptable++;
-        report(`${row.id}.${column}: legacy v1 value, not upgraded without --upgrade-v1 (docs/runbook.md §9)`);
+        // Worded so it doesn't read as "re-run with the flag": after runbook
+        // §9 step 5 that would bind a pasted copy to the row it sits in.
+        stats.v1LeftAsIs++;
+        report(
+          `${row.id}.${column}: legacy v1 value, left as is. Upgrading it is for ` +
+            `"Upgrading from v1" before runbook §9 step 5 only; after step 5, have the user reconnect`,
+        );
+        continue;
+      }
+      if (format === "v1" && !credentialsAcceptV1()) {
+        stats.v1LeftAsIs++;
+        report(
+          `${row.id}.${column}: legacy v1 value, left as is: ${CREDENTIALS_ACCEPT_V1_ENV}=false ` +
+            `refuses it. Have the user reconnect (docs/runbook.md §9)`,
+        );
         continue;
       }
       plaintext = await decryptCredential(value, field);
@@ -219,7 +243,8 @@ async function backfillTable<
   log(
     `${name}: ${stats.rowsScanned} rows, ${stats.valuesEncrypted} plaintext encrypted, ` +
       `${stats.valuesUpgraded} v1 upgraded to v2, ${stats.valuesRotated} rotated, ` +
-      `${stats.valuesAlreadyEncrypted} already v2, ${stats.undecryptable} undecryptable, ` +
+      `${stats.valuesAlreadyEncrypted} already v2, ${stats.v1LeftAsIs} v1 left as is, ` +
+      `${stats.undecryptable} undecryptable, ` +
       `${stats.unbindable} unbindable, ${stats.conflicts} conflicts` +
       (options.dryRun ? " (dry run: nothing written)" : ""),
   );
@@ -295,8 +320,9 @@ export async function encryptStoredCredentials(
 }
 
 /**
- * Fail the run when any stored value couldn't be decrypted or bound to its
- * row, after the per-row lines naming them have been logged.
+ * Fail the run when any stored value couldn't be decrypted, was a v1 value
+ * left as it is, or couldn't be bound to its row, after the per-row lines
+ * naming them have been logged.
  */
 export function assertAllDecryptable(stats: BackfillStats): void {
   const undecryptable = stats.account.undecryptable + stats.integrationAccount.undecryptable;
@@ -304,6 +330,13 @@ export function assertAllDecryptable(stats: BackfillStats): void {
     throw new Error(
       `${undecryptable} stored value(s) could not be decrypted (listed above); ` +
         `configure their key in ${CREDENTIALS_OLD_KEYS_ENV} or have those users reconnect`,
+    );
+  }
+  const v1LeftAsIs = stats.account.v1LeftAsIs + stats.integrationAccount.v1LeftAsIs;
+  if (v1LeftAsIs > 0) {
+    throw new Error(
+      `${v1LeftAsIs} legacy v1 value(s) were left as they are (listed above). ` +
+        `Before runbook §9 step 5 they are upgraded by "Upgrading from v1"; after it, have those users reconnect`,
     );
   }
   const unbindable = stats.account.unbindable + stats.integrationAccount.unbindable;

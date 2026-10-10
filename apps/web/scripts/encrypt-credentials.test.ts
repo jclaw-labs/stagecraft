@@ -106,6 +106,7 @@ const ZERO: TableStats = {
   valuesUpgraded: 0,
   valuesRotated: 0,
   valuesAlreadyEncrypted: 0,
+  v1LeftAsIs: 0,
   undecryptable: 0,
   unbindable: 0,
   conflicts: 0,
@@ -421,13 +422,43 @@ describe("encryptStoredCredentials without --upgrade-v1", () => {
 
     const stats = await encryptStoredCredentials(db, { rotate: true, log: (line) => lines.push(line) });
 
-    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, undecryptable: 1 });
+    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, v1LeftAsIs: 1 });
     expect(integrationAccount.store[0].accessToken).toBe(victimsV1);
     expect(integrationAccount.updateMany).not.toHaveBeenCalled();
     expect(lines).toContainEqual(
-      expect.stringContaining("IntegrationAccount attacker.accessToken: legacy v1 value, not upgraded without --upgrade-v1"),
+      expect.stringContaining("IntegrationAccount attacker.accessToken: legacy v1 value, left as is"),
     );
-    expect(() => assertAllDecryptable(stats)).toThrow(/could not be decrypted/);
+    expect(() => assertAllDecryptable(stats)).toThrow(/^1 legacy v1 value\(s\) were left as they are/);
+  });
+
+  it("doesn't word the per-row line as an instruction to re-run with --upgrade-v1", async () => {
+    const v1 = encryptV1ForTests("r", KEY_A);
+    const { db } = makeDb([], [integrationRow("int1", { accessToken: v1 })]);
+    const lines: string[] = [];
+
+    await encryptStoredCredentials(db, { log: (line) => lines.push(line) });
+
+    const rowLine = lines.find((line) => line.startsWith("IntegrationAccount int1.accessToken"));
+    expect(rowLine).toBeDefined();
+    expect(rowLine).not.toContain("--upgrade-v1");
+    expect(rowLine).toMatch(/after step 5, have the user reconnect/);
+  });
+
+  it("counts v1 values apart from undecryptable ones in the summary", async () => {
+    const v1 = encryptV1ForTests("r", KEY_A);
+    const { db } = makeDb(
+      [],
+      [
+        integrationRow("int1", { accessToken: v1 }),
+        integrationRow("int2", { accessToken: "enc:v2:gone:aaaa:bbbb:cccc" }),
+      ],
+    );
+    const lines: string[] = [];
+
+    const stats = await encryptStoredCredentials(db, { log: (line) => lines.push(line) });
+
+    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 2, v1LeftAsIs: 1, undecryptable: 1 });
+    expect(lines).toContainEqual(expect.stringContaining("1 v1 left as is, 1 undecryptable"));
   });
 
   it("lists a v1 value on a dry run too", async () => {
@@ -436,12 +467,12 @@ describe("encryptStoredCredentials without --upgrade-v1", () => {
 
     const stats = await encryptStoredCredentials(db, { dryRun: true });
 
-    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, valuesEncrypted: 1, undecryptable: 1 });
+    expect(stats.integrationAccount).toEqual({ ...ZERO, rowsScanned: 1, valuesEncrypted: 1, v1LeftAsIs: 1 });
   });
 });
 
 describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () => {
-  it("doesn't upgrade a v1 value even with --upgrade-v1: it lists it as undecryptable and leaves it", async () => {
+  it("doesn't upgrade a v1 value even with --upgrade-v1: it lists it as a v1 value and leaves it", async () => {
     vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "false");
     const v1 = encryptV1ForTests("ghp_old", KEY_A);
     const { db, integrationAccount } = makeDb(
@@ -456,14 +487,15 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
       ...ZERO,
       rowsScanned: 1,
       valuesEncrypted: 1,
-      undecryptable: 1,
+      v1LeftAsIs: 1,
     });
     expect(integrationAccount.store[0].accessToken).toBe(v1);
     expect(lines).toContainEqual(
-      expect.stringContaining(`IntegrationAccount int1.accessToken: cannot decrypt`),
+      expect.stringContaining(
+        `IntegrationAccount int1.accessToken: legacy v1 value, left as is: ${CREDENTIALS_ACCEPT_V1_ENV}=false`,
+      ),
     );
-    expect(lines).toContainEqual(expect.stringContaining(CREDENTIALS_ACCEPT_V1_ENV));
-    expect(() => assertAllDecryptable(stats)).toThrow(/could not be decrypted/);
+    expect(() => assertAllDecryptable(stats)).toThrow(/legacy v1 value\(s\) were left as they are/);
   });
 });
 
@@ -484,6 +516,17 @@ describe("assertAllDecryptable", () => {
     expect(() =>
       assertAllDecryptable({ account: clean, integrationAccount: { ...clean, undecryptable: 1 } }),
     ).toThrow(CREDENTIALS_OLD_KEYS_ENV);
+  });
+
+  it("throws on v1 values left as they are without blaming a missing key", () => {
+    const check = () =>
+      assertAllDecryptable({
+        account: { ...clean, v1LeftAsIs: 1 },
+        integrationAccount: { ...clean, v1LeftAsIs: 1 },
+      });
+    expect(check).toThrow(/^2 legacy v1 value\(s\) were left as they are/);
+    expect(check).not.toThrow(CREDENTIALS_OLD_KEYS_ENV);
+    expect(check).not.toThrow("--upgrade-v1");
   });
 });
 
@@ -523,7 +566,7 @@ describe("main", () => {
     mockDb.prisma = { ...db, $disconnect: vi.fn(async () => {}) };
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(main(["--rotate"])).rejects.toThrow(/^1 stored value\(s\) could not be decrypted/);
+    await expect(main(["--rotate"])).rejects.toThrow(/^1 legacy v1 value\(s\) were left as they are/);
     expect(integrationAccount.store[0].accessToken).toBe(v1);
 
     await expect(main(["--upgrade-v1"])).resolves.toBeUndefined();
