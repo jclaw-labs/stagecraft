@@ -329,7 +329,7 @@ export async function encryptStoredCredentials(
  * left as it is, or couldn't be bound to its row, after the per-row lines
  * naming them have been logged.
  */
-export function assertAllDecryptable(stats: BackfillStats): void {
+export function assertBackfillComplete(stats: BackfillStats): void {
   const undecryptable = stats.account.undecryptable + stats.integrationAccount.undecryptable;
   if (undecryptable > 0) {
     throw new Error(
@@ -352,7 +352,7 @@ export function assertAllDecryptable(stats: BackfillStats): void {
   }
 }
 
-/** CLI entry point: parse flags, run the backfill against `@stagecraft/db`, fail on undecryptable values. */
+/** CLI entry point: parse flags, run the backfill against `@stagecraft/db`, fail on any value it couldn't decrypt, upgrade or bind. */
 export async function main(argv: string[]): Promise<void> {
   const known = new Set(["--dry-run", "--rotate", "--upgrade-v1"]);
   const unknown = argv.filter((arg) => !known.has(arg));
@@ -369,7 +369,7 @@ export async function main(argv: string[]): Promise<void> {
       upgradeV1: argv.includes("--upgrade-v1"),
       log: (line) => console.log(line),
     });
-    assertAllDecryptable(stats);
+    assertBackfillComplete(stats);
   } finally {
     await prisma.$disconnect();
   }

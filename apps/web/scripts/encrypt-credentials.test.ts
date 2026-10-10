@@ -17,7 +17,7 @@ import {
 } from "../src/lib/credential-crypto";
 import { encryptV1ForTests, newCredentialKey as newKey } from "../src/lib/__tests__/credential-test-helpers";
 import {
-  assertAllDecryptable,
+  assertBackfillComplete,
   encryptStoredCredentials,
   main,
   type CredentialStore,
@@ -256,7 +256,7 @@ describe("encryptStoredCredentials", () => {
     expect(stats.integrationAccount.unbindable).toBe(1);
     expect(integrationAccount.store[0].accessToken).toBe("plain");
     expect(lines).toContainEqual(expect.stringContaining("int1.accessToken: unknown provider"));
-    expect(() => assertAllDecryptable(stats)).toThrow(/unknown provider/);
+    expect(() => assertBackfillComplete(stats)).toThrow(/unknown provider/);
   });
 
   it("pages through rows in batches", async () => {
@@ -428,7 +428,7 @@ describe("encryptStoredCredentials without --upgrade-v1", () => {
     expect(lines).toContainEqual(
       expect.stringContaining("IntegrationAccount attacker.accessToken: legacy v1 value, left as is"),
     );
-    expect(() => assertAllDecryptable(stats)).toThrow(/^1 legacy v1 value\(s\) were left as they are/);
+    expect(() => assertBackfillComplete(stats)).toThrow(/^1 legacy v1 value\(s\) were left as they are/);
   });
 
   it("doesn't word the per-row line as an instruction to re-run with --upgrade-v1", async () => {
@@ -495,7 +495,7 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
         `IntegrationAccount int1.accessToken: legacy v1 value, left as is: ${CREDENTIALS_ACCEPT_V1_ENV}=false`,
       ),
     );
-    expect(() => assertAllDecryptable(stats)).toThrow(/legacy v1 value\(s\) were left as they are/);
+    expect(() => assertBackfillComplete(stats)).toThrow(/legacy v1 value\(s\) were left as they are/);
   });
 
   it("fails up front on a value other than true or false, instead of blaming a missing key", async () => {
@@ -527,28 +527,28 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
   });
 });
 
-describe("assertAllDecryptable", () => {
+describe("assertBackfillComplete", () => {
   const clean: TableStats = { ...ZERO, rowsScanned: 1, valuesAlreadyEncrypted: 1 };
 
   it("passes when every value decrypted", () => {
-    expect(() => assertAllDecryptable({ account: clean, integrationAccount: clean })).not.toThrow();
+    expect(() => assertBackfillComplete({ account: clean, integrationAccount: clean })).not.toThrow();
   });
 
   it("throws with the total when either table has undecryptable values", () => {
     expect(() =>
-      assertAllDecryptable({
+      assertBackfillComplete({
         account: { ...clean, undecryptable: 1 },
         integrationAccount: { ...clean, undecryptable: 2 },
       }),
     ).toThrow(/^3 stored value\(s\) could not be decrypted/);
     expect(() =>
-      assertAllDecryptable({ account: clean, integrationAccount: { ...clean, undecryptable: 1 } }),
+      assertBackfillComplete({ account: clean, integrationAccount: { ...clean, undecryptable: 1 } }),
     ).toThrow(CREDENTIALS_OLD_KEYS_ENV);
   });
 
   it("throws on v1 values left as they are without blaming a missing key", () => {
     const check = () =>
-      assertAllDecryptable({
+      assertBackfillComplete({
         account: { ...clean, v1LeftAsIs: 1 },
         integrationAccount: { ...clean, v1LeftAsIs: 1 },
       });
