@@ -660,6 +660,20 @@ describe("viewFieldIdFor", () => {
     expect(viewFieldIdFor(def, TOUR_DATES_FIELD_IDS.date)).toBe("fld_new_date");
   });
 
+  it("keeps the deleted id when the stand-in's type is one the role refuses", () => {
+    // The card won't read a Short text "Release date", so the default
+    // block's sort doesn't either.
+    const releases = {
+      ...releasesCollectionDef,
+      fields: [
+        ...releasesCollectionDef.fields.filter((f) => f.key !== "releaseDate"),
+        field("fld_text_rel", "Release date", "text"),
+      ],
+    };
+    const declared = VIEW_REQUIREMENTS.releases.fields.releaseDate.fieldId;
+    expect(viewFieldIdFor(releases, declared)).toBe(declared);
+  });
+
   it("keeps the deleted id when nothing stands in", () => {
     const def = tourDatesWith(TOUR_DATES_FIELD_IDS.date, null);
     expect(viewFieldIdFor(def, TOUR_DATES_FIELD_IDS.date)).toBe(TOUR_DATES_FIELD_IDS.date);
@@ -728,6 +742,15 @@ describe("renaming a same-name stand-in", () => {
     const saved = tourDatesSwapping(CITY.fieldId, field("fld_readded", " City "));
     const [problem] = viewFieldProblems(RENAMED, saved);
     expect(describeViewFieldProblem(RENAMED, problem!)).toMatch(/Name it "City" again to undo this\.$/);
+  });
+
+  it("says the field has no name while the artist has cleared it", () => {
+    const cleared = tourDatesSwapping(CITY.fieldId, field("fld_readded", "  "));
+    const [problem] = viewFieldProblems(cleared, SAVED);
+    expect(describeViewFieldProblem(cleared, problem!)).toBe(
+      "The city field has no name, so the city doesn't show on the public tour dates list. " +
+        'Name it "city" again to undo this.',
+    );
   });
 
   it("doesn't flag a rename that still matches the role", () => {

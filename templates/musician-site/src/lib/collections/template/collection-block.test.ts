@@ -182,6 +182,9 @@ describe("resolveCollectionBlockProps — declared ids saved by the default bloc
   const onSale = { [TOUR_DATES_FIELD_IDS.status]: { type: "select", value: "on_sale" } } as const;
 
   it("sorts and filters tour dates by a re-added `Date` field", () => {
+    // `date` is system-locked, so the admin can't delete it; this covers
+    // content edited outside the admin. Releases below is the case an
+    // artist can reach.
     const def = reAdded(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.date, "Date", "fld_new_date");
     const shows = [
       item("later", { ...onSale, fld_new_date: { type: "date", value: "2099-08-01" } }),

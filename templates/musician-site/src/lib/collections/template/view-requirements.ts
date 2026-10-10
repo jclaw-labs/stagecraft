@@ -256,16 +256,19 @@ export function findViewField(
 /**
  * The id of the field that now plays the role `fieldId` was declared
  * for in `def`'s view: `fieldId` itself while it exists, else the
- * same-name stand-in `findViewField` picks. Anything else (an id no view
- * declares, a collection without a view, a role with no stand-in) comes
- * back unchanged.
+ * same-name stand-in `findViewField` picks, when its type is one the
+ * role accepts (the card refuses any other, so the block does too).
+ * Anything else (an id no view declares, a collection without a view, a
+ * role with no usable stand-in) comes back unchanged.
  *
  * For ids saved outside the schema: the default Collection block's sort
  * and filter (`collection-view-props.ts`, resolved in
  * `collection-block.tsx`) and the detail page's "Tickets" label
- * (`item-detail.tsx`). Without it, a re-added `date` brought the
- * tour-dates card back while the saved filter still read the deleted id
- * and hid every show.
+ * (`item-detail.tsx`). Without it, a re-added `releaseDate` brought the
+ * releases card back while the default block still sorted by the
+ * deleted id. System-locked fields (tour-dates `date`, posts
+ * `publishedAt`) can't be deleted, so they only take this path in
+ * content edited outside the admin.
  */
 export function viewFieldIdFor(
   def: Pick<CollectionDef, "slug" | "fields">,
@@ -274,7 +277,8 @@ export function viewFieldIdFor(
   if (!isSpecialisedViewSlug(def.slug) || def.fields.some((f) => f.id === fieldId)) return fieldId;
   for (const [role, requirement] of Object.entries(viewSpec(def.slug).fields)) {
     if (requirement.fieldId === fieldId) {
-      return findViewField(def.fields, role, requirement)?.id ?? fieldId;
+      const standIn = findViewField(def.fields, role, requirement);
+      return standIn && requirement.accepts.includes(standIn.type) ? standIn.id : fieldId;
     }
   }
   return fieldId;
@@ -578,6 +582,13 @@ export function describeViewFieldProblem(
   const restore = `Name a field "${role}" to bring it back.`;
   switch (cause.kind) {
     case "renamed":
+      // Mid-edit: the artist cleared the name before typing a new one.
+      if (!cause.field.key.trim()) {
+        return (
+          `The ${requirement.label} field has no name, so ${now}. ` +
+          `Name it "${cause.savedKey}" again to undo this.`
+        );
+      }
       return (
         `The ${requirement.label} field was renamed to "${cause.field.key}", so ${now}. ` +
         `Name it "${cause.savedKey}" again to undo this.`

@@ -57,8 +57,10 @@ export function applyFilter(
 /**
  * `filter` with every clause's `field` passed through `fieldIdFor`.
  * Only the filtered collection's field ids change: a `currentItemField`
- * value names a field of the surrounding item, which belongs to another
- * collection, so it's left alone.
+ * value names a field of the surrounding item and is left alone. That
+ * item is usually from another collection; when it's from the same one
+ * (a tour-dates detail template listing other tour dates), a value
+ * naming a deleted-and-re-added field still reads the old id.
  */
 export function mapFilterFields(filter: Filter, fieldIdFor: (fieldId: string) => string): Filter {
   const mapClause = (clause: FilterClause): FilterClause =>
