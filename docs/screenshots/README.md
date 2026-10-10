@@ -122,12 +122,14 @@ WT="$(mktemp -d)/pr-assets"
 git fetch origin pr-assets && git worktree add --detach "$WT" origin/pr-assets
 mkdir -p "$WT/pr-<N>" && cp .pr-screenshots/* "$WT/pr-<N>/"
 git -C "$WT" add "pr-<N>" && git -C "$WT" commit -m "Screenshots for PR #<N>, <what they show>"
-git -C "$WT" push origin HEAD:pr-assets
-SHA=$(git -C "$WT" rev-parse HEAD) && git worktree remove "$WT"
-rm -rf .pr-screenshots
+git -C "$WT" push origin HEAD:pr-assets \
+  && SHA=$(git -C "$WT" rev-parse HEAD) && git worktree remove "$WT" \
+  && rm -rf .pr-screenshots
 ```
 
-Clear `.pr-screenshots/` once the push lands. It isn't gitignored, and a
+If the push is rejected (another session pushed first), nothing after it
+runs: `git -C "$WT" pull --rebase origin pr-assets` and push again.
+Clear `.pr-screenshots/` only once the push lands. It isn't gitignored, and a
 commit that adds it to a PR branch puts binaries there and triggers the
 legacy gist relay below, which can't authenticate (#434).
 
@@ -153,6 +155,8 @@ gh api "repos/<owner>/<repo>/pulls/<N>" --jq .body \
       gh api "repos/<owner>/<repo>/contents/$path?ref=$sha" -i | head -1
     done
 # one 200 status line per image (HTTP/1.1 or HTTP/2.0)
+gh api "repos/<owner>/<repo>/pulls/<N>" --jq .body | grep -o 'blob/pr-assets/[^?"]*'
+# no output: no image is embedded by branch name instead of SHA
 ```
 
 PR-body writes from cloud sessions have been seen to wrap image URLs
