@@ -38,10 +38,12 @@ import {
   buildFilter,
   clauseToOp,
   clauseValueShape,
+  comparesValues,
   defaultClause,
   defaultFilterValue,
   fieldPickFor,
   filterableFields,
+  type FieldPick,
   isArrayValueClause,
   isClauseIgnored,
   isFieldBearingClause,
@@ -76,6 +78,22 @@ export type FilterFieldProps = {
 const REMOVED_FIELD_LABEL = "removed field (ignored)";
 /** Option shown for an empty saved field id, once there are fields to pick. */
 const NO_FIELD_LABEL = "no field (ignored)";
+
+/**
+ * Option shown for a saved field the collection has but the picker
+ * leaves out (`filterableFields`), naming it so the picker doesn't show
+ * its first field instead.
+ */
+function unfilterableFieldLabel(field: FieldDef): string {
+  return `${field.key} (${field.type}, unfilterable)`;
+}
+
+/** The select value for a pick: the field the page reads, else the saved id. */
+function pickedValue(pick: FieldPick | null, savedId: string): string {
+  if (pick?.kind === "field") return pick.fieldId;
+  if (pick?.kind === "unfilterable") return pick.field.id;
+  return savedId;
+}
 
 function stringifyFilter(value: Filter | null): string {
   return value ? JSON.stringify(value, null, 2) : "";
@@ -312,16 +330,22 @@ function ClauseRow({
   // same-name field that the page reads shows as picked. An id the
   // collection lacks even then, or an empty one, gets its own option, so
   // the picker doesn't show its first field for a clause the page
-  // ignores.
+  // ignores. So does a field the collection has but the picker leaves
+  // out (image, file, …), named, since the page keeps that clause.
   const pick = isFieldBearingClause(clause) ? fieldPickFor(sourceDef, clause.field) : null;
   const field =
     pick?.kind === "field" ? sourceFields.find((f) => f.id === pick.fieldId) : undefined;
   const ignored =
     isFieldBearingClause(clause) && isClauseIgnored(clause, sourceDef, currentItemDef);
-  // The note explains the "(ignored)" options, so the row's field pickers
-  // point at it while it shows.
+  // The page keeps a clause on an unfilterable field but reads no value
+  // from it, so a value-comparing one matches no item. Not when the page
+  // ignores the clause anyway: that note says what the page does.
+  const unfilterable =
+    !ignored && pick?.kind === "unfilterable" && comparesValues(op) ? pick.field : undefined;
+  // The note explains the "(ignored)" and "unfilterable" options, so the
+  // row's field pickers point at it while it shows.
   const noteId = useId();
-  const describedBy = ignored ? noteId : undefined;
+  const describedBy = ignored || unfilterable ? noteId : undefined;
 
   function handleOpChange(newOp: ClauseOp) {
     onChange(morphClauseToOp(clause, newOp, sourceFields));
@@ -332,7 +356,7 @@ function ClauseRow({
       <div style={rowControlsStyle}>
         {isFieldBearingClause(clause) ? (
           <select
-            value={pick?.kind === "field" ? pick.fieldId : clause.field}
+            value={pickedValue(pick, clause.field)}
             onChange={(e) => onChange(setClauseField(clause, e.target.value))}
             style={{ ...selectStyle, flex: 1 }}
             aria-label="Field"
@@ -340,6 +364,9 @@ function ClauseRow({
           >
             {pick?.kind === "removed" ? (
               <option value={clause.field}>{REMOVED_FIELD_LABEL}</option>
+            ) : null}
+            {pick?.kind === "unfilterable" ? (
+              <option value={pick.field.id}>{unfilterableFieldLabel(pick.field)}</option>
             ) : null}
             {pick?.kind === "none" && sourceFields.length > 0 ? (
               <option value="">{NO_FIELD_LABEL}</option>
@@ -410,6 +437,14 @@ function ClauseRow({
         </p>
       ) : null}
 
+      {unfilterable ? (
+        <p id={noteId} style={hintStyle}>
+          {`The page can't compare values of the ${unfilterable.type} field “${unfilterable.key}”, so `}
+          {mode === "any" ? "this clause matches no item." : "this clause hides every item."}
+          {" Use “is empty” or “is not empty”, or pick another field."}
+        </p>
+      ) : null}
+
       {shape === "excludeCurrent" ? (
         <p style={hintStyle}>
           Hides the item the surrounding detail template is currently
@@ -438,7 +473,7 @@ function FilterValueEditor({
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
@@ -510,19 +545,22 @@ function CurrentItemFieldSelect({
   onChange: (fieldId: string) => void;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   const pick = currentItemDef ? fieldPickFor(currentItemDef, fieldId) : null;
   return (
     <select
-      value={pick?.kind === "field" ? pick.fieldId : fieldId}
+      value={pickedValue(pick, fieldId)}
       onChange={(e) => onChange(e.target.value)}
       style={{ ...selectStyle, flex: 1 }}
       aria-label="Current item field"
       aria-describedby={describedBy}
     >
       {pick?.kind === "removed" ? <option value={fieldId}>{REMOVED_FIELD_LABEL}</option> : null}
+      {pick?.kind === "unfilterable" ? (
+        <option value={pick.field.id}>{unfilterableFieldLabel(pick.field)}</option>
+      ) : null}
       {pick?.kind === "none" && currentItemFields.length > 0 ? (
         <option value="">{NO_FIELD_LABEL}</option>
       ) : null}
@@ -551,7 +589,7 @@ function ArrayValueEditor({
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  /** Id of the row's note while it shows, for the field picker's `aria-describedby`. */
   describedBy: string | undefined;
 }) {
   return (

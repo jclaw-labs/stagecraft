@@ -9,9 +9,10 @@ import {
 import type { Template } from "./types";
 import { collectionViewProps } from "../collection-view-props";
 import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, FieldDef, Item } from "../schema";
+import type { CollectionDef, FieldDef, FilterClause, Item } from "../schema";
 import { releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
+import { asImageId } from "@/lib/image-types";
 
 function dateItem(slug: string, date: string, venue: string): Item {
   return {
@@ -163,6 +164,72 @@ describe("resolveCollectionBlockProps", () => {
     };
     const out = resolveCollectionBlockProps(raw, ctxWithItems(ITEMS));
     expect(out.items).toHaveLength(ITEMS.length);
+  });
+
+  describe("a clause on an unfilterable field (#460)", () => {
+    // The field exists, so the clause is kept, but the page reads no
+    // value from an image field: a value-comparing clause matches no
+    // item, while a presence check still runs. The inspector names the
+    // field and says so rather than changing this.
+    const WITH_POSTER: CollectionDef = {
+      ...TOUR_DATES_DEF,
+      fields: [...TOUR_DATES_DEF.fields, { id: "f_poster", key: "poster", type: "image", required: false }],
+    };
+    const POSTER = {
+      id: asImageId("abc1234567890def"),
+      alt: "Poster",
+      width: 800,
+      height: 1200,
+      placeholderDataUri: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4TAo=",
+      contentSlug: "poster",
+      originalExt: "jpg" as const,
+    };
+    const withPoster = (item: Item): Item => ({
+      ...item,
+      values: { ...item.values, f_poster: { type: "image", value: POSTER } },
+    });
+    const POSTER_ITEMS = [withPoster(ITEMS[0]!), ITEMS[1]!, withPoster(ITEMS[2]!)];
+    const ctx = () => ({
+      ...ctxWithItems(POSTER_ITEMS),
+      loadedCollections: { "tour-dates": { def: WITH_POSTER, items: POSTER_ITEMS } },
+    });
+    const posterClause = (clause: FilterClause): CollectionBlockRawProps => ({
+      sourceCollection: "tour-dates",
+      filter: { all: [clause] },
+    });
+
+    it("keeps a value-comparing clause, which hides every item", () => {
+      const literal = { kind: "literal", value: "x" } as const;
+      const clauses: FilterClause[] = [
+        { field: "f_poster", op: "equals", value: literal },
+        { field: "f_poster", op: "notEquals", value: literal },
+        { field: "f_poster", op: "contains", value: literal },
+        { field: "f_poster", op: "gte", value: literal },
+        { field: "f_poster", op: "in", values: [literal] },
+        { field: "f_poster", op: "notIn", values: [literal] },
+      ];
+      for (const clause of clauses) {
+        expect(resolveCollectionBlockProps(posterClause(clause), ctx()).items).toEqual([]);
+      }
+    });
+
+    it("hides every item for an `any` group of one such clause", () => {
+      const raw: CollectionBlockRawProps = {
+        sourceCollection: "tour-dates",
+        filter: { any: [{ field: "f_poster", op: "notEquals", value: { kind: "literal", value: "x" } }] },
+      };
+      expect(resolveCollectionBlockProps(raw, ctx()).items).toEqual([]);
+    });
+
+    it("still runs a presence check on the field", () => {
+      const present = resolveCollectionBlockProps(
+        posterClause({ field: "f_poster", op: "isNotEmpty" }),
+        ctx(),
+      );
+      expect(present.items.map((i) => i.slug)).toEqual(["paris", "berlin"]);
+      const empty = resolveCollectionBlockProps(posterClause({ field: "f_poster", op: "isEmpty" }), ctx());
+      expect(empty.items.map((i) => i.slug)).toEqual(["lyon"]);
+    });
   });
 
   it("ignores limit when null / zero (renders all)", () => {

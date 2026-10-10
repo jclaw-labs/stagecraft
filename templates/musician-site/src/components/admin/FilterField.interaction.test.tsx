@@ -585,6 +585,135 @@ describe("FilterField — clauses the page ignores", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Clauses on fields the picker leaves out (#460)
+// ---------------------------------------------------------------------------
+
+describe("FilterField — clauses on unfilterable fields", () => {
+  // The image field exists, so the page keeps the clause, but the picker
+  // only lists `filterableFields`.
+  const WITH_IMAGE: CollectionDef = {
+    ...SOURCE_DEF,
+    fields: [...SOURCE_DEF.fields, { id: "f_poster", key: "poster", type: "image", required: false }],
+  };
+  const POSTER_LABEL = "poster (image, unfilterable)";
+
+  function fieldSelect(): HTMLSelectElement {
+    return screen.getByLabelText("Field") as HTMLSelectElement;
+  }
+  function selectedText(select: HTMLSelectElement): string | undefined {
+    return select.selectedOptions[0]?.textContent ?? undefined;
+  }
+
+  it("names the image field instead of showing the picker's first field", () => {
+    const filter: Filter = {
+      all: [{ field: "f_poster", op: "equals", value: { kind: "literal", value: "x" } }],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={WITH_IMAGE} />);
+
+    expect(fieldSelect().value).toBe("f_poster");
+    expect(selectedText(fieldSelect())).toBe(POSTER_LABEL);
+    expect(screen.queryByText(/so the page ignores/)).toBeNull();
+    // The picker's note says the page lists nothing for this clause.
+    const noteId = fieldSelect().getAttribute("aria-describedby");
+    expect(noteId).toBeTruthy();
+    expect(document.getElementById(noteId!)?.textContent).toMatch(
+      /can't compare values of the image field “poster”, so this clause hides every item/,
+    );
+  });
+
+  it("says the clause matches no item in an `any` group", () => {
+    const filter: Filter = {
+      any: [
+        { field: "f_poster", op: "in", values: [{ kind: "literal", value: "x" }] },
+        { field: "f_city", op: "equals", value: { kind: "literal", value: "Paris" } },
+      ],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={WITH_IMAGE} />);
+
+    const [posterField, cityField] = screen.getAllByLabelText("Field") as HTMLSelectElement[];
+    expect(selectedText(posterField!)).toBe(POSTER_LABEL);
+    expect(selectedText(cityField!)).toBe("city (text)");
+    expect(screen.getAllByText(/so this clause matches no item/)).toHaveLength(1);
+    expect(screen.queryByText(/hides every item/)).toBeNull();
+    expect(cityField!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("names the field without the note for a presence check, which the page still runs", () => {
+    const filter: Filter = { all: [{ field: "f_poster", op: "isNotEmpty" }] };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={WITH_IMAGE} />);
+
+    expect(selectedText(fieldSelect())).toBe(POSTER_LABEL);
+    expect(screen.queryByText(/can't compare/)).toBeNull();
+    expect(fieldSelect().hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("shows the ignored note, not this one, when the page ignores the clause anyway", () => {
+    const filter: Filter = {
+      all: [
+        { field: "f_poster", op: "equals", value: { kind: "currentItemField", fieldId: "p_gone" } },
+      ],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={WITH_IMAGE}
+        currentItemDef={CURRENT_ITEM_DEF}
+      />,
+    );
+
+    expect(selectedText(fieldSelect())).toBe(POSTER_LABEL);
+    expect(screen.getByText(/so the page ignores this clause/)).toBeTruthy();
+    expect(screen.queryByText(/can't compare/)).toBeNull();
+  });
+
+  it("picking a filterable field replaces the image field, and the option and note go away", async () => {
+    const filter: Filter = {
+      all: [{ field: "f_poster", op: "equals", value: { kind: "literal", value: "x" } }],
+    };
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FilterField value={filter} onChange={onChange} sourceDef={WITH_IMAGE} />,
+    );
+
+    await userEvent.selectOptions(fieldSelect(), "f_city");
+    const next = {
+      all: [{ field: "f_city", op: "equals", value: { kind: "literal", value: "x" } }],
+    } satisfies Filter;
+    expect(onChange).toHaveBeenCalledWith(next);
+
+    rerender(<FilterField value={next} onChange={onChange} sourceDef={WITH_IMAGE} />);
+    expect(screen.queryByText(POSTER_LABEL)).toBeNull();
+    expect(screen.queryByText(/can't compare/)).toBeNull();
+  });
+
+  it("names an unfilterable current-item field instead of showing the first one", () => {
+    const currentItemDef: CollectionDef = {
+      ...CURRENT_ITEM_DEF,
+      fields: [
+        ...CURRENT_ITEM_DEF.fields,
+        { id: "p_cover", key: "cover", type: "image", required: false },
+      ],
+    };
+    const filter: Filter = {
+      all: [{ field: "f_city", op: "equals", value: { kind: "currentItemField", fieldId: "p_cover" } }],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={currentItemDef}
+      />,
+    );
+
+    const select = screen.getByLabelText("Current item field") as HTMLSelectElement;
+    expect(select.value).toBe("p_cover");
+    expect(selectedText(select)).toBe("cover (image, unfilterable)");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Mode toggle (AND/OR)
 // ---------------------------------------------------------------------------
 
