@@ -497,7 +497,7 @@ Temporary platform storage can be used before commit into the repo, but the comm
 
 ### 10.1 Happy-path create-site flow
 
-1. user connects GitHub and Netlify
+1. user connects GitHub, a deploy target (Vercel or Netlify), and Resend
 2. user enters site name (there is no blueprint to choose; every site gets the same seeded shape — see product spec §14)
 3. backend creates `create_site` job
 4. job creates repo from the template as-is (no content overlay)
@@ -515,10 +515,9 @@ Temporary platform storage can be used before commit into the repo, but the comm
 
 #### Worker
 - create repo
-- write initial content
-- commit baseline
+- push the template as-is (no initial content; the welcome wizard writes it)
 - configure hosting
-- run validation
+- set environment variables
 - summarize result
 
 ---

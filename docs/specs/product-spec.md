@@ -561,7 +561,8 @@ rather than inventing an unconstrained site structure from scratch.
 ### 15.1 New site creation
 
 1. User signs into the platform.
-2. User links GitHub and Netlify.
+2. User connects GitHub, a deploy target (Vercel or Netlify), and Resend (for
+   sign-in on the artist's site).
 3. User names the site. That is the only input the platform asks for; there is
    no blueprint to choose.
 4. Platform runs the `create_site` job: it creates the artist's repo from the
