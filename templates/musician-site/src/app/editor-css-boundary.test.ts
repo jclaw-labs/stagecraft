@@ -28,6 +28,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = path.resolve(import.meta.dirname, "..");
@@ -90,28 +91,51 @@ describe("puck.css import boundary", () => {
   });
 });
 
-/** Every specifier a module value-imports or re-exports; type-only imports are skipped. */
+/**
+ * Every specifier a module value-imports or re-exports; type-only imports
+ * are skipped. Parsed with TypeScript rather than matched with a regex, so
+ * comments, missing semicolons and template-literal `import()` calls read
+ * the way the bundler reads them.
+ */
 function valueImports(source: string): string[] {
   const specifiers: string[] = [];
-  const fromClause = /^\s*(import|export)\s+(type\s+)?([^;]*?)\s*from\s*["']([^"']+)["']/gm;
-  for (const [, , typeOnly, clause, specifier] of source.matchAll(fromClause)) {
-    if (typeOnly) continue;
-    const named = /^\{([\s\S]*)\}$/.exec(clause.trim());
-    const allTypes =
-      named !== null &&
-      named[1]
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .every((part) => part.startsWith("type "));
-    if (!allTypes) specifiers.push(specifier);
-  }
-  for (const [, specifier] of source.matchAll(/^\s*import\s*["']([^"']+)["']/gm)) {
-    specifiers.push(specifier);
-  }
-  for (const [, specifier] of source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) {
-    specifiers.push(specifier);
-  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const clause = node.importClause;
+      const bindings = clause?.namedBindings;
+      const typeOnly =
+        clause !== undefined &&
+        (clause.isTypeOnly ||
+          (!clause.name &&
+            bindings !== undefined &&
+            ts.isNamedImports(bindings) &&
+            bindings.elements.length > 0 &&
+            bindings.elements.every((element) => element.isTypeOnly)));
+      if (!typeOnly) specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      const clause = node.exportClause;
+      const typeOnly =
+        node.isTypeOnly ||
+        (clause !== undefined &&
+          ts.isNamedExports(clause) &&
+          clause.elements.length > 0 &&
+          clause.elements.every((element) => element.isTypeOnly));
+      if (!typeOnly) specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ts.createSourceFile("module.tsx", source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX));
   return specifiers;
 }
 
@@ -129,6 +153,8 @@ function resolveLocal(specifier: string, fromFile: string): string | null {
   else if (specifier.startsWith(".")) base = path.resolve(path.dirname(fromFile), specifier);
   else return null;
   if (/\.(ts|tsx)$/.test(base) && fs.existsSync(base)) return base;
+  // `./helper.js` names `helper.ts` under bundler resolution.
+  base = base.replace(/\.jsx?$/, "");
   for (const extension of MODULE_EXTENSIONS) {
     if (fs.existsSync(base + extension)) return base + extension;
   }
@@ -216,6 +242,22 @@ describe("@puckeditor/core value-import boundary", () => {
     expect(valueImports('import type { Data } from "@puckeditor/core";')).toEqual([]);
     expect(valueImports('import { type Data, type Config } from "@puckeditor/core";')).toEqual([]);
     expect(valueImports('export type { Data } from "@puckeditor/core";')).toEqual([]);
+    expect(valueImports('export * from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(valueImports("const m = import(`@puckeditor/core`);")).toEqual([PUCK_MAIN_ENTRY]);
+    expect(
+      valueImports('import {\n  // only a type\n  type Data,\n} from "@puckeditor/core";'),
+    ).toEqual([]);
+    // A semicolon-less type alias must not swallow the value import after it.
+    expect(
+      valueImports('export type P = { a: string }\nimport { Render } from "@puckeditor/core"'),
+    ).toEqual([PUCK_MAIN_ENTRY]);
+  });
+
+  it("resolves a .js-suffixed local specifier to its TypeScript source", () => {
+    const from = path.join(SRC, "puck", "build-config.tsx");
+    expect(resolveLocal("./render-config.js", from)).toBe(
+      path.join(SRC, "puck", "render-config.tsx"),
+    );
   });
 
   it("recognises a use client directive after a leading comment", () => {

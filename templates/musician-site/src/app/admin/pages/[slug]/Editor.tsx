@@ -19,7 +19,7 @@ import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { buildPuckConfig } from "@/puck/build-config";
 import type { EmbeddableCollection } from "@/puck/collection-view-editor";
-import { BLOCK_DESCRIPTIONS } from "@/puck/config";
+import { BLOCK_DESCRIPTIONS, type BlockLibraryConfig } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { CollectionDef, Item } from "@/lib/collections/schema";
 import { pageValuesForSave, type PageData } from "@/lib/page-data";
@@ -171,80 +171,114 @@ export function Editor({
     () => ({ filter: drawerFilter, setFilter: setDrawerFilter, config }),
     [drawerFilter, config],
   );
+  const headerState = useMemo<HeaderState>(
+    () => ({ pageSlug, saveState, email }),
+    [pageSlug, saveState, email],
+  );
 
   return (
-    <DrawerFilterContext.Provider value={drawerFilterState}>
-      <Puck
-        config={config}
-        data={initialData}
-        onPublish={savePageToDraft}
-        onChange={() => setIsDirty(true)}
-        overrides={{
-          iframe: CanvasFrame,
-          drawer: FilteredDrawer,
-          drawerItem: FilteredDrawerItem,
-          fields: ({ children, itemSelector }) => (
-            <>
-              {itemSelector ? <BlockHelp /> : null}
-              {children}
-            </>
-          ),
-          headerActions: ({ children }) => (
-            <>
-              <Link
-                href="/admin/pages"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "var(--space-1)",
-                  padding: "var(--space-1) var(--space-3)",
-                  fontSize: "var(--font-size-xs)",
-                  fontWeight: "var(--font-weight-semibold)" as unknown as number,
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--color-border)",
-                  background: "var(--color-surface)",
-                  color: "var(--color-text)",
-                  textDecoration: "none",
-                }}
-                title="Back to pages list"
-              >
-                ← Pages
-              </Link>
-              <span
-                style={{
-                  fontSize: "var(--font-size-xs)",
-                  color: "var(--color-text-muted)",
-                  fontFamily: "var(--font-mono)",
-                }}
-                title="Page slug"
-              >
-                /{pageSlug}
-              </span>
-              <SaveStatusPill state={saveState} />
-              {children}
-              <AdminAccountButton email={email} />
-            </>
-          ),
+    <HeaderStateContext.Provider value={headerState}>
+      <DrawerFilterContext.Provider value={drawerFilterState}>
+        <Puck
+          config={config}
+          data={initialData}
+          onPublish={savePageToDraft}
+          onChange={() => setIsDirty(true)}
+          overrides={{
+            iframe: CanvasFrame,
+            drawer: FilteredDrawer,
+            drawerItem: FilteredDrawerItem,
+            fields: FieldsWithHelp,
+            headerActions: EditorHeaderActions,
+          }}
+        />
+      </DrawerFilterContext.Provider>
+    </HeaderStateContext.Provider>
+  );
+}
+
+/*
+ * Puck renders every override below (`iframe`, `drawer`, `drawerItem`,
+ * `fields`, `headerActions`) as a component type, so each one has to
+ * keep its identity across Editor renders. An inline function would
+ * remount that part of the editor whenever the Editor re-renders: on
+ * every edit (`isDirty`), save-state change and drawer keystroke. For
+ * `fields` that drops focus from the inspector input the artist is
+ * typing in. Overrides that need Editor state read it from a context.
+ */
+
+function FieldsWithHelp({
+  children,
+  itemSelector,
+}: {
+  children: ReactNode;
+  itemSelector?: unknown;
+}) {
+  return (
+    <>
+      {itemSelector ? <BlockHelp /> : null}
+      {children}
+    </>
+  );
+}
+
+type HeaderState = { pageSlug: string; saveState: SaveState; email: string };
+
+const HeaderStateContext = createContext<HeaderState | null>(null);
+
+function EditorHeaderActions({ children }: { children: ReactNode }) {
+  const state = useContext(HeaderStateContext);
+  if (!state) throw new Error("EditorHeaderActions: rendered outside the page Editor");
+  const { pageSlug, saveState, email } = state;
+  return (
+    <>
+      <Link
+        href="/admin/pages"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--space-1)",
+          padding: "var(--space-1) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          fontWeight: "var(--font-weight-semibold)" as unknown as number,
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--color-border)",
+          background: "var(--color-surface)",
+          color: "var(--color-text)",
+          textDecoration: "none",
         }}
-      />
-    </DrawerFilterContext.Provider>
+        title="Back to pages list"
+      >
+        ← Pages
+      </Link>
+      <span
+        style={{
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-text-muted)",
+          fontFamily: "var(--font-mono)",
+        }}
+        title="Page slug"
+      >
+        /{pageSlug}
+      </span>
+      <SaveStatusPill state={saveState} />
+      {children}
+      <AdminAccountButton email={email} />
+    </>
   );
 }
 
 /**
  * The drawer search filter, shared with the `drawer` and `drawerItem`
- * overrides. Puck renders those overrides as component types, so they
- * have to keep their identity across Editor renders: an inline function
- * remounts the whole drawer on every keystroke, which drops the search
- * input's focus after one character and resets
- * `DrawerCategoryVisibilitySync`, so clearing the filter never brought
- * hidden categories back. Module-level components read the filter from
- * this context instead.
+ * overrides. As inline functions they remounted the whole drawer on
+ * every keystroke, which dropped the search input's focus after one
+ * character and reset `DrawerCategoryVisibilitySync`, so clearing the
+ * filter never brought hidden categories back.
  */
 type DrawerFilterState = {
   filter: string;
   setFilter: (next: string) => void;
-  config: ReturnType<typeof buildPuckConfig>;
+  config: BlockLibraryConfig;
 };
 
 const DrawerFilterContext = createContext<DrawerFilterState | null>(null);

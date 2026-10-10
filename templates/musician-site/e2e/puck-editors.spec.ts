@@ -185,12 +185,24 @@ test.describe("Puck editors", () => {
     expect(blockTypes(saved).filter((t) => t === "Quote").length).toBe(before + 1);
     expect(strings(saved)).toContain(marker);
 
+    // Real keystrokes after the save: the first one marks the editor dirty
+    // and re-renders it, which must not remount the inspector (the
+    // `fields` override keeps its identity), so every key lands.
+    const quoteText = page.locator('textarea[name="text"]:visible');
+    await quoteText.pressSequentially(" XYZ");
+    await expect(quoteText).toBeFocused();
+    await expect(quoteText).toHaveValue(`${marker} XYZ`);
+
     // `DrawerCategoryVisibilitySync` dispatches `setUi` through the
     // selected `dispatch`: a filter hides the categories with no match,
-    // and clearing it brings them back.
+    // and clearing it brings them back. Typed key by key, so a drawer
+    // remount would drop focus after the first character.
     const filter = page.getByRole("searchbox", { name: "Filter blocks" });
     await expect(drawerCategoryHeader(page, "layout")).toBeVisible();
-    await filter.fill("quote");
+    await filter.click();
+    await filter.pressSequentially("quote");
+    await expect(filter).toBeFocused();
+    await expect(filter).toHaveValue("quote");
     await expect(drawerCategoryHeader(page, "layout")).toHaveCount(0);
     await expect(drawerCategoryHeader(page, "content")).toBeVisible();
     await filter.fill("");
