@@ -32,7 +32,7 @@ function makeSite(pages: ExtractedPage[]): ExtractedSite {
 const noFiles = { files: [], detectedSocialLinks: {} };
 
 describe("buildMigrationReport — images", () => {
-  it("points artists at the site admin's image fields, not the removed asset manager (#410)", () => {
+  it("points artists at the site admin and links it rather than printing a path (#410, #427)", () => {
     const site = makeSite([
       makePage({ images: [{ src: "/a.jpg", alt: "" }, { src: "/b.jpg", alt: "" }] }),
     ]);
@@ -41,10 +41,11 @@ describe("buildMigrationReport — images", () => {
     const item = report.manualReviewItems.find((i) => i.label === "Images");
     expect(item?.status).toBe("manual_review");
     expect(item?.detail).toBe(
-      "2 image references found. Images are not downloaded automatically — add your photos in your site's admin (/admin), using the image fields on each page or item."
+      "2 image references found. Images are not downloaded automatically — add your photos in your site's admin, using the image fields on each page or item."
     );
-    expect(report.summary).toContain("Found 2 images — add photos in your site's admin (/admin) via the image fields");
-    expect(JSON.stringify(report)).not.toMatch(/asset manager/i);
+    expect(item?.action).toBe("open_site_admin");
+    expect(report.summary).toContain("Found 2 images — add photos in your site's admin via the image fields");
+    expect(JSON.stringify(report)).not.toMatch(/asset manager|\/admin/i);
   });
 
   it("uses singular wording for one image", () => {
@@ -54,7 +55,7 @@ describe("buildMigrationReport — images", () => {
       "The Band"
     );
     expect(report.manualReviewItems.find((i) => i.label === "Images")?.detail).toMatch(/^1 image reference found\./);
-    expect(report.summary).toContain("Found 1 image — add photos in your site's admin (/admin) via the image fields");
+    expect(report.summary).toContain("Found 1 image — add photos in your site's admin via the image fields");
   });
 
   it("omits the image item and summary line when no images were found", () => {

@@ -45,7 +45,9 @@
  *     `today` value expresses an "upcoming" window; `lt today` a "past" one.
  */
 
-import type { Filter, FilterClause, FilterValue, Item } from "../schema";
+import type { CollectionDef, Filter, FilterClause, FilterValue, Item } from "../schema";
+
+import { viewFieldIdFor } from "./view-requirements";
 
 export function applyFilter(
   items: ReadonlyArray<Item>,
@@ -88,26 +90,93 @@ export function mapFilterFields(
 }
 
 /**
- * `filter` with every clause whose `field` fails `hasField` treated as
- * matching every item. In an `all` group that clause is dropped, and
- * `null` (no filter) comes back when none is left. In an `any` group one
- * such clause already matches every item, so the whole filter becomes
- * `null`, `excludeCurrentItem` clauses included. In an `all` group,
- * `excludeCurrentItem` clauses name no field and stay.
+ * `filter` with every clause that names a missing field treated as
+ * matching every item (see `clauseNamesMissingField`). In an `all` group
+ * such a clause is dropped, and `null` (no filter) comes back when none
+ * is left. In an `any` group one such clause already matches every item,
+ * so the whole filter becomes `null`, `excludeCurrentItem` clauses
+ * included. In an `all` group, `excludeCurrentItem` clauses name no
+ * field and stay.
  *
  * A Collection block saves field ids. A clause on a field the artist has
  * since deleted would otherwise hide every item (a missing value never
  * matches), with nothing in the product to bring them back; this way the
- * filter on the removed field just stops filtering.
+ * filter on the removed field just stops filtering. `hasCurrentItemField`
+ * defaults to accepting every id, for callers that don't know the
+ * surrounding item's def.
  */
 export function withoutClausesOnMissingFields(
   filter: Filter,
   hasField: (fieldId: string) => boolean,
+  hasCurrentItemField: (fieldId: string) => boolean = () => true,
 ): Filter | null {
-  const keep = (clause: FilterClause): boolean => !("field" in clause) || hasField(clause.field);
+  const keep = (clause: FilterClause): boolean =>
+    !clauseNamesMissingField(clause, hasField, hasCurrentItemField);
   if ("any" in filter) return filter.any.every(keep) ? filter : null;
   const clauses = filter.all.filter(keep);
   return clauses.length === 0 ? null : { all: clauses };
+}
+
+/**
+ * Whether `clause` names a missing field, and so matches every item once
+ * `withoutClausesOnMissingFields` is done with it. It does when its
+ * `field` fails `hasField`, or when the value it compares against is a
+ * `currentItemField` whose field id fails `hasCurrentItemField`. An
+ * `in` / `notIn` clause does only when every one of its values is such a
+ * `currentItemField`: a dead value resolves to `undefined` (values for
+ * deleted fields are stripped on read), which never matches, so the
+ * clause's other values decide what it lists. An empty list names no
+ * value and keeps the clause.
+ */
+export function clauseNamesMissingField(
+  clause: FilterClause,
+  hasField: (fieldId: string) => boolean,
+  hasCurrentItemField: (fieldId: string) => boolean = () => true,
+): boolean {
+  if (!("field" in clause)) return false;
+  if (!hasField(clause.field)) return true;
+  const dead = (value: FilterValue): boolean =>
+    value.kind === "currentItemField" && !hasCurrentItemField(value.fieldId);
+  if ("value" in clause) return dead(clause.value);
+  if ("values" in clause) return clause.values.length > 0 && clause.values.every(dead);
+  return false;
+}
+
+/** A def a filter resolves against: `slug` for `viewFieldIdFor`, plus the field list. */
+export type FilterFieldsDef = Pick<CollectionDef, "slug" | "fields">;
+
+/**
+ * `filter` as a Collection block iterating `sourceDef` applies it, inside
+ * a template whose item comes from `currentItemDef`. Clause fields map
+ * through `viewFieldIdFor` against `sourceDef`, and `currentItemField`
+ * values against `currentItemDef`, so a default block's declared id
+ * reads a re-added same-name field. Then clauses on fields the defs
+ * still lack are dropped (`withoutClausesOnMissingFields`). Without
+ * `currentItemDef`, `currentItemField` ids are left alone and count as
+ * present.
+ *
+ * The Collection block's resolver (`resolveCollectionBlockProps`) and
+ * the filter inspector (`isClauseIgnored`) both call this, so the
+ * inspector marks as ignored exactly what the page skips.
+ */
+export function filterForDefs(
+  filter: Filter,
+  sourceDef: FilterFieldsDef,
+  currentItemDef?: FilterFieldsDef,
+): Filter | null {
+  const has = (def: FilterFieldsDef) => {
+    const ids = new Set(def.fields.map((f) => f.id));
+    return (fieldId: string) => ids.has(fieldId);
+  };
+  return withoutClausesOnMissingFields(
+    mapFilterFields(
+      filter,
+      (fieldId) => viewFieldIdFor(sourceDef, fieldId),
+      currentItemDef ? (fieldId) => viewFieldIdFor(currentItemDef, fieldId) : undefined,
+    ),
+    has(sourceDef),
+    currentItemDef ? has(currentItemDef) : undefined,
+  );
 }
 
 function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {

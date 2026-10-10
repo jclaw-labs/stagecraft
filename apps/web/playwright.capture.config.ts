@@ -19,10 +19,11 @@ import { captureLaunchOptions } from "./capture/chromium";
  * directly in Postgres and hands Playwright the matching cookie. This
  * works because the platform uses Auth.js v5's *database* session
  * strategy (PrismaAdapter, no `session.strategy` override in
- * src/lib/auth.ts): the `authjs.session-token` cookie value IS the raw
- * `Session.sessionToken`, looked up verbatim by the adapter's
- * `getSessionAndUser` — no JWT, no signing. So a known token written to
- * both the Session row and the cookie authenticates every request.
+ * src/lib/auth.ts): the `authjs.session-token` cookie value is the raw
+ * session token, and the adapter (`withHashedSessionTokens`) looks it up
+ * as `Session.sessionToken = sha256(token)` — no JWT, no signing. So a
+ * known token, hashed into the Session row and sent raw as the cookie,
+ * authenticates every request.
  *
  * Prerequisites (the capture talks to a real database + dev server):
  *   1. Postgres up + migrated:  `docker compose up -d`  then
@@ -44,8 +45,8 @@ const DEFAULT_DATABASE_URL =
 
 // Fixed identifiers shared by the global setup (which seeds them) and
 // the capture spec (which navigates to the seeded site). The session
-// token is written verbatim into both the Session row and the auth
-// cookie — see the header note on the database session strategy.
+// token goes into the auth cookie raw and into the Session row hashed —
+// see the header note on the database session strategy.
 export const CAPTURE_USER_EMAIL = "capture@stagecraft.test";
 export const CAPTURE_SESSION_TOKEN =
   "stagecraft-capture-session-token-not-for-production";

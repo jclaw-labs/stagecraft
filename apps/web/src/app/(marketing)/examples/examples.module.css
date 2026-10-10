@@ -27,6 +27,10 @@
   max-width: var(--max-width-narrow);
 }
 
+.ctas {
+  margin-top: var(--space-6);
+}
+
 .grid {
   list-style: none;
   margin: 0;
@@ -44,26 +48,6 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-.thumb {
-  aspect-ratio: 16 / 10;
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-light),
-    var(--color-surface-raised)
-  );
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-bottom: var(--border-width) solid var(--color-border-subtle);
-}
-
-.thumbLabel {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-brand);
-  letter-spacing: -0.01em;
 }
 
 .cardBody {

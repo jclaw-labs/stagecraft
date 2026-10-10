@@ -11,7 +11,10 @@ vi.mock("@auth/prisma-adapter", () => ({ PrismaAdapter: vi.fn(() => ({})) }));
 vi.mock("@stagecraft/db", () => ({ prisma: {} }));
 vi.mock("../auth-credentials", () => ({
   upsertGithubIntegration: vi.fn(),
-  withEncryptedAccountTokens: vi.fn((adapter: unknown) => adapter),
+  withEncryptedAccountTokens: vi.fn((adapter: unknown) => ({ encrypted: adapter })),
+}));
+vi.mock("../auth-session-tokens", () => ({
+  withHashedSessionTokens: vi.fn((adapter: unknown) => ({ hashed: adapter })),
 }));
 
 import "../auth";
@@ -31,5 +34,10 @@ describe("auth", () => {
     expect(nextAuthMock).toHaveBeenCalledTimes(1);
     const [config] = nextAuthMock.mock.calls[0] as unknown as [{ providers: unknown[] }];
     expect(config.providers).toEqual([githubProviderMock.mock.results[0].value]);
+  });
+
+  it("hashes session tokens on top of the encrypting adapter", () => {
+    const [config] = nextAuthMock.mock.calls[0] as unknown as [{ adapter: unknown }];
+    expect(config.adapter).toEqual({ hashed: { encrypted: {} } });
   });
 });
