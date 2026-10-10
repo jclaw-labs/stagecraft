@@ -183,8 +183,9 @@ an explicit flag fails the publish from a private repo.
 
 npm configures a trusted publisher in an existing package's settings, so
 the very first release can't go out that way. The owner publishes
-`1.0.0-rc.0` once by hand with 2FA, then configures the trusted publisher
-and disallows token publishing on the package (follow-up 5).
+`1.0.0-rc.0` once by hand with 2FA and `--tag rc`, then configures the
+trusted publisher and disallows token publishing on the package
+(follow-up 5).
 
 Installing from a git tag of `jclaw-labs/stagecraft` loses on every count
 that matters:
@@ -273,7 +274,8 @@ safe because sites without a lockfile resolve `next` to the newest 15.x
 on every build anyway.
 
 To make "shell too old" a build failure rather than a runtime surprise,
-the stamp records `shellVersion`. `withStagecraft()` fails `next build`
+the shell's `package.json` records `stagecraft.shellVersion`, which
+`withStagecraft()` reads from `process.cwd()`. It fails `next build`
 with a clear message when the shell is older than the package requires,
 so a mismatched release fails the Dependabot gate instead of reaching the
 site.
@@ -290,9 +292,12 @@ We pick lazy over an eager rewrite of every file because of the draft
 branches. An eager migration commit on `main` would conflict with every
 `draft/*` branch holding older-format edits. A lazy reader handles
 `main` and the drafts the same way, so it never has to rebase or rewrite
-them. Shipping a new upgrader is therefore a minor. Dropping an old one is
-a major, and that major's upgrade PR rewrites the content files eagerly,
-in the same PR (§4 says how).
+them. Shipping a new upgrader is therefore a minor. Dropping an old
+version from the site's reader is a major, and that major's upgrade PR
+rewrites the content files eagerly, in the same PR (§4 says how). The
+upgrader steps themselves are never deleted: they live in their own
+package (§4), so a site several majors behind can still be brought
+forward.
 
 `schemaVersion` lives on `_collection.json` only. Item files and Puck page
 data stay unversioned, so changes to them must be read-compatible within
@@ -322,8 +327,9 @@ What the PR does:
   same way
 - leaves `src/content/` and `public/images/` untouched, apart from any
   content migration the target major needs
-- writes `.stagecraft-template.json` with `shellVersion` and the package
-  version, and rewrites the Dependabot config and auto-merge workflow
+- sets `stagecraft.shellVersion` in `package.json`, writes
+  `.stagecraft-template.json` with the package version and the code-path
+  manifest, and rewrites the Dependabot config and auto-merge workflow
   (re-adding the workflow on repos whose best-effort push failed)
 
 How it runs:
@@ -340,34 +346,42 @@ How it runs:
   `next.config.ts`; after it, the shell files. The baseline is a manifest
   of those paths and their blob SHAs that provisioning and every
   `upgrade_site` PR record in `.stagecraft-template.json`, so later majors
-  compare against the shell the last upgrade wrote. Sites provisioned
-  before the manifest have none, and for them the baseline is the template
-  push: the `commitSha` that the provisioning job's `pushTemplate` step
-  records in `resultPayload.steps`. The repo's first commit can't be the
-  baseline, because repos are created with `auto_init` and that commit is
-  GitHub's README. `package.json` counts as customized only if something
-  other than dependency versions changed, since merged Dependabot PRs
-  edit it. `.github/`, the stamp and lockfiles never count. If any of our
-  files changed, it opens no PR and records which files changed, so the
-  site is handled by hand.
+  compare against the shell the last upgrade wrote. Every site that
+  exists today has no manifest, and most predate the provisioning step
+  records (#375). For them the baseline is the template push, found from
+  the repo's history: the oldest commit that touches `src/lib/`. When the
+  provisioning job has a `pushTemplate` step record, its `commitSha` must
+  match that commit, and the job stops for a hand check if it doesn't. The
+  repo's first commit can't be the baseline, because repos are created
+  with `auto_init` and that commit is GitHub's README. `package.json`
+  counts as customized only if something other than dependency versions
+  changed, since merged Dependabot PRs edit it. `.github/`, the stamp and
+  lockfiles never count. If any of our files changed, it opens no PR and
+  records which files changed, so the site is handled by hand.
 - **Content migration.** The platform worker can't install packages, so
-  it can't run the `stagecraft-site` CLI. The package exports its upgrader
-  chain as a separate entry point,
-  `@stagecraft/musician-site/content-upgraders`: pure functions over
-  parsed JSON, with no filesystem, git or Next.js imports. `apps/web`
-  depends on the published package at the version `upgrade_site`
-  targets, reads `src/content/` through the GitHub API, runs the chain and
-  writes the upgraded files into the PR's commit. The chain only grows
-  until a major drops a step, so the target release can upgrade content
-  from any version that release still reads. The entry point counts
-  against the Worker size gate (`apps/web/scripts/worker-size-gate.mjs`).
+  it can't run the `stagecraft-site` CLI. The upgrader chain lives in its
+  own package, `@stagecraft/content-upgraders` (`packages/content-upgraders`):
+  pure functions over parsed JSON, with no dependencies and no
+  filesystem, git or Next.js imports. It's published with
+  `@stagecraft/musician-site`, which depends on it exact. `apps/web`
+  imports it from the workspace, so the platform doesn't take on the
+  template's dependency tree or its `next` peer range. Steps are append-only
+  and never change once released, so the workspace copy can run the chain
+  up to the target release's `schemaVersion` even when `main` has newer
+  steps. The job reads `src/content/` through the GitHub API, runs the
+  chain and writes the upgraded files into the PR's commit.
   `stagecraft-site migrate-content` runs the same chain from a local
   checkout, for sites handled by hand.
+- **Open drafts.** A shell-only upgrade never touches content, so open
+  `draft/*` branches merge it cleanly. An upgrade that rewrites content
+  would conflict with a draft that changed the same files, so before
+  writing that commit the job checks every `draft/*` branch. If one has
+  unpublished changes to a file the migration rewrites, it opens no PR and
+  asks the artist to publish or discard those changes first.
 - **Idempotent.** It reuses one branch, `stagecraft/upgrade`, and one open
   PR, so re-running it updates the PR rather than opening a new one.
 - **Review.** The host's deploy preview builds the PR. Nothing
-  auto-merges. Draft branches hold content only, so they rebase cleanly
-  after the merge. Publishing merges `main` into the draft before it
+  auto-merges. Publishing merges `main` into the draft before it
   squashes the draft's tree onto `main` (`ensureDraftAndRebase` in
   `publish.ts`), so a draft started before the upgrade picks the upgrade
   up instead of restoring the old code.
@@ -430,16 +444,18 @@ by hand.
   discipline and a pack-and-build CI check. The shell version check and
   the "what counts as major" list above are what keep auto-merged minors
   safe.
-- **Two monorepo dirs instead of one.** `templates/musician-site/` (the
-  package) and `templates/musician-site-shell/` (what gets copied).
+- **Three monorepo dirs instead of one.** `templates/musician-site/` (the
+  package), `templates/musician-site-shell/` (what gets copied) and
+  `packages/content-upgraders/` (the upgrader chain).
   `CLAUDE.md`'s repo-structure block and ADR-003's tree update when the
   shell lands.
 - **Content readers carry their history.** Every past `schemaVersion`
-  keeps an upgrader and golden fixtures until a major drops it.
+  keeps its upgrader and golden fixtures in `@stagecraft/content-upgraders`
+  for good. The site's reader accepts it until a major drops it.
 - **`upgrade_site` writes to artist repos** with the owner's OAuth token.
   It only ever opens a PR, and never pushes to the default branch.
 - **The stamp becomes load-bearing.** `.stagecraft-template.json` gains
-  `shellVersion`, `packageVersion` and the code-path manifest (§4), and
+  `packageVersion` and the code-path manifest (§4), and
   the platform can read it to show which version a site is on.
 - **`next` floats within 15.x.** The shell's `next` is `^15.5.27` and
   sites have no lockfile, so a new Next minor reaches every site on its
@@ -476,10 +492,10 @@ by hand.
 
 ## Follow-up issues
 
-In build order. Each item is a draft issue title and body. Issues 2 and 3
-can be built in parallel, and 6 can start any time after 2. New sites keep
-getting the full template until 5 has published the first release and
-switched provisioning to the shell.
+In build order. Each item is a draft issue title and body. 3 builds on 2,
+because 2 rewrites the imports that 3's routers use, and 6 can start any
+time after 2. New sites keep getting the full template until 5 has
+published the first release and switched provisioning to the shell.
 
 ### 1. Claim the npm scope for `@stagecraft/musician-site`
 
@@ -546,7 +562,8 @@ keeps using the full template until 5 has published a release.
       API catch-all, `tsconfig.json`, `.gitignore`, `.env.example`
 - [ ] Move the starter `src/content/` into the shell and depend on the
       package through `file:../musician-site`
-- [ ] `withStagecraft()` fails the build when the shell's `shellVersion`
+- [ ] The shell's `package.json` carries `stagecraft.shellVersion`, and
+      `withStagecraft()` fails the build when it
       is older than the package requires
 - [ ] Run e2e and screenshot capture against the shell
 - [ ] Update `CLAUDE.md`'s repo structure, ADR-003's tree and
@@ -560,7 +577,8 @@ scaffold new sites from the shell (ADR-016 §1, §2, §3).
 - [ ] `release-musician-site.yml`: on `main`, when the version isn't on
       npm yet, publish and tag `musician-site@x.y.z`. Don't pass
       `--provenance`: trusted publishing adds it while the repo is public
-- [ ] First publish (owner): publish `1.0.0-rc.0` by hand with 2FA,
+- [ ] First publish (owner): publish `1.0.0-rc.0` by hand with 2FA and
+      `--tag rc` (and `@stagecraft/content-upgraders` the same way),
       configure the trusted publisher for `jclaw-labs/stagecraft` and
       `release-musician-site.yml`, then disallow token publishing, and
       note the setup in `docs/runbook.md`
@@ -573,9 +591,9 @@ scaffold new sites from the shell (ADR-016 §1, §2, §3).
 - [ ] Release candidates publish to the `rc` dist-tag
 - [ ] Document the semver rules from ADR-016 §3 in the package README
 - [ ] Once a release is on `latest`: the bundle generator reads the shell
-      and rewrites the `file:` dep to that exact version
-- [ ] The stamp records `shellVersion`, `packageVersion` and the
-      code-path manifest (§4)
+      and rewrites the `file:` dep to that exact version, and refuses a
+      prerelease even if one is on `latest`
+- [ ] The stamp records `packageVersion` and the code-path manifest (§4)
 - [ ] `dependabot.yml`: exclude the package from the cooldown, and ignore
       `semver-major` for the package, `next`, `react` and `react-dom`
 - [ ] Tests for `site-scaffold.ts` and the bundle generator changes
@@ -590,9 +608,10 @@ Let the reader accept every supported `schemaVersion` and upgrade on read
 - [ ] Fail closed on versions newer than the reader knows, with an error
       naming the package version needed
 - [ ] Saves write at the current version
-- [ ] Export the chain as `@stagecraft/musician-site/content-upgraders`:
-      pure functions over parsed JSON, with no filesystem, git or Next.js
-      imports, so `upgrade_site` can run it in the Worker
+- [ ] Put the chain in `packages/content-upgraders`, published as
+      `@stagecraft/content-upgraders`: pure functions over parsed JSON,
+      with no dependencies and no filesystem, git or Next.js imports, so
+      `upgrade_site` can run it in the Worker. Steps are append-only
 - [ ] `stagecraft-site migrate-content` runs the same chain over a local
       checkout, for sites handled by hand
 - [ ] Golden fixtures per past version, plus tests for each upgrader,
@@ -610,8 +629,10 @@ A reusable job for the one-time migration and for later majors (ADR-016 §4).
       helpers with no callers to delete
 - [ ] Use the owner's OAuth token. On a stale token, or one without the
       `workflow` scope, fail with a sign-in prompt
-- [ ] Compare our code paths against the stamp's manifest, or the
-      `pushTemplate` commit for sites without one (ADR-016 §4), ignoring
+- [ ] Compare our code paths against the stamp's manifest, or for sites
+      without one the oldest commit touching `src/lib/`, cross-checked
+      against the `pushTemplate` step record when there is one
+      (ADR-016 §4), ignoring
       dependency-version changes in `package.json`, `.github/`, the stamp
       and lockfiles. On a customized site, stop and report the changed
       files
@@ -624,7 +645,9 @@ A reusable job for the one-time migration and for later majors (ADR-016 §4).
 - [ ] Platform: an "Upgrade site" action on the site page, and a bulk run
       for platform admins
 - [ ] Tests: clean site, customized site, a Dependabot-bumped
-      `package.json` (not customized), a site without a manifest, a
+      `package.json` (not customized), a site without a manifest or a
+      step record, a content-rewriting upgrade with an open draft that
+      changed an affected file (no PR), a
       second run after migration (opens a PR), re-run, stale token, a
       repo missing the workflow, and a repo with a lockfile
 
