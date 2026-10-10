@@ -37,11 +37,13 @@ then issue-fields from the checkout holding it (bin/), then PATH.
   snapshot  Lists open issues through issue-fields, maps open PRs (with their
             files) to owner issues, replays every Ready, In progress, Needs
             review and Under review issue through claim-replay, and runs next.
-            A failed replay becomes that record's normalization_error. The
-            verdict names the first eligible Ready issue whose visit replay
-            says is claimable; eligible ones that are not are listed under
-            unclaimable_ready. Review selection is not covered: it needs
-            stack_ancestors, implementation_authors and runtime_target.
+            A strict replay failure is retried once with --recover-root, and
+            the replay keeps its recovery. A failed replay becomes that
+            record's normalization_error. The verdict names the first
+            eligible Ready issue whose visit replay says is claimable;
+            eligible ones that are not are listed under unclaimable_ready.
+            Review selection is not covered: it needs stack_ancestors,
+            implementation_authors and runtime_target.
   claim     Requires Queue Ready (Needs review with --review) and a claimable
             replay, then posts the marker, writes Queue, posts claim-set and
             the Claim projection, re-reads, settles, converges Claim to the
@@ -420,7 +422,10 @@ fetch_comments() {
 }
 
 # replay <issue> <queue-state> <projection> <dest>; on failure the reason is in
-# $scratch/replay-error.
+# $scratch/replay-error. When strict replay fails for any reason, one
+# --recover-root replay may fence history before an activated root repair; when
+# that fails too, the strict reason stands, followed by the recovery reason when
+# a root existed.
 replay_issue() {
   local issue="$1" state="$2" projection="$3" dest="$4"
   : >"$scratch/replay-error"
@@ -430,7 +435,17 @@ replay_issue() {
   fi
   "$claim_replay" github --input "$scratch/comments-$issue.json" \
     --queue-state "$state" --comment-prefix "$comment_prefix" --json \
-    >"$dest" 2>"$scratch/replay-error"
+    >"$dest" 2>"$scratch/replay-error" && return 0
+  "$claim_replay" github --input "$scratch/comments-$issue.json" \
+    --queue-state "$state" --comment-prefix "$comment_prefix" --recover-root --json \
+    >"$scratch/recovered.json" 2>"$scratch/recover-error" || {
+    if grep -q 'activated root recovery failed' "$scratch/recover-error"; then
+      sed 's/^claim-replay: \(.*\)/(\1)/' "$scratch/recover-error" >>"$scratch/replay-error"
+    fi
+    return 1
+  }
+  mv "$scratch/recovered.json" "$dest"
+  : >"$scratch/replay-error"
 }
 
 replay_error() {
@@ -530,7 +545,8 @@ cmd_snapshot() {
     if replay_issue "$n" "$state" "$projection" "$scratch/replay-$n.json"; then
       jq --arg n "$n" --arg s "$state" --slurpfile r "$scratch/replay-$n.json" \
         '. + {($n): ($r[0] | {queue_state: $s, claim, generation: (.generation.id // null),
-                              transition, projection, error: null})}' \
+                              transition, projection, recovery: (.recovery // null),
+                              error: null})}' \
         "$scratch/replays.json" >"$scratch/replays.next"
     else
       jq --arg n "$n" --arg s "$state" --arg e "$(replay_error)" \
