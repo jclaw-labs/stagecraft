@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Button from "@/components/Button";
-import { BLUEPRINTS } from "./_components/blueprints";
+import { SITE_SECTIONS } from "./_components/site-sections";
 import { GITHUB_URL, SIGN_IN_HREF } from "./_components/site-links";
 import styles from "./home.module.css";
 
@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 
 const STEPS = [
   {
-    title: "Pick a template",
-    body: "Start from a design built for your kind of act — solo artist, band, composer, or press kit.",
+    title: "Pick a theme",
+    body: "Choose a ready-made look for your site, or start from your own accent color.",
   },
   {
     title: "Make it yours",
@@ -213,21 +213,22 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Blueprints */}
+      {/* What every site includes */}
       <section className={styles.section}>
         <div className={styles.container}>
           <div className={styles.head}>
-            <h2 className={styles.title}>Start from a template made for your act.</h2>
+            <h2 className={styles.title}>One site, ready for your music.</h2>
             <p className={styles.lead}>
-              Each blueprint comes with the pages and sections that kind of artist
-              actually needs.
+              Every Stagecraft site starts from the same set of pages, with sample
+              content to swap for your own — or start from a blank page. Your
+              theme sets the look.
             </p>
           </div>
-          <ul className={styles.blueprints}>
-            {BLUEPRINTS.map((bp) => (
-              <li key={bp.name} className={styles.blueprint}>
-                <h3 className={styles.cardTitle}>{bp.name}</h3>
-                <p className={styles.cardBody}>{bp.body}</p>
+          <ul className={styles.siteSections}>
+            {SITE_SECTIONS.map((section) => (
+              <li key={section.name} className={styles.siteSection}>
+                <h3 className={styles.cardTitle}>{section.name}</h3>
+                <p className={styles.cardBody}>{section.body}</p>
               </li>
             ))}
           </ul>
