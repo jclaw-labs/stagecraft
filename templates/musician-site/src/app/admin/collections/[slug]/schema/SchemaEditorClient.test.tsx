@@ -7,9 +7,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { SchemaEditorClient } from "./SchemaEditorClient";
+import type { CollectionDef } from "@/lib/collections";
+import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 import { tourDatesCollectionDef } from "@/lib/collections/seeds";
 
 afterEach(() => {
@@ -34,5 +36,30 @@ describe("<SchemaEditorClient>", () => {
     // breaks the tour dates card, so the artist is asked.
     fireEvent.change(citySelect(), { target: { value: "url" } });
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/^Changing "city" to URL means/));
+  });
+
+  it("checks against the newly saved type after a save", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<SchemaEditorClient collectionSlug="tour-dates" initialDef={tourDatesCollectionDef} />);
+    // Short text → Long text keeps the card, so no prompt; then save it.
+    fireEvent.change(citySelect(), { target: { value: "longText" } });
+    const savedDef: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: tourDatesCollectionDef.fields.map((f) =>
+        f.id === TOUR_DATES_FIELD_IDS.city ? { id: f.id, key: f.key, type: "longText", required: true } : f,
+      ),
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, def: savedDef }), { status: 200 }),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    });
+    await waitFor(() => expect(screen.queryByText(/unsaved changes/i)).toBeNull());
+    // Long text → URL is blocked on save, so no prompt, even though the
+    // pre-save type (Short text → URL) would have been allowed.
+    fireEvent.change(citySelect(), { target: { value: "url" } });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText("Heads-up")).toBeNull();
   });
 });

@@ -355,13 +355,21 @@ function consequence(
  * Confirm-dialog copy for a pending remove / retype, e.g.
  * `Removing "city" means the public tour dates list will switch to the
  * plain default card (…). Continue?`
+ *
+ * A retype's save also re-validates every item under the new type
+ * (`validateSchemaChange`), so free text that isn't a valid URL blocks
+ * it; the editor can't see items, so the copy says so instead.
  */
 export function describeViewFieldImpact(impact: ViewFieldImpact, fieldKey: string): string {
-  const action =
-    impact.change.kind === "remove"
-      ? `Removing "${fieldKey}"`
-      : `Changing "${fieldKey}" to ${fieldTypeLabel(impact.change.to)}`;
-  return `${action} means ${consequence(impact.viewLabel, impact.requirement, "will")}. Continue?`;
+  const what = consequence(impact.viewLabel, impact.requirement, "will");
+  if (impact.change.kind === "remove") {
+    return `Removing "${fieldKey}" means ${what}. Continue?`;
+  }
+  const to = fieldTypeLabel(impact.change.to);
+  return (
+    `Changing "${fieldKey}" to ${to} means ${what}. ` +
+    `The save only goes through if every existing ${fieldKey} is a valid ${to} value. Continue?`
+  );
 }
 
 /** Persistent heads-up copy for a problem already present in the def. */

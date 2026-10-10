@@ -337,7 +337,8 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
     })!;
     expect(describeViewFieldImpact(impact, "country")).toBe(
       'Changing "country" to Email means the country will no longer show on the ' +
-        "public tour dates list. Continue?",
+        "public tour dates list. The save only goes through if every existing country is a " +
+        "valid Email value. Continue?",
     );
   });
 
