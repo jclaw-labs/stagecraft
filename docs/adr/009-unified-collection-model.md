@@ -1,7 +1,17 @@
 # ADR-009: Unified Collection model for musician-site
 
 ## Status
-Proposed
+Accepted — implemented and shipped. All eight PRs in §15 have landed:
+pages, the `site` / `header` / `appearance` singletons, the prebaked
+collections and artist-created collections all live under
+`templates/musician-site/src/content/collections/`, with the generic
+item editor, schema editor and item/detail template editors live in
+`/admin`. #340 (2026-10-10) confirmed that artists keep this
+customization. Items under "Known limitations and deferred work" are
+still deferred. Later ADRs changed parts of the body: ADR-014 removed
+the legacy Astro template mentioned under Consequences, and ADR-015
+replaced the separate page and template block configs with one block
+library.
 
 ## Context
 
@@ -1358,8 +1368,8 @@ trigger condition isn't here yet:
   undo log; we may add a friendlier one on top later.
 - **The legacy template is unaffected.** This ADR applies only to
   `templates/musician-site/`. The legacy Astro + Keystatic template at
-  `templates/musician-site-legacy/` keeps its static Zod schemas and
-  Keystatic-driven editor.
+  `templates/musician-site-legacy/` kept its static Zod schemas and
+  Keystatic-driven editor until ADR-014 removed it.
 - **Codegen remains a future option.** Layer-3 type safety (compile-time
   row types) can be added later without breaking the runtime model. The
   runtime accessors and the codegen output would be drop-in replacements

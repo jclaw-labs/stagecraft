@@ -41,17 +41,20 @@ artist-site /api/publish
 ```
 
 - **Why broker, not at-edge:** the App private key is the master credential. Distributing it to every artist site multiplies the blast radius of any single-site compromise. The broker model keeps the master credential confined to the platform's secret manager.
-- **Auth from artist site to platform:** *per-site shared secret* (`STAGECRAFT_BROKER_SECRET`) sent as `Authorization: Bearer`. The platform stores only the SHA-256 hash on the `Site` row (`brokerSecretHash`); the plaintext is shown to the artist exactly once at install time and lives only in their site's deployment env vars. Comparison is constant-time. **(Amended from earlier draft.)**
+- **Auth from artist site to platform:** *per-site shared secret* (`STAGECRAFT_BROKER_SECRET`) sent as `Authorization: Bearer`. The platform stores only the SHA-256 hash on the `Site` row (`brokerSecretHash`); the plaintext lives only in their site's deployment env vars, which the platform sets itself; it is shown to the artist at most once, and only when the platform can't set it. Comparison is constant-time. **(Amended from earlier draft.)**
 - **Tokens are scoped to the site's own repo.** The broker mints with `repositories: [githubRepoName]` and only `contents: write` + `metadata: read`, so a site's broker secret can't reach the other repos the same installation covers. **(Amended, see revision history.)**
 - **Tokens are cached in memory on both sides.** The artist site keeps the token it was handed, per process, and asks the broker again shortly before it expires. The platform caches each site's token until five minutes before expiry; the cache key is the site, and a change to its installation or repo mints afresh.
-- **Rate limiting** lives in the broker, not in the artist site — the broker is the chokepoint for all publishes.
+- **Rate limiting** belongs in the broker, not in the artist site — the broker is the chokepoint for all publishes. **Not built:** the broker has no rate limit today; GitHub's per-installation limit is the only one.
 
 ### 3. Installation flow
 - Artist signs in to the platform via GitHub OAuth (per ADR-006).
+- **Usually no separate step:** `create_site` (and `migrate_site`) look for the App on the repo owner while provisioning (`findInstallation`). When it's there, they mint the broker secret, store its hash and installation id, and set the secret in the host's env vars with the first deploy. The flow below is the fallback when the App isn't found.
 - Platform dashboard shows a "Connect repo" CTA → links to `GITHUB_APP_INSTALL_URL` with `state=<signed siteId>` (signed using the platform's session secret to prevent CSRF; expires in 10 min).
 - Artist selects exactly one repo on GitHub's install screen → GitHub redirects to platform `/api/github/install-callback?state=<signed siteId>&installation_id=<id>&setup_action=install`.
 - Callback validates `state` (signature + expiry), confirms the signed-in user owns the `siteId`, fetches the installation's repo via the App, and persists `githubInstallationId`, `githubRepoOwner`, and `githubRepoName` on the `Site` record.
-- **Generates the broker secret** (`generateBrokerSecret()` from `apps/web/src/lib/broker-secret.ts`), stores `brokerSecretHash`, and renders a one-time "reveal" page showing the plaintext with copy-to-env-var instructions. The plaintext is **never persisted** and **never re-displayed** — losing it requires rotation.
+- **Generates the broker secret** (`generateBrokerSecret()` from `apps/web/src/lib/broker-secret.ts`), stores `brokerSecretHash`, sets `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` on the site's Vercel project or Netlify site, and triggers a rebuild. Only if that push fails does it render a one-time "reveal" page showing the plaintext with copy-to-env-var instructions. The plaintext is **never persisted** and **never re-displayed**.
+- **A callback for a site that already has a hash** shows "Already connected" and changes nothing.
+- **There is no rotation endpoint** (see "Secret rotation" under §6). Neither page offers one.
 - One installation per artist account, scoped to one or more repos. GitHub creates a single installation per account/org and grows its repository list as the artist grants access to more repos over time. The install-callback locates the **specific** repo for the current `Site` (matched on `githubRepoOwner` + `githubRepoName` set by `/create`) within the installation's repo list, rather than assuming the installation grants access to exactly one repo.
 
 ### 4. Commit author and committer
@@ -75,7 +78,7 @@ artist-site /api/publish
 
 | Var | Purpose |
 |---|---|
-| `STAGECRAFT_PLATFORM_URL` | Base URL of the broker, e.g. `https://platform.stagecraft.com` |
+| `STAGECRAFT_PLATFORM_URL` | Base URL of the broker. Optional: the template defaults to the production platform, so provisioning doesn't set it |
 | `STAGECRAFT_SITE_ID` | The `Site.id` for this deployment. Namespaced because Netlify reserves `SITE_ID` (injected automatically into Functions) |
 | `STAGECRAFT_BROKER_SECRET` | The per-site secret revealed once at install. Used to authenticate to the broker |
 
@@ -94,15 +97,17 @@ The platform exposes `POST /api/github/webhook` to receive App lifecycle events.
   - `installation.created` — usually a no-op (the install_callback already wired things up); used as a sanity check.
   - `installation.suspend` → set `Site.githubAppSuspended = true`. Broker returns 423 until unsuspended.
   - `installation.unsuspend` → clear `githubAppSuspended`.
-  - `installation.deleted` → null out `githubInstallationId`, `githubRepoOwner`, `githubRepoName`. Broker returns 409 ("reinstall"). Don't drop the broker secret hash — the artist may reinstall on a new repo and we'd want to allow that; rotation is a separate explicit action.
+  - `installation.deleted` → null out `githubInstallationId`, `githubRepoOwner`, `githubRepoName`. Broker returns 409 ("reinstall"). Don't drop the broker secret hash — the artist may reinstall on a new repo and we'd want to allow that.
   - `installation_repositories.removed` → if the removed repo matches `Site.githubRepoName`, treat as uninstall (null out repo fields).
   - `installation_repositories.added` → log only; we don't auto-attach to new repos (one Site = one repo).
 
 - No automatic re-install attempt; the artist must take explicit action.
 
+**Secret rotation (not built).** The original design called for an explicit rotate action that would replace the hash and push a new secret. It doesn't exist: no route, no dashboard button. Until it does, a lost or leaked secret is replaced by an operator, who clears the site's installation and hash so the artist's next "Connect repo" mints and pushes a fresh one (runbook §6). The artist-facing pages say to contact support rather than promising a rotate action.
+
 ### 7. Failure modes worth noting
-- **Token broker down** → publish endpoint surfaces a 503 with retry-after. Artist's editor preserves drafts in `localStorage` (per ADR-007), so no work is lost.
-- **GitHub API rate limit hit** → the broker returns 429; surfaced to the editor with a clear "try again in N minutes" message. Per-installation limits are 5000 req/hr, far above realistic publish volume.
+- **Token broker down** → the save fails with `broker-unreachable` and nothing is saved (since #345 a save is never reported as saved when its commit fails). The editor shows the error, and the artist retries once the platform is back.
+- **GitHub API rate limit hit** → per-installation limits are 5000 req/hr, far above realistic publish volume. The broker doesn't return its own 429 (no broker rate limit is built); GitHub's error surfaces as a failed save.
 - **Installation token expired mid-publish** → the artist site does not retry transparently for v1. The publish function returns failure; the editor can re-request a new token and retry. Future evolution: broker issues a refreshed token automatically.
 
 ## Rejected alternatives
@@ -143,3 +148,5 @@ The body above reflects current decisions. Each entry below records *what change
 **2026-05-03, PR #90 — `findGithubAppInstallation` helper.** Stand-alone helper in `integrations/github.ts` that calls `GET /user/installations` (the user's own GitHub OAuth token) and filters by `app_slug` + `account.login` to find any App's installation id. Used for Stagecraft's App (where the install-callback already had it from the OAuth round-trip) and for the deploy-target App (Netlify) where the provider's own API doesn't expose installation discovery.
 
 **2026-10-09, issue #355 — Per-site token scope and cache key.** `/api/publish-token` minted installation-wide tokens, so one site's broker secret could write to every repo the artist's installation covers. Tokens are now limited to the site's repo with minimal permissions, and since a scoped token belongs to one site, the platform cache is keyed by site instead of `installationId`.
+
+**2026-10-10, issue #362 — No rotation endpoint; docs match the code.** The body promised that a lost broker secret could be rotated "from the dashboard", and the install callback told artists the same. No such endpoint was ever built. The install callback's copy now says the platform can't show the secret again and to contact support; §3 and §6 describe the operator workaround, and rotation is listed as roadmap. Also corrected: provisioning mints and pushes the secret itself when the App is already installed (§3); `STAGECRAFT_PLATFORM_URL` is optional (§5); the broker has no rate limit, and a broker outage fails the save rather than keeping a `localStorage` draft (§2, §7). The PR #88 entry above is out of date: `/create` went back to queueing `create_site` once the queue could survive Netlify's frozen functions (issue #356; runbook §1, §8).

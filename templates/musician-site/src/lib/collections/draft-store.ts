@@ -9,10 +9,11 @@
  * path that fetches from `draft` over GitHub's Contents API so admin
  * reads see the live pending state regardless of container lifecycle.
  *
- * What's in this PR: the module + its per-process cache + tests.
- * Callers (the admin server components) aren't migrated yet — that's
- * the next slice. The seam is `getReadStore()`-shaped at a higher
- * level once a caller wants to switch.
+ * Callers don't import this module directly: they go through the
+ * per-request facade in `./read-store.ts` (`getRequestReadStore()` /
+ * `getReadStore()`), which the admin pages and the collection, draft
+ * and welcome API routes use.
+ * In production it serves reads from here; in dev it uses the FS store.
  *
  * **Cache.** Per-process `Map<branchKey, { sha, entries }>` where
  * entries hold the in-flight `Promise` (not the resolved value) keyed
