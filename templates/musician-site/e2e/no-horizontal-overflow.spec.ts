@@ -32,26 +32,23 @@ function isPublicPath(pathname: string): boolean {
 /**
  * Returns a description of the overflow, or null when the page fits.
  *
- * Any `overflow-x` other than `visible` on the `.stagecraft-site` wrapper
- * every public page renders in counts as a failure too: `hidden` or `clip`
- * would clip a too-wide page, and `auto` or `scroll` would scroll it
- * inside the wrapper, both out of sight of the scrollWidth check. `html`
- * and `body` need no such rule, since their overflow goes to the viewport
- * and still shows up in `documentElement.scrollWidth`. Elements inside the
- * wrapper are left alone: image frames and carousels clip on purpose.
+ * A non-`visible` `overflow` on `html`, `body` or the `.stagecraft-site`
+ * wrapper every public page renders in can clip or inner-scroll a
+ * too-wide page out of sight of `documentElement.scrollWidth`, alone or
+ * in combination (`html, body { overflow-x: hidden }`). So the
+ * measurement forces those three back to `visible` first: what's left in
+ * `scrollWidth` is the page's real width, whatever they set. Elements
+ * inside the wrapper are left alone: image frames and carousels clip on
+ * purpose.
  */
 async function overflowAt(page: Page, pathname: string, width: number): Promise<string | null> {
-  const { scrollWidth, clientWidth, wrapperOverflowX } = await page.evaluate(() => ({
+  await page.addStyleTag({
+    content: "html, body, .stagecraft-site { overflow: visible !important; }",
+  });
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
-    wrapperOverflowX: (() => {
-      const wrapper = document.querySelector(".stagecraft-site");
-      return wrapper ? getComputedStyle(wrapper).overflowX : "visible";
-    })(),
   }));
-  if (wrapperOverflowX !== "visible") {
-    return `${pathname} at ${width}px: overflow-x: ${wrapperOverflowX} on .stagecraft-site`;
-  }
   return scrollWidth > clientWidth ? `${pathname} at ${width}px: ${scrollWidth}px wide` : null;
 }
 
