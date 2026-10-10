@@ -32,25 +32,25 @@ function isPublicPath(pathname: string): boolean {
 /**
  * Returns a description of the overflow, or null when the page fits.
  *
- * Any `overflow-x` other than `visible` on `html`, `body` or the
- * `.stagecraft-site` wrapper every public page renders in counts as a
- * failure too: `hidden` or `clip` would clip a too-wide page, and `auto`
- * or `scroll` would scroll it inside the wrapper, both out of sight of the
- * scrollWidth check. Elements inside the wrapper are left alone: image
- * frames and carousels clip on purpose.
+ * Any `overflow-x` other than `visible` on the `.stagecraft-site` wrapper
+ * every public page renders in counts as a failure too: `hidden` or `clip`
+ * would clip a too-wide page, and `auto` or `scroll` would scroll it
+ * inside the wrapper, both out of sight of the scrollWidth check. `html`
+ * and `body` need no such rule, since their overflow goes to the viewport
+ * and still shows up in `documentElement.scrollWidth`. Elements inside the
+ * wrapper are left alone: image frames and carousels clip on purpose.
  */
 async function overflowAt(page: Page, pathname: string, width: number): Promise<string | null> {
-  const { scrollWidth, clientWidth, contained } = await page.evaluate(() => ({
+  const { scrollWidth, clientWidth, wrapperOverflowX } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
-    contained: (["html", "body", ".stagecraft-site"] as const).flatMap((selector) => {
-      const el = document.querySelector(selector);
-      const overflowX = el ? getComputedStyle(el).overflowX : "visible";
-      return overflowX === "visible" ? [] : [`overflow-x: ${overflowX} on ${selector}`];
-    }),
+    wrapperOverflowX: (() => {
+      const wrapper = document.querySelector(".stagecraft-site");
+      return wrapper ? getComputedStyle(wrapper).overflowX : "visible";
+    })(),
   }));
-  if (contained.length > 0) {
-    return `${pathname} at ${width}px: ${contained.join(", ")}`;
+  if (wrapperOverflowX !== "visible") {
+    return `${pathname} at ${width}px: overflow-x: ${wrapperOverflowX} on .stagecraft-site`;
   }
   return scrollWidth > clientWidth ? `${pathname} at ${width}px: ${scrollWidth}px wide` : null;
 }
