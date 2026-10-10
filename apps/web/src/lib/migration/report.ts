@@ -5,13 +5,22 @@
  * results. The report is stored in SiteJob.resultPayload and surfaced in the UI.
  */
 
-import { capitalise } from "@stagecraft/shared";
+import { capitalise, pluralise } from "@stagecraft/shared";
 import type { ExtractedSite } from "./crawler";
 import { PAGE_ITEM_PREFIX, type MappedContent, type MappedFile } from "./musician-site-mapper";
 import {
+  DESIGN_ITEM_DETAIL,
+  DESIGN_ITEM_LABEL,
+  EMBEDS_ITEM_LABEL,
   IMAGES_ITEM_LABEL,
+  PAGE_CONTENT_ITEM_DETAIL,
+  embedsItemDetail,
+  embedsSummaryLine,
   imagesItemDetail,
   imagesSummaryLine,
+  pageContentItemLabel,
+  unmappedPageItemDetail,
+  unmappedPageItemLabel,
   type MigrationReport,
   type MigrationReportItem,
 } from "./report-copy";
@@ -97,9 +106,10 @@ function buildManualReviewItems(
       ...new Set(extracted.pages.flatMap((p) => p.embeds.map((e) => e.type))),
     ].join(", ");
     items.push({
-      label: "Embedded media",
+      label: EMBEDS_ITEM_LABEL,
       status: "manual_review",
-      detail: `${totalEmbeds} embed${totalEmbeds === 1 ? "" : "s"} found (${types}). Add these via the edit request flow after reviewing the site.`,
+      detail: embedsItemDetail(totalEmbeds, types),
+      action: "open_site_admin",
     });
   }
 
@@ -110,17 +120,19 @@ function buildManualReviewItems(
   for (const file of lowConfidence) {
     const pageName = pageSlug(file.path);
     items.push({
-      label: `${capitalise(pageName)} page content`,
+      label: pageContentItemLabel(capitalise(pageName)),
       status: "partial",
-      detail: "Limited content was extracted. Review and expand this page using the edit request flow.",
+      detail: PAGE_CONTENT_ITEM_DETAIL,
+      action: "open_site_admin",
     });
   }
 
   // Theme/design
   items.push({
-    label: "Design & theme",
+    label: DESIGN_ITEM_LABEL,
     status: "manual_review",
-    detail: "Colors, fonts, and layout are set to the template defaults. Customise using the edit request flow.",
+    detail: DESIGN_ITEM_DETAIL,
+    action: "open_site_admin",
   });
 
   return items;
@@ -142,9 +154,10 @@ function buildSkippedItems(extracted: ExtractedSite): MigrationReportItem[] {
 
   for (const page of unmapped.slice(0, 5)) {
     items.push({
-      label: `Unmapped page: ${page.title || page.url}`,
+      label: unmappedPageItemLabel(page.title || page.url),
       status: "skipped",
-      detail: `${page.url} — no matching template page. Add content manually via the edit request flow.`,
+      detail: unmappedPageItemDetail(page.url),
+      action: "open_site_admin",
     });
   }
 
@@ -163,16 +176,16 @@ function buildSummary(
   const socialCount = extracted.socialLinks.filter((l) => !l.href.startsWith("mailto:")).length;
 
   lines.push(`Migrated "${artistName}" from ${extracted.rootUrl}`);
-  lines.push(`Crawled ${extracted.pages.length} page${extracted.pages.length === 1 ? "" : "s"}, mapped ${pageCount} to template`);
+  lines.push(`Crawled ${pluralise(extracted.pages.length, "page")}, mapped ${pageCount} to template`);
 
   if (imageCount > 0) {
     lines.push(imagesSummaryLine(imageCount));
   }
   if (embedCount > 0) {
-    lines.push(`Found ${embedCount} media embed${embedCount === 1 ? "" : "s"} (YouTube, Spotify, etc.) — add via edit request`);
+    lines.push(embedsSummaryLine(embedCount));
   }
   if (socialCount > 0) {
-    lines.push(`Detected ${socialCount} social link${socialCount === 1 ? "" : "s"} and imported into site config`);
+    lines.push(`Detected ${pluralise(socialCount, "social link")} and imported into site config`);
   }
 
   return lines;
