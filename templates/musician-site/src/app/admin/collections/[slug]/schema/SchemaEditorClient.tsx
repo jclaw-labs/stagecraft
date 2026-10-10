@@ -28,6 +28,9 @@ export function SchemaEditorClient({
   initialDef: CollectionDef;
 }) {
   const [def, setDef] = useState<CollectionDef>(initialDef);
+  // The schema as last saved: the save API checks type changes against
+  // it, and so do the editor's view warnings.
+  const [savedDef, setSavedDef] = useState<CollectionDef>(initialDef);
   const [initialSnapshot, setInitialSnapshot] = useState(() => JSON.stringify(initialDef));
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export function SchemaEditorClient({
         return;
       }
       setDef(body.def);
+      setSavedDef(body.def);
       setInitialSnapshot(JSON.stringify(body.def));
       setWarnings(body.warnings ?? []);
       setStatus("saved");
@@ -90,7 +94,13 @@ export function SchemaEditorClient({
 
   return (
     <>
-      <SchemaEditor def={def} onChange={setDef} issues={issues} warnings={warnings} />
+      <SchemaEditor
+        def={def}
+        savedDef={savedDef}
+        onChange={setDef}
+        issues={issues}
+        warnings={warnings}
+      />
       <SaveBar
         isDirty={isDirty}
         status={status}

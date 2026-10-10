@@ -9,11 +9,15 @@
  * Priority order at the call site (`collection-block.tsx`):
  *   1. The artist's custom `itemTemplate`, if set — explicit
  *      authoring always wins.
- *   2. Specialised renderer here, if the slug has one.
+ *   2. Specialised renderer here, if the slug has one *and* the
+ *      collection's live schema still satisfies the view's required
+ *      fields (`specialisedRendererForDef`, #352).
  *   3. `DefaultItemRender` — the universal field-stack fallback.
  *
- * Adding a new specialisation: write a tile component + register it
- * in `SPECIALISED_RENDERERS`. CSS for the surrounding grid layout
+ * Adding a new specialisation: declare its fields in
+ * `view-requirements.ts`, write a tile component that reads them via
+ * `resolveViewFields`, and register it in `SPECIALISED_RENDERERS`.
+ * CSS for the surrounding grid layout
  * lives in `globals.css` keyed off `[data-collection-view="<slug>"]`.
  */
 
@@ -22,30 +26,18 @@ import type { CSSProperties, ReactNode } from "react";
 import { Image } from "@/components/Image";
 import { largestVariantUrl } from "@/lib/image-urls";
 import type { ImageMetadata } from "@/lib/image-types";
-import {
-  getDateOrNull,
-  getImageOrNull,
-  getLongTextOrNull,
-  getSelectOrNull,
-  getTextOrNull,
-  getUrlOrNull,
-} from "../accessors";
-// Always import field-id constants directly from `../field-ids`, never
-// via `seeds.ts`'s convenience re-export — `seeds.ts` pulls
-// `schema.ts → node:crypto` into the bundle, which webpack rejects
-// whenever this module ends up inside a `"use client"` chain (today
-// via `collection-block.tsx` → `TemplateEditorClient`). The rule
-// applies to every client-reachable file; see CLAUDE.md "Client-bundle
-// discipline."
-import {
-  PHOTOS_FIELD_IDS,
-  POSTS_FIELD_IDS,
-  RELEASES_FIELD_IDS,
-  TOUR_DATES_FIELD_IDS,
-  VIDEOS_FIELD_IDS,
-} from "../field-ids";
 import { itemDetailUrl } from "../routing";
 import type { CollectionDef, Item } from "../schema";
+// Field access goes through the per-view requirement declarations
+// (#352): each tile reads its fields by role, gated by the live schema,
+// so an artist's delete / retype hides an optional piece or — for a
+// required field — makes `specialisedRendererForDef` fall back to the
+// default card. The field-id constants live in `view-requirements.ts`.
+import {
+  isSpecialisedViewSlug,
+  resolveViewFields,
+  type SpecialisedViewSlug,
+} from "./view-requirements";
 
 // ---------------------------------------------------------------------------
 // Photo tile — Image + optional caption
@@ -65,18 +57,18 @@ import type { CollectionDef, Item } from "../schema";
  * lightbox-friendly metadata so the boot doesn't have to re-parse
  * the figcaption text.
  */
-function PhotoTile({ item }: { item: Item }): ReactNode {
-  const image = getImageOrNull(item, PHOTOS_FIELD_IDS.image);
+function PhotoTile({ item, def }: SpecialisedRendererArgs): ReactNode {
+  const fields = resolveViewFields(def, "photos");
+  if (!fields) return null;
+  const image = fields.image(item, "image");
   if (!image) return null;
   // Per-item fields are the override; image-level metadata
   // (set in the picker once, reused across slots) is the default.
   // The two-layer model lets the artist keep a default caption /
   // credit on the image and override it for specific contexts
   // (e.g. a press kit photo with a venue-specific caption).
-  const caption =
-    getLongTextOrNull(item, PHOTOS_FIELD_IDS.caption) ?? image.caption ?? null;
-  const credit =
-    getTextOrNull(item, PHOTOS_FIELD_IDS.credit) ?? image.credit ?? null;
+  const caption = fields.string(item, "caption") ?? image.caption ?? null;
+  const credit = fields.string(item, "credit") ?? image.credit ?? null;
   // The lightbox image source is the largest sharp variant (1600.webp
   // for typical artist uploads) — full-screen viewing doesn't need
   // the multi-MB original, and the variant is what's already cached
@@ -136,8 +128,10 @@ function PhotoTile({ item }: { item: Item }): ReactNode {
  * a link-out card so the artist's bad data doesn't render a broken
  * iframe.
  */
-function VideoTile({ item }: { item: Item }): ReactNode {
-  const source = getSelectOrNull(item, VIDEOS_FIELD_IDS.source);
+function VideoTile({ item, def }: SpecialisedRendererArgs): ReactNode {
+  const fields = resolveViewFields(def, "videos");
+  if (!fields) return null;
+  const source = fields.string(item, "source");
   // Source-specific title fallback so multiple untitled videos on a
   // page get distinguishable screen-reader announcements rather than
   // a chorus of "Video iframe, Video iframe...". The iframe's
@@ -147,10 +141,10 @@ function VideoTile({ item }: { item: Item }): ReactNode {
     : source === "vimeo" ? "Vimeo video"
     : source === "upload" ? "Hosted video"
     : "Video";
-  const title = getTextOrNull(item, VIDEOS_FIELD_IDS.title) ?? titleFallback;
-  const embedUrl = getTextOrNull(item, VIDEOS_FIELD_IDS.embedUrl);
-  const thumbnail = getImageOrNull(item, VIDEOS_FIELD_IDS.thumbnail);
-  const description = getLongTextOrNull(item, VIDEOS_FIELD_IDS.description);
+  const title = fields.string(item, "title") ?? titleFallback;
+  const embedUrl = fields.string(item, "embedUrl");
+  const thumbnail = fields.image(item, "thumbnail");
+  const description = fields.string(item, "description");
   if (!embedUrl) return null;
 
   return (
@@ -326,13 +320,19 @@ function formatTourDate(iso: string | null): string {
  * date · venue · city, country + a Tickets link (disabled when no URL). The
  * upcoming / exclude-cancelled filtering + soonest-first sort are applied by
  * the Collection block (its `filter`/`sort` props), not here.
+ *
+ * When the artist removed (or incompatibly retyped) the ticket-link field,
+ * the Tickets affordance is dropped entirely rather than shown disabled on
+ * every row.
  */
-function TourDateRow({ item }: { item: Item }): ReactNode {
-  const date = formatTourDate(getDateOrNull(item, TOUR_DATES_FIELD_IDS.date));
-  const venue = getTextOrNull(item, TOUR_DATES_FIELD_IDS.venue);
-  const city = getTextOrNull(item, TOUR_DATES_FIELD_IDS.city);
-  const country = getTextOrNull(item, TOUR_DATES_FIELD_IDS.country);
-  const ticketUrl = getUrlOrNull(item, TOUR_DATES_FIELD_IDS.ticketUrl);
+function TourDateRow({ item, def }: SpecialisedRendererArgs): ReactNode {
+  const fields = resolveViewFields(def, "tour-dates");
+  if (!fields) return null;
+  const date = formatTourDate(fields.string(item, "date"));
+  const venue = fields.string(item, "venue");
+  const city = fields.string(item, "city");
+  const country = fields.string(item, "country");
+  const ticketUrl = fields.string(item, "ticketUrl");
   return (
     <div style={tourRowStyle}>
       <span>
@@ -340,7 +340,7 @@ function TourDateRow({ item }: { item: Item }): ReactNode {
         {venue ? ` — ${venue}` : ""}
         {city ? ` — ${city}${country ? `, ${country}` : ""}` : ""}
       </span>
-      {ticketUrl ? (
+      {!fields.has("ticketUrl") ? null : ticketUrl ? (
         <a href={ticketUrl} target="_blank" rel="noopener noreferrer" style={tourTicketStyle}>
           Tickets
         </a>
@@ -401,11 +401,13 @@ function releaseMetaLine(releaseType: string, releaseDate: string): string {
  * page when the collection has one.
  */
 function ReleaseTile({ item, def }: SpecialisedRendererArgs): ReactNode {
-  const cover = getImageOrNull(item, RELEASES_FIELD_IDS.coverImage);
-  const title = getTextOrNull(item, RELEASES_FIELD_IDS.title) ?? "";
-  const releaseType = getSelectOrNull(item, RELEASES_FIELD_IDS.releaseType) ?? "";
-  const releaseDate = getDateOrNull(item, RELEASES_FIELD_IDS.releaseDate) ?? "";
-  const description = getLongTextOrNull(item, RELEASES_FIELD_IDS.description) ?? "";
+  const fields = resolveViewFields(def, "releases");
+  if (!fields) return null;
+  const cover = fields.image(item, "coverImage");
+  const title = fields.string(item, "title") ?? "";
+  const releaseType = fields.string(item, "releaseType") ?? "";
+  const releaseDate = fields.string(item, "releaseDate") ?? "";
+  const description = fields.string(item, "description") ?? "";
   const meta = releaseMetaLine(releaseType, releaseDate);
   return (
     <article>
@@ -464,11 +466,13 @@ function postMetaLine(category: string, publishedAt: string): string {
  * the collection has one.
  */
 function PostTile({ item, def }: SpecialisedRendererArgs): ReactNode {
-  const cover = getImageOrNull(item, POSTS_FIELD_IDS.coverImage);
-  const title = getTextOrNull(item, POSTS_FIELD_IDS.title) ?? "";
-  const category = getSelectOrNull(item, POSTS_FIELD_IDS.category) ?? "";
-  const publishedAt = getDateOrNull(item, POSTS_FIELD_IDS.publishedAt) ?? "";
-  const summary = getLongTextOrNull(item, POSTS_FIELD_IDS.summary) ?? "";
+  const fields = resolveViewFields(def, "posts");
+  if (!fields) return null;
+  const cover = fields.image(item, "coverImage");
+  const title = fields.string(item, "title") ?? "";
+  const category = fields.string(item, "category") ?? "";
+  const publishedAt = fields.string(item, "publishedAt") ?? "";
+  const summary = fields.string(item, "summary") ?? "";
   const meta = postMetaLine(category, publishedAt);
   return (
     <article>
@@ -532,7 +536,9 @@ const tileBodyStyle: CSSProperties = { ...tileMetaStyle, lineHeight: "var(--line
 export type SpecialisedRendererArgs = { item: Item; def: CollectionDef };
 export type SpecialisedRenderer = (args: SpecialisedRendererArgs) => ReactNode;
 
-export const SPECIALISED_RENDERERS: Readonly<Record<string, SpecialisedRenderer>> =
+/** Keyed by the same slug union as `VIEW_REQUIREMENTS`, so a renderer
+ *  can't ship without declaring the fields it reads (and vice versa). */
+export const SPECIALISED_RENDERERS: Readonly<Record<SpecialisedViewSlug, SpecialisedRenderer>> =
   Object.freeze({
     photos: PhotoTile,
     videos: VideoTile,
@@ -544,10 +550,26 @@ export const SPECIALISED_RENDERERS: Readonly<Record<string, SpecialisedRenderer>
 /**
  * Convenience: look up a specialisation by slug. Returns null when
  * the slug doesn't have one (the common case — most collections
- * fall through to the default fallback).
+ * fall through to the default fallback). Doesn't check the schema —
+ * render paths use `specialisedRendererForDef`.
  */
 export function specialisedRendererFor(slug: string): SpecialisedRenderer | null {
-  return SPECIALISED_RENDERERS[slug] ?? null;
+  return isSpecialisedViewSlug(slug) ? SPECIALISED_RENDERERS[slug] : null;
+}
+
+/**
+ * The specialisation to render `def`'s items with, or null to use the
+ * default card. Null when the slug has no specialisation *or* when the
+ * artist's schema no longer satisfies one of the view's required fields
+ * (deleted, or retyped to a type the card can't render) — so an edited
+ * schema degrades to the generic field stack instead of a broken card.
+ */
+export function specialisedRendererForDef(
+  def: Pick<CollectionDef, "slug" | "fields">,
+): SpecialisedRenderer | null {
+  if (!isSpecialisedViewSlug(def.slug)) return null;
+  if (!resolveViewFields(def, def.slug)) return null;
+  return SPECIALISED_RENDERERS[def.slug];
 }
 
 // ---------------------------------------------------------------------------

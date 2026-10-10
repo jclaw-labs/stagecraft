@@ -31,7 +31,7 @@ import { applyFilter } from "./filter";
 import { PRIMITIVE_BLOCKS, type BlockEntry, type ResolveContext } from "./primitives";
 import { templatePuckConfig } from "./puck-config";
 import { resolveTemplate } from "./renderer";
-import { emptyMessageFor, specialisedRendererFor } from "./specialized-views";
+import { emptyMessageFor, specialisedRendererForDef } from "./specialized-views";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
@@ -196,11 +196,11 @@ function CollectionBlockItem({
     // once per iterated item.
     return <Render config={templatePuckConfig} data={resolved} />;
   }
-  // Specialised renderer (photos / videos today) — hand-tuned per-
-  // slug layouts that match what the legacy template's PhotoGallery
-  // / VideoGallery blocks offered. Falls through to the default
-  // field-stack when no specialisation registered.
-  const specialised = specialisedRendererFor(sourceDef.slug);
+  // Specialised renderer (photos / videos / tour-dates / releases /
+  // posts) — hand-tuned per-slug cards. Falls through to the default
+  // field-stack when no specialisation is registered, or when the
+  // artist's schema edits removed / retyped a field the card requires.
+  const specialised = specialisedRendererForDef(sourceDef);
   if (specialised) {
     return specialised({ item, def: sourceDef });
   }

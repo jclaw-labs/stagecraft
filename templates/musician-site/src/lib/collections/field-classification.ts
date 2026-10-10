@@ -53,3 +53,74 @@ export const SORTABLE_FIELD_TYPES: ReadonlySet<FieldType> = new Set<FieldType>([
   "number",
   "boolean",
 ]);
+
+/**
+ * Display order + artist-facing labels for every field type. Drives the
+ * schema editor's type pickers and any artist-facing copy that names a
+ * type (e.g. the specialised-view warnings in
+ * `./template/view-requirements.ts`). Most-used types first.
+ */
+export const FIELD_TYPE_OPTIONS: ReadonlyArray<{ value: FieldType; label: string }> = [
+  { value: "text", label: "Short text" },
+  { value: "longText", label: "Long text" },
+  { value: "richText", label: "Rich text" },
+  { value: "number", label: "Number" },
+  { value: "boolean", label: "Yes / no" },
+  { value: "select", label: "Single-choice" },
+  { value: "multiSelect", label: "Multi-choice" },
+  { value: "date", label: "Date" },
+  { value: "url", label: "URL" },
+  { value: "email", label: "Email" },
+  { value: "color", label: "Color" },
+  { value: "image", label: "Image" },
+  { value: "file", label: "File" },
+  { value: "collectionRef", label: "Reference (one)" },
+  { value: "multiCollectionRef", label: "References (many)" },
+  { value: "puckContent", label: "Page content (Puck)" },
+];
+
+/** Artist-facing label for a field type ("Short text", "Image", …). */
+export function fieldTypeLabel(type: FieldType): string {
+  return FIELD_TYPE_OPTIONS.find((opt) => opt.value === type)?.label ?? type;
+}
+
+/**
+ * The lossless type transitions (ADR §11). Format: `<from>` → `<to>[]`. Adding
+ * a transition here doesn't automatically make it "safe" — it means
+ * the structural shape can be coerced; per-instance validity still
+ * runs through the per-collection Zod schema.
+ *
+ * Notable transitions:
+ *   - text ↔ longText (string ↔ string)
+ *   - text → url / email / color: only if every existing value
+ *     parses; the caller runs the parse check.
+ *   - select → multiSelect: wrap each scalar in a 1-element array
+ *   - multiSelect → select: only if every item has ≤ 1 option set
+ *
+ * Everything not listed is blocked: the schema API rejects the save
+ * (`schema-changes.ts`), and the schema editor uses `canTransition` to
+ * skip view warnings for a retype that can never be saved.
+ */
+export const LOSSLESS_TYPE_TRANSITIONS: Readonly<Record<FieldType, ReadonlyArray<FieldType>>> = {
+  text: ["longText", "url", "email", "color"],
+  longText: ["text"],
+  richText: [],
+  number: [],
+  boolean: [],
+  select: ["multiSelect"],
+  multiSelect: ["select"],
+  date: [],
+  url: ["text"],
+  email: ["text"],
+  color: ["text"],
+  image: [],
+  file: [],
+  collectionRef: [],
+  multiCollectionRef: [],
+  puckContent: [],
+};
+
+export function canTransition(from: FieldType, to: FieldType): boolean {
+  if (from === to) return true;
+  return LOSSLESS_TYPE_TRANSITIONS[from].includes(to);
+}
