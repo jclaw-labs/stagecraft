@@ -502,49 +502,79 @@ Use the least complex tool that satisfies the request:
 
 Avoid turning the site into a client-heavy SPA unless the user has a very strong reason.
 
-## 14. Site templates / blueprints
+## 14. Seeded site and themes
 
-The platform should start with a small number of constrained site blueprints.
+There are no per-artist-type site blueprints. Every new site is built from the
+one musician-site template and gets the same seeded shape; a theme, not a
+blueprint, sets the look. Artists then add, remove, and edit pages from there.
 
-Suggested initial blueprints:
+The seeded content is written by the template's first-run welcome wizard
+(`templates/musician-site/src/lib/first-run-seeds.ts`). The wording below
+matches the marketing copy in
+`apps/web/src/app/(marketing)/_components/site-sections.ts`; keep the three in
+step.
 
-1. Solo artist
-2. Band / ensemble
-3. Composer / educator
-4. Artist with press kit / EPK emphasis
-5. Tour-focused artist
+The list below is the marketing wording. In the seed itself, the home page
+takes its title from the wizard's first-page title ("Home" by default), About
+and Contact are two separate starter pages, and tour dates are not a page: the
+seed adds two items to the tour-dates collection, shown on the home page.
 
-Each blueprint should define:
+### 14.1 What a new site contains
 
-- page types
-- section inventory
-- design token structure
-- navigation rules
-- image slot definitions
-- optional interactive widgets
-- content schema
+- **Home** — a hero with your name, your latest release, upcoming shows, and a
+  photo gallery.
+- **Music** — your releases, listed automatically as you add them.
+- **Tour dates** — add a show once and it appears wherever your site lists
+  dates.
+- **Updates** — news posts for announcements, interviews, and studio notes.
+- **About & Contact** — a bio page, plus a contact form that sends to the email
+  you set.
 
-The AI should generate within a blueprint rather than inventing an unconstrained site structure from scratch.
+The seed is illustrative starter copy that uses the artist's name, two example
+tour dates, and empty image slots that render a theme-driven placeholder until
+the artist uploads. The artist edits or deletes all of it in place.
+
+### 14.2 Starting point: theme, custom color, or "Start empty"
+
+The welcome wizard asks for one starting point:
+
+- **A theme** — pick a ready-made theme preset
+  (`templates/musician-site/src/lib/theme-presets.ts`), which sets colors,
+  fonts, and header in one go. The starter content above is added.
+- **"Custom colour"** (the wizard's label) — one accent color on the
+  template's built-in base appearance (not a theme preset; the header style is
+  left as is). The starter content above is added.
+- **Start empty** — a blank home page with the Meadow theme (the default
+  theme preset) and no demo content (no starter pages or tour dates); the
+  artist builds the site themselves.
+
+Whichever start is chosen, fonts and colors can be changed any time from
+Appearance.
+
+### 14.3 Constraint
+
+The AI should edit within the template's page, block, and content schema
+rather than inventing an unconstrained site structure from scratch.
 
 ## 15. User workflows
 
 ### 15.1 New site creation
 
 1. User signs into the platform.
-2. User links GitHub and Netlify.
-3. User chooses a site blueprint.
-4. User provides key content:
+2. User connects GitHub, a deploy target (Vercel or Netlify), and Resend (for
+   sign-in on the artist's site).
+3. User names the site. That is the only input the platform asks for; there is
+   no blueprint to choose.
+4. Platform runs the `create_site` job: it creates the artist's repo from the
+   one musician-site template as-is, links the host, and sets environment
+   variables. The site then deploys.
+5. User opens the site's admin, where the first-run welcome wizard asks for:
    - artist name
-   - short bio
-   - pages desired
-   - social/profile links
-   - music/video embeds
-   - image assets
-5. Platform creates repo and baseline project.
-6. AI fills content and styles within constraints.
-7. Initial preview is generated.
-8. User requests revisions.
-9. User approves and publishes.
+   - a starting point (a theme, a custom color, or "Start empty" — see §14)
+   - an optional wordmark image
+   - the first page's title
+6. The wizard writes the seeded content (§14) and the artist edits pages,
+   releases, tour dates, and images in place from the site's admin.
 
 ### 15.2 Migration from an existing site
 
@@ -555,7 +585,7 @@ The AI should generate within a blueprint rather than inventing an unconstrained
    - media references
    - embeds
    - navigation
-3. Platform maps extracted content into a chosen blueprint.
+3. Platform maps extracted content into the musician-site template's pages and content schema.
 4. AI generates a migrated site repo.
 5. Platform creates preview.
 6. User reviews and requests fixes.
