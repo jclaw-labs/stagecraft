@@ -8,8 +8,8 @@ import { narrowJobFields, type StoredJobFields } from "@stagecraft/shared";
  * each job, since old rows can hold a retired type, status or failure
  * category (#447).
  */
-export function toClientSite<J extends StoredJobFields, S extends { brokerSecretHash: string | null; jobs: J[] }>(
-  site: S,
+export function toClientSite<J extends StoredJobFields, S extends { brokerSecretHash: string | null }>(
+  site: S & { jobs: J[] },
 ) {
   const { brokerSecretHash, jobs, ...rest } = site;
   void brokerSecretHash;

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { toClientSite } from "../client-site";
 
 describe("toClientSite", () => {
@@ -21,5 +21,18 @@ describe("toClientSite", () => {
       { id: "job-1", type: null, status: null, failureCategory: "unknown" },
       { id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" },
     ]);
+  });
+
+  it("keeps every job field and the site's own fields in the return type, without the hash", () => {
+    const site = toClientSite({
+      id: "site-1",
+      brokerSecretHash: null,
+      jobs: [{ id: "job-1", type: "create_site", status: "failed", failureCategory: null, createdAt: new Date(0) }],
+    });
+    expectTypeOf(site.jobs[0].id).toEqualTypeOf<string>();
+    expectTypeOf(site.jobs[0].createdAt).toEqualTypeOf<Date>();
+    expectTypeOf(site.id).toEqualTypeOf<string>();
+    expectTypeOf(site).not.toHaveProperty("brokerSecretHash");
+    expect(site.jobs[0].id).toBe("job-1");
   });
 });
