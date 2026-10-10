@@ -59,14 +59,14 @@ export function imagesSummaryLine(count: number): string {
 }
 
 /**
- * Every wording the images item and summary line have been stored with. The
- * first is from before #414 (the removed asset manager), the second from #414
- * (an `/admin` path printed in the sentence), the last is current.
+ * Every older wording the images item and summary line have been stored with:
+ * from before #414 (the removed asset manager), and from #414 (an `/admin`
+ * path printed in the sentence). The current wording is always stored with
+ * its `action`, so it needs no upgrade.
  */
 const IMAGES_DETAIL_PATTERNS = [
   /^(\d+) image references? found\. Images are not automatically downloaded — please upload your photos via the asset manager\.$/,
   /^(\d+) image references? found\. Images are not downloaded automatically — add your photos in your site's admin \(\/admin\), using the image fields on each page or item\.$/,
-  /^(\d+) image references? found\. Images are not downloaded automatically — add your photos in your site's admin, using the image fields on each page or item\.$/,
 ];
 
 const IMAGES_SUMMARY_PATTERNS = [
@@ -119,19 +119,36 @@ export function siteAdminUrl(productionUrl: string | null | undefined): string |
   }
 }
 
-/** Where the report's site-admin link stands for a site. */
-export type SiteAdminLink =
-  | { state: "live"; href: string }
-  | { state: "building" }
-  | { state: "no_url" };
+/**
+ * Whether the site is serving, as far as the site page knows: `live` once the
+ * latest deploy is ready, `building` while the site is being created or a
+ * deploy is in flight, and `not_live` otherwise (a failed deploy, an unknown
+ * deploy state, or a site that isn't active).
+ */
+export type SiteServingState = "live" | "building" | "not_live";
+
+/** The report's site-admin link for a site: the URL, or why it's held back. */
+export type SiteAdminLink = { state: "live"; href: string } | { state: "hidden"; hint: string };
 
 /**
  * The site-admin link for a report, given the site's production URL and
- * whether the site is serving yet. Before the first build finishes the admin
- * doesn't load, so the page says when the link will appear instead.
+ * whether the site is serving. Until it is, the admin doesn't load, so the
+ * page says when the link will appear instead.
  */
-export function siteAdminLink(productionUrl: string | null | undefined, isSiteLive: boolean): SiteAdminLink {
+export function siteAdminLink(
+  productionUrl: string | null | undefined,
+  serving: SiteServingState,
+): SiteAdminLink {
   const href = siteAdminUrl(productionUrl);
-  if (!href) return { state: "no_url" };
-  return isSiteLive ? { state: "live", href } : { state: "building" };
+  if (!href) {
+    return { state: "hidden", hint: "The link to your site admin appears once your site has a production URL." };
+  }
+  if (serving === "live") return { state: "live", href };
+  return {
+    state: "hidden",
+    hint:
+      serving === "building"
+        ? "The link to your site admin appears once your site finishes building."
+        : "The link to your site admin appears once your site is live.",
+  };
 }

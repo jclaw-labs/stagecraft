@@ -318,7 +318,10 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const isReady = isActive && deployFetched && deploy?.state === "ready";
   // The report's "Open site admin" link targets the artist's own site, so it
   // follows the Production URL row: live once the site is (or is presumed) up.
-  const adminLink = siteAdminLink(site.productionUrl, isReady || isCheckingStatus);
+  const adminLink = siteAdminLink(
+    site.productionUrl,
+    isReady || isCheckingStatus ? "live" : isCreating || isBuilding ? "building" : "not_live",
+  );
 
   const statusTone = isCreating || isBuilding || isCheckingStatus
     ? styles.toneBuilding
@@ -772,11 +775,7 @@ function ReportItem({ item, adminLink }: { item: MigrationReportItem; adminLink:
               {MIGRATION_REPORT_ACTION_LABELS[item.action]}
             </Button>
           ) : (
-            <p className={styles.muted}>
-              {adminLink.state === "building"
-                ? "The link to your site admin appears once the first build finishes."
-                : "The link to your site admin appears once your site has a production URL."}
-            </p>
+            <p className={styles.muted}>{adminLink.hint}</p>
           )}
         </div>
       )}

@@ -131,22 +131,39 @@ describe("siteAdminUrl", () => {
     expect(siteAdminUrl("sarah-chen.example.com")).toBeNull();
     expect(siteAdminUrl("javascript:alert(1)")).toBeNull();
   });
+
+  it("returns null for a production URL that isn't http or https", () => {
+    expect(siteAdminUrl("ftp://sarah-chen.example.com")).toBeNull();
+    expect(siteAdminUrl("file:///etc")).toBeNull();
+    expect(siteAdminUrl("javascript://sarah-chen.example.com/x")).toBeNull();
+  });
 });
 
 describe("siteAdminLink", () => {
+  const url = "https://sarah-chen.example.com";
+
   it("links the admin once the site is live", () => {
-    expect(siteAdminLink("https://sarah-chen.example.com", true)).toEqual({
-      state: "live",
-      href: "https://sarah-chen.example.com/admin",
+    expect(siteAdminLink(url, "live")).toEqual({ state: "live", href: "https://sarah-chen.example.com/admin" });
+  });
+
+  it("holds the link back while the site is building", () => {
+    expect(siteAdminLink(url, "building")).toEqual({
+      state: "hidden",
+      hint: "The link to your site admin appears once your site finishes building.",
     });
   });
 
-  it("holds the link back while the first build is running", () => {
-    expect(siteAdminLink("https://sarah-chen.example.com", false)).toEqual({ state: "building" });
+  it("holds the link back without claiming a build when the site isn't live", () => {
+    expect(siteAdminLink(url, "not_live")).toEqual({
+      state: "hidden",
+      hint: "The link to your site admin appears once your site is live.",
+    });
   });
 
-  it("reports a site with no production URL, live or not", () => {
-    expect(siteAdminLink(undefined, true)).toEqual({ state: "no_url" });
-    expect(siteAdminLink(undefined, false)).toEqual({ state: "no_url" });
+  it("asks for a production URL first, whatever the serving state", () => {
+    const noUrl = { state: "hidden", hint: "The link to your site admin appears once your site has a production URL." };
+    expect(siteAdminLink(undefined, "live")).toEqual(noUrl);
+    expect(siteAdminLink("ftp://sarah-chen.example.com", "live")).toEqual(noUrl);
+    expect(siteAdminLink(undefined, "building")).toEqual(noUrl);
   });
 });
