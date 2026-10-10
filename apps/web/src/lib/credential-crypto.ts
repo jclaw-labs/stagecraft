@@ -242,11 +242,34 @@ export function credentialBinding(field: CredentialField): string {
   }
 }
 
-function additionalData(format: "v1" | "v2", keyId: string, field: CredentialField): Uint8Array<ArrayBuffer> {
-  // v1 (unchanged since #366) binds only the version and key id. v2 adds
-  // the row binding, so a value moved to another row or column fails.
-  const aad =
-    format === "v1" ? `${V1_PREFIX}${keyId}` : `${V2_PREFIX}${keyId}:${credentialBinding(field)}`;
+/**
+ * The GCM additional data for a value in `format` under `keyId`, starting
+ * with that format's own prefix. Exhaustive over the encrypted formats, so
+ * adding one to `CredentialFormat` fails the type check here until its AAD
+ * is defined. The bytes for v1 and v2 must never change: every stored value
+ * would stop decrypting.
+ */
+export function credentialAdditionalData(
+  format: EncryptedCredentialFormat,
+  keyId: string,
+  field: CredentialField,
+): Uint8Array<ArrayBuffer> {
+  const prefix = CREDENTIAL_FORMAT_PREFIXES[format];
+  let aad: string;
+  switch (format) {
+    case "v1":
+      // Unchanged since #366: only the version and key id.
+      aad = `${prefix}${keyId}`;
+      break;
+    case "v2":
+      // Adds the row binding, so a value moved to another row or column fails.
+      aad = `${prefix}${keyId}:${credentialBinding(field)}`;
+      break;
+    default: {
+      const unhandled: never = format;
+      throw new Error(`No additional data defined for credential format "${String(unhandled)}"`);
+    }
+  }
   return new TextEncoder().encode(aad);
 }
 
@@ -328,7 +351,7 @@ export async function encryptCredential(plaintext: string, field: CredentialFiel
       {
         name: "AES-GCM",
         iv,
-        additionalData: additionalData("v2", current.id, field),
+        additionalData: credentialAdditionalData("v2", current.id, field),
         tagLength: TAG_BYTES * 8,
       },
       current.key,
@@ -385,7 +408,7 @@ export async function decryptCredential(stored: string, field: CredentialField):
       {
         name: "AES-GCM",
         iv,
-        additionalData: additionalData(format, keyId, field),
+        additionalData: credentialAdditionalData(format, keyId, field),
         tagLength: TAG_BYTES * 8,
       },
       key,

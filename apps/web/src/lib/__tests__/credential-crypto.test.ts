@@ -6,6 +6,7 @@ import {
   CREDENTIALS_KEY_ENV,
   CREDENTIALS_OLD_KEYS_ENV,
   CREDENTIALS_REQUIRED_ENV,
+  credentialAdditionalData,
   credentialBinding,
   credentialFormat,
   credentialKeyId,
@@ -435,6 +436,53 @@ describe("key ids", () => {
     expect(credentialKeyId(v2)).toBe("b");
     expect(await decryptCredential(v1, GITHUB)).toBe("one");
     expect(await decryptCredential(v2, GITHUB)).toBe("two");
+  });
+});
+
+describe("additional data (AAD)", () => {
+  const bytes = (text: string) => new TextEncoder().encode(text);
+
+  it("is the v1 bytes #366 wrote: prefix and key id, no row", () => {
+    expect(credentialAdditionalData("v1", "kid", GITHUB)).toEqual(bytes("enc:v1:kid"));
+    expect(credentialAdditionalData("v1", "kid", ACCOUNT)).toEqual(bytes("enc:v1:kid"));
+  });
+
+  it("is the v2 bytes #370 wrote: prefix, key id and the row binding", () => {
+    expect(credentialAdditionalData("v2", "kid", GITHUB)).toEqual(
+      bytes('enc:v2:kid:["IntegrationAccount","user-1","github","accessToken"]'),
+    );
+    expect(credentialAdditionalData("v2", "kid", ACCOUNT)).toEqual(
+      bytes('enc:v2:kid:["Account","github","123","access_token"]'),
+    );
+  });
+
+  it("throws on a format it has no case for", () => {
+    expect(() => credentialAdditionalData("v9" as never, "kid", GITHUB)).toThrow(/"v9"/);
+  });
+
+  describe("values written before the exhaustive builder", () => {
+    // Encrypted by the previous AAD code under a fixed test key (32 bytes of
+    // 0x07), so any change to the AAD bytes fails the GCM tag check here.
+    const FIXTURE_KEY = `fixture:${Buffer.alloc(32, 7).toString("base64")}`;
+    const V1 = "enc:v1:fixture:Qs4EBzAIkFNtuNVn:RiLyh1ZgDSr_RB96xfIuzA:8TIaMjDRfLc1oNW2qxc";
+    const V2_GITHUB = "enc:v2:fixture:mRHCUm6LRi-GQ7fe:xgHoK9tDx3oC-oKPI_spCQ:UXzVXd-woRi7IGLgQ_o";
+    const V2_ACCOUNT = "enc:v2:fixture:8kqBzeD0iri6GrQ7:jr-vkyImaxe4GxRt-WWxHg:Epo5prNJrNj6MxbY1S4";
+
+    beforeEach(() => {
+      vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, FIXTURE_KEY);
+    });
+
+    it("still decrypt, v1 in any row and v2 in its own", async () => {
+      expect(await decryptCredential(V1, GITHUB)).toBe("ghp_fixture_v1");
+      expect(await decryptCredential(V1, ACCOUNT)).toBe("ghp_fixture_v1");
+      expect(await decryptCredential(V2_GITHUB, GITHUB)).toBe("ghp_fixture_v2");
+      expect(await decryptCredential(V2_ACCOUNT, ACCOUNT)).toBe("gho_fixture_v2");
+    });
+
+    it("still refuse a v2 value in another row", async () => {
+      await expect(decryptCredential(V2_GITHUB, ACCOUNT)).rejects.toThrow(/failed to decrypt/);
+      await expect(decryptCredential(V2_ACCOUNT, GITHUB)).rejects.toThrow(/failed to decrypt/);
+    });
   });
 });
 
