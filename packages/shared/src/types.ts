@@ -76,14 +76,6 @@ export type SiteStatus =
   | "deploy_failed"
   | "archived";
 
-/** Asset upload status */
-export type AssetUploadStatus =
-  | "uploading"
-  | "processing"
-  | "ready"
-  | "committed"
-  | "failed";
-
 /** Deploy preview status */
 export type PreviewStatus =
   | "queued"
