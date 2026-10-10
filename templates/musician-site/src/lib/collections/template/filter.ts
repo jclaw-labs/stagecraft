@@ -54,6 +54,18 @@ export function applyFilter(
   return items.filter((item) => matchesFilter(item, filter, currentItem, now));
 }
 
+/**
+ * `filter` with every clause's `field` passed through `fieldIdFor`.
+ * Only the filtered collection's field ids change: a `currentItemField`
+ * value names a field of the surrounding item, which belongs to another
+ * collection, so it's left alone.
+ */
+export function mapFilterFields(filter: Filter, fieldIdFor: (fieldId: string) => string): Filter {
+  const mapClause = (clause: FilterClause): FilterClause =>
+    "field" in clause ? { ...clause, field: fieldIdFor(clause.field) } : clause;
+  return "all" in filter ? { all: filter.all.map(mapClause) } : { any: filter.any.map(mapClause) };
+}
+
 function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {
   if ("all" in filter) {
     return filter.all.every((clause) => matchesClause(item, clause, currentItem, now));

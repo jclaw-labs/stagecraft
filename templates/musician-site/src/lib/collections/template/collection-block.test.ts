@@ -7,7 +7,10 @@ import {
   type CollectionBlockRawProps,
 } from "./collection-block";
 import type { Template } from "./types";
-import type { CollectionDef, Item } from "../schema";
+import { collectionViewProps } from "../collection-view-props";
+import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
+import type { CollectionDef, FieldDef, Item } from "../schema";
+import { releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
 function dateItem(slug: string, date: string, venue: string): Item {
@@ -146,6 +149,83 @@ describe("resolveCollectionBlockProps", () => {
       const out = resolveCollectionBlockProps(raw, ctxWithItems(ITEMS));
       expect(out.items).toHaveLength(ITEMS.length);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The default blocks' saved sort / filter after a delete + re-add (#436)
+// ---------------------------------------------------------------------------
+
+describe("resolveCollectionBlockProps — declared ids saved by the default blocks", () => {
+  /** `def` with `fieldId` deleted and a same-type field named `key` added under a new id. */
+  function reAdded(def: CollectionDef, fieldId: string, key: string, newId: string): CollectionDef {
+    const old = def.fields.find((f) => f.id === fieldId)!;
+    return {
+      ...def,
+      fields: [...def.fields.filter((f) => f.id !== fieldId), { ...old, id: newId, key } as FieldDef],
+    };
+  }
+
+  function item(slug: string, values: Item["values"]): Item {
+    return { id: `item_${slug}`, slug, createdAt: FIXTURE_TIMESTAMP, updatedAt: FIXTURE_TIMESTAMP, values };
+  }
+
+  function resolve(def: CollectionDef, items: Item[]) {
+    const raw = collectionViewProps(def.slug, 10) as unknown as CollectionBlockRawProps;
+    return resolveCollectionBlockProps(raw, {
+      item: PAGE_CURRENT,
+      currentItem: PAGE_CURRENT,
+      loadedCollections: { [def.slug]: { def, items } },
+    }).items.map((i) => i.slug);
+  }
+
+  const onSale = { [TOUR_DATES_FIELD_IDS.status]: { type: "select", value: "on_sale" } } as const;
+
+  it("sorts and filters tour dates by a re-added `Date` field", () => {
+    const def = reAdded(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.date, "Date", "fld_new_date");
+    const shows = [
+      item("later", { ...onSale, fld_new_date: { type: "date", value: "2099-08-01" } }),
+      item("past", { ...onSale, fld_new_date: { type: "date", value: "2000-01-01" } }),
+      item("sooner", { ...onSale, fld_new_date: { type: "date", value: "2099-07-01" } }),
+    ];
+    // Upcoming only, soonest first, exactly as with the seed's own field.
+    expect(resolve(def, shows)).toEqual(["sooner", "later"]);
+  });
+
+  it("still hides every show once the date field is gone with nothing in its place", () => {
+    const def: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.date),
+    };
+    const show = item("s", { ...onSale, fld_other: { type: "date", value: "2099-08-01" } });
+    expect(resolve(def, [show])).toEqual([]);
+  });
+
+  it("keeps the status filter on the deleted id: a fresh status field has no values to filter on", () => {
+    // Status opts out of name matching (`matchesByKey: false`): taking
+    // over the new field would hide every show without a status while
+    // the schema editor reported all clear.
+    const def = reAdded(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.status, "status", "fld_new_status");
+    const show = item("s", {
+      [TOUR_DATES_FIELD_IDS.date]: { type: "date", value: "2099-08-01" },
+      fld_new_status: { type: "select", value: "on_sale" },
+    });
+    expect(resolve(def, [show])).toEqual([]);
+  });
+
+  it("sorts releases newest first by a re-added `release date` field", () => {
+    const def = reAdded(
+      releasesCollectionDef,
+      RELEASES_FIELD_IDS.releaseDate,
+      "release date",
+      "fld_new_release_date",
+    );
+    const releases = [
+      item("old", { fld_new_release_date: { type: "date", value: "2019-01-01" } }),
+      item("new", { fld_new_release_date: { type: "date", value: "2025-01-01" } }),
+      item("mid", { fld_new_release_date: { type: "date", value: "2022-01-01" } }),
+    ];
+    expect(resolve(def, releases)).toEqual(["new", "mid", "old"]);
   });
 });
 

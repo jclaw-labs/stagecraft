@@ -29,14 +29,14 @@ import { Image } from "@/components/Image";
 
 import { buildPuckConfig } from "@/puck/build-config";
 
-import { applyFilter } from "./filter";
+import { applyFilter, mapFilterFields } from "./filter";
 import { resolveTemplate, type ResolveContext } from "./renderer";
 import {
   emptyMessageFor,
   specialisedRendererForDef,
   type SpecialisedRenderer,
 } from "./specialized-views";
-import { isSpecialisedViewSlug } from "./view-requirements";
+import { isSpecialisedViewSlug, viewFieldIdFor } from "./view-requirements";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
@@ -109,10 +109,17 @@ export function resolveCollectionBlockProps(
     };
   }
 
-  let filtered = applyFilter(loaded.items, raw.filter ?? null, ctx.currentItem);
+  // The default blocks save a specialised view's declared field ids
+  // (`collection-view-props.ts`). Once the artist deletes one of those
+  // fields and adds a same-name one back, the sort and filter follow the
+  // new field, the same way the card does (`viewFieldIdFor`).
+  const fieldIdFor = (fieldId: FieldId): FieldId => viewFieldIdFor(loaded.def, fieldId);
+  const filter = raw.filter ? mapFilterFields(raw.filter, fieldIdFor) : null;
+  let filtered = applyFilter(loaded.items, filter, ctx.currentItem);
 
   if (raw.sort) {
-    const { fieldId, direction } = raw.sort;
+    const fieldId = fieldIdFor(raw.sort.fieldId);
+    const { direction } = raw.sort;
     filtered = filtered.slice().sort((a, b) => compareItemsByField(a, b, fieldId, direction));
   }
 

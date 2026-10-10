@@ -197,9 +197,61 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     });
     expect(
       screen.getByText(
-        "The city field was removed, so the city doesn't show on the public tour dates list.",
+        "The city field was removed, so the city doesn't show on the public tour dates list. " +
+          'Name a field "city" to bring it back.',
       ),
     ).toBeTruthy();
+  });
+
+  it("says a renamed same-name field was renamed, not removed", () => {
+    // Saved: city deleted and re-added under a new id. Draft: renamed to town.
+    const withCity = (key: string): CollectionDef => ({
+      ...tourDatesCollectionDef,
+      fields: [
+        ...tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.city),
+        { id: "fld_readded", key, type: "text", required: false },
+      ],
+    });
+    renderEditor(withCity("town"), withCity("city"));
+    expect(
+      screen.getByText(
+        'The city field was renamed to "town", so the city doesn\'t show on the public tour ' +
+          'dates list. Name it "city" again to undo this.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/was removed/)).toBeNull();
+  });
+
+  it("shows no heads-up for a re-added field named with spaces and capitals", () => {
+    renderEditor({
+      ...tourDatesCollectionDef,
+      fields: [
+        ...tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.ticketUrl),
+        { id: "fld_new_tickets", key: "Ticket URL", type: "url", required: false },
+      ],
+    });
+    expect(screen.queryByText("Heads-up")).toBeNull();
+  });
+
+  it("asks plainly before removing a renamed field a waiting same-name field replaces", () => {
+    // Declared ticketUrl renamed to tickets, and a new ticketUrl added:
+    // removing tickets hands the ticket link to the new field.
+    const draft: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: [
+        ...tourDatesCollectionDef.fields.map((f) =>
+          f.id === TOUR_DATES_FIELD_IDS.ticketUrl ? { ...f, key: "tickets" } : f,
+        ),
+        { id: "fld_new_tickets", key: "ticketUrl", type: "url", required: false },
+      ],
+    };
+    expect(
+      removeFieldPrompt(draft, { id: TOUR_DATES_FIELD_IDS.ticketUrl, key: "tickets" }, false),
+    ).toBe('Remove field "tickets"?');
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderEditor(draft);
+    fireEvent.click(fieldCard("tickets").querySelector("button")!);
+    expect(confirmSpy).toHaveBeenCalledWith('Remove field "tickets"?');
   });
 
   it("warns in the heads-up that existing values can block an unsaved retype", () => {

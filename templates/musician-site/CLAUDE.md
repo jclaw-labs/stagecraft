@@ -260,9 +260,11 @@ import via sibling submodules that have no node imports:
   specialised card view (`specialized-views.tsx`) reads, by role and
   accepted type (plus the tour-dates `status` the default block filters
   on). A role resolves by field id, or by a same-name field once that id
-  is gone; that brings the card back, but the default Collection
-  block's saved sort and filter still name the old id. Drives the
-  default-card fallback and the schema editor's remove / retype warnings
+  is gone (`ticket url` matches `ticketUrl`); `viewFieldIdFor` resolves
+  the default Collection block's saved sort / filter ids and the detail
+  page's "Tickets" label the same way, so re-adding a field restores
+  them too. Tour-date `status` opts out. Drives the default-card
+  fallback and the schema editor's remove / retype warnings
 - `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
 - `lib/collections/field-ids.ts` — stable field-id constants for the
   prebaked collections (`PAGES_FIELD_IDS` etc.). `seeds.ts` re-exports

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyFilter } from "./filter";
+import { applyFilter, mapFilterFields } from "./filter";
 import type { Filter, Item } from "../schema";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
@@ -357,5 +357,52 @@ describe("applyFilter — `today` value", () => {
   it("defaults `now` to the current date when the arg is omitted (no throw)", () => {
     const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
     expect(() => applyFilter(ITEMS, filter, CURRENT)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapFilterFields
+// ---------------------------------------------------------------------------
+
+describe("mapFilterFields", () => {
+  const rename = (id: string) => (id === "f_date" ? "f_new_date" : id);
+
+  it("maps every clause's field in an `all` filter", () => {
+    const filter: Filter = {
+      all: [
+        { field: "f_date", op: "gte", value: { kind: "today" } },
+        { field: "f_status", op: "in", values: [{ kind: "literal", value: "on_sale" }] },
+        { field: "f_date", op: "isNotEmpty" },
+      ],
+    };
+    expect(mapFilterFields(filter, rename)).toEqual({
+      all: [
+        { field: "f_new_date", op: "gte", value: { kind: "today" } },
+        { field: "f_status", op: "in", values: [{ kind: "literal", value: "on_sale" }] },
+        { field: "f_new_date", op: "isNotEmpty" },
+      ],
+    });
+  });
+
+  it("maps an `any` filter and keeps excludeCurrentItem clauses", () => {
+    const filter: Filter = {
+      any: [{ excludeCurrentItem: true }, { field: "f_date", op: "lt", value: { kind: "today" } }],
+    };
+    expect(mapFilterFields(filter, rename)).toEqual({
+      any: [{ excludeCurrentItem: true }, { field: "f_new_date", op: "lt", value: { kind: "today" } }],
+    });
+  });
+
+  it("leaves a currentItemField value alone: it names a field of the surrounding item", () => {
+    const filter: Filter = {
+      all: [{ field: "f_venue", op: "equals", value: { kind: "currentItemField", fieldId: "f_date" } }],
+    };
+    expect(mapFilterFields(filter, rename)).toEqual(filter);
+  });
+
+  it("doesn't mutate the input", () => {
+    const filter: Filter = { all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] };
+    mapFilterFields(filter, rename);
+    expect(filter).toEqual({ all: [{ field: "f_date", op: "gte", value: { kind: "today" } }] });
   });
 });
