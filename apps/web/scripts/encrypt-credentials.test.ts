@@ -514,11 +514,15 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
     ["a plain run", {}],
   ])("fails up front on a value other than true or false in %s too, before any row is touched", async (_, options) => {
     vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "flase");
-    const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: "plain" })]);
+    const { db, account, integrationAccount } = makeDb(
+      [accountRow("acc1", "42", { access_token: "plain" })],
+      [integrationRow("int1", { accessToken: "plain" })],
+    );
 
     await expect(encryptStoredCredentials(db, options)).rejects.toThrow(
       `${CREDENTIALS_ACCEPT_V1_ENV} must be "true" or "false"`,
     );
+    expect(account.store[0].access_token).toBe("plain");
     expect(integrationAccount.store[0].accessToken).toBe("plain");
   });
 });
