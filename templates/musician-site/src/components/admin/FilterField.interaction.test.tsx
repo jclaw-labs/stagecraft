@@ -522,6 +522,28 @@ describe("FilterField — clauses the page ignores", () => {
     expect(currentItemSelects[2]!.hasAttribute("aria-describedby")).toBe(false);
   });
 
+  it("points a single-value row's current-item picker at the note while it shows", () => {
+    const filter: Filter = {
+      all: [{ field: "f_city", op: "equals", value: { kind: "currentItemField", fieldId: "p_gone" } }],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={CURRENT_ITEM_DEF}
+      />,
+    );
+
+    const field = screen.getByLabelText("Field");
+    const currentItemSelect = screen.getByLabelText("Current item field") as HTMLSelectElement;
+    const noteId = field.getAttribute("aria-describedby");
+    expect(noteId).toBeTruthy();
+    expect(document.getElementById(noteId!)?.textContent).toMatch(/so the page ignores this clause/);
+    expect(selectedText(currentItemSelect)).toBe("removed field (ignored)");
+    expect(currentItemSelect.getAttribute("aria-describedby")).toBe(noteId);
+  });
+
   it("resolves each `in` value's current-item field on its own", () => {
     // As above: the seed's `city` deleted and a new "city" added.
     const currentItemDef: CollectionDef = {
