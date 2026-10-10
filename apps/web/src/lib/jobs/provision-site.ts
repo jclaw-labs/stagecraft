@@ -125,7 +125,7 @@ function repoNameTakenMessage(owner: string, repoName: string, action: SiteSetup
   const taken =
     `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
     `probably from a site you deleted (deleting a site archives its repository but keeps it). `;
-  const clear = `Delete or rename it on GitHub (unarchive it first if it's archived)`;
+  const clear = `Delete it on GitHub, or unarchive and rename it`;
   return action === "migrating"
     ? taken +
         `${clear}, then delete this site and migrate again. ` +

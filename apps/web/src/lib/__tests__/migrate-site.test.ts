@@ -398,7 +398,7 @@ describe("handleMigrateSite — preconditions", () => {
     expect(result.message).toBe(
       "A repository named jclaw/stagecraft-site-old-band already exists on your GitHub account, " +
         "probably from a site you deleted (deleting a site archives its repository but keeps it). " +
-        "Delete or rename it on GitHub (unarchive it first if it's archived), then delete this site and migrate again. " +
+        "Delete it on GitHub, or unarchive and rename it, then delete this site and migrate again. " +
         "Or delete this site and migrate under a different name.",
     );
     expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-old-band");

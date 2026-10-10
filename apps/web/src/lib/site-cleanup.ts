@@ -65,9 +65,16 @@ export async function deleteSiteResources(
     try {
       await setRepoArchived(userId, site.githubRepoOwner, site.githubRepoName, true);
     } catch (e) {
-      // 404: the artist already deleted the repo, so there is nothing to
-      // archive. Same as the Vercel cleanup's handling of a gone project.
-      if (!(e instanceof GitHubApiError && e.status === 404)) {
+      // 404 usually means the artist already deleted the repo, so there is
+      // nothing to archive. GitHub also answers 404 for a private repo the
+      // token can't see (another account, a transfer), so it is logged, not
+      // reported: failing the delete for a repo that is most likely gone
+      // would only alarm the artist.
+      if (e instanceof GitHubApiError && e.status === 404) {
+        console.warn(
+          `[delete-site] GitHub: ${site.githubRepoOwner}/${site.githubRepoName} not found (404); treating it as already deleted`,
+        );
+      } else {
         const reason = e instanceof Error ? e.message : "unknown error";
         const msg = `GitHub: could not archive ${site.githubRepoOwner}/${site.githubRepoName}: ${reason}`;
         console.error(`[delete-site] ${msg}`);

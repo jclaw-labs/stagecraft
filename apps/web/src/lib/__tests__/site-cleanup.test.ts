@@ -90,13 +90,18 @@ describe("deleteSiteResources", () => {
     expect(errors).toEqual(["GitHub: could not archive jclaw/my-site: unknown error"]);
   });
 
-  it("treats a repo the artist already deleted (404) as nothing to archive", async () => {
+  it("treats a repo the artist already deleted (404) as nothing to archive, and logs it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setRepoArchivedMock.mockRejectedValueOnce(new GitHubApiError(404, '{"message":"Not Found"}'));
 
     const errors = await deleteSiteResources("u1", BASE_SITE);
 
     expect(errors).toEqual([]);
     expect(console.error).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[delete-site] GitHub: jclaw/my-site not found (404); treating it as already deleted",
+    );
+    warn.mockRestore();
   });
 
   it("deletes the Netlify site when one is linked", async () => {

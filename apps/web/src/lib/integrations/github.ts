@@ -274,6 +274,13 @@ export async function setRepoArchived(
 ): Promise<void> {
   const token = await getGitHubToken(userId);
 
+  // A repo already in the wanted state is left alone: GitHub treats an
+  // archived repo as read-only, and archiving one again (deleting a site
+  // that was archived first) would otherwise report a failure for a repo
+  // that is exactly as wanted.
+  const current = await githubApi(token, `/repos/${owner}/${repo}`);
+  if (current.archived === archived) return;
+
   await githubApi(token, `/repos/${owner}/${repo}`, {
     method: "PATCH",
     body: JSON.stringify({ archived }),
