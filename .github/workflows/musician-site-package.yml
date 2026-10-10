@@ -1,0 +1,56 @@
+name: Template package
+
+# Packs @jclaw-labs/content-upgraders and @jclaw-labs/musician-site,
+# installs the tarballs into a minimal Next.js app with no lockfile (as
+# Netlify and Vercel build a site), runs `next build`, and runs the
+# `stagecraft-site` CLI under plain node (ADR-016 §2).
+#
+# Its own workflow so it can run only when the packages or the scripts
+# that pack them change. It isn't a required check. The minimal app
+# floats `next`, `typescript` and `@types/*` on purpose: it installs
+# with no lockfile, the way a site host does (ADR-016 §2).
+on:
+  pull_request:
+    paths:
+      - "templates/musician-site/**"
+      - "packages/content-upgraders/**"
+      - "scripts/pack-musician-site*"
+      - "scripts/check-musician-site-package*"
+      - "package.json"
+      - ".github/workflows/musician-site-package.yml"
+  push:
+    branches: [main]
+    paths:
+      - "templates/musician-site/**"
+      - "packages/content-upgraders/**"
+      - "scripts/pack-musician-site*"
+      - "scripts/check-musician-site-package*"
+      - "package.json"
+      - ".github/workflows/musician-site-package.yml"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  musician-site-package:
+    name: Template package (pack and build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            templates/musician-site/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci
+        working-directory: templates/musician-site
+
+      - run: npm run check:musician-site-package

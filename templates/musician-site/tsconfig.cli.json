@@ -1,0 +1,20 @@
+{
+  // `src/cli/` is the `stagecraft-site` bin, which runs from `dist/` under
+  // plain Node rather than a bundler. Check it with Node's own resolution,
+  // so an import of `next/*`, CSS or anything that only a bundler resolves
+  // fails typecheck. Run as part of `npm run typecheck`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    // No `paths`: `#` imports resolve through package.json `imports` and
+    // the `source` condition (inherited), so they reach `src/`.
+    "paths": {},
+    "types": ["node"],
+    "noUncheckedSideEffectImports": true,
+    "plugins": [],
+    "incremental": false
+  },
+  "include": ["src/cli/**/*.ts"],
+  "exclude": ["src/cli/**/*.test.ts"]
+}

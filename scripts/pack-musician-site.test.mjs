@@ -1,7 +1,10 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
+import { publishProblems } from "../templates/musician-site/scripts/prepublish-guard.mjs";
 import {
   assertLockstep,
   packedTemplatePackageJson,
+  packedUpgradersPackageJson,
   UPGRADERS_NAME,
   upgradersSpec,
 } from "./pack-musician-site.mjs";
@@ -40,10 +43,48 @@ describe("packedTemplatePackageJson", () => {
     expect(packedTemplatePackageJson(noImports, "1.2.3")).not.toHaveProperty("imports");
   });
 
+  it("makes the real template publishable under its prepublishOnly guard", () => {
+    const real = JSON.parse(fs.readFileSync(new URL("../templates/musician-site/package.json", import.meta.url), "utf8"));
+    expect(publishProblems(real)).not.toEqual([]);
+    expect(publishProblems(packedTemplatePackageJson(real, "1.0.0-rc.0"))).toEqual([]);
+  });
+
   it("refuses a template without the upgraders dependency", () => {
     expect(() => packedTemplatePackageJson({ ...TEMPLATE, dependencies: { zod: "4.4.2" } }, "1.2.3")).toThrow(
       /no @jclaw-labs\/content-upgraders dependency/,
     );
+  });
+});
+
+describe("packedUpgradersPackageJson", () => {
+  const UPGRADERS = {
+    name: UPGRADERS_NAME,
+    version: "1.2.3",
+    exports: {
+      ".": { source: "./src/index.ts", types: "./dist/index.d.ts", default: "./dist/index.js" },
+      "./package.json": "./package.json",
+    },
+  };
+
+  it("drops the source condition from exports, leaving the rest", () => {
+    expect(packedUpgradersPackageJson(UPGRADERS)).toEqual({
+      ...UPGRADERS,
+      exports: {
+        ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },
+        "./package.json": "./package.json",
+      },
+    });
+  });
+
+  it("does not change its input", () => {
+    const before = JSON.stringify(UPGRADERS);
+    packedUpgradersPackageJson(UPGRADERS);
+    expect(JSON.stringify(UPGRADERS)).toBe(before);
+  });
+
+  it("drops source from the real upgraders package.json", () => {
+    const pkg = JSON.parse(fs.readFileSync(new URL("../packages/content-upgraders/package.json", import.meta.url), "utf8"));
+    expect(JSON.stringify(packedUpgradersPackageJson(pkg).exports)).not.toContain("source");
   });
 });
 

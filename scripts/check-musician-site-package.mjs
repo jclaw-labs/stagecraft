@@ -10,6 +10,9 @@
  * takes the package's root layout, which imports the global stylesheet
  * from `node_modules`, and renders a client component (one that uses
  * state) from a server page, so a dropped `"use client"` fails the build.
+ * The page also renders `Header`, which reaches `#components/…`,
+ * `#lib/…` and a relative `.js` import inside `dist/`, so a broken
+ * `imports` target or compiled specifier fails the build too.
  * Then it runs `stagecraft-site --help` from the installed tarball under
  * plain `node`.
  *
@@ -72,9 +75,16 @@ export function minimalAppFiles({ templateTarball, upgradersTarball }) {
     "app/layout.tsx": 'export { default, metadata } from "@jclaw-labs/musician-site/app/layout";\n',
     "app/page.tsx": [
       'import { ContactForm } from "@jclaw-labs/musician-site/components/ContactForm";',
+      'import { Header } from "@jclaw-labs/musician-site/components/Header";',
+      'import { DEFAULT_HEADER_CONFIG } from "@jclaw-labs/musician-site/lib/site-config-types";',
       "",
       "export default function Page() {",
-      "  return <ContactForm />;",
+      "  return (",
+      "    <>",
+      '      <Header artistName="Check" header={DEFAULT_HEADER_CONFIG} navItems={[]} pageTitleBySlug={new Map()} />',
+      "      <ContactForm />",
+      "    </>",
+      "  );",
       "}",
       "",
     ].join("\n"),

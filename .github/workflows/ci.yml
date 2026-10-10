@@ -155,31 +155,6 @@ jobs:
           path: templates/musician-site/playwright-report/
           retention-days: 7
 
-  # Packs @jclaw-labs/content-upgraders and @jclaw-labs/musician-site,
-  # installs the tarballs into a minimal Next.js app with no lockfile (as
-  # Netlify and Vercel build a site), runs `next build`, and runs the
-  # `stagecraft-site` CLI under plain node (ADR-016 §2).
-  musician-site-package:
-    name: Template package (pack and build)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            templates/musician-site/package-lock.json
-
-      - run: npm ci
-
-      - run: npm ci
-        working-directory: templates/musician-site
-
-      - run: npm run check:musician-site-package
-
   # Apply any pending Prisma migrations to the production Neon DB after
   # a PR merges to main. Runs only on push-to-main (not on PRs, where the
   # new migration always shows pending and would force a manual step).

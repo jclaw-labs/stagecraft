@@ -81,7 +81,11 @@ describe("sitePackageJson", () => {
     exports: { "./*": "./dist/*.js" },
     files: ["dist"],
     bin: { "stagecraft-site": "./dist/cli/stagecraft-site.js" },
-    scripts: { build: "next build", "build:package": "node scripts/build-package.mjs" },
+    scripts: {
+      build: "next build",
+      "build:package": "node scripts/build-package.mjs",
+      prepublishOnly: "node scripts/prepublish-guard.mjs",
+    },
     peerDependencies: { next: ">=15.5.27 <16", react: "^19.0.0" },
     dependencies: { zod: "4.4.2", "@jclaw-labs/content-upgraders": "file:../../packages/content-upgraders" },
     devDependencies: { next: "^15.5.27", vitest: "^4.0.0" },
@@ -95,17 +99,31 @@ describe("sitePackageJson", () => {
     expect(Object.keys(site).slice(0, 2)).toEqual(["name", "private"]);
   });
 
-  it("drops the publish-only fields and scripts, keeping imports and the build", () => {
+  it("drops the publish-only fields and scripts, keeping the build", () => {
     for (const field of ["exports", "files", "bin", "repository", "description", "peerDependencies"]) {
       expect(site).not.toHaveProperty(field);
     }
-    expect(site.imports).toEqual(PACKAGE.imports);
     expect(site.scripts).toEqual({ build: "next build" });
   });
 
+  it("points imports at src/, since a site has no dist/", () => {
+    expect(site.imports).toEqual({ "#lib/*": { source: "./src/lib/*", default: "./src/lib/*" } });
+  });
+
   it("moves peers into dependencies, preferring the dev range, and drops file: deps", () => {
-    expect(site.dependencies).toEqual({ next: "^15.5.27", react: "^19.0.0", zod: "4.4.2" });
+    expect(site.dependencies).toEqual({ next: "^15.5.27", react: "^19.0.0", zod: "^4.4.2" });
     expect(site.devDependencies).toEqual({ vitest: "^4.0.0" });
+  });
+
+  it("turns exact runtime pins back into ^ ranges and leaves other specs alone", () => {
+    const deps = JSON.parse(
+      sitePackageJson(
+        JSON.stringify({
+          dependencies: { a: "1.2.3", b: "1.0.0-rc.0", c: "^2.0.0", d: "~3.1.0", e: ">=4 <5", f: "github:x/y" },
+        }),
+      ),
+    ).dependencies;
+    expect(deps).toEqual({ a: "^1.2.3", b: "^1.0.0-rc.0", c: "^2.0.0", d: "~3.1.0", e: ">=4 <5", f: "github:x/y" });
   });
 
   it("ends with a newline", () => {
@@ -117,6 +135,8 @@ describe("sitePackageJson", () => {
     const pkg = JSON.parse(files.find((f) => f.path === "package.json")!.content);
     expect(pkg.dependencies.next).toBeDefined();
     expect(Object.values(pkg.dependencies).some((spec) => String(spec).startsWith("file:"))).toBe(false);
+    for (const spec of Object.values(pkg.dependencies)) expect(spec).toMatch(/^\^/);
+    for (const target of Object.values(pkg.imports) as { default: string }[]) expect(target.default).toMatch(/^\.\/src\//);
   });
 });
 

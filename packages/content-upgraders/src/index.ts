@@ -55,9 +55,26 @@ export function upgradeCollection(
   if (from > target) {
     throw new RangeError(`schemaVersion ${from} is newer than the target ${target}.`);
   }
+  return runChain(UPGRADERS, collection, target);
+}
+
+/**
+ * Run `chain` on `collection` from its `schemaVersion` up to `target`,
+ * one step at a time. Internal: `upgradeCollection` validates the input
+ * and calls it with `UPGRADERS`; tests call it with a fake chain.
+ *
+ * @internal
+ */
+export function runChain(
+  chain: Readonly<Record<number, Upgrader>>,
+  collection: CollectionJson,
+  target: number,
+): CollectionJson {
   let upgraded = collection;
-  for (let version = from; version < target; version++) {
-    upgraded = UPGRADERS[version](upgraded);
+  for (let version = collection.schemaVersion as number; version < target; version++) {
+    const step = chain[version];
+    if (!step) throw new RangeError(`No upgrader from schemaVersion ${version}.`);
+    upgraded = step(upgraded);
   }
   return upgraded;
 }

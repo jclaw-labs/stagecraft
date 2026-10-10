@@ -75,7 +75,7 @@ export type SectionWidth = (typeof SECTION_WIDTHS)[number];
 export const SECTION_VARIANTS = ["plain", "card", "accent"] as const;
 export type SectionVariant = (typeof SECTION_VARIANTS)[number];
 
-// Button variants + styling are defined in @/lib/button-style; re-exported as
+// Button variants + styling are defined in #lib/button-style; re-exported as
 // part of the library's public surface (block field options + tests).
 export { BUTTON_VARIANTS };
 export type { ButtonVariant };
@@ -492,7 +492,7 @@ const SPACER_HEIGHT: Record<SpacerSize, string> = {
   xl: "var(--space-32)",
 };
 
-// Button styling (base + variants) is shared via @/lib/button-style by the
+// Button styling (base + variants) is shared via #lib/button-style by the
 // Button and ButtonRow blocks.
 
 export type BlockProps = {

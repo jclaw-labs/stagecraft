@@ -65,8 +65,11 @@ export const TEMPLATE_SKIP_FILES = new Set([
  */
 const PACKAGE_ONLY_FIELDS = ["exports", "files", "bin", "repository", "description"];
 
-/** Scripts that only build the published package. */
-const PACKAGE_ONLY_SCRIPTS = ["build:package"];
+/** Scripts that only build or guard the published package. */
+const PACKAGE_ONLY_SCRIPTS = ["build:package", "prepublishOnly"];
+
+/** An exact semver version, as the package pins its runtime dependencies. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
  * The template's package.json as a site repo needs it. Until sites move
@@ -77,7 +80,12 @@ const PACKAGE_ONLY_SCRIPTS = ["build:package"];
  * - lists `next`, `react` and `react-dom` as dependencies, since hosts
  *   detect Next.js from them and the package only declares them as peers;
  * - drops `file:` dependencies, which point into the monorepo and can't
- *   install anywhere else. Nothing the site runs imports them yet.
+ *   install anywhere else. Nothing the site runs imports them yet;
+ * - turns the package's exact runtime pins back into `^` ranges. Sites
+ *   have no lockfile and float to new patch and minor releases on each
+ *   host build, as they did before the package pinned them;
+ * - points each `imports` default target at `src/`, the `source` target,
+ *   since a site has no `dist/`.
  *
  * @param {string} content
  * @returns {string}
@@ -86,8 +94,13 @@ export function sitePackageJson(content) {
   const pkg = JSON.parse(content);
   for (const field of PACKAGE_ONLY_FIELDS) delete pkg[field];
   for (const script of PACKAGE_ONLY_SCRIPTS) delete pkg.scripts?.[script];
+  for (const target of Object.values(pkg.imports ?? {})) {
+    if (target && typeof target === "object" && typeof target.source === "string") target.default = target.source;
+  }
   const dependencies = Object.fromEntries(
-    Object.entries(pkg.dependencies ?? {}).filter(([, spec]) => !String(spec).startsWith("file:")),
+    Object.entries(pkg.dependencies ?? {})
+      .filter(([, spec]) => !String(spec).startsWith("file:"))
+      .map(([name, spec]) => [name, EXACT_VERSION.test(String(spec)) ? `^${spec}` : spec]),
   );
   for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
     dependencies[name] = pkg.devDependencies?.[name] ?? range;

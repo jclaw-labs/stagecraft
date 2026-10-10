@@ -15,27 +15,35 @@ This directory is also the source of the `@jclaw-labs/musician-site` npm
 package (ADR-016). `npm run build:package` compiles `src/` with `tsc` into
 `dist/`, one ESM file per source file, so each module keeps its
 `"use client"` directive. Code that runs from `dist/` resolves no path
-alias and no extensionless relative import, so:
+alias and no extensionless relative import, and everything in `dist/`
+apart from `cli/` still needs a bundler (it imports `next/*` and CSS), so:
 
 - Import across `src/` with the subpath imports declared in
   `package.json`: `#lib/…`, `#components/…` and `#puck/…`, never `@/`.
 - Every relative and `#` import names the compiled file:
   `./helper.js`, `#lib/auth.js`, `#lib/collections/index.js`
   (`helper.ts`, `auth.ts` and `collections/index.ts` in the source).
-- The `source` condition maps the `#` imports to `src/`. Vitest
-  (`vitest.config.ts`) and `tsc` (`customConditions`) use it; Next.js
-  (the `webpack` hook in `next.config.ts`) and Playwright (`paths` in
-  `tsconfig.json`) get the same mapping their own way. So tests, e2e,
-  dev and the site build all run from source.
+- The `#` imports reach `src/` three ways, which tests keep in step with
+  `package.json`'s `source` targets: `tsc` and Playwright through `paths`
+  in `tsconfig.json` (`src/import-specifiers.test.ts`), Vitest through the
+  `source` condition (`vitest.config.ts`), and Next.js through the
+  `webpack` alias in `next.config.ts` (`next.config.test.ts`). So tests,
+  e2e, dev and the site build all run from source. A new `#` prefix goes
+  in all three places: `imports` in `package.json`, `paths` in
+  `tsconfig.json` and `SOURCE_ALIASES` in `next.config.ts`.
 - `src/cli/` is the `stagecraft-site` bin and runs under plain Node: keep
   its imports to `node:` builtins and relative `.js` files, with no CSS
-  and no `next/*`.
+  and no `next/*`. `npm run typecheck` checks it under Node's own
+  resolution (`tsconfig.cli.json`).
 
 `next`, `react` and `react-dom` are peer dependencies, and every other
-runtime dependency is pinned exact. Until sites move onto the package,
-provisioning still copies this directory into the site repo, and
+runtime dependency is pinned exact. Never `npm publish` from this
+directory (a `prepublishOnly` guard refuses it); see `docs/runbook.md`
+§11. Until sites move onto the package, provisioning still copies this
+directory into the site repo, and
 `apps/web/scripts/generate-template-bundle.mjs` turns its `package.json`
-back into an app's (`sitePackageJson`).
+back into an app's (`sitePackageJson`): `^` ranges instead of exact pins,
+and `imports` defaults pointing at `src/`.
 
 ## Editor philosophy
 
