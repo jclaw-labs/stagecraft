@@ -1,4 +1,3 @@
-import { deleteRepo } from "@/lib/integrations/github";
 import { deleteSite as deleteNetlifySite } from "@/lib/integrations/netlify";
 import { deleteProject as deleteVercelProject } from "@/lib/integrations/vercel";
 
@@ -7,16 +6,16 @@ import { deleteProject as deleteVercelProject } from "@/lib/integrations/vercel"
  * Subset of Prisma's Site row — accept anything that has these keys.
  */
 export type SiteCleanupFields = {
-  githubRepoOwner: string | null;
-  githubRepoName: string | null;
   netlifySiteId: string | null;
   vercelProjectId: string | null;
   vercelTeamId: string | null;
 };
 
 /**
- * Best-effort delete of a site's external resources (GitHub repo + the
- * matching deploy provider's project). Errors are collected and
+ * Best-effort delete of a site's external resources (the deploy
+ * provider's project). The GitHub repo is deliberately kept: the
+ * platform no longer requests the `delete_repo` OAuth scope, and the
+ * repo is the artist's to keep or delete from GitHub (issue #398). Errors are collected and
  * returned instead of thrown — callers always proceed to delete the
  * DB row so a stuck external resource doesn't strand the Site forever.
  *
@@ -28,16 +27,6 @@ export async function deleteSiteResources(
   site: SiteCleanupFields,
 ): Promise<string[]> {
   const errors: string[] = [];
-
-  if (site.githubRepoOwner && site.githubRepoName) {
-    try {
-      await deleteRepo(userId, site.githubRepoOwner, site.githubRepoName);
-    } catch (e) {
-      const msg = `GitHub: ${e instanceof Error ? e.message : "unknown error"}`;
-      console.error(`[delete-site] ${msg}`);
-      errors.push(msg);
-    }
-  }
 
   if (site.netlifySiteId) {
     try {

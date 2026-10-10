@@ -4,7 +4,7 @@ import { useState } from "react";
 
 /**
  * Operator escape hatch: deletes every Site the signed-in user owns
- * plus the matching GitHub repo + Vercel/Netlify project for each.
+ * plus the matching Vercel/Netlify project for each. GitHub repos are kept.
  *
  * Server-side gate on `/api/admin/nuke-my-sites` enforces the email
  * allowlist — rendering this component for a non-admin is a no-op
@@ -89,7 +89,7 @@ export function NukeAllSitesButton({ siteCount }: { siteCount: number }) {
         Admin tools
       </h3>
       <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "var(--space-2)" }}>
-        Delete every Stagecraft site on your account — including the GitHub repo and the Vercel/Netlify project for each. Best-effort external cleanup; failures are reported but don&rsquo;t block the DB delete.
+        Delete every Stagecraft site on your account and the Vercel/Netlify project for each. GitHub repos are kept. Best-effort external cleanup; failures are reported but don&rsquo;t block the DB delete.
       </p>
 
       {phase === "idle" && (

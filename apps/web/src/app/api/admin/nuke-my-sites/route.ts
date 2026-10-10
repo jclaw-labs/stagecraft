@@ -8,8 +8,8 @@ import { deleteSiteResources } from "@/lib/site-cleanup";
 
 /**
  * Operator-only escape hatch: delete every Site owned by the signed-in
- * user, along with the corresponding GitHub repo + Vercel/Netlify
- * project for each. Gated to the email allowlist in
+ * user, along with the corresponding Vercel/Netlify
+ * project for each (GitHub repos are kept). Gated to the email allowlist in
  * `lib/admin-allowlist.ts`.
  *
  * Used to clean up after smoke-testing /create — accumulated
@@ -37,8 +37,6 @@ export async function POST() {
       id: true,
       name: true,
       slug: true,
-      githubRepoOwner: true,
-      githubRepoName: true,
       netlifySiteId: true,
       vercelProjectId: true,
       vercelTeamId: true,

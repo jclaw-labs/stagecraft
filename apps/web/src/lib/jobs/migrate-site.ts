@@ -75,6 +75,7 @@ export async function handleMigrateSite(ctx: JobContext): Promise<JobResult> {
         name,
         slug,
         preconditions,
+        action: "migrating",
         contentOverlay: crawl.files,
         repoDescription: `${name} — musician website powered by Stagecraft (migrated)`,
         commitMessage: `Migrate site from ${url}`,

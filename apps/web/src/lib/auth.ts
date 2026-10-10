@@ -3,6 +3,7 @@ import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@stagecraft/db";
 import { upsertGithubIntegration, withEncryptedAccountTokens } from "./auth-credentials";
+import { GITHUB_OAUTH_SCOPE } from "./github-oauth-scope";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // OAuth tokens are encrypted before they reach `Account` (ADR-005).
@@ -13,11 +14,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers: [
     GitHub({
-      // `workflow` lets the platform's push (using this token) write files
-      // under `.github/workflows/` on generated artist repos — required for
-      // the Dependabot auto-merge workflow. It's a small add on top of the
-      // `repo` access already granted.
-      authorization: { params: { scope: "read:user user:email repo delete_repo workflow" } },
+      // Each scope's reason lives in github-oauth-scope.ts.
+      authorization: { params: { scope: GITHUB_OAUTH_SCOPE } },
     }),
   ],
   pages: {

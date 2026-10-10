@@ -113,6 +113,25 @@ function hostProjectName(slug: string): string {
   return `stagecraft-site-${slug}`;
 }
 
+/**
+ * Shown when the site's repo name is already taken, usually by a deleted
+ * site's kept repo. Only a created site can be retried ("Retry setup"
+ * re-queues create_site jobs only), so a migration is told to delete the
+ * errored site and migrate again instead.
+ */
+function repoNameTakenMessage(owner: string, repoName: string, action: SiteSetupAction): string {
+  const taken =
+    `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
+    `probably from a site you deleted. `;
+  return action === "migrating"
+    ? taken +
+        `Delete or rename it on GitHub, then delete this site and migrate again. ` +
+        `Or delete this site and migrate under a different name.`
+    : taken +
+        `Delete or rename it on GitHub, then retry setup. ` +
+        `Or delete this site and create one with a different name.`;
+}
+
 /** Clock skew allowed between us and a provider when comparing creation times. */
 const ADOPT_CLOCK_SKEW_MS = 2 * 60_000;
 
@@ -350,6 +369,8 @@ export interface ProvisionSiteArgs {
   name: string;
   slug: string;
   preconditions: ProvisionPreconditions;
+  /** Which job is provisioning: picks the recovery advice in failure messages. */
+  action: SiteSetupAction;
   /** Files pushed over the template; one replaces the template file at its path. Empty for a new site. */
   contentOverlay: readonly TemplateFile[];
   repoDescription: string;
@@ -386,12 +407,29 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
   const repo = await runner.run<RepoStepResult>("createRepo", async ({ interrupted, firstStartedAt }) => {
     let created;
     try {
-      created = await createRepo({ userId, name: repoName, description: args.repoDescription });
+      created = await createRepo({
+        userId,
+        name: repoName,
+        description: args.repoDescription,
+        isPrivate: true,
+      });
     } catch (cause) {
-      const nameTaken = cause instanceof GitHubApiError && cause.status === 422;
-      const existing = nameTaken && interrupted ? await getOwnRepo(userId, repoName) : null;
-      const adopted = existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
-      if (!adopted) throw nameTaken ? new PermanentProvisionError(errorMessage(cause, "")) : cause;
+      if (!(cause instanceof GitHubApiError && cause.status === 422)) throw cause;
+      // 422 is how GitHub reports "name already exists". Look the repo up:
+      // an interrupted run may adopt it, and otherwise the artist is told
+      // which repo is in the way. Deleting a site keeps its repo, so this is
+      // the usual outcome of deleting a site and recreating it by name. On
+      // a first attempt a failed lookup falls back to GitHub's own message.
+      const existing = interrupted
+        ? await getOwnRepo(userId, repoName)
+        : await getOwnRepo(userId, repoName).catch(() => null);
+      const adopted =
+        interrupted && existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
+      if (!adopted) {
+        throw new PermanentProvisionError(
+          existing ? repoNameTakenMessage(existing.owner, repoName, args.action) : errorMessage(cause, ""),
+        );
+      }
       created = adopted;
     }
     await prisma.site.update({

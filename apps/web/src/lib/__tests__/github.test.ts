@@ -78,6 +78,49 @@ describe("GitHub integration", () => {
       );
     });
 
+    it("creates the repo as private by default", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({
+          id: 1,
+          owner: { login: "jclaw" },
+          name: "my-site",
+          full_name: "jclaw/my-site",
+          html_url: "https://github.com/jclaw/my-site",
+          clone_url: "https://github.com/jclaw/my-site.git",
+          default_branch: "main",
+        }),
+      );
+
+      await createRepo({ userId: "user-1", name: "my-site", description: "Test site" });
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).toEqual({
+        name: "my-site",
+        description: "Test site",
+        private: true,
+        auto_init: true,
+      });
+    });
+
+    it("honors an explicit isPrivate: false", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({
+          id: 1,
+          owner: { login: "jclaw" },
+          name: "my-site",
+          full_name: "jclaw/my-site",
+          html_url: "https://github.com/jclaw/my-site",
+          clone_url: "https://github.com/jclaw/my-site.git",
+          default_branch: "main",
+        }),
+      );
+
+      await createRepo({ userId: "user-1", name: "my-site", isPrivate: false });
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).toMatchObject({ private: false });
+    });
+
     it("throws when GitHub account is not connected", async () => {
       mockFindUnique.mockResolvedValueOnce(null);
 
