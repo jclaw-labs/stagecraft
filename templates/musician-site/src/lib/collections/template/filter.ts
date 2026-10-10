@@ -92,7 +92,8 @@ export function mapFilterFields(
  * matching every item. In an `all` group that clause is dropped, and
  * `null` (no filter) comes back when none is left. In an `any` group one
  * such clause already matches every item, so the whole filter becomes
- * `null`. `excludeCurrentItem` clauses name no field and stay.
+ * `null`, `excludeCurrentItem` clauses included. In an `all` group,
+ * `excludeCurrentItem` clauses name no field and stay.
  *
  * A Collection block saves field ids. A clause on a field the artist has
  * since deleted would otherwise hide every item (a missing value never
