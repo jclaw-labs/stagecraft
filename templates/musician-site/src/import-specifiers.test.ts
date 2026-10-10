@@ -84,3 +84,18 @@ describe("import specifiers", () => {
     ).toEqual([]);
   });
 });
+
+describe("tsconfig paths", () => {
+  it("mirror the source targets of package.json's imports", async () => {
+    const ts = await import("typescript");
+    const tsconfig = ts.parseConfigFileTextToJson(
+      "tsconfig.json",
+      fs.readFileSync(path.join(ROOT, "tsconfig.json"), "utf8"),
+    ).config as { compilerOptions: { paths: Record<string, string[]> } };
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
+      imports: Record<string, { source: string }>;
+    };
+    const expected = Object.fromEntries(Object.entries(pkg.imports).map(([key, target]) => [key, [target.source]]));
+    expect(tsconfig.compilerOptions.paths).toEqual(expected);
+  });
+});

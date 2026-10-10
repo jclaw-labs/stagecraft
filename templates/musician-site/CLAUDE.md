@@ -23,9 +23,10 @@ alias and no extensionless relative import, so:
   `./helper.js`, `#lib/auth.js`, `#lib/collections/index.js`
   (`helper.ts`, `auth.ts` and `collections/index.ts` in the source).
 - The `source` condition maps the `#` imports to `src/`. Vitest
-  (`vitest.config.ts`), `tsc` (`customConditions`) and Next.js
-  (the `webpack` hook in `next.config.ts`) all use it, so tests, dev and
-  the site build run from source.
+  (`vitest.config.ts`) and `tsc` (`customConditions`) use it; Next.js
+  (the `webpack` hook in `next.config.ts`) and Playwright (`paths` in
+  `tsconfig.json`) get the same mapping their own way. So tests, e2e,
+  dev and the site build all run from source.
 - `src/cli/` is the `stagecraft-site` bin and runs under plain Node: keep
   its imports to `node:` builtins and relative `.js` files, with no CSS
   and no `next/*`.
