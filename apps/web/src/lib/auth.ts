@@ -28,12 +28,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   callbacks: {
     // With database sessions Auth.js passes the adapter's Session row merged
-    // with the user, and sends what this returns as the body of
-    // /api/auth/session. Return only what the app reads, so the raw session
-    // token (the HttpOnly cookie's value) and userId stay off that endpoint.
+    // with the User row, and sends what this returns as the body of
+    // /api/auth/session. Return exactly `{ user: { id, name, email }, expires }`
+    // (the fields the app reads), built field by field so the raw session
+    // token (the HttpOnly cookie's value), userId and any other User column
+    // stay off that endpoint.
     session({ session, user }) {
       return {
-        user: session.user ? { ...session.user, id: user.id } : session.user,
+        user: { id: user.id, name: user.name, email: user.email },
         expires: session.expires,
       };
     },

@@ -54,37 +54,53 @@ describe("auth", () => {
     };
     const expires = new Date("2026-11-09T00:00:00Z");
 
-    it("drops the session token and userId from the database session", () => {
-      const result = sessionCallback()({
+    // A full Prisma `User` row and `Session` row, passed the way
+    // @auth/core does: one adapter user object as both `session.user` and `user`.
+    type UserRow = {
+      id: string;
+      name: string | null;
+      email: string | null;
+      emailVerified: Date | null;
+      image: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+    const adapterUser = (): UserRow => ({
+      id: "user-1",
+      name: "Ada",
+      email: "ada@example.com",
+      emailVerified: new Date("2026-01-01T00:00:00Z"),
+      image: "https://example.com/ada.png",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-02-01T00:00:00Z"),
+    });
+    const callWithRows = (user = adapterUser()) =>
+      sessionCallback()({
         session: {
-          sessionToken: "raw-cookie-value",
-          userId: "user-1",
           id: "session-row-1",
+          sessionToken: "raw-cookie-value",
+          userId: user.id,
           expires,
-          user: { id: "user-1", name: "Ada", email: "ada@example.com", image: null },
+          user,
         },
-        user: { id: "user-1" },
+        user,
       });
-      expect(result).toEqual({
-        user: { id: "user-1", name: "Ada", email: "ada@example.com", image: null },
-        expires,
-      });
-      expect(result).not.toHaveProperty("sessionToken");
-      expect(result).not.toHaveProperty("userId");
-      expect(result).not.toHaveProperty("id");
+
+    it("returns only user and expires, dropping the session token and userId", () => {
+      const result = callWithRows();
+      expect(Object.keys(result).sort()).toEqual(["expires", "user"]);
+      expect(result.expires).toBe(expires);
     });
 
-    it("sets user.id from the adapter user", () => {
-      const result = sessionCallback()({
-        session: { expires, user: { name: "Ada" } },
-        user: { id: "user-2" },
-      });
-      expect(result.user).toEqual({ name: "Ada", id: "user-2" });
+    it("returns only id, name and email from the User row", () => {
+      const result = callWithRows();
+      expect(Object.keys(result.user as object).sort()).toEqual(["email", "id", "name"]);
+      expect(result.user).toEqual({ id: "user-1", name: "Ada", email: "ada@example.com" });
     });
 
-    it("leaves a missing user missing", () => {
-      const result = sessionCallback()({ session: { expires }, user: { id: "user-3" } });
-      expect(result).toEqual({ user: undefined, expires });
+    it("keeps a null name and email as null", () => {
+      const result = callWithRows({ ...adapterUser(), id: "user-2", name: null, email: null });
+      expect(result.user).toEqual({ id: "user-2", name: null, email: null });
     });
   });
 });
