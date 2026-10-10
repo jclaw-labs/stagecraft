@@ -19,8 +19,12 @@
  * The schema editor reads the same declarations to warn the artist before
  * a delete / retype breaks a view (`viewFieldImpact`). A role can also
  * name a field the card doesn't read but the view still depends on: the
- * tour-dates `status`, which the default Collection block filters on. Renames are always
- * safe: views resolve by stable field id, never by `key`.
+ * tour-dates `status`, which the default Collection block filters on.
+ *
+ * Views find a role's field by its stable id first, so renames are
+ * always safe. When that id is gone, a field whose name matches the role
+ * (`city`, `ticketUrl`, …) stands in, so an artist who deletes a field
+ * and adds it back gets the card back (#408).
  *
  * Client-safe: type-only imports from `../schema` plus the node-free
  * `../field-ids` / `../field-classification`, so the `"use client"`
@@ -67,6 +71,13 @@ export type ViewFieldRequirement = {
    * lost it.
    */
   effect?: { will: string; now: string };
+  /**
+   * False when the dependency is on the field id itself rather than on
+   * the card reading the field: tour-date `status` is filtered by id in
+   * the Collection block's saved props, so a new field with the same
+   * name doesn't bring the filter back. Defaults to true.
+   */
+  matchesByKey?: boolean;
 };
 
 export type ViewSpec = {
@@ -135,7 +146,9 @@ export const VIEW_REQUIREMENTS = {
     fields: {
       date: { fieldId: TOUR_DATES_FIELD_IDS.date, label: "date", accepts: ["date"], required: true },
       venue: { fieldId: TOUR_DATES_FIELD_IDS.venue, label: "venue", accepts: TEXTUAL, required: true },
-      city: { fieldId: TOUR_DATES_FIELD_IDS.city, label: "city", accepts: TEXTUAL, required: true },
+      // Optional: `TourDateRow` renders the place line from whichever of
+      // city and country is left.
+      city: { fieldId: TOUR_DATES_FIELD_IDS.city, label: "city", accepts: TEXTUAL, required: false },
       country: { fieldId: TOUR_DATES_FIELD_IDS.country, label: "country", accepts: TEXTUAL, required: false },
       ticketUrl: { fieldId: TOUR_DATES_FIELD_IDS.ticketUrl, label: "ticket link", accepts: LINK, required: false },
       // Not read by the card: the default tour-dates Collection block
@@ -147,6 +160,7 @@ export const VIEW_REQUIREMENTS = {
         label: "status",
         accepts: ["select", "multiSelect"],
         required: false,
+        matchesByKey: false,
         effect: {
           will: "tour dates lists that hide cancelled shows (the default) will hide every show",
           now: "tour dates lists that hide cancelled shows (the default) hide every show",
@@ -184,18 +198,43 @@ function viewSpec(slug: SpecialisedViewSlug): ViewSpec {
   return VIEW_REQUIREMENTS[slug];
 }
 
+/** Every field id a view declares, so a renamed declared field can't stand in for another role. */
+const DECLARED_FIELD_IDS: ReadonlySet<FieldId> = new Set(
+  Object.values(VIEW_REQUIREMENTS).flatMap((spec: ViewSpec) =>
+    Object.values(spec.fields).map((requirement) => requirement.fieldId),
+  ),
+);
+
+/**
+ * The field `role` reads in `fields`: the declared id when it's there,
+ * otherwise (unless the role opts out) a field the artist named after
+ * the role, compared case-insensitively. A declared field the artist
+ * renamed never stands in for a different role.
+ */
+export function findViewField(
+  fields: ReadonlyArray<FieldDef>,
+  role: string,
+  requirement: ViewFieldRequirement,
+): FieldDef | undefined {
+  const byId = fields.find((f) => f.id === requirement.fieldId);
+  if (byId || requirement.matchesByKey === false) return byId;
+  const key = role.toLowerCase();
+  return fields.find((f) => f.key.trim().toLowerCase() === key && !DECLARED_FIELD_IDS.has(f.id));
+}
+
 // ---------------------------------------------------------------------------
 // Checking a def against a view
 // ---------------------------------------------------------------------------
 
 export type ViewFieldStatus = "ok" | "missing" | "wrong-type";
 
-/** Whether `fields` satisfies one requirement. Pure; looks only at the schema. */
+/** Whether `fields` satisfies one role's requirement. Pure; looks only at the schema. */
 export function checkFieldRequirement(
   fields: ReadonlyArray<FieldDef>,
+  role: string,
   req: ViewFieldRequirement,
 ): ViewFieldStatus {
-  const field = fields.find((f) => f.id === req.fieldId);
+  const field = findViewField(fields, role, req);
   if (!field) return "missing";
   return req.accepts.includes(field.type) ? "ok" : "wrong-type";
 }
@@ -204,8 +243,12 @@ export type ViewFieldProblem = {
   role: string;
   requirement: ViewFieldRequirement;
   status: Exclude<ViewFieldStatus, "ok">;
+  /** The field the role resolved to; null when `status === "missing"`. */
+  field: FieldDef | null;
   /** The field's current type when `status === "wrong-type"`. */
   actualType: FieldType | null;
+  /** That field's type as last saved; null for a field added in this draft. */
+  savedType: FieldType | null;
 };
 
 /**
@@ -220,17 +263,18 @@ export function viewFieldProblems(
   if (!isSpecialisedViewSlug(def.slug)) return [];
   const problems: ViewFieldProblem[] = [];
   for (const [role, requirement] of Object.entries(viewSpec(def.slug).fields)) {
-    const status = checkFieldRequirement(def.fields, requirement);
+    const status = checkFieldRequirement(def.fields, role, requirement);
     if (status === "ok") continue;
-    const actualType = def.fields.find((f) => f.id === requirement.fieldId)?.type ?? null;
+    const field = findViewField(def.fields, role, requirement) ?? null;
+    const actualType = field?.type ?? null;
     // A retype from the saved type the save API rejects
     // (`type-transition-blocked`) never reaches the view, so its save
     // error is the only message the artist needs.
-    const savedType = savedDef.fields.find((f) => f.id === requirement.fieldId)?.type;
-    if (actualType !== null && savedType !== undefined && !canTransition(savedType, actualType)) {
+    const savedType = (field && savedDef.fields.find((f) => f.id === field.id)?.type) ?? null;
+    if (actualType !== null && savedType !== null && !canTransition(savedType, actualType)) {
       continue;
     }
-    problems.push({ role, requirement, status, actualType });
+    problems.push({ role, requirement, status, field, actualType, savedType });
   }
   return problems;
 }
@@ -261,19 +305,21 @@ export function resolveViewFields<S extends SpecialisedViewSlug>(
   slug: S,
 ): ResolvedViewFields<S> | null {
   const spec = viewSpec(slug);
-  const usable = new Map<string, ViewFieldRequirement>();
+  // Role → the requirement plus the id of the field it resolved to.
+  const usable = new Map<string, { requirement: ViewFieldRequirement; fieldId: FieldId }>();
   for (const [role, requirement] of Object.entries(spec.fields)) {
-    if (checkFieldRequirement(def.fields, requirement) === "ok") {
-      usable.set(role, requirement);
+    const field = findViewField(def.fields, role, requirement);
+    if (field && requirement.accepts.includes(field.type)) {
+      usable.set(role, { requirement, fieldId: field.id });
     } else if (requirement.required) {
       return null;
     }
   }
   const read = (item: Item, role: string): FieldValue | null => {
-    const requirement = usable.get(role);
-    if (!requirement) return null;
-    const value = item.values[requirement.fieldId];
-    if (!value || !requirement.accepts.includes(value.type)) return null;
+    const match = usable.get(role);
+    if (!match) return null;
+    const value = item.values[match.fieldId];
+    if (!value || !match.requirement.accepts.includes(value.type)) return null;
     return value;
   };
   return {
@@ -309,24 +355,48 @@ export type ViewFieldImpact = {
 /**
  * What a remove / retype of `fieldId` would do to `def`'s specialised
  * view. Null when the field isn't one the view reads, when the change
- * keeps it working (a retype to another accepted type), or when the
+ * keeps it working (a retype to another accepted type), when the
  * retype is one the save API blocks (`canTransition`), since that can
- * never reach the public site.
+ * never reach the public site, or when the draft already breaks that
+ * role: the heads-up already says what happens, and a further change
+ * doesn't add to it. `savedDef` is the schema as last saved.
  */
 export function viewFieldImpact(
-  def: Pick<CollectionDef, "slug">,
+  def: Pick<CollectionDef, "slug" | "fields">,
   fieldId: FieldId,
   change: ViewFieldChange,
+  savedDef: Pick<CollectionDef, "fields"> = def,
 ): ViewFieldImpact | null {
   if (!isSpecialisedViewSlug(def.slug)) return null;
   const spec = viewSpec(def.slug);
-  const requirement = Object.values(spec.fields).find((r) => r.fieldId === fieldId);
-  if (!requirement) return null;
+  const match = Object.entries(spec.fields).find(
+    ([role, r]) => findViewField(def.fields, role, r)?.id === fieldId,
+  );
+  if (!match) return null;
+  const [role, requirement] = match;
+  if (viewFieldProblems(def, savedDef).some((p) => p.role === role)) return null;
   if (change.kind === "retype") {
     if (requirement.accepts.includes(change.to)) return null;
     if (!canTransition(change.from, change.to)) return null;
   }
   return { viewLabel: spec.viewLabel, requirement, change };
+}
+
+/**
+ * Whether a saveable retype can still be rejected by an existing value.
+ * A retype's save re-validates every item under the new type
+ * (`validateSchemaChange`), so free text that isn't a valid URL blocks
+ * it. select → multi-choice can't fail (each value is wrapped), and
+ * neither can a retype to Long text, which has no constraints.
+ */
+function retypeCanFailOnValues(from: FieldType, to: FieldType): boolean {
+  return !(to === "longText" || (from === "select" && to === "multiSelect"));
+}
+
+/** The caveat both the confirm and the heads-up add to a retype that existing values can block. */
+function retypeCaveat(fieldKey: string, from: FieldType, to: FieldType): string {
+  if (!retypeCanFailOnValues(from, to)) return "";
+  return ` The save only goes through if every existing ${fieldKey} is a valid ${fieldTypeLabel(to)} value.`;
 }
 
 function acceptedTypesLabel(requirement: ViewFieldRequirement): string {
@@ -353,22 +423,26 @@ function consequence(
 
 /**
  * Confirm-dialog copy for a pending remove / retype, e.g.
- * `Removing "city" means the public tour dates list will switch to the
- * plain default card (…). Continue?`
+ * `Removing "city" means the city will no longer show on the public
+ * tour dates list. Continue?`
  *
- * A retype's save also re-validates every item under the new type
- * (`validateSchemaChange`), so free text that isn't a valid URL blocks
- * it; the editor can't see items, so the copy says so instead.
+ * The editor can't see items, so a retype that existing values can
+ * block says so (`retypeCaveat`). Removing a role that doesn't match by
+ * name says re-adding it won't help.
  */
 export function describeViewFieldImpact(impact: ViewFieldImpact, fieldKey: string): string {
   const what = consequence(impact.viewLabel, impact.requirement, "will");
   if (impact.change.kind === "remove") {
-    return `Removing "${fieldKey}" means ${what}. Continue?`;
+    const noWayBack =
+      impact.requirement.matchesByKey === false
+        ? ` Adding a new "${fieldKey}" field later won't undo this.`
+        : "";
+    return `Removing "${fieldKey}" means ${what}.${noWayBack} Continue?`;
   }
-  const to = fieldTypeLabel(impact.change.to);
+  const { from, to } = impact.change;
   return (
-    `Changing "${fieldKey}" to ${to} means ${what}. ` +
-    `The save only goes through if every existing ${fieldKey} is a valid ${to} value. Continue?`
+    `Changing "${fieldKey}" to ${fieldTypeLabel(to)} means ${what}.` +
+    `${retypeCaveat(fieldKey, from, to)} Continue?`
   );
 }
 
@@ -378,9 +452,15 @@ export function describeViewFieldProblem(
   problem: ViewFieldProblem,
 ): string {
   const viewLabel = isSpecialisedViewSlug(def.slug) ? viewSpec(def.slug).viewLabel : def.slug;
+  const { field, actualType, savedType } = problem;
   const what =
-    problem.status === "missing" || problem.actualType === null
+    problem.status === "missing" || actualType === null
       ? `The ${problem.requirement.label} field was removed`
-      : `The ${problem.requirement.label} field is now ${fieldTypeLabel(problem.actualType)}`;
-  return `${what}, so ${consequence(viewLabel, problem.requirement, "now")}.`;
+      : `The ${problem.requirement.label} field is now ${fieldTypeLabel(actualType)}`;
+  // An unsaved retype that existing values can still block.
+  const caveat =
+    field && actualType !== null && savedType !== null && savedType !== actualType
+      ? retypeCaveat(field.key, savedType, actualType)
+      : "";
+  return `${what}, so ${consequence(viewLabel, problem.requirement, "now")}.${caveat}`;
 }

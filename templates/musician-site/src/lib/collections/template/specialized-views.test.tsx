@@ -4,8 +4,8 @@
  * two specialised renderers (`PhotoTile` / `VideoTile`).
  *
  * The tile components aren't exported — they're internal to
- * `specialized-views.tsx`. Tested via `specialisedRendererFor("photos")`
- * / `("videos")`, which is the dispatch the collection-block consumes.
+ * `specialized-views.tsx`. Tested via `SPECIALISED_RENDERERS.photos` /
+ * `.videos`, the registry `specialisedRendererForDef` dispatches through.
  * Renderers take `{ item }` and return JSX; SSR snapshotted with
  * `renderToStaticMarkup` (same pattern the rest of the public-render
  * components use).
@@ -18,7 +18,6 @@ import {
   emptyMessageFor,
   extractVimeoId,
   extractYouTubeId,
-  specialisedRendererFor,
   specialisedRendererForDef,
   SPECIALISED_RENDERERS,
 } from "./specialized-views";
@@ -100,7 +99,7 @@ describe("extractVimeoId", () => {
 // Registry
 // ---------------------------------------------------------------------------
 
-describe("SPECIALISED_RENDERERS / specialisedRendererFor", () => {
+describe("SPECIALISED_RENDERERS", () => {
   it("registers photos, videos, tour-dates, releases, posts", () => {
     expect(Object.keys(SPECIALISED_RENDERERS).sort()).toEqual([
       "photos",
@@ -109,12 +108,6 @@ describe("SPECIALISED_RENDERERS / specialisedRendererFor", () => {
       "tour-dates",
       "videos",
     ]);
-  });
-  it("looks up by slug, null for unregistered", () => {
-    expect(specialisedRendererFor("releases")).toBeTypeOf("function");
-    expect(specialisedRendererFor("posts")).toBeTypeOf("function");
-    expect(specialisedRendererFor("tour-dates")).toBeTypeOf("function");
-    expect(specialisedRendererFor("store-items")).toBeNull();
   });
 });
 
@@ -137,7 +130,7 @@ function photoItem(opts: { image?: typeof IMAGE_FIXTURE | null; caption?: string
 }
 
 function renderPhoto(item: Item): string {
-  const PhotoTile = specialisedRendererFor("photos")!;
+  const PhotoTile = SPECIALISED_RENDERERS.photos;
   return renderToStaticMarkup(<>{PhotoTile({ item, def: photosCollectionDef })}</>);
 }
 
@@ -211,7 +204,7 @@ describe("PhotoTile", () => {
 
   it("renders null when no image is present (no broken anchor)", () => {
     const item = { id: "i", slug: "p1", ...TS, values: {} } satisfies Item;
-    const PhotoTile = specialisedRendererFor("photos")!;
+    const PhotoTile = SPECIALISED_RENDERERS.photos;
     expect(PhotoTile({ item, def: photosCollectionDef })).toBeNull();
   });
 
@@ -269,7 +262,7 @@ function videoItem(opts: {
 }
 
 function renderVideo(item: Item): string {
-  const VideoTile = specialisedRendererFor("videos")!;
+  const VideoTile = SPECIALISED_RENDERERS.videos;
   return renderToStaticMarkup(<>{VideoTile({ item, def: videosCollectionDef })}</>);
 }
 
@@ -346,7 +339,7 @@ describe("VideoTile", () => {
         [VIDEOS_FIELD_IDS.source]: { type: "select" as const, value: "youtube" },
       },
     } satisfies Item;
-    const VideoTile = specialisedRendererFor("videos")!;
+    const VideoTile = SPECIALISED_RENDERERS.videos;
     expect(VideoTile({ item, def: videosCollectionDef })).toBeNull();
   });
 
@@ -373,7 +366,7 @@ describe("VideoTile", () => {
           },
         },
       };
-      return renderToStaticMarkup(<>{specialisedRendererFor("videos")!({ item, def: videosCollectionDef })}</>);
+      return renderToStaticMarkup(<>{SPECIALISED_RENDERERS.videos({ item, def: videosCollectionDef })}</>);
     };
     expect(renderWithoutTitle("youtube")).toContain('title="YouTube video"');
     expect(renderWithoutTitle("vimeo")).toContain('title="Vimeo video"');
@@ -505,7 +498,7 @@ function tourDateItem(
 }
 
 function renderTourDate(item: Item): string {
-  const TourDateRow = specialisedRendererFor("tour-dates")!;
+  const TourDateRow = SPECIALISED_RENDERERS["tour-dates"];
   return renderToStaticMarkup(<>{TourDateRow({ item, def: tourDatesCollectionDef })}</>);
 }
 
@@ -541,6 +534,11 @@ describe("TourDateRow", () => {
     expect(html).not.toContain("<a "); // no real link
   });
 
+  it("shows the country alone when there's no city", () => {
+    const html = renderTourDate(tourDateItem({ date: "2026-08-01", venue: "V", country: "Spain" }));
+    expect(html).toContain("V — Spain");
+  });
+
   it("omits the date element when the date is missing", () => {
     const html = renderTourDate(tourDateItem({ venue: "V", city: "C" }));
     expect(html).not.toContain("<strong>");
@@ -568,7 +566,7 @@ function releaseItem(
 }
 
 function renderRelease(item: Item): string {
-  return renderToStaticMarkup(<>{specialisedRendererFor("releases")!({ item, def: releasesCollectionDef })}</>);
+  return renderToStaticMarkup(<>{SPECIALISED_RENDERERS.releases({ item, def: releasesCollectionDef })}</>);
 }
 
 describe("ReleaseTile", () => {
@@ -621,7 +619,7 @@ function postItem(
 }
 
 function renderPost(item: Item): string {
-  return renderToStaticMarkup(<>{specialisedRendererFor("posts")!({ item, def: postsCollectionDef })}</>);
+  return renderToStaticMarkup(<>{SPECIALISED_RENDERERS.posts({ item, def: postsCollectionDef })}</>);
 }
 
 describe("PostTile", () => {
@@ -738,7 +736,7 @@ describe("card links to detail pages", () => {
   it("follows the collection's live prefix, not a hard-coded one", () => {
     const def = { ...postsCollectionDef, detailUrlPrefix: "/journal" };
     const html = renderToStaticMarkup(
-      <>{specialisedRendererFor("posts")!({ item: postItem({ title: "X" }), def })}</>,
+      <>{SPECIALISED_RENDERERS.posts({ item: postItem({ title: "X" }), def })}</>,
     );
     expect(html).toContain('href="/journal/p1"');
   });
@@ -746,7 +744,7 @@ describe("card links to detail pages", () => {
   it("leaves the card unlinked when the collection has no detail pages", () => {
     const def = { ...releasesCollectionDef, detailUrlPrefix: null };
     const html = renderToStaticMarkup(
-      <>{specialisedRendererFor("releases")!({ item: releaseItem({ title: "X" }), def })}</>,
+      <>{SPECIALISED_RENDERERS.releases({ item: releaseItem({ title: "X" }), def })}</>,
     );
     expect(html).not.toContain("<a ");
     expect(html).toContain("X</h3>");
@@ -772,16 +770,16 @@ describe("specialisedRendererForDef", () => {
     ...def,
     fields: def.fields.filter((f) => f.id !== fieldId),
   });
-  const withCityAs = (type: "number" | "longText"): CollectionDef => ({
+  const withFieldAs = (fieldId: string, type: "number" | "longText"): CollectionDef => ({
     ...tourDatesCollectionDef,
     fields: tourDatesCollectionDef.fields.map((f) =>
-      f.id === TOUR_DATES_FIELD_IDS.city ? { id: f.id, key: f.key, type, required: true } : f,
+      f.id === fieldId ? { id: f.id, key: f.key, type, required: true } : f,
     ),
   });
 
   it("returns the specialisation when the schema satisfies the view", () => {
     expect(specialisedRendererForDef(tourDatesCollectionDef)).toBe(
-      specialisedRendererFor("tour-dates"),
+      SPECIALISED_RENDERERS["tour-dates"],
     );
   });
 
@@ -791,12 +789,32 @@ describe("specialisedRendererForDef", () => {
 
   it("returns null when a required field was deleted", () => {
     expect(
-      specialisedRendererForDef(withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city)),
+      specialisedRendererForDef(withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.venue)),
     ).toBeNull();
   });
 
   it("returns null when a required field was retyped to an incompatible type", () => {
-    expect(specialisedRendererForDef(withCityAs("number"))).toBeNull();
+    expect(specialisedRendererForDef(withFieldAs(TOUR_DATES_FIELD_IDS.venue, "number"))).toBeNull();
+  });
+
+  it("keeps the tour-dates row when city is deleted — city is optional", () => {
+    const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city);
+    const item = tourDateItem({ date: "2026-08-01", venue: "Sala Apolo", city: "Madrid", country: "Spain" });
+    const html = renderToStaticMarkup(<>{specialisedRendererForDef(def)!({ item, def })}</>);
+    expect(html).toContain("Sala Apolo — Spain");
+    expect(html).not.toContain("Madrid"); // stale value under the removed id
+  });
+
+  it("reads a re-added field with the same name (new id) after the original was removed", () => {
+    const base = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city);
+    const def: CollectionDef = {
+      ...base,
+      fields: [...base.fields, { id: "fld_readded_city", key: "City", type: "text", required: false }],
+    };
+    const item = tourDateItem({ date: "2026-08-01", venue: "Sala Apolo" });
+    item.values["fld_readded_city"] = { type: "text", value: "Lisbon" };
+    const html = renderToStaticMarkup(<>{specialisedRendererForDef(def)!({ item, def })}</>);
+    expect(html).toContain("Sala Apolo — Lisbon");
   });
 
   it("keeps the specialisation when only an optional field was deleted", () => {
@@ -809,7 +827,7 @@ describe("specialisedRendererForDef", () => {
     const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.ticketUrl);
     const html = renderToStaticMarkup(
       <>
-        {specialisedRendererFor("tour-dates")!({
+        {SPECIALISED_RENDERERS["tour-dates"]({
           item: tourDateItem({ date: "2026-08-01", venue: "V", city: "Madrid" }),
           def,
         })}
@@ -820,7 +838,7 @@ describe("specialisedRendererForDef", () => {
   });
 
   it("renders a lossless retype (city text → longText) in the specialised row", () => {
-    const def = withCityAs("longText");
+    const def = withFieldAs(TOUR_DATES_FIELD_IDS.city, "longText");
     const item = tourDateItem({ date: "2026-08-01", venue: "V" });
     item.values[TOUR_DATES_FIELD_IDS.city] = { type: "longText", value: "Lisbon" };
     const html = renderToStaticMarkup(<>{specialisedRendererForDef(def)!({ item, def })}</>);
@@ -829,10 +847,10 @@ describe("specialisedRendererForDef", () => {
 
   it("falls back to the default card in CollectionBlockRender when a required field is missing", async () => {
     const { CollectionBlockRender } = await import("./collection-block");
-    const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.city);
+    const def = withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.venue);
     const item = tourDateItem({
       date: "2026-08-01",
-      venue: "Sala Apolo",
+      city: "Madrid",
       country: "Spain",
       ticketUrl: "https://tix.example/madrid",
     });
@@ -840,11 +858,26 @@ describe("specialisedRendererForDef", () => {
       <>{CollectionBlockRender({ items: [item], sourceDef: def, hideFields: [], currentItem: item })}</>,
     );
     // Default field stack: "<key>: value" rows, every remaining field shown.
-    expect(html).toContain("<strong>venue:</strong> Sala Apolo");
+    expect(html).toContain("<strong>city:</strong> Madrid");
     expect(html).toContain("<strong>country:</strong> Spain");
     expect(html).toContain('href="https://tix.example/madrid"');
     // Not the specialised row (whose CTA is the literal "Tickets").
     expect(html).not.toContain(">Tickets<");
+    // Nor the view's layout wrapper: default cards stack in normal flow.
+    expect(html).not.toContain("data-collection-view");
+  });
+
+  it("keeps a fallen-back slug's wrapper when an itemTemplate renders the items", async () => {
+    const { CollectionBlockRender } = await import("./collection-block");
+    const def: CollectionDef = {
+      ...withoutField(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.venue),
+      itemTemplate: { root: { props: {} }, content: [] },
+    };
+    const item = tourDateItem({ date: "2026-08-01" });
+    const html = renderToStaticMarkup(
+      <>{CollectionBlockRender({ items: [item], sourceDef: def, hideFields: [], currentItem: item })}</>,
+    );
+    expect(html).toContain('data-collection-view="tour-dates"');
   });
 
   it("renders the specialised row in CollectionBlockRender when the schema is intact", async () => {
@@ -862,5 +895,6 @@ describe("specialisedRendererForDef", () => {
     );
     expect(html).toContain(">Tickets<");
     expect(html).not.toContain("<strong>venue:</strong>");
+    expect(html).toContain('data-collection-view="tour-dates"');
   });
 });

@@ -29,17 +29,17 @@ export function SchemaEditorClient({
 }) {
   const [def, setDef] = useState<CollectionDef>(initialDef);
   // The schema as last saved: the save API checks type changes against
-  // it, and so do the editor's view warnings.
+  // it, and so do the editor's view warnings. Dirty means the draft
+  // differs from it.
   const [savedDef, setSavedDef] = useState<CollectionDef>(initialDef);
-  const [initialSnapshot, setInitialSnapshot] = useState(() => JSON.stringify(initialDef));
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [issues, setIssues] = useState<SchemaEditorIssue[]>([]);
   const [warnings, setWarnings] = useState<SchemaEditorWarning[]>([]);
 
   const isDirty = useMemo(
-    () => JSON.stringify(def) !== initialSnapshot,
-    [def, initialSnapshot],
+    () => JSON.stringify(def) !== JSON.stringify(savedDef),
+    [def, savedDef],
   );
 
   const save = useCallback(async () => {
@@ -83,7 +83,6 @@ export function SchemaEditorClient({
       }
       setDef(body.def);
       setSavedDef(body.def);
-      setInitialSnapshot(JSON.stringify(body.def));
       setWarnings(body.warnings ?? []);
       setStatus("saved");
     } catch (cause) {

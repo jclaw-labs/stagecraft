@@ -129,14 +129,15 @@ export function SchemaEditor({
   };
 
   // Fields the collection's public card view (tour dates, releases, …)
-  // depends on but that the current draft removed or retyped. Shown as
-  // a standing heads-up so the consequence stays visible after the
-  // confirm prompt is dismissed.
+  // depends on but that the current draft removed or retyped. Shown in
+  // the same heads-up as the server's save warnings, so the consequence
+  // stays visible after the confirm prompt is dismissed.
   const viewProblems: SchemaEditorWarning[] = viewFieldProblems(def, savedDef).map((problem) => ({
     kind: "specialised-view-field",
-    fieldId: problem.requirement.fieldId,
+    fieldId: problem.field?.id ?? problem.requirement.fieldId,
     message: describeViewFieldProblem(def, problem),
   }));
+  const headsUp = [...warnings, ...viewProblems];
 
   const slugSourceOptions = [
     { label: "(none — items use a slug they pick themselves)", value: "" },
@@ -168,17 +169,14 @@ export function SchemaEditor({
         {issues.length > 0 ? (
           <IssueList kind="error" entries={issues} />
         ) : null}
-        {warnings.length > 0 ? (
-          <IssueList kind="warning" entries={warnings} />
-        ) : null}
-        {viewProblems.length > 0 ? (
-          <IssueList kind="warning" entries={viewProblems} />
+        {headsUp.length > 0 ? (
+          <IssueList kind="warning" entries={headsUp} />
         ) : null}
         {def.fields.map((field) => (
           <FieldEditor
             key={field.id}
             def={def}
-            savedField={savedDef.fields.find((f) => f.id === field.id)}
+            savedDef={savedDef}
             field={field}
             isInUse={def.slugSourceFieldId === field.id}
             onChange={(next) => updateField(field.id, next)}
@@ -216,15 +214,15 @@ export function SchemaEditor({
 
 function FieldEditor({
   def,
-  savedField,
+  savedDef,
   field,
   isInUse,
   onChange,
 }: {
   /** The collection being edited — its slug picks the public card view to warn about. */
   def: CollectionDef;
-  /** This field as last saved; undefined for a field added in this draft. */
-  savedField: FieldDef | undefined;
+  /** The collection as last saved. */
+  savedDef: CollectionDef;
   field: FieldDef;
   /** True when the def uses this field as `slugSourceFieldId`. */
   isInUse: boolean;
@@ -267,7 +265,7 @@ function FieldEditor({
           <button
             type="button"
             onClick={() => {
-              if (confirm(removeFieldPrompt(def, field, isInUse))) {
+              if (confirm(removeFieldPrompt(def, field, isInUse, savedDef))) {
                 onChange(null);
               }
             }}
@@ -300,14 +298,21 @@ function FieldEditor({
           // Retyping a field the public card view reads to a type it
           // can't render: confirm first. Cancelling leaves the
           // (controlled) select on the old type. A retype the save API
-          // blocks gets no prompt; its save error explains it.
-          const impact = viewFieldImpact(def, field.id, {
-            kind: "retype",
-            // A field added in this draft has no saved type to convert
-            // from, so any type saves.
-            from: savedField?.type ?? next.type,
-            to: next.type,
-          });
+          // blocks gets no prompt; its save error explains it. Nor does
+          // one the heads-up already reports.
+          const savedField = savedDef.fields.find((f) => f.id === field.id);
+          const impact = viewFieldImpact(
+            def,
+            field.id,
+            {
+              kind: "retype",
+              // A field added in this draft has no saved type to convert
+              // from, so any type saves.
+              from: savedField?.type ?? next.type,
+              to: next.type,
+            },
+            savedDef,
+          );
           if (impact && !confirm(describeViewFieldImpact(impact, field.key))) return;
           onChange(next);
         }}
@@ -323,14 +328,17 @@ function FieldEditor({
 /**
  * Confirm-dialog copy for removing `field`. Mentions the slug-source use
  * and, when the collection's public card view reads the field, what the
- * removal does to it (falls back to the default card / hides a piece).
+ * removal does to it (falls back to the default card / hides a piece),
+ * unless the draft has already broken that piece. `savedDef` is the
+ * schema as last saved.
  */
 export function removeFieldPrompt(
-  def: Pick<CollectionDef, "slug">,
+  def: Pick<CollectionDef, "slug" | "fields">,
   field: Pick<FieldDef, "id" | "key">,
   isSlugSource: boolean,
+  savedDef: Pick<CollectionDef, "fields"> = def,
 ): string {
-  const impact = viewFieldImpact(def, field.id, { kind: "remove" });
+  const impact = viewFieldImpact(def, field.id, { kind: "remove" }, savedDef);
   const slugNote = `"${field.key}" is currently used as the slug source.`;
   if (impact) {
     const viewNote = describeViewFieldImpact(impact, field.key);

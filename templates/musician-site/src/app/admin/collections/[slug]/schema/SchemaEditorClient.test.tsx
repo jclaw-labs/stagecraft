@@ -26,6 +26,28 @@ function citySelect(): HTMLSelectElement {
 }
 
 describe("<SchemaEditorClient>", () => {
+  it("is dirty only while the draft differs from the saved schema", async () => {
+    render(<SchemaEditorClient collectionSlug="tour-dates" initialDef={tourDatesCollectionDef} />);
+    const saveButton = () => screen.getByRole("button", { name: /save/i }) as HTMLButtonElement;
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.change(citySelect(), { target: { value: "longText" } });
+    expect(saveButton().disabled).toBe(false);
+    // The server's def comes back as the new saved schema.
+    const returned: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: tourDatesCollectionDef.fields.map((f) =>
+        f.id === TOUR_DATES_FIELD_IDS.city ? { id: f.id, key: f.key, type: "longText", required: false } : f,
+      ),
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, def: returned }), { status: 200 }),
+    );
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+  });
+
   it("warns on a two-step retype that saves from the saved type", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<SchemaEditorClient collectionSlug="tour-dates" initialDef={tourDatesCollectionDef} />);

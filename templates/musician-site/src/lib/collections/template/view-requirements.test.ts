@@ -36,6 +36,25 @@ const SEED_DEFS: Record<string, CollectionDef> = {
 const CITY = VIEW_REQUIREMENTS["tour-dates"].fields.city;
 const TICKETS = VIEW_REQUIREMENTS["tour-dates"].fields.ticketUrl;
 const COUNTRY = VIEW_REQUIREMENTS["tour-dates"].fields.country;
+const VENUE = VIEW_REQUIREMENTS["tour-dates"].fields.venue;
+const STATUS = VIEW_REQUIREMENTS["tour-dates"].fields.status;
+
+/** The tour-dates seed with `city` removed and a new field of `key` added in its place. */
+function tourDatesWithReAdded(key: string, type: "text" | "url" = "text"): CollectionDef {
+  const base = tourDatesWith(CITY.fieldId, null);
+  return {
+    ...base,
+    fields: [...base.fields, { id: "fld_readded", key, type, required: false } as FieldDef],
+  };
+}
+
+/** The tour-dates seed with city retyped to URL. */
+const CITY_AS_URL = tourDatesWith(TOUR_DATES_FIELD_IDS.city, {
+  id: TOUR_DATES_FIELD_IDS.city,
+  key: "city",
+  type: "url",
+  required: false,
+});
 
 /** The tour-dates seed with one field swapped out (or removed when `next` is null). */
 function tourDatesWith(fieldId: string, next: FieldDef | null): CollectionDef {
@@ -77,7 +96,7 @@ describe("VIEW_REQUIREMENTS", () => {
 
 describe("checkFieldRequirement", () => {
   it("is ok when the field is present with an accepted type", () => {
-    expect(checkFieldRequirement(tourDatesCollectionDef.fields, CITY)).toBe("ok");
+    expect(checkFieldRequirement(tourDatesCollectionDef.fields, "city", CITY)).toBe("ok");
   });
 
   it("accepts a lossless retype the view can still render (text → longText)", () => {
@@ -87,11 +106,11 @@ describe("checkFieldRequirement", () => {
       type: "longText",
       required: true,
     });
-    expect(checkFieldRequirement(def.fields, CITY)).toBe("ok");
+    expect(checkFieldRequirement(def.fields, "city", CITY)).toBe("ok");
   });
 
   it("is missing when the field was deleted", () => {
-    expect(checkFieldRequirement(tourDatesWith(CITY.fieldId, null).fields, CITY)).toBe("missing");
+    expect(checkFieldRequirement(tourDatesWith(CITY.fieldId, null).fields, "city", CITY)).toBe("missing");
   });
 
   it("is wrong-type when the field was retyped to something the view can't render", () => {
@@ -101,7 +120,7 @@ describe("checkFieldRequirement", () => {
       type: "number",
       required: true,
     });
-    expect(checkFieldRequirement(def.fields, CITY)).toBe("wrong-type");
+    expect(checkFieldRequirement(def.fields, "city", CITY)).toBe("wrong-type");
   });
 
   it("ignores renames — fields resolve by id, not key", () => {
@@ -111,7 +130,33 @@ describe("checkFieldRequirement", () => {
       type: "text",
       required: true,
     });
-    expect(checkFieldRequirement(def.fields, CITY)).toBe("ok");
+    expect(checkFieldRequirement(def.fields, "city", CITY)).toBe("ok");
+  });
+
+  it("matches a re-added field by name once the declared id is gone", () => {
+    expect(checkFieldRequirement(tourDatesWithReAdded(" City ").fields, "city", CITY)).toBe("ok");
+    expect(checkFieldRequirement(tourDatesWithReAdded("city", "url").fields, "city", CITY)).toBe(
+      "wrong-type",
+    );
+    expect(checkFieldRequirement(tourDatesWithReAdded("town").fields, "city", CITY)).toBe("missing");
+  });
+
+  it("never lets another declared field stand in, even renamed to the role's name", () => {
+    const def = tourDatesWith(CITY.fieldId, null);
+    const renamedCountry = {
+      ...def,
+      fields: def.fields.map((f) => (f.id === COUNTRY.fieldId ? { ...f, key: "city" } : f)),
+    };
+    expect(checkFieldRequirement(renamedCountry.fields, "city", CITY)).toBe("missing");
+  });
+
+  it("doesn't match by name for a role whose dependency is on the id (tour-date status)", () => {
+    const base = tourDatesWith(STATUS.fieldId, null);
+    const fields = [
+      ...base.fields,
+      { id: "fld_readded", key: "status", type: "select", required: false, options: [] } as FieldDef,
+    ];
+    expect(checkFieldRequirement(fields, "status", STATUS)).toBe("missing");
   });
 });
 
@@ -121,7 +166,19 @@ describe("checkFieldRequirement", () => {
 
 describe("resolveViewFields", () => {
   it("returns null (→ default card) when a required field is missing", () => {
-    expect(resolveViewFields(tourDatesWith(CITY.fieldId, null), "tour-dates")).toBeNull();
+    expect(resolveViewFields(tourDatesWith(VENUE.fieldId, null), "tour-dates")).toBeNull();
+  });
+
+  it("keeps the view when city is missing — it's optional", () => {
+    const fields = resolveViewFields(tourDatesWith(CITY.fieldId, null), "tour-dates");
+    expect(fields?.has("city")).toBe(false);
+  });
+
+  it("reads a re-added same-name field's values under its new id", () => {
+    const fields = resolveViewFields(tourDatesWithReAdded("city"), "tour-dates")!;
+    expect(fields.has("city")).toBe(true);
+    const item = tourItem({ fld_readded: { type: "text", value: "Lisbon" } });
+    expect(fields.string(item, "city")).toBe("Lisbon");
   });
 
   it("returns null when a required field has an incompatible type", () => {
@@ -132,9 +189,9 @@ describe("resolveViewFields", () => {
       ),
     };
     expect(resolveViewFields(videosWithEmbedAsImage, "videos")).toBeNull();
-    const retyped = tourDatesWith(CITY.fieldId, {
-      id: CITY.fieldId,
-      key: "city",
+    const retyped = tourDatesWith(VENUE.fieldId, {
+      id: VENUE.fieldId,
+      key: "venue",
       type: "image",
       required: true,
     });
@@ -278,9 +335,46 @@ describe("viewFieldProblems", () => {
 
 describe("viewFieldImpact", () => {
   it("flags removing a required field", () => {
-    const impact = viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "remove" });
-    expect(impact?.requirement).toBe(CITY);
+    const impact = viewFieldImpact(tourDatesCollectionDef, VENUE.fieldId, { kind: "remove" });
+    expect(impact?.requirement).toBe(VENUE);
     expect(impact?.viewLabel).toBe("tour dates list");
+  });
+
+  it("flags removing a re-added same-name field", () => {
+    const impact = viewFieldImpact(tourDatesWithReAdded("city"), "fld_readded", { kind: "remove" });
+    expect(impact?.requirement).toBe(CITY);
+  });
+
+  it("skips a change to a field the draft already broke — the heads-up covers it", () => {
+    // city saved as Short text, URL in the draft: the heads-up already
+    // says what happens, so a further retype or a removal doesn't ask.
+    expect(
+      viewFieldImpact(
+        CITY_AS_URL,
+        CITY.fieldId,
+        { kind: "retype", from: "text", to: "email" },
+        tourDatesCollectionDef,
+      ),
+    ).toBeNull();
+    expect(
+      viewFieldImpact(CITY_AS_URL, CITY.fieldId, { kind: "remove" }, tourDatesCollectionDef),
+    ).toBeNull();
+    // A draft retype the save API blocks isn't a standing problem, so a
+    // saveable change from it still asks.
+    const cityAsNumber = tourDatesWith(CITY.fieldId, {
+      id: CITY.fieldId,
+      key: "city",
+      type: "number",
+      required: false,
+    });
+    expect(
+      viewFieldImpact(
+        cityAsNumber,
+        CITY.fieldId,
+        { kind: "retype", from: "text", to: "url" },
+        tourDatesCollectionDef,
+      ),
+    ).not.toBeNull();
   });
 
   it("flags removing an optional field", () => {
@@ -316,16 +410,53 @@ describe("viewFieldImpact", () => {
     expect(
       viewFieldImpact(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.notes, { kind: "remove" }),
     ).toBeNull();
-    expect(viewFieldImpact({ slug: "store-items" }, CITY.fieldId, { kind: "remove" })).toBeNull();
+    expect(
+      viewFieldImpact({ slug: "store-items", fields: [] }, CITY.fieldId, { kind: "remove" }),
+    ).toBeNull();
   });
 });
 
 describe("describeViewFieldImpact / describeViewFieldProblem", () => {
   it("explains the default-card fallback for a required field", () => {
+    const impact = viewFieldImpact(tourDatesCollectionDef, VENUE.fieldId, { kind: "remove" })!;
+    expect(describeViewFieldImpact(impact, "venue")).toBe(
+      'Removing "venue" means the public tour dates list will switch to the plain default card ' +
+        "(its layout needs the venue as Short text or Long text). Continue?",
+    );
+  });
+
+  it("explains a hidden city now that city is optional", () => {
     const impact = viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "remove" })!;
     expect(describeViewFieldImpact(impact, "city")).toBe(
-      'Removing "city" means the public tour dates list will switch to the plain default card ' +
-        "(its layout needs the city as Short text or Long text). Continue?",
+      'Removing "city" means the city will no longer show on the public tour dates list. Continue?',
+    );
+  });
+
+  it("leaves out the existing-values caveat for select → multi-choice, which always saves", () => {
+    const impact = viewFieldImpact(videosCollectionDef, VIDEOS_FIELD_IDS.source, {
+      kind: "retype",
+      from: "select",
+      to: "multiSelect",
+    })!;
+    expect(describeViewFieldImpact(impact, "source")).toBe(
+      'Changing "source" to Multi-choice means videos on the public video grid will show as ' +
+        "links instead of embedded players. Continue?",
+    );
+  });
+
+  it("leaves out the existing-values caveat for a retype to Long text, which always saves", () => {
+    const ticketsAsText = tourDatesWith(TICKETS.fieldId, {
+      ...tourDatesCollectionDef.fields.find((f) => f.id === TICKETS.fieldId)!,
+      type: "text",
+    } as FieldDef);
+    const impact = viewFieldImpact(ticketsAsText, TICKETS.fieldId, {
+      kind: "retype",
+      from: "text",
+      to: "longText",
+    })!;
+    expect(describeViewFieldImpact(impact, "ticketUrl")).toBe(
+      'Changing "ticketUrl" to Long text means the ticket link will no longer show on the ' +
+        "public tour dates list. Continue?",
     );
   });
 
@@ -363,7 +494,7 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
     })!;
     expect(describeViewFieldImpact(impact, "status")).toBe(
       'Removing "status" means tour dates lists that hide cancelled shows (the default) will ' +
-        "hide every show. Continue?",
+        'hide every show. Adding a new "status" field later won\'t undo this. Continue?',
     );
     const [problem] = viewFieldProblems(tourDatesWith(TOUR_DATES_FIELD_IDS.status, null));
     expect(describeViewFieldProblem(tourDatesCollectionDef, problem!)).toBe(
@@ -381,20 +512,42 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
   });
 
   it("describes a standing problem in the present tense", () => {
-    const def = tourDatesWith(CITY.fieldId, {
-      id: CITY.fieldId,
-      key: "city",
+    const def = tourDatesWith(VENUE.fieldId, {
+      id: VENUE.fieldId,
+      key: "venue",
       type: "url",
       required: true,
     });
     const [problem] = viewFieldProblems(def);
     expect(describeViewFieldProblem(def, problem!)).toBe(
-      "The city field is now URL, so the public tour dates list falls back to the plain " +
-        "default card (its layout needs the city as Short text or Long text).",
+      "The venue field is now URL, so the public tour dates list falls back to the plain " +
+        "default card (its layout needs the venue as Short text or Long text).",
     );
     const [removed] = viewFieldProblems(tourDatesWith(TICKETS.fieldId, null));
     expect(describeViewFieldProblem(tourDatesCollectionDef, removed!)).toBe(
       "The ticket link field was removed, so the ticket link doesn't show on the public tour dates list.",
+    );
+  });
+
+  it("adds the existing-values caveat to an unsaved retype that existing values can block", () => {
+    const [problem] = viewFieldProblems(CITY_AS_URL, tourDatesCollectionDef);
+    expect(describeViewFieldProblem(CITY_AS_URL, problem!)).toBe(
+      "The city field is now URL, so the city doesn't show on the public tour dates list. " +
+        "The save only goes through if every existing city is a valid URL value.",
+    );
+  });
+
+  it("leaves the caveat out of the heads-up for select → multi-choice", () => {
+    const def: CollectionDef = {
+      ...videosCollectionDef,
+      fields: videosCollectionDef.fields.map((f) =>
+        f.id === VIDEOS_FIELD_IDS.source ? ({ ...f, type: "multiSelect" } as FieldDef) : f,
+      ),
+    };
+    const [problem] = viewFieldProblems(def, videosCollectionDef);
+    expect(describeViewFieldProblem(def, problem!)).toBe(
+      "The video source field is now Multi-choice, so videos on the public video grid show as " +
+        "links instead of embedded players.",
     );
   });
 });
