@@ -4,13 +4,14 @@ import { RequestError } from "@octokit/request-error";
 // Mock @octokit/rest at module init so any draft-store path doesn't
 // try to make real network calls. The tests that exercise the draft
 // branch wire up their own mocks via these handles.
-const { getRef, reposGetContent } = vi.hoisted(() => ({
+const { getRef, getBlob, reposGetContent } = vi.hoisted(() => ({
   getRef: vi.fn(),
+  getBlob: vi.fn(),
   reposGetContent: vi.fn(),
 }));
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
-    git = { getRef };
+    git = { getRef, getBlob };
     repos = { getContent: reposGetContent };
   },
 }));
@@ -73,6 +74,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   getRef.mockReset();
+  getBlob.mockReset();
   reposGetContent.mockReset();
   fetchPublishTokenMock.mockReset();
   fsReadCollectionDef.mockReset();
@@ -107,6 +109,29 @@ function fileResponse(content: unknown) {
       content: Buffer.from(JSON.stringify(content)).toString("base64"),
       encoding: "base64",
       sha: "blob-sha",
+    },
+  };
+}
+
+/** A getContent response for a file past the Contents-API ~1 MB limit. */
+function oversizedContentResponse() {
+  return {
+    data: {
+      type: "file" as const,
+      encoding: "none",
+      content: "",
+      size: 2_000_000,
+      sha: "big-blob-sha",
+    },
+  };
+}
+
+function blobResponse(content: unknown) {
+  return {
+    data: {
+      content: Buffer.from(JSON.stringify(content)).toString("base64"),
+      encoding: "base64",
+      sha: "big-blob-sha",
     },
   };
 }
@@ -304,27 +329,34 @@ describe("getReadStore — draft store with FS fallback", () => {
     expect(fsReadCollectionDef).not.toHaveBeenCalled();
   });
 
-  it("falls back to FS on `too-large` (file over Contents-API limit)", async () => {
-    // `too-large` means the live draft file exceeds the Contents-API
-    // ~1 MB limit. Until a Git-Blob-API fallback ships in draft-store,
-    // the FS snapshot is the best we can do — better than a 5xx.
+  it("reads a file over the Contents-API limit live via the Blob API (no FS fallback)", async () => {
+    // The live draft file exceeds the Contents-API ~1 MB limit;
+    // draft-store re-reads it through the Git Blob API, so the admin
+    // sees the current draft — not the stale build snapshot.
     getRef.mockResolvedValue(refResponse("sha-1"));
-    reposGetContent.mockResolvedValue({
-      data: {
-        type: "file" as const,
-        encoding: "none",
-        content: "",
-        size: 2_000_000,
-        sha: "blob-sha",
-      },
-    });
-    fsReadCollectionDef.mockResolvedValue(tourDatesDef());
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    reposGetContent.mockResolvedValue(oversizedContentResponse());
+    getBlob.mockResolvedValue(blobResponse({ ...tourDatesDef(), pluralName: "live tour dates" }));
     const store = await getReadStore();
     const result = await store.readCollectionDef("tour-dates");
-    expect(fsReadCollectionDef).toHaveBeenCalledWith("tour-dates");
-    expect(result?.slug).toBe("tour-dates");
-    expect(warnSpy).toHaveBeenCalled();
+    expect(result?.pluralName).toBe("live tour dates");
+    expect(fsReadCollectionDef).not.toHaveBeenCalled();
+  });
+
+  it("re-throws a Blob API failure on an oversized file (no silent stale fallback)", async () => {
+    getRef.mockResolvedValue(refResponse("sha-1"));
+    reposGetContent.mockResolvedValue(oversizedContentResponse());
+    getBlob.mockRejectedValue(
+      new RequestError("Internal Server Error", 500, {
+        request: { method: "GET", url: "x", headers: {} },
+        response: { status: 500, url: "x", headers: {}, data: {} },
+      }),
+    );
+    const store = await getReadStore();
+    await expect(store.readCollectionDef("tour-dates")).rejects.toMatchObject({
+      name: "DraftReadError",
+      code: "github-failed",
+    });
+    expect(fsReadCollectionDef).not.toHaveBeenCalled();
   });
 
   it("threads the draft context through every method (token + draft branch)", async () => {
@@ -401,20 +433,11 @@ describe("getReadStore — wasDegraded (read-only banner signal)", () => {
     expect(store.wasDegraded()).toBe(false);
   });
 
-  it("stays false after a too-large fallback (one oversized file, draft still reachable)", async () => {
+  it("stays false after reading an oversized file via the Blob API", async () => {
     withToken();
     getRef.mockResolvedValue(refResponse("sha-1"));
-    reposGetContent.mockResolvedValue({
-      data: {
-        type: "file" as const,
-        encoding: "none",
-        content: "",
-        size: 2_000_000,
-        sha: "blob-sha",
-      },
-    });
-    fsReadCollectionDef.mockResolvedValue(tourDatesDef());
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    reposGetContent.mockResolvedValue(oversizedContentResponse());
+    getBlob.mockResolvedValue(blobResponse(tourDatesDef()));
     const store = await getReadStore();
     await store.readCollectionDef("tour-dates");
     expect(store.wasDegraded()).toBe(false);

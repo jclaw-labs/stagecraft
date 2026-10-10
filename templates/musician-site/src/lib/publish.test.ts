@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  adoptSquashIntoMock,
   commitFilesMock,
   commitSelectedPathsIntoMock,
   ensureBranchExistsMock,
@@ -11,6 +12,7 @@ const {
   resetBranchToMock,
   squashBranchIntoMock,
 } = vi.hoisted(() => ({
+  adoptSquashIntoMock: vi.fn(),
   commitFilesMock: vi.fn(),
   commitSelectedPathsIntoMock: vi.fn(),
   ensureBranchExistsMock: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock("./git-commit", async () => {
   const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
   return {
     ...actual,
+    adoptSquashInto: adoptSquashIntoMock,
     commitFiles: commitFilesMock,
     commitSelectedPathsInto: commitSelectedPathsIntoMock,
     ensureBranchExists: ensureBranchExistsMock,
@@ -123,7 +126,8 @@ beforeEach(() => {
   // explicitly.
   squashBranchIntoMock
     .mockReset()
-    .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false });
+    .mockResolvedValue({ commitSha: "squash-sha", alreadyInSync: false, squashedSha: "draft-head" });
+  adoptSquashIntoMock.mockReset().mockResolvedValue({ kind: "adopted", commitSha: "adopted-sha" });
   // Default: discard reports a real reset (draft went somewhere
   // different from main). Tests that exercise the alreadyInSync or
   // missing-branch paths override.
@@ -908,6 +912,82 @@ describe("publishDraftToMain", () => {
     });
     expect(squashBranchIntoMock).not.toHaveBeenCalled();
   });
+
+  it("maps a ConcurrentEditError from the squash (main stale-ref retry exhausted) to concurrent-edit", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockRejectedValue(
+      new ConcurrentEditError("heads/main", 3, "main-sha", new Error("stale")),
+    );
+    await expect(publishDraftToMain({ authorEmail: "a@e.com" })).rejects.toMatchObject({
+      code: "concurrent-edit",
+    });
+  });
+
+  it("maps any other squash failure to github-failed", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockRejectedValue(new Error("GitHub 500"));
+    await expect(publishDraftToMain({ authorEmail: "a@e.com" })).rejects.toMatchObject({
+      code: "github-failed",
+      message: expect.stringMatching(/^squash draft → main: /),
+    });
+  });
+
+  it("brings the draft along with adoptSquashInto after the squash lands, without a merge", async () => {
+    configurePlatform();
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({ commitSha: "squash-sha", mode: "github", alreadyInSync: false });
+    expect(adoptSquashIntoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "draft", squashedSha: "draft-head", squashSha: "squash-sha" }),
+    );
+    expect(adoptSquashIntoMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      squashBranchIntoMock.mock.invocationCallOrder[0],
+    );
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the pre-squash auto-rebase only
+  });
+
+  it("skips the reconcile when nothing was published", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockResolvedValue({ commitSha: "main-sha", alreadyInSync: true });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(adoptSquashIntoMock).not.toHaveBeenCalled();
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1);
+    expect(result).not.toHaveProperty("warning");
+  });
+
+  it("falls back to merging main into the draft when the draft was reset mid-publish", async () => {
+    configurePlatform();
+    adoptSquashIntoMock.mockResolvedValue({ kind: "not-descendant" });
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockResolvedValueOnce({ kind: "merged", mergeCommitSha: "m" });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(mergeBranchIntoMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+    expect(result).not.toHaveProperty("warning");
+  });
+
+  it("still succeeds with draft-resync-conflict when the fallback merge conflicts", async () => {
+    configurePlatform();
+    adoptSquashIntoMock.mockResolvedValue({ kind: "not-descendant" });
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockResolvedValueOnce({ kind: "conflict" });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({
+      commitSha: "squash-sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-conflict",
+    });
+  });
+
+  it("still succeeds with draft-resync-pending when adopting the squash throws", async () => {
+    configurePlatform();
+    adoptSquashIntoMock.mockRejectedValue(new Error("GitHub 502"));
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toMatchObject({ commitSha: "squash-sha", warning: "draft-resync-pending" });
+  });
 });
 
 
@@ -1087,6 +1167,14 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
     expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
   });
 
+  it("skips the reconcile merge when the selected paths already matched main", async () => {
+    configurePlatform();
+    commitSelectedPathsIntoMock.mockResolvedValue({ commitSha: "main-sha", alreadyInSync: true });
+    const res = await publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: ["src/content/x.json"] });
+    expect(res).toEqual({ commitSha: "main-sha", mode: "github", alreadyInSync: true });
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the pre-flight auto-rebase only
+  });
+
   it("commits the selected copy/delete paths onto main (no [skip ci]), then merges main into the draft", async () => {
     configurePlatform();
     const copyPaths = [
@@ -1146,13 +1234,63 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
     ).rejects.toMatchObject({ code: "concurrent-edit" });
   });
 
-  it("fails when the post-publish draft reconcile conflicts", async () => {
+  // The commit to main has shipped by the time the reconcile runs, so a
+  // reconcile failure must not be reported as a failed publish
+  // (ADR-012 "Concurrency & partial failure").
+  it("reports success with draft-resync-pending when the reconcile merge fails after the publish shipped", async () => {
     configurePlatform();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     // First merge (auto-rebase pre-flight) is clean; the second (reconcile
-    // after the partial publish) conflicts.
+    // after the partial publish) fails transiently.
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockRejectedValueOnce(new Error("GitHub 502"));
+    const res = await publishSelectedToMain({
+      authorEmail: "a@e.com",
+      copyPaths: ["src/content/x.json"],
+    });
+    expect(res).toEqual({
+      commitSha: "selected-sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-pending",
+    });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("GitHub 502"));
+    warnSpy.mockRestore();
+  });
+
+  it("reports success with draft-resync-conflict when the post-publish reconcile conflicts", async () => {
+    configurePlatform();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mergeBranchIntoMock
       .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
       .mockResolvedValueOnce({ kind: "conflict" });
+    const res = await publishSelectedToMain({
+      authorEmail: "a@e.com",
+      copyPaths: ["src/content/x.json"],
+    });
+    expect(res).toEqual({
+      commitSha: "selected-sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-conflict",
+    });
+    warnSpy.mockRestore();
+  });
+
+  it("omits `warning` when the reconcile merge succeeds", async () => {
+    configurePlatform();
+    mergeBranchIntoMock.mockResolvedValue({ kind: "merged", mergeCommitSha: "m" });
+    const res = await publishSelectedToMain({
+      authorEmail: "a@e.com",
+      copyPaths: ["src/content/x.json"],
+    });
+    expect(res).not.toHaveProperty("warning");
+  });
+
+  it("still fails when the commit to main itself fails (nothing shipped)", async () => {
+    configurePlatform();
+    commitSelectedPathsIntoMock.mockRejectedValue(new Error("GitHub 500"));
     await expect(
       publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: ["src/content/x.json"] }),
     ).rejects.toMatchObject({ code: "github-failed" });

@@ -45,6 +45,34 @@ export const publishErrorSchema = z.object({
 export type PublishError = z.infer<typeof publishErrorSchema>;
 
 /**
+ * Non-fatal follow-ups a *successful* publish can carry back to the
+ * editor (`warning` on the `/api/publish-draft` and `/api/publish-selected`
+ * success envelopes).
+ * The publish shipped — `main` has the change and the deploy fired —
+ * but something after it didn't finish (ADR-012 "Concurrency & partial
+ * failure"):
+ *
+ * - `draft-resync-pending`: reconciling the editor's draft with the new
+ *   `main` failed transiently. The draft self-heals on the next save's
+ *   auto-rebase; until then the pending list can still show the
+ *   published items.
+ * - `draft-resync-conflict`: the draft can't merge the new `main`
+ *   cleanly (another publish touched the same files). The next save
+ *   would hit the same conflict, so the editor has to discard the
+ *   remaining pending changes.
+ */
+export const publishWarningSchema = z.enum(["draft-resync-pending", "draft-resync-conflict"]);
+export type PublishWarning = z.infer<typeof publishWarningSchema>;
+
+/** Editor copy for each {@link PublishWarning}, shown under the Publish button. */
+export const PUBLISH_WARNING_MESSAGES: Record<PublishWarning, string> = {
+  "draft-resync-pending":
+    "Your draft will resync with the live site on your next save — until then, published items may still show as pending.",
+  "draft-resync-conflict":
+    "Your remaining draft changes conflict with the live site. Discard them or contact support.",
+};
+
+/**
  * Map a `PublishError` code to the HTTP status the failure-response
  * routes should return. Centralises the mapping so the routes that
  * emit structured failures (`/api/publish-draft`,
