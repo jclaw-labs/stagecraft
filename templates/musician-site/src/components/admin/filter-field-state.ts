@@ -15,8 +15,8 @@ import type {
   FilterClause,
   FilterValue,
 } from "@/lib/collections/filter-schema";
-import type { CollectionDef, FieldDef, FieldType } from "@/lib/collections";
-import { clauseWithoutMissingFields, mapClauseFields } from "@/lib/collections/template/filter";
+import type { FieldDef, FieldType } from "@/lib/collections";
+import { filterForDefs, type FilterFieldsDef } from "@/lib/collections/template/filter";
 import { viewFieldIdFor } from "@/lib/collections/template/view-requirements";
 
 /**
@@ -262,50 +262,38 @@ export function setClauseValues(clause: FilterClause, values: FilterValue[]): Fi
 // Clauses the page ignores
 // ---------------------------------------------------------------------------
 
-/** The fields a field picker reads from: `slug` for `viewFieldIdFor`, plus the field list. */
-export type FieldPickerDef = Pick<CollectionDef, "slug" | "fields">;
-
 /**
  * Which option a field picker shows for a saved field id. The id first
  * goes through `viewFieldIdFor`, so a default block's declared id that a
  * re-added same-name field took over shows that field, the one the page
  * reads. An id the def lacks even then is `"removed"`: the page ignores
  * the clause, and the picker says so instead of showing its first field.
- * An empty id isn't a removed field (a collection with no filterable
- * fields saves one), so it comes back as is.
+ * An empty id is `"none"`: no field was ever picked (a collection with
+ * no filterable fields saves one), and the page ignores that clause too.
  */
-export type FieldPick = { kind: "field"; fieldId: string } | { kind: "removed" };
+export type FieldPick = { kind: "field"; fieldId: string } | { kind: "removed" } | { kind: "none" };
 
-export function fieldPickFor(def: FieldPickerDef, savedId: string): FieldPick {
-  if (savedId === "") return { kind: "field", fieldId: savedId };
+export function fieldPickFor(def: FilterFieldsDef, savedId: string): FieldPick {
+  if (savedId === "") return { kind: "none" };
   const fieldId = viewFieldIdFor(def, savedId);
   return def.fields.some((f) => f.id === fieldId) ? { kind: "field", fieldId } : { kind: "removed" };
 }
 
 /**
  * Whether the page ignores `clause`, for a block iterating `sourceDef`
- * inside a template for `currentItemDef`. Runs the same mapping and the
- * same check the Collection block's resolver does
- * (`resolveCollectionBlockProps`), so the inspector marks what the page
- * skips. Without `currentItemDef`, `currentItemField` values count as
- * present, as they do on the page.
+ * inside a template for `currentItemDef`. Runs the clause through
+ * `filterForDefs`, the same call the Collection block's resolver
+ * (`resolveCollectionBlockProps`) makes, so the inspector marks what the
+ * page skips. Without `currentItemDef`, `currentItemField` values count
+ * as present, as they do on the page.
  */
 export function isClauseIgnored(
   clause: FilterClause,
-  sourceDef: FieldPickerDef,
-  currentItemDef?: FieldPickerDef,
+  sourceDef: FilterFieldsDef,
+  currentItemDef?: FilterFieldsDef,
 ): boolean {
-  const mapped = mapClauseFields(
-    clause,
-    (fieldId) => viewFieldIdFor(sourceDef, fieldId),
-    currentItemDef ? (fieldId) => viewFieldIdFor(currentItemDef, fieldId) : undefined,
-  );
-  const has = (def: FieldPickerDef) => (fieldId: string) => def.fields.some((f) => f.id === fieldId);
-  return (
-    clauseWithoutMissingFields(
-      mapped,
-      has(sourceDef),
-      currentItemDef ? has(currentItemDef) : undefined,
-    ) === null
-  );
+  // In an `all` group of one, a clause that names no missing field
+  // survives (an `excludeCurrentItem` clause included), and one that does
+  // leaves nothing, so the result is `null`.
+  return filterForDefs({ all: [clause] }, sourceDef, currentItemDef) === null;
 }

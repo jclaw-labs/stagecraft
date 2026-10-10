@@ -21,7 +21,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import {
@@ -31,6 +31,7 @@ import {
   type FilterValue,
 } from "@/lib/collections/filter-schema";
 import type { CollectionDef, FieldDef } from "@/lib/collections";
+import type { FilterFieldsDef } from "@/lib/collections/template/filter";
 
 import {
   CLAUSE_OPS,
@@ -51,7 +52,6 @@ import {
   setClauseValue,
   setClauseValues,
   type ClauseOp,
-  type FieldPickerDef,
 } from "./filter-field-state";
 
 export type FilterFieldProps = {
@@ -74,6 +74,8 @@ export type FilterFieldProps = {
 
 /** Option shown for a saved field id the collection no longer has. */
 const REMOVED_FIELD_LABEL = "removed field (ignored)";
+/** Option shown for an empty saved field id, once there are fields to pick. */
+const NO_FIELD_LABEL = "no field (ignored)";
 
 function stringifyFilter(value: Filter | null): string {
   return value ? JSON.stringify(value, null, 2) : "";
@@ -298,9 +300,9 @@ function ClauseRow({
   onChange: (next: FilterClause) => void;
   onRemove: () => void;
   mode: "all" | "any";
-  sourceDef: FieldPickerDef;
+  sourceDef: FilterFieldsDef;
   sourceFields: ReadonlyArray<FieldDef>;
-  currentItemDef: FieldPickerDef | undefined;
+  currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
 }) {
   const op = clauseToOp(clause);
@@ -308,15 +310,18 @@ function ClauseRow({
 
   // The saved id goes through `viewFieldIdFor` first, so a re-added
   // same-name field that the page reads shows as picked. An id the
-  // collection lacks even then gets its own option, so the picker
-  // doesn't show its first field for a clause the page ignores.
+  // collection lacks even then, or an empty one, gets its own option, so
+  // the picker doesn't show its first field for a clause the page
+  // ignores.
   const pick = isFieldBearingClause(clause) ? fieldPickFor(sourceDef, clause.field) : null;
   const field =
     pick?.kind === "field" ? sourceFields.find((f) => f.id === pick.fieldId) : undefined;
   const ignored =
-    isFieldBearingClause(clause) &&
-    clause.field !== "" &&
-    isClauseIgnored(clause, sourceDef, currentItemDef);
+    isFieldBearingClause(clause) && isClauseIgnored(clause, sourceDef, currentItemDef);
+  // The note explains the "(ignored)" options, so the row's field pickers
+  // point at it while it shows.
+  const noteId = useId();
+  const describedBy = ignored ? noteId : undefined;
 
   function handleOpChange(newOp: ClauseOp) {
     onChange(morphClauseToOp(clause, newOp, sourceFields));
@@ -331,9 +336,13 @@ function ClauseRow({
             onChange={(e) => onChange(setClauseField(clause, e.target.value))}
             style={{ ...selectStyle, flex: 1 }}
             aria-label="Field"
+            aria-describedby={describedBy}
           >
             {pick?.kind === "removed" ? (
               <option value={clause.field}>{REMOVED_FIELD_LABEL}</option>
+            ) : null}
+            {pick?.kind === "none" && sourceFields.length > 0 ? (
+              <option value="">{NO_FIELD_LABEL}</option>
             ) : null}
             {sourceFields.length === 0 ? (
               <option value="">(no filterable fields)</option>
@@ -378,6 +387,7 @@ function ClauseRow({
           field={field}
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
+          describedBy={describedBy}
         />
       ) : null}
 
@@ -388,14 +398,15 @@ function ClauseRow({
           field={field}
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
+          describedBy={describedBy}
         />
       ) : null}
 
       {ignored ? (
-        <p style={hintStyle}>
+        <p id={noteId} style={hintStyle}>
           {mode === "any"
-            ? "A field this clause uses was removed, so the page ignores this whole filter."
-            : "A field this clause uses was removed, so the page ignores this clause."}
+            ? "A field this clause uses isn't set or no longer exists, so the page ignores this whole filter."
+            : "A field this clause uses isn't set or no longer exists, so the page ignores this clause."}
         </p>
       ) : null}
 
@@ -419,13 +430,16 @@ function FilterValueEditor({
   field,
   currentItemDef,
   currentItemFields,
+  describedBy,
 }: {
   value: FilterValue;
   onChange: (next: FilterValue) => void;
   /** The source-collection field this value compares against. Undefined when the clause's field has been removed from the schema. */
   field: FieldDef | undefined;
-  currentItemDef: FieldPickerDef | undefined;
+  currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
+  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  describedBy: string | undefined;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
     if (nextKind === "literal") onChange({ kind: "literal", value: "" });
@@ -473,6 +487,7 @@ function FilterValueEditor({
           onChange={(fieldId) => onChange({ kind: "currentItemField", fieldId })}
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
+          describedBy={describedBy}
         />
       ) : null}
     </div>
@@ -489,11 +504,14 @@ function CurrentItemFieldSelect({
   onChange,
   currentItemDef,
   currentItemFields,
+  describedBy,
 }: {
   fieldId: string;
   onChange: (fieldId: string) => void;
-  currentItemDef: FieldPickerDef | undefined;
+  currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
+  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  describedBy: string | undefined;
 }) {
   const pick = currentItemDef ? fieldPickFor(currentItemDef, fieldId) : null;
   return (
@@ -502,8 +520,12 @@ function CurrentItemFieldSelect({
       onChange={(e) => onChange(e.target.value)}
       style={{ ...selectStyle, flex: 1 }}
       aria-label="Current item field"
+      aria-describedby={describedBy}
     >
       {pick?.kind === "removed" ? <option value={fieldId}>{REMOVED_FIELD_LABEL}</option> : null}
+      {pick?.kind === "none" && currentItemFields.length > 0 ? (
+        <option value="">{NO_FIELD_LABEL}</option>
+      ) : null}
       {currentItemFields.length === 0 ? (
         <option value="">(no current item fields available)</option>
       ) : null}
@@ -522,12 +544,15 @@ function ArrayValueEditor({
   field,
   currentItemDef,
   currentItemFields,
+  describedBy,
 }: {
   values: FilterValue[];
   onChange: (next: FilterValue[]) => void;
   field: FieldDef | undefined;
-  currentItemDef: FieldPickerDef | undefined;
+  currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
+  /** Id of the row's "ignored" note while it shows, for the field picker's `aria-describedby`. */
+  describedBy: string | undefined;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
@@ -540,6 +565,7 @@ function ArrayValueEditor({
               field={field}
               currentItemDef={currentItemDef}
               currentItemFields={currentItemFields}
+              describedBy={describedBy}
             />
           </div>
           <button

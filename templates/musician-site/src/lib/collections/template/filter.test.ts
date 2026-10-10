@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFilter,
-  clauseWithoutMissingFields,
+  clauseNamesMissingField,
+  filterForDefs,
   mapFilterFields,
   withoutClausesOnMissingFields,
 } from "./filter";
-import type { Filter, FilterClause, Item } from "../schema";
+import { TOUR_DATES_FIELD_IDS } from "../field-ids";
+import type { CollectionDef, Filter, FilterClause, Item } from "../schema";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
 /** Make a tour-date-shaped item with the fields the tests want. */
@@ -549,18 +551,21 @@ describe("withoutClausesOnMissingFields", () => {
       expect(withoutClausesOnMissingFields(filter, hasField)).toEqual(filter);
     });
 
-    it("drops only that value from an `in` list, since it never matches anything", () => {
+    it("keeps an `in` list with a live value: the dead one never matches anything", () => {
       const filter: Filter = {
         all: [
           { field: "f_venue", op: "in", values: [gone, { kind: "literal", value: "Lido" }] },
         ],
       };
-      const pruned = withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField);
-      expect(pruned).toEqual({
-        all: [{ field: "f_venue", op: "in", values: [{ kind: "literal", value: "Lido" }] }],
-      });
-      // Same items either way: the dead value was already a no-op.
-      expect(applyFilter(ITEMS, pruned, CURRENT)).toEqual(applyFilter(ITEMS, filter, CURRENT));
+      const kept = withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField);
+      expect(kept).toEqual(filter);
+      // The dead value resolves to `undefined`, so only Lido lists.
+      expect(applyFilter(ITEMS, kept, CURRENT).map((i) => i.slug)).toEqual(["berlin"]);
+    });
+
+    it("keeps an empty `in` list, which names no field at all", () => {
+      const filter: Filter = { all: [{ field: "f_venue", op: "in", values: [] }] };
+      expect(withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField)).toEqual(filter);
     });
 
     it("drops an `in` / `notIn` clause once none of its values are left", () => {
@@ -587,49 +592,134 @@ describe("withoutClausesOnMissingFields", () => {
 });
 
 // ---------------------------------------------------------------------------
-// clauseWithoutMissingFields
+// clauseNamesMissingField
 // ---------------------------------------------------------------------------
 
-describe("clauseWithoutMissingFields", () => {
+describe("clauseNamesMissingField", () => {
   const hasField = (id: string) => id === "f_venue";
   const hasCurrentItemField = (id: string) => id === "f_city";
 
-  it("returns a clause with nothing missing as is", () => {
+  it("is false for a clause with nothing missing", () => {
     const clause: FilterClause = {
       field: "f_venue",
       op: "in",
       values: [{ kind: "currentItemField", fieldId: "f_city" }, { kind: "literal", value: "x" }],
     };
-    expect(clauseWithoutMissingFields(clause, hasField, hasCurrentItemField)).toBe(clause);
+    expect(clauseNamesMissingField(clause, hasField, hasCurrentItemField)).toBe(false);
   });
 
-  it("returns null for a clause on a missing field, whatever its op", () => {
-    expect(clauseWithoutMissingFields({ field: "f_gone", op: "isEmpty" }, hasField)).toBeNull();
+  it("is true for a clause on a missing field, whatever its op", () => {
+    expect(clauseNamesMissingField({ field: "f_gone", op: "isEmpty" }, hasField)).toBe(true);
     expect(
-      clauseWithoutMissingFields(
+      clauseNamesMissingField(
         { field: "f_gone", op: "equals", value: { kind: "literal", value: 1 } },
         hasField,
       ),
-    ).toBeNull();
+    ).toBe(true);
   });
 
-  it("returns null for a single value naming a missing current-item field", () => {
+  it("is true for a single value naming a missing current-item field", () => {
     expect(
-      clauseWithoutMissingFields(
+      clauseNamesMissingField(
         { field: "f_venue", op: "gte", value: { kind: "currentItemField", fieldId: "f_gone" } },
         hasField,
         hasCurrentItemField,
       ),
-    ).toBeNull();
+    ).toBe(true);
   });
 
-  it("keeps excludeCurrentItem and value-less clauses on present fields", () => {
-    expect(clauseWithoutMissingFields({ excludeCurrentItem: true }, hasField)).toEqual({
-      excludeCurrentItem: true,
+  it("is true for an `in` / `notIn` list only once every value names a missing current-item field", () => {
+    const gone = { kind: "currentItemField", fieldId: "f_gone" } as const;
+    const city = { kind: "currentItemField", fieldId: "f_city" } as const;
+    expect(
+      clauseNamesMissingField(
+        { field: "f_venue", op: "in", values: [gone, gone] },
+        hasField,
+        hasCurrentItemField,
+      ),
+    ).toBe(true);
+    expect(
+      clauseNamesMissingField(
+        { field: "f_venue", op: "notIn", values: [gone, city] },
+        hasField,
+        hasCurrentItemField,
+      ),
+    ).toBe(false);
+    expect(
+      clauseNamesMissingField({ field: "f_venue", op: "in", values: [] }, hasField, hasCurrentItemField),
+    ).toBe(false);
+  });
+
+  it("is false for excludeCurrentItem and value-less clauses on present fields", () => {
+    expect(clauseNamesMissingField({ excludeCurrentItem: true }, hasField)).toBe(false);
+    expect(clauseNamesMissingField({ field: "f_venue", op: "isNotEmpty" }, hasField)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// filterForDefs
+// ---------------------------------------------------------------------------
+
+describe("filterForDefs", () => {
+  // The artist deleted the seed's `city` and added a new "city", and
+  // deleted `venue` outright.
+  const TOUR_DATES: Pick<CollectionDef, "slug" | "fields"> = {
+    slug: "tour-dates",
+    fields: [
+      { id: TOUR_DATES_FIELD_IDS.date, key: "date", type: "date", required: true },
+      { id: "fld_new_city", key: "city", type: "text", required: false },
+    ],
+  };
+  const POSTS: Pick<CollectionDef, "slug" | "fields"> = {
+    slug: "posts",
+    fields: [{ id: "p_title", key: "title", type: "text", required: true }],
+  };
+  const sameCity = {
+    field: TOUR_DATES_FIELD_IDS.city,
+    op: "equals",
+    value: { kind: "currentItemField", fieldId: TOUR_DATES_FIELD_IDS.city },
+  } as const;
+
+  it("maps declared ids to the re-added field on both sides when the defs are known", () => {
+    expect(filterForDefs({ all: [sameCity] }, TOUR_DATES, TOUR_DATES)).toEqual({
+      all: [
+        {
+          field: "fld_new_city",
+          op: "equals",
+          value: { kind: "currentItemField", fieldId: "fld_new_city" },
+        },
+      ],
     });
-    expect(clauseWithoutMissingFields({ field: "f_venue", op: "isNotEmpty" }, hasField)).toEqual({
-      field: "f_venue",
-      op: "isNotEmpty",
+  });
+
+  it("drops a clause on a field the source def lacks even after mapping", () => {
+    const filter: Filter = {
+      all: [
+        { field: TOUR_DATES_FIELD_IDS.venue, op: "isNotEmpty" },
+        { field: TOUR_DATES_FIELD_IDS.date, op: "gte", value: { kind: "today" } },
+      ],
+    };
+    expect(filterForDefs(filter, TOUR_DATES)).toEqual({
+      all: [{ field: TOUR_DATES_FIELD_IDS.date, op: "gte", value: { kind: "today" } }],
+    });
+  });
+
+  it("drops a clause whose currentItemField the surrounding def lacks", () => {
+    const filter: Filter = {
+      any: [
+        {
+          field: TOUR_DATES_FIELD_IDS.date,
+          op: "equals",
+          value: { kind: "currentItemField", fieldId: "p_gone" },
+        },
+      ],
+    };
+    expect(filterForDefs(filter, TOUR_DATES, POSTS)).toBeNull();
+  });
+
+  it("leaves currentItemField ids alone, and counts them present, without the surrounding def", () => {
+    expect(filterForDefs({ all: [sameCity] }, TOUR_DATES)).toEqual({
+      all: [{ ...sameCity, field: "fld_new_city" }],
     });
   });
 });

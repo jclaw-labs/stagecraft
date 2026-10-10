@@ -587,9 +587,13 @@ describe("fieldPickFor / isClauseIgnored", () => {
     expect(fieldPickFor(TOUR_DATES, TOUR_DATES_FIELD_IDS.status)).toEqual({ kind: "removed" });
   });
 
-  it("marks any other missing id as removed, and leaves an empty id alone", () => {
+  it("marks any other missing id as removed", () => {
     expect(fieldPickFor(POSTS, "p_gone")).toEqual({ kind: "removed" });
-    expect(fieldPickFor(POSTS, "")).toEqual({ kind: "field", fieldId: "" });
+  });
+
+  it("marks an empty id as no field picked, not as a field", () => {
+    expect(fieldPickFor(POSTS, "")).toEqual({ kind: "none" });
+    expect(fieldPickFor({ slug: "posts", fields: [] }, "")).toEqual({ kind: "none" });
   });
 
   const literal = { kind: "literal", value: "x" } as const;
@@ -602,6 +606,21 @@ describe("fieldPickFor / isClauseIgnored", () => {
       isClauseIgnored({ field: TOUR_DATES_FIELD_IDS.city, op: "equals", value: literal }, TOUR_DATES),
     ).toBe(false);
     expect(isClauseIgnored({ excludeCurrentItem: true }, TOUR_DATES)).toBe(false);
+  });
+
+  it("ignores a clause with an empty field id, as the page does", () => {
+    expect(isClauseIgnored({ field: "", op: "equals", value: literal }, TOUR_DATES)).toBe(true);
+    expect(isClauseIgnored({ field: "", op: "isEmpty" }, { slug: "posts", fields: [] })).toBe(true);
+  });
+
+  it("ignores a clause with an empty currentItemField id once the surrounding def is known", () => {
+    const clause: FilterClause = {
+      field: TOUR_DATES_FIELD_IDS.date,
+      op: "equals",
+      value: { kind: "currentItemField", fieldId: "" },
+    };
+    expect(isClauseIgnored(clause, TOUR_DATES, POSTS)).toBe(true);
+    expect(isClauseIgnored(clause, TOUR_DATES)).toBe(false);
   });
 
   it("ignores a clause whose currentItemField value the surrounding def lacks even after mapping", () => {
