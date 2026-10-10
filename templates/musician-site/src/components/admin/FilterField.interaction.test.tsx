@@ -338,6 +338,30 @@ describe("FilterField — clauses the page ignores", () => {
     expect(screen.queryByText(/no longer exists/)).toBeNull();
   });
 
+  it("gives the literal value the re-added same-name field's editor", () => {
+    const reAdded: CollectionDef = {
+      ...SOURCE_DEF,
+      fields: [
+        ...SOURCE_DEF.fields,
+        { id: "fld_new_date", key: "date", type: "date", required: false, includeTime: true },
+      ],
+    };
+    const filter: Filter = {
+      all: [
+        {
+          field: TOUR_DATES_FIELD_IDS.date,
+          op: "equals",
+          value: { kind: "literal", value: "2026-06-01T20:00" },
+        },
+      ],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={reAdded} />);
+
+    // The page reads the re-added `date`, so the value gets its date
+    // editor, not the plain-text fallback for an unknown field.
+    expect((screen.getByLabelText("Literal date") as HTMLInputElement).type).toBe("datetime-local");
+  });
+
   it("picking a field replaces the removed one, and the option goes away", async () => {
     const filter: Filter = {
       all: [{ field: "f_gone", op: "isNotEmpty" }],
@@ -487,12 +511,54 @@ describe("FilterField — clauses the page ignores", () => {
     const noteId = ignoredField!.getAttribute("aria-describedby");
     expect(noteId).toBeTruthy();
     expect(document.getElementById(noteId!)?.textContent).toMatch(/so the page ignores this clause/);
+    // Both `in` values' pickers show the dead id, not the first field.
+    expect(selectedText(currentItemSelects[0] as HTMLSelectElement)).toBe("removed field (ignored)");
+    expect(selectedText(currentItemSelects[1] as HTMLSelectElement)).toBe("removed field (ignored)");
     // Both `in` values' pickers point at the same note.
     expect(currentItemSelects[0]!.getAttribute("aria-describedby")).toBe(noteId);
     expect(currentItemSelects[1]!.getAttribute("aria-describedby")).toBe(noteId);
     // The live row has no note, so nothing to point at.
     expect(liveField!.hasAttribute("aria-describedby")).toBe(false);
     expect(currentItemSelects[2]!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("resolves each `in` value's current-item field on its own", () => {
+    // As above: the seed's `city` deleted and a new "city" added.
+    const currentItemDef: CollectionDef = {
+      ...SOURCE_DEF,
+      fields: [
+        { id: TOUR_DATES_FIELD_IDS.date, key: "date", type: "date", required: true },
+        { id: "fld_new_city", key: "city", type: "text", required: false },
+      ],
+    };
+    const filter: Filter = {
+      all: [
+        {
+          field: "f_city",
+          op: "in",
+          values: [
+            { kind: "currentItemField", fieldId: "p_gone" },
+            { kind: "currentItemField", fieldId: TOUR_DATES_FIELD_IDS.city },
+          ],
+        },
+      ],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={currentItemDef}
+      />,
+    );
+
+    const [goneSelect, citySelect] = screen.getAllByLabelText("Current item field") as HTMLSelectElement[];
+    expect(goneSelect!.value).toBe("p_gone");
+    expect(selectedText(goneSelect!)).toBe("removed field (ignored)");
+    expect(citySelect!.value).toBe("fld_new_city");
+    expect(selectedText(citySelect!)).toBe("city (text)");
+    // One live value keeps the list, so the page doesn't ignore the clause.
+    expect(screen.queryByText(/so the page ignores/)).toBeNull();
   });
 });
 

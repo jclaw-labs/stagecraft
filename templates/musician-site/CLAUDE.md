@@ -274,6 +274,9 @@ import via sibling submodules that have no node imports:
   page's "Tickets" label the same way, so re-adding a field restores
   them too. Tour-date `status` opts out. Drives the default-card
   fallback and the schema editor's remove / retype warnings
+- `lib/collections/template/filter.ts` — `filterForDefs` / `FilterFieldsDef`
+  for the admin filter inspector (`filter-field-state.ts`); keep its
+  imports type-only or node-free (it value-imports `view-requirements.ts`)
 - `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
 - `lib/collections/field-ids.ts` — stable field-id constants for the
   prebaked collections (`PAGES_FIELD_IDS` etc.). `seeds.ts` re-exports
