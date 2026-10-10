@@ -18,18 +18,29 @@ import { seedDemoContent } from "./setup/seed";
  */
 
 /**
- * Console errors the editors are allowed to log. The sandboxed runners
- * these specs run in can't reach Google Fonts, so the theme's font
- * <link> fails; that's the environment, not the editor.
+ * Hosts whose failed loads the editors are allowed to log. The sandboxed
+ * runners these specs run in can't reach third-party font hosts: the
+ * theme's Google Fonts <link>, and the Inter stylesheet Puck's own editor
+ * CSS `@import`s from rsms.me. That's the environment, not the editor. A
+ * failed load from the app's own origin still fails the test.
  */
-const IGNORED_CONSOLE_ERRORS = [/Failed to load resource: net::ERR_/];
+const IGNORED_FAILED_LOAD_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "rsms.me"];
+
+function isIgnoredFailedLoad(text: string, url: string): boolean {
+  if (!text.startsWith("Failed to load resource: net::ERR_")) return false;
+  try {
+    return IGNORED_FAILED_LOAD_HOSTS.includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
 
 function collectConsoleErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const text = message.text();
-    if (IGNORED_CONSOLE_ERRORS.some((pattern) => pattern.test(text))) return;
+    if (isIgnoredFailedLoad(text, message.location().url)) return;
     errors.push(text);
   });
   page.on("pageerror", (error) => errors.push(error.message));
