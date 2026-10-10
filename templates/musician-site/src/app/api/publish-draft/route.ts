@@ -11,7 +11,9 @@
  * the same way; rename when there's a real reason to bump the API.
  *
  * Returns:
- *   - `{ ok: true, mode, commitSha, alreadyInSync }` on success.
+ *   - `{ ok: true, mode, commitSha, alreadyInSync, warning? }` on success.
+ *     `warning` (a `PublishWarning`) is set when the squash shipped but
+ *     merging `main` back into the draft didn't finish (ADR-012).
  *   - `{ ok: false, code, error }` on auth / GitHub failures.
  *
  * `alreadyInSync: true` means draft equalled main at publish time —
@@ -73,6 +75,7 @@ export async function POST(request: Request) {
       mode: result.mode,
       commitSha: result.commitSha,
       alreadyInSync: result.alreadyInSync,
+      ...(result.warning ? { warning: result.warning } : {}),
     });
   } catch (cause) {
     if (cause instanceof PublishError) {

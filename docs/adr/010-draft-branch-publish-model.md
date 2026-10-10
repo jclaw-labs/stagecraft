@@ -43,8 +43,8 @@ Defined here once; used throughout the rest of the ADR.
   `draft`. Does not trigger a deploy.
 - **Publish.** Admin operation that creates a single squash commit on
   `main` whose tree comes from `draft`. Triggers the production
-  deploy. After the commit, `draft` is fast-forwarded to match
-  `main`.
+  deploy. After the commit, `draft` is made a descendant of `main`
+  again without changing its content.
 - **Discard.** Admin operation that force-updates `draft` to point at
   `main`'s current HEAD. Wipes out any pending Save's that hadn't
   been Published.
@@ -55,8 +55,8 @@ Defined here once; used throughout the rest of the ADR.
 
 Introduce a persistent `draft` branch alongside `main`. The admin's
 read and write source becomes `draft`. Publish creates a single
-squash commit on `main` from `draft`'s tree, then fast-forwards
-`draft` to match. Discard resets `draft` back to `main`.
+squash commit on `main` from `draft`'s tree, then makes `draft` a
+descendant of it again. Discard resets `draft` back to `main`.
 
 Invariants:
 
@@ -130,17 +130,35 @@ Publish creates one new commit on `main`:
   Stagecraft-Publish-Id: <uuid>
   ```
 
-After the new commit lands on `main`, the publish flow fast-forwards
-`draft` to the same SHA. Both refs now point at the new commit; the
-invariant holds; the next edit cycle starts clean.
+After the new commit lands on `main`, the publish flow brings `draft`
+along (`adoptSquashInto`). The squash's parent is the old `main`, not
+`draft`'s HEAD, so moving `draft` onto it would be a non-fast-forward:
+GitHub rejects that without `force`, and `force` could drop a save
+landing at the same moment. Instead it commits `draft`'s *current* tree
+with parents `[draft HEAD, squash]` and fast-forwards `draft` to it.
+The squash's tree is the draft commit it was built from, so everything
+it carries is already in `draft`; that commit is the correct merge
+result, even when the editor saved again during the publish (where a
+three-way merge would conflict on any path both edits touched). A save
+racing that update makes it stale and it retries on the new HEAD. If
+`draft` no longer descends from the squashed commit (it was discarded
+mid-publish), it falls back to merging `main` in. Either way `draft`
+contains the squash, and the next edit cycle starts with only the
+mid-publish save pending. A later publish to `main` by another editor
+is pulled in by the next auto-rebase, or by the next publish's
+containment check (ADR-012 "Concurrency"), as before. If this step fails, the publish still
+succeeded and returns the same `warning` as a per-item publish (ADR-012
+"Concurrency & partial failure"); the next save's auto-rebase heals the
+draft.
 
 The per-save draft commits between the previous `main.sha` and the
 new one remain in GitHub's reflog for some retention window before
 being garbage-collected, but aren't reachable from any active ref.
 
-**Implementation cost**: three GitHub Git Data API calls — `getRef`
-for both branches, `createCommit` with the right parent + tree,
-`updateRef main` then `updateRef draft`. The squash is implicit in
+**Implementation cost**: a handful of GitHub API calls — `getRef`
+for both branches, a compare confirming `draft` contains `main`,
+`createCommit` with the right parent + tree, `updateRef main`, then
+the commit and fast-forward that bring `draft` along. The squash is implicit in
 how the commit's tree is built; we don't preserve draft's individual
 commits on main.
 
@@ -382,8 +400,8 @@ The publish-token endpoint surface is unchanged.
   unreachable (`getReadStore` → `draft+fs-fallback`). PR 5v surfaces
   that state — `ReadStore.wasDegraded()` flips on a genuine outage
   (broker-unreachable token mint, or a per-read `github-unreachable` /
-  `rate-limited` fallback; deliberately *not* on `branch-missing` or a
-  single `too-large` file), and `AdminShell` renders a "GitHub
+  `rate-limited` fallback; deliberately *not* on `branch-missing`), and
+  `AdminShell` renders a "GitHub
   unavailable — you're viewing the last published version" banner.
   The chrome's global mutate actions — **Publish** and **Discard** —
   are now disabled while degraded (PR 5w), since both require GitHub and

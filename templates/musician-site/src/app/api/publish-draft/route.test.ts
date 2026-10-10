@@ -86,6 +86,24 @@ describe("POST /api/publish-draft", () => {
     });
   });
 
+  it("passes a reconcile warning through in the success envelope", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@e.com" });
+    publishDraftToMainMock.mockResolvedValue({
+      commitSha: "squash-sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-pending",
+    });
+    const res = await POST(req());
+    expect(await res.json()).toEqual({
+      ok: true,
+      mode: "github",
+      commitSha: "squash-sha",
+      alreadyInSync: false,
+      warning: "draft-resync-pending",
+    });
+  });
+
   it("returns 502 on broker-rejected PublishError", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
     publishDraftToMainMock.mockRejectedValue(

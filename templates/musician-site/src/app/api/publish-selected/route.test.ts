@@ -85,6 +85,30 @@ describe("POST /api/publish-selected", () => {
     });
   });
 
+  it("returns 200 ok with the resync warning when the publish shipped but the draft reconcile didn't", async () => {
+    getSessionMock.mockResolvedValue({ email: "a@e.com" });
+    resolveSelectedChangePathsMock.mockResolvedValue({
+      copyPaths: ["src/content/collections/pages/items/about.json"],
+      deletePaths: [],
+    });
+    publishSelectedToMainMock.mockResolvedValue({
+      commitSha: "sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-pending",
+    });
+
+    const res = await POST(req({ selectedKeys: ["item:pages/about"] }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      mode: "github",
+      commitSha: "sha",
+      alreadyInSync: false,
+      warning: "draft-resync-pending",
+    });
+  });
+
   it("maps a DraftChangesError from the expansion to its HTTP status", async () => {
     getSessionMock.mockResolvedValue({ email: "a@e.com" });
     resolveSelectedChangePathsMock.mockRejectedValue(

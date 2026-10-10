@@ -3,10 +3,11 @@ import { RequestError } from "@octokit/request-error";
 
 const getRef = vi.fn();
 const reposGetContent = vi.fn();
+const getBlob = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
-    git = { getRef };
+    git = { getRef, getBlob };
     repos = { getContent: reposGetContent };
   },
 }));
@@ -35,6 +36,7 @@ const CTX: DraftStoreContext = {
 beforeEach(() => {
   getRef.mockReset();
   reposGetContent.mockReset();
+  getBlob.mockReset();
   resetDraftStoreCache();
 });
 
@@ -614,19 +616,92 @@ describe("error propagation", () => {
     ).rejects.toMatchObject({ name: "DraftReadError", code: "branch-missing" });
   });
 
-  it("surfaces a typed `too-large` error when a file exceeds the Contents API limit", async () => {
+  describe("files over the Contents API ~1 MB limit", () => {
     // Files >1 MB come back from getContent with `encoding: "none"`
-    // and empty `content`. Without the explicit check, we'd
-    // `JSON.parse("")` and throw a baffling SyntaxError. Typed
-    // error tells the facade to retry via Git Blob API (or fall
-    // back to the FS snapshot).
-    getRef.mockResolvedValue(refResponse("sha-1"));
-    reposGetContent.mockResolvedValue({
-      data: { type: "file", encoding: "none", content: "", size: 2_000_000, sha: "blob-sha" },
+    // and empty `content`. They're re-read live through the Git Blob
+    // API by the SHA the Contents response carries — never from the
+    // stale build snapshot.
+    function oversizedContentResponse() {
+      return {
+        data: { type: "file", encoding: "none", content: "", size: 2_000_000, sha: "big-blob-sha" },
+      };
+    }
+
+    it("reads the file through the Git Blob API (base64)", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockResolvedValue({
+        data: {
+          content: Buffer.from(JSON.stringify(tourDatesDef())).toString("base64"),
+          encoding: "base64",
+          sha: "big-blob-sha",
+        },
+      });
+      const result = await readCollectionDefFromDraft(CTX, "tour-dates");
+      expect(result?.slug).toBe("tour-dates");
+      expect(getBlob).toHaveBeenCalledWith({ owner: "o", repo: "r", file_sha: "big-blob-sha" });
     });
-    await expect(
-      readCollectionDefFromDraft(CTX, "tour-dates"),
-    ).rejects.toMatchObject({ name: "DraftReadError", code: "too-large" });
+
+    it("accepts a utf-8 encoded blob response", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockResolvedValue({
+        data: { content: JSON.stringify(tourDatesDef()), encoding: "utf-8", sha: "big-blob-sha" },
+      });
+      const result = await readCollectionDefFromDraft(CTX, "tour-dates");
+      expect(result?.slug).toBe("tour-dates");
+    });
+
+    it("does not call the Blob API for files under the limit", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(fileResponse(tourDatesDef()));
+      await readCollectionDefFromDraft(CTX, "tour-dates");
+      expect(getBlob).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a Blob API failure as a typed `github-failed` error", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockRejectedValue(
+        new RequestError("Internal Server Error", 500, {
+          request: { method: "GET", url: "x", headers: {} },
+          response: { status: 500, url: "x", headers: {}, data: {} },
+        }),
+      );
+      await expect(
+        readCollectionDefFromDraft(CTX, "tour-dates"),
+      ).rejects.toMatchObject({ name: "DraftReadError", code: "github-failed" });
+    });
+
+    it("does not read a Blob API 404 as an absent file", async () => {
+      // The outer getContent catch maps a bare 404 to `null` ("not on
+      // the branch"). A 404 on a blob SHA GitHub just handed us is a
+      // failure, not a deletion — it must not masquerade as one.
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockRejectedValue(notFound());
+      await expect(
+        readCollectionDefFromDraft(CTX, "tour-dates"),
+      ).rejects.toMatchObject({ name: "DraftReadError", code: "github-failed" });
+    });
+
+    it("maps a Blob API network error to `github-unreachable`", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockRejectedValue(new Error("ECONNRESET"));
+      await expect(
+        readCollectionDefFromDraft(CTX, "tour-dates"),
+      ).rejects.toMatchObject({ name: "DraftReadError", code: "github-unreachable" });
+    });
+
+    it("rejects a blob with an unexpected encoding", async () => {
+      getRef.mockResolvedValue(refResponse("sha-1"));
+      reposGetContent.mockResolvedValue(oversizedContentResponse());
+      getBlob.mockResolvedValue({ data: { content: "", encoding: "none", sha: "big-blob-sha" } });
+      await expect(
+        readCollectionDefFromDraft(CTX, "tour-dates"),
+      ).rejects.toMatchObject({ name: "DraftReadError", code: "github-failed" });
+    });
   });
 
   it("clears the cached promise when the fetcher throws (retry isn't stuck on a stale rejection)", async () => {
