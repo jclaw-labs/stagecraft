@@ -31,6 +31,7 @@ import {
   setClauseValue,
   setClauseValues,
   type ClauseOp,
+  unfilterableCurrentItemValue,
 } from "./filter-field-state";
 import type { CollectionDef, FieldDef } from "@/lib/collections";
 import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
@@ -692,5 +693,77 @@ describe("comparesValues", () => {
     for (const op of ["isEmpty", "isNotEmpty", "excludeCurrentItem"] satisfies ClauseOp[]) {
       expect(comparesValues(op)).toBe(false);
     }
+  });
+});
+
+describe("unfilterableCurrentItemValue", () => {
+  const cover: FieldDef = { id: "p_cover", key: "cover", type: "image", required: false };
+  const pdf: FieldDef = { id: "p_pdf", key: "pdf", type: "file", required: false };
+  const POSTS: Pick<CollectionDef, "slug" | "fields"> = {
+    slug: "posts",
+    fields: [{ id: "p_title", key: "title", type: "text", required: true }, cover, pdf],
+  };
+  const coverValue = { kind: "currentItemField", fieldId: "p_cover" } as const;
+  const single = (op: "equals" | "notEquals" | "contains" | "gt" | "gte" | "lt" | "lte"): FilterClause => ({
+    field: "f_city",
+    op,
+    value: coverValue,
+  });
+
+  it("matches no item for equals, contains, >, < and is one of", () => {
+    for (const op of ["equals", "contains", "gt", "lt"] as const) {
+      expect(unfilterableCurrentItemValue(single(op), POSTS), op).toEqual({ field: cover, outcome: "matchesNone" });
+    }
+    expect(
+      unfilterableCurrentItemValue({ field: "f_city", op: "in", values: [coverValue] }, POSTS),
+    ).toEqual({ field: cover, outcome: "matchesNone" });
+  });
+
+  it("matches every item with a value for does not equal, ≥, ≤ and is not one of", () => {
+    for (const op of ["notEquals", "gte", "lte"] as const) {
+      expect(unfilterableCurrentItemValue(single(op), POSTS), op).toEqual({
+        field: cover,
+        outcome: "matchesEveryWithValue",
+      });
+    }
+    expect(
+      unfilterableCurrentItemValue({ field: "f_city", op: "notIn", values: [coverValue] }, POSTS),
+    ).toEqual({ field: cover, outcome: "matchesEveryWithValue" });
+  });
+
+  it("skips the value in a list that also holds one the page can read", () => {
+    for (const readable of [
+      { kind: "literal", value: "Paris" },
+      { kind: "currentItemId" },
+      { kind: "currentItemField", fieldId: "p_title" },
+    ] as const) {
+      expect(
+        unfilterableCurrentItemValue({ field: "f_city", op: "in", values: [coverValue, readable] }, POSTS),
+        readable.kind,
+      ).toEqual({ field: cover, outcome: "valueSkipped" });
+    }
+  });
+
+  it("counts a removed current-item field in the list as unreadable too, naming the first unfilterable one", () => {
+    const gone = { kind: "currentItemField", fieldId: "p_gone" } as const;
+    const pdfValue = { kind: "currentItemField", fieldId: "p_pdf" } as const;
+    expect(
+      unfilterableCurrentItemValue({ field: "f_city", op: "in", values: [gone, pdfValue, coverValue] }, POSTS),
+    ).toEqual({ field: pdf, outcome: "matchesNone" });
+  });
+
+  it("is null for readable values, presence checks, and without the surrounding def", () => {
+    expect(
+      unfilterableCurrentItemValue(
+        { field: "f_city", op: "equals", value: { kind: "currentItemField", fieldId: "p_title" } },
+        POSTS,
+      ),
+    ).toBeNull();
+    expect(
+      unfilterableCurrentItemValue({ field: "f_city", op: "equals", value: { kind: "literal", value: "x" } }, POSTS),
+    ).toBeNull();
+    expect(unfilterableCurrentItemValue({ field: "f_city", op: "isEmpty" }, POSTS)).toBeNull();
+    expect(unfilterableCurrentItemValue({ excludeCurrentItem: true }, POSTS)).toBeNull();
+    expect(unfilterableCurrentItemValue(single("equals"))).toBeNull();
   });
 });

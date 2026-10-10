@@ -319,6 +319,50 @@ describe("applyFilter — missing fields and unsupported shapes", () => {
   });
 });
 
+describe("applyFilter — a currentItemField value on an unfilterable field (#466)", () => {
+  // The surrounding item's cover is an image, which the filter can't read,
+  // so the value resolves to nothing. What the clause matches then depends
+  // on the operator; the filter inspector's note (`unfilterableCurrentItemValue`)
+  // says the same.
+  const withCover: Item = {
+    ...CURRENT,
+    values: { ...CURRENT.values, f_cover: { type: "image", value: { id: "img_1", alt: "Cover" } as never } },
+  };
+  const cover = { kind: "currentItemField", fieldId: "f_cover" } as const;
+  const slugs = (filter: Filter) => applyFilter(ITEMS, filter, withCover).map((item) => item.slug);
+  const everyItem = ITEMS.map((item) => item.slug);
+
+  it("matches no item for equals, contains, >, < and is one of", () => {
+    for (const op of ["equals", "contains", "gt", "lt"] as const) {
+      expect(slugs({ all: [{ field: "f_city", op, value: cover }] }), op).toEqual([]);
+    }
+    expect(slugs({ all: [{ field: "f_city", op: "in", values: [cover] }] })).toEqual([]);
+  });
+
+  it("matches every item with a value for does not equal, ≥, ≤ and is not one of", () => {
+    for (const op of ["notEquals", "gte", "lte"] as const) {
+      expect(slugs({ all: [{ field: "f_city", op, value: cover }] }), op).toEqual(everyItem);
+    }
+    expect(slugs({ all: [{ field: "f_city", op: "notIn", values: [cover] }] })).toEqual(everyItem);
+    // Items without a value for the clause's field still don't match.
+    expect(slugs({ all: [{ field: "f_tags", op: "notEquals", value: cover }] })).toEqual([
+      "paris",
+      "lyon",
+      "berlin",
+    ]);
+  });
+
+  it("skips that value in a list that also holds a value it can read", () => {
+    const lyon = { kind: "literal", value: "Lyon" } as const;
+    expect(slugs({ all: [{ field: "f_city", op: "in", values: [cover, lyon] }] })).toEqual(["lyon"]);
+    expect(slugs({ all: [{ field: "f_city", op: "notIn", values: [cover, lyon] }] })).toEqual([
+      "paris",
+      "berlin",
+      "madrid",
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // `today` FilterValue — relative-date windows
 // ---------------------------------------------------------------------------
