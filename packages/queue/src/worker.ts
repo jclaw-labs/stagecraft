@@ -1,6 +1,6 @@
 import { prisma } from "@stagecraft/db";
 import type { Prisma } from "@stagecraft/db";
-import type { FailureCategory, JobStatus } from "@stagecraft/shared";
+import { isJobType, type FailureCategory, type JobStatus, type JobType } from "@stagecraft/shared";
 import { MAX_REPAIR_ATTEMPTS } from "./repair";
 import {
   FINISH_RETRY_DELAY_MS,
@@ -40,7 +40,7 @@ export interface WorkerEvent {
 }
 
 interface WorkerOptions {
-  handlers: Record<string, JobHandler>;
+  handlers: Partial<Record<JobType, JobHandler>>;
   pollIntervalMs?: number;
   /** Optional callback invoked after each structured event is logged. */
   onEvent?: (event: WorkerEvent) => void;
@@ -144,7 +144,10 @@ export function createWorker(options: WorkerOptions) {
 
       if (!job) return "idle";
 
-      const handler = handlers[job.type];
+      // `type` is a plain string column, so old rows can hold a type that no
+      // longer exists (April's `edit_site` jobs). Fail those like any other
+      // type with no handler rather than indexing `handlers` with them.
+      const handler = isJobType(job.type) ? handlers[job.type] : undefined;
       if (!handler) {
         await prisma.siteJob.update({
           where: { id: job.id },

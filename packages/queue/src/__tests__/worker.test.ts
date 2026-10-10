@@ -214,6 +214,27 @@ describe("createWorker", () => {
     });
   });
 
+  // `edit_site` rows from before the AI-edit removal can still be in the
+  // table; a prototype key must not resolve to an inherited function.
+  it.each(["edit_site", "constructor"])("fails a queued %s job without running a handler", async (type) => {
+    mockFindFirst.mockResolvedValueOnce(makeJob({ type }));
+    const handler = vi.fn();
+    const worker = createWorker({ handlers: { create_site: handler } });
+
+    await expect(worker.runNext()).resolves.toBe("processed");
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: expect.objectContaining({
+        status: "failed",
+        errorMessage: `No handler registered for job type: ${type}`,
+        failureCategory: "unknown",
+      }),
+    });
+  });
+
   it("does nothing when no jobs are queued", async () => {
     mockFindFirst.mockResolvedValueOnce(null);
 

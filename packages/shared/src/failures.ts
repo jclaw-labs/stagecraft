@@ -35,13 +35,6 @@ const summaries: Record<FailureCategory, FailureSummary> = {
     suggestedAction:
       "Retry to let the system attempt an automatic fix. If it keeps failing, try rephrasing your request with more specific instructions.",
   },
-  ai_error: {
-    title: "AI generation failed",
-    description:
-      "The AI model couldn't complete your request. This is usually a temporary service issue.",
-    suggestedAction:
-      "Wait a moment and retry. If the problem persists, try simplifying your request.",
-  },
   timeout: {
     title: "Request timed out",
     description:
