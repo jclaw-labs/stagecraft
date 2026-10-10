@@ -43,9 +43,10 @@ describe("Netlify integration", () => {
       });
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.repo).toBeUndefined();
-      expect(body.build_settings.cmd).toBe("npm run build");
-      expect(body.build_settings.dir).toBe("dist");
+      expect(body).toEqual({
+        name: "my-site",
+        build_settings: { cmd: "npm run build", dir: ".next" },
+      });
     });
 
     it("creates a site with repo linking when repo is provided", async () => {

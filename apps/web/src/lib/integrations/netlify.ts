@@ -86,7 +86,10 @@ export async function createSite(options: CreateSiteOptions): Promise<NetlifySit
     ? { name: options.name, repo: options.repo }
     : {
         name: options.name,
-        build_settings: { cmd: "npm run build", dir: "dist" },
+        // Used once the artist links the repo by hand (provision-site's
+        // fallback). The musician-site template is Next.js (ADR-007) and
+        // ships no netlify.toml, so the publish dir must be Next's `.next`.
+        build_settings: { cmd: "npm run build", dir: ".next" },
       };
 
   const data = await netlifyApi(token, "/sites", {
