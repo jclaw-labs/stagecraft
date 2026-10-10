@@ -5,6 +5,15 @@ export function capitalise(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * A count with its noun, pluralised with a trailing "s" unless the count is
+ * exactly 1: `pluralise(1, "image")` is "1 image", `pluralise(0, "image")`
+ * is "0 images".
+ */
+export function pluralise(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 /** Return true if `raw` is a valid http or https URL. */
 export function isValidHttpUrl(raw: string): boolean {
   try {
