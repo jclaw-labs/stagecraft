@@ -137,9 +137,10 @@ const SCALE_DISPLAY: Record<Design["headingScale"], string> = {
  * file with only the weights actually used.
  *
  * Token names match `globals.css` so any inline `var(--*)` reference in a
- * block resolves to the artist's chosen theme automatically. Editor surfaces
- * (Puck chrome, admin sidebar) sit outside this provider and keep using the
- * neutral defaults from `globals.css`.
+ * block resolves to the artist's chosen theme automatically. The Puck canvas
+ * renders it too, inside its iframe, so the editor shows the published theme
+ * (#395). The editor chrome (Puck panels, admin sidebar) sits outside both
+ * and keeps the neutral defaults from `globals.css`.
  */
 export function AppearanceStyles({ appearance }: Props) {
   const linkColor = resolveLinkColor(appearance.colors);

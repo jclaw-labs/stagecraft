@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { PageData } from "@/lib/page-data";
+import { DEFAULT_APPEARANCE } from "@/lib/site-config-types";
 
 // Stub Puck: the save handler is what's under test, not Puck's UI. The
 // stub renders the editor's header actions (where the save-state pill
@@ -78,6 +79,7 @@ function renderEditor() {
       pageSlug="about"
       email="a@b.c"
       embeddableCollections={[]}
+      appearance={DEFAULT_APPEARANCE}
     />,
   );
 }
