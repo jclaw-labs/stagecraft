@@ -184,7 +184,7 @@ Suggested platform entities:
 - name
 - slug
 - status
-- blueprintType
+- blueprintType (vestigial: always `solo-artist`; there are no blueprints, see product spec §14)
 - githubRepoOwner
 - githubRepoName
 - githubDefaultBranch
@@ -499,18 +499,12 @@ Temporary platform storage can be used before commit into the repo, but the comm
 
 1. user connects GitHub and Netlify
 2. user enters site name (there is no blueprint to choose; every site gets the same seeded shape — see product spec §14)
-3. user enters base content and picks a starting point (theme, custom colour, or "Start empty") in the site's welcome wizard
-4. user uploads initial images/assets
-5. backend creates `create_site` job
-6. job creates repo from template
-7. job configures repo metadata and baseline content
-8. job links repo to Netlify site
-9. job sets environment variables if needed
-10. AI worker applies customer-specific content/theme changes
-11. validation pipeline runs
-12. preview/build status is surfaced
-13. site enters `awaiting_review`
-14. user approves and production is published
+3. backend creates `create_site` job
+4. job creates repo from the template as-is (no content overlay)
+5. job links repo to the hosting project
+6. job sets environment variables
+7. site deploys and build status is surfaced
+8. user opens the site's admin; the first-run welcome wizard asks for artist name, a starting point (theme, custom color, or "Start empty"), an optional wordmark and the first page's title, then writes the seeded content
 
 ### 10.2 Create-site service responsibilities
 
@@ -1110,7 +1104,7 @@ Allow a user to create a site from the platform and generate a working repo + de
 ### Tickets
 
 #### M3-T1: Build create-site wizard UI
-**Description:** Implement multi-step flow for site naming, content input, and asset upload.
+**Description:** Implement the create-site form (site name). Content, starting point and assets are collected later by the template's welcome wizard.
 **Acceptance criteria:** User can submit a valid create-site request through the UI.
 
 #### M3-T2: Implement create-site job orchestration

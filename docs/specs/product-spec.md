@@ -514,6 +514,11 @@ matches the marketing copy in
 `apps/web/src/app/(marketing)/_components/site-sections.ts`; keep the three in
 step.
 
+The list below is the marketing wording. In the seed itself, the home page
+takes its title from the wizard's first-page title ("Home" by default), About
+and Contact are two separate starter pages, and tour dates are not a page: the
+seed adds two items to the tour-dates collection, shown on the home page.
+
 ### 14.1 What a new site contains
 
 - **Home** — a hero with your name, your latest release, upcoming shows, and a
@@ -529,20 +534,21 @@ The seed is illustrative starter copy that uses the artist's name, two example
 tour dates, and empty image slots that render a theme-driven placeholder until
 the artist uploads. The artist edits or deletes all of it in place.
 
-### 14.2 Starting point: theme, custom colour, or "Start empty"
+### 14.2 Starting point: theme, custom color, or "Start empty"
 
 The welcome wizard asks for one starting point:
 
 - **A theme** — pick a ready-made theme preset
-  (`templates/musician-site/src/lib/theme-presets.ts`), which sets colours,
-  fonts, and header in one go. The seeded pages above are added.
-- **Custom colour** — one accent colour on the default palette. The seeded
-  pages above are added.
-- **Start empty** — a blank home page with the default theme and no demo
-  content (no starter pages or tour dates); the artist builds the site
-  themselves.
+  (`templates/musician-site/src/lib/theme-presets.ts`), which sets colors,
+  fonts, and header in one go. The starter content above is added.
+- **"Custom colour"** (the wizard's label) — one accent color on the
+  template's built-in base appearance (not a theme preset; the header style is
+  left as is). The starter content above is added.
+- **Start empty** — a blank home page with the Meadow theme (the default
+  theme preset) and no demo content (no starter pages or tour dates); the
+  artist builds the site themselves.
 
-Whichever start is chosen, fonts and colours can be changed any time from
+Whichever start is chosen, fonts and colors can be changed any time from
 Appearance.
 
 ### 14.3 Constraint
@@ -556,21 +562,18 @@ rather than inventing an unconstrained site structure from scratch.
 
 1. User signs into the platform.
 2. User links GitHub and Netlify.
-3. User names the site; the platform creates it from the one musician-site
-   template (there is no blueprint to choose).
-4. In the site's welcome wizard, user provides key content and picks a
-   starting point (a theme, a custom colour, or "Start empty" — see §14):
+3. User names the site. That is the only input the platform asks for; there is
+   no blueprint to choose.
+4. Platform runs the `create_site` job: it creates the artist's repo from the
+   one musician-site template as-is, links the host, and sets environment
+   variables. The site then deploys.
+5. User opens the site's admin, where the first-run welcome wizard asks for:
    - artist name
-   - short bio
-   - pages desired
-   - social/profile links
-   - music/video embeds
-   - image assets
-5. Platform creates repo and baseline project.
-6. AI fills content and styles within constraints.
-7. Initial preview is generated.
-8. User requests revisions.
-9. User approves and publishes.
+   - a starting point (a theme, a custom color, or "Start empty" — see §14)
+   - an optional wordmark image
+   - the first page's title
+6. The wizard writes the seeded content (§14) and the artist edits pages,
+   releases, tour dates, and images in place from the site's admin.
 
 ### 15.2 Migration from an existing site
 

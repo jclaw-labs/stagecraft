@@ -5,6 +5,7 @@ export type SiteSection = { name: string; body: string };
 // first-run seed (templates/musician-site/src/lib/first-run-seeds.ts) and
 // theme presets (src/lib/theme-presets.ts): every seeded site gets the same
 // pages ("Start empty" gets a blank home page), and the theme sets the look.
+// docs/specs/product-spec.md §14 describes the same content; update it too.
 export const SITE_SECTIONS: SiteSection[] = [
   { name: "Home", body: "A hero with your name, your latest release, upcoming shows, and a photo gallery." },
   { name: "Music", body: "Your releases, listed automatically as you add them." },
