@@ -15,6 +15,7 @@ import {
   CLAUSE_OPS,
   clauseToOp,
   clauseValueShape,
+  comparesValues,
   defaultClause,
   defaultFilterValue,
   fieldPickFor,
@@ -32,7 +33,7 @@ import {
   type ClauseOp,
 } from "./filter-field-state";
 import type { CollectionDef, FieldDef } from "@/lib/collections";
-import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
+import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 import type { Filter, FilterClause } from "@/lib/collections/filter-schema";
 
 const FIELDS: FieldDef[] = [
@@ -596,6 +597,35 @@ describe("fieldPickFor / isClauseIgnored", () => {
     expect(fieldPickFor({ slug: "posts", fields: [] }, "")).toEqual({ kind: "none" });
   });
 
+  it("marks a field the def has but the picker leaves out as unfilterable, naming it", () => {
+    const fields: FieldDef[] = [
+      { id: "p_cover", key: "cover", type: "image", required: false },
+      { id: "p_pdf", key: "pdf", type: "file", required: false },
+      { id: "p_body", key: "body", type: "richText", required: false },
+      { id: "p_layout", key: "layout", type: "puckContent" },
+    ];
+    const def = { slug: "posts", fields };
+    for (const field of fields) {
+      expect(fieldPickFor(def, field.id)).toEqual({ kind: "unfilterable", field });
+    }
+  });
+
+  it("names the re-added same-name image field a declared id now reads as unfilterable", () => {
+    const cover: FieldDef = { id: "fld_new_cover", key: "coverImage", type: "image", required: false };
+    const def: Pick<CollectionDef, "slug" | "fields"> = {
+      slug: "posts",
+      fields: [{ id: "p_title", key: "title", type: "text", required: true }, cover],
+    };
+    expect(fieldPickFor(def, POSTS_FIELD_IDS.coverImage)).toEqual({ kind: "unfilterable", field: cover });
+  });
+
+  it("picks every field type `filterableFields` keeps", () => {
+    const def = { slug: "posts", fields: FIELDS };
+    for (const field of filterableFields(FIELDS)) {
+      expect(fieldPickFor(def, field.id)).toEqual({ kind: "field", fieldId: field.id });
+    }
+  });
+
   const literal = { kind: "literal", value: "x" } as const;
 
   it("ignores a clause on a removed field, not one a re-added field took over", () => {
@@ -649,5 +679,18 @@ describe("fieldPickFor / isClauseIgnored", () => {
     expect(
       isClauseIgnored({ field: TOUR_DATES_FIELD_IDS.date, op: "notIn", values: [gone] }, TOUR_DATES, POSTS),
     ).toBe(true);
+  });
+});
+
+describe("comparesValues", () => {
+  it("is true for every operator that compares against a value or values", () => {
+    const comparing = CLAUSE_OPS.map((o) => o.value).filter(comparesValues);
+    expect(comparing).toEqual(["equals", "notEquals", "contains", "in", "notIn", "gt", "gte", "lt", "lte"]);
+  });
+
+  it("is false for presence checks and excludeCurrentItem", () => {
+    for (const op of ["isEmpty", "isNotEmpty", "excludeCurrentItem"] satisfies ClauseOp[]) {
+      expect(comparesValues(op)).toBe(false);
+    }
   });
 });

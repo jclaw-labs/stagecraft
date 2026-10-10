@@ -270,13 +270,36 @@ export function setClauseValues(clause: FilterClause, values: FilterValue[]): Fi
  * the clause, and the picker says so instead of showing its first field.
  * An empty id is `"none"`: no field was ever picked (a collection with
  * no filterable fields saves one), and the page ignores that clause too.
+ * A field the def has but `filterableFields` leaves out (image, file,
+ * richText, puckContent) is `"unfilterable"`: the picker has no option
+ * for it, so it gets one naming the field. The page keeps that clause,
+ * and a value-comparing one hides every item (`comparesValues`).
  */
-export type FieldPick = { kind: "field"; fieldId: string } | { kind: "removed" } | { kind: "none" };
+export type FieldPick =
+  | { kind: "field"; fieldId: string }
+  | { kind: "unfilterable"; field: FieldDef }
+  | { kind: "removed" }
+  | { kind: "none" };
 
 export function fieldPickFor(def: FilterFieldsDef, savedId: string): FieldPick {
   if (savedId === "") return { kind: "none" };
   const fieldId = viewFieldIdFor(def, savedId);
-  return def.fields.some((f) => f.id === fieldId) ? { kind: "field", fieldId } : { kind: "removed" };
+  const field = def.fields.find((f) => f.id === fieldId);
+  if (!field) return { kind: "removed" };
+  return NON_FILTERABLE_FIELD_TYPES.has(field.type)
+    ? { kind: "unfilterable", field }
+    : { kind: "field", fieldId };
+}
+
+/**
+ * Whether `op` compares the clause's field against one or more values.
+ * The page reads no value from an unfilterable field, so such a clause
+ * on one matches no item; `isEmpty` / `isNotEmpty` only check presence
+ * and still work.
+ */
+export function comparesValues(op: ClauseOp): boolean {
+  const shape = clauseValueShape(op);
+  return shape === "single" || shape === "array";
 }
 
 /**
