@@ -21,7 +21,8 @@ import { hashSessionToken, isSessionTokenHash } from "@stagecraft/shared";
  *
  * TODO(#411): the plaintext fallback (`migrateLegacySession` and its
  * callers) can be removed once the 30-day session maxAge has passed since
- * this shipped: every plaintext row left by then has expired.
+ * the later of the Netlify and Cloudflare Worker deploys of this change:
+ * a host still on the old code keeps writing plaintext rows until then.
  */
 export function withHashedSessionTokens(adapter: Adapter): Adapter {
   const { createSession, getSessionAndUser, updateSession, deleteSession } = adapter;
@@ -45,7 +46,12 @@ export function withHashedSessionTokens(adapter: Adapter): Adapter {
     async getSessionAndUser(token) {
       const hashed = await hashSessionToken(token);
       let found = await getSessionAndUser(hashed);
-      if (!found && (await migrateLegacySession(token, hashed))) {
+      if (!found && !isSessionTokenHash(token)) {
+        // Look the hash up again whatever the rewrite's count: a concurrent
+        // request with the same legacy cookie (a page load and its
+        // `/api/auth/session` fetch) may have rewritten the row first, and a
+        // null here makes Auth.js clear the cookie.
+        await migrateLegacySession(token, hashed);
         found = await getSessionAndUser(hashed);
       }
       return found ? { ...found, session: withRawToken(found.session, token) } : null;
@@ -69,16 +75,14 @@ export function withHashedSessionTokens(adapter: Adapter): Adapter {
 }
 
 /**
- * Rewrite a legacy row stored under the raw `token` to `hashed`. Returns
- * whether a row was rewritten. `updateMany` rather than `update`, so a
- * missing row (the usual case) or a concurrent request that already
- * rewrote it is a no-op instead of an error.
+ * Rewrite a legacy row stored under the raw `token` to `hashed`.
+ * `updateMany` rather than `update`, so a missing row (the usual case) or a
+ * concurrent request that already rewrote it is a no-op instead of an error.
  */
-async function migrateLegacySession(token: string, hashed: string): Promise<boolean> {
-  if (isSessionTokenHash(token)) return false;
-  const { count } = await prisma.session.updateMany({
+async function migrateLegacySession(token: string, hashed: string): Promise<void> {
+  if (isSessionTokenHash(token)) return;
+  await prisma.session.updateMany({
     where: { sessionToken: token },
     data: { sessionToken: hashed },
   });
-  return count > 0;
 }

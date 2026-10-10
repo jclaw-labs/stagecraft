@@ -130,6 +130,35 @@ describe("withHashedSessionTokens", () => {
       expect(prismaMock.session.updateMany).not.toHaveBeenCalled();
     });
 
+    it("finds a legacy row that a concurrent request rewrote first", async () => {
+      seed(RAW);
+      // Both requests miss on the hash before either rewrites the row, so
+      // one rewrite matches the row and the other matches nothing.
+      let release!: () => void;
+      const bothMissed = new Promise<void>((resolve) => (release = resolve));
+      let misses = 0;
+      const lookup = base.getSessionAndUser.getMockImplementation()!;
+      base.getSessionAndUser.mockImplementation(async (token: string) => {
+        const result = await lookup(token);
+        if (!result && ++misses === 2) release();
+        if (!result && misses <= 2) await bothMissed;
+        return result;
+      });
+
+      const [a, b] = await Promise.all([
+        adapter.getSessionAndUser(RAW),
+        adapter.getSessionAndUser(RAW),
+      ]);
+
+      const counts = await Promise.all(
+        prismaMock.session.updateMany.mock.results.map((r) => r.value as Promise<{ count: number }>),
+      );
+      expect(counts.map((c) => c.count).sort()).toEqual([0, 1]);
+      expect(a?.session.sessionToken).toBe(RAW);
+      expect(b?.session.sessionToken).toBe(RAW);
+      expect([...rows.keys()]).toEqual([HASHED]);
+    });
+
     it("returns null for a token with no session", async () => {
       seed(await sha256("someone-else"));
 
