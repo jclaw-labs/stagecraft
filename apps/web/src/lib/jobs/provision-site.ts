@@ -115,20 +115,23 @@ function hostProjectName(slug: string): string {
 
 /**
  * Shown when the site's repo name is already taken, usually by a deleted
- * site's kept repo. Only a created site can be retried ("Retry setup"
+ * site's kept repo. Deleting a site archives its repo (issue #429), and an
+ * archived repo still holds the name, so the artist is told to unarchive
+ * it before renaming. Only a created site can be retried ("Retry setup"
  * re-queues create_site jobs only), so a migration is told to delete the
  * errored site and migrate again instead.
  */
 function repoNameTakenMessage(owner: string, repoName: string, action: SiteSetupAction): string {
   const taken =
     `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
-    `probably from a site you deleted. `;
+    `probably from a site you deleted (deleting a site archives its repository but keeps it). `;
+  const clear = `Delete or rename it on GitHub (unarchive it first if it's archived)`;
   return action === "migrating"
     ? taken +
-        `Delete or rename it on GitHub, then delete this site and migrate again. ` +
+        `${clear}, then delete this site and migrate again. ` +
         `Or delete this site and migrate under a different name.`
     : taken +
-        `Delete or rename it on GitHub, then retry setup. ` +
+        `${clear}, then retry setup. ` +
         `Or delete this site and create one with a different name.`;
 }
 
@@ -417,7 +420,8 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
       if (!(cause instanceof GitHubApiError && cause.status === 422)) throw cause;
       // 422 is how GitHub reports "name already exists". Look the repo up:
       // an interrupted run may adopt it, and otherwise the artist is told
-      // which repo is in the way. Deleting a site keeps its repo, so this is
+      // which repo is in the way. Deleting a site archives but keeps its
+      // repo, and an archived repo still holds the name, so this is
       // the usual outcome of deleting a site and recreating it by name. On
       // a first attempt a failed lookup falls back to GitHub's own message.
       const existing = interrupted

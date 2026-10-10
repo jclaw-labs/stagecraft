@@ -1,21 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, prismaMock, deleteResourcesMock } = vi.hoisted(() => ({
+const { authMock, prismaMock, setRepoArchivedMock, vercelDeleteMock, netlifyDeleteMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
   prismaMock: {
     site: { findFirst: vi.fn(), delete: vi.fn() },
     siteJob: { deleteMany: vi.fn() },
   },
-  deleteResourcesMock: vi.fn(),
+  setRepoArchivedMock: vi.fn(),
+  vercelDeleteMock: vi.fn(),
+  netlifyDeleteMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
-vi.mock("@/lib/integrations/github", () => ({
-  setRepoArchived: vi.fn(),
-}));
-vi.mock("@/lib/site-cleanup", () => ({ deleteSiteResources: deleteResourcesMock }));
+// DELETE runs the real `deleteSiteResources`; only the provider calls are
+// mocked, so these tests cover the repo archive end to end.
+vi.mock("@/lib/integrations/github", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/integrations/github")>();
+  return { GitHubApiError: actual.GitHubApiError, setRepoArchived: setRepoArchivedMock };
+});
+vi.mock("@/lib/integrations/vercel", () => ({ deleteProject: vercelDeleteMock }));
+vi.mock("@/lib/integrations/netlify", () => ({ deleteSite: netlifyDeleteMock }));
 
+import { GitHubApiError } from "@/lib/integrations/github";
 import { DELETE, GET } from "../route";
 
 beforeEach(() => {
@@ -87,7 +94,14 @@ describe("DELETE /api/sites/[siteId]", () => {
   beforeEach(() => {
     prismaMock.site.delete.mockReset().mockResolvedValue({});
     prismaMock.siteJob.deleteMany.mockReset().mockResolvedValue({ count: 0 });
-    deleteResourcesMock.mockReset().mockResolvedValue([]);
+    setRepoArchivedMock.mockReset().mockResolvedValue(undefined);
+    vercelDeleteMock.mockReset().mockResolvedValue(undefined);
+    netlifyDeleteMock.mockReset().mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   const SITE_ROW = {
@@ -100,7 +114,7 @@ describe("DELETE /api/sites/[siteId]", () => {
     vercelTeamId: null,
   };
 
-  it("deletes the site row after running external cleanup", async () => {
+  it("deletes the host project, archives the repo, then deletes the site row", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     prismaMock.site.findFirst.mockResolvedValue(SITE_ROW);
 
@@ -108,20 +122,54 @@ describe("DELETE /api/sites/[siteId]", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true, errors: [] });
-    expect(deleteResourcesMock).toHaveBeenCalledWith("u1", SITE_ROW);
+    expect(vercelDeleteMock).toHaveBeenCalledWith("u1", "prj_1", undefined);
+    expect(setRepoArchivedMock).toHaveBeenCalledWith("u1", "jclaw", "my-site", true);
     expect(prismaMock.siteJob.deleteMany).toHaveBeenCalledWith({ where: { siteId: "s1" } });
     expect(prismaMock.site.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
   });
 
-  it("still deletes the row when external cleanup reports errors", async () => {
+  it("still deletes the row and reports the error when archiving the repo fails", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     prismaMock.site.findFirst.mockResolvedValue(SITE_ROW);
-    deleteResourcesMock.mockResolvedValue(["Vercel: boom"]);
+    setRepoArchivedMock.mockRejectedValue(new GitHubApiError(403, '{"message":"Must have admin rights"}'));
+
+    const res = await DELETE(new Request("http://t/x") as never, fakeArgs("s1"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      deleted: true,
+      errors: [
+        'GitHub: could not archive jclaw/my-site: GitHub API error (403): {"message":"Must have admin rights"}',
+      ],
+    });
+    expect(vercelDeleteMock).toHaveBeenCalled();
+    expect(prismaMock.siteJob.deleteMany).toHaveBeenCalledWith({ where: { siteId: "s1" } });
+    expect(prismaMock.site.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+  });
+
+  it("still deletes the row when the host cleanup fails", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue(SITE_ROW);
+    vercelDeleteMock.mockRejectedValue(new Error("boom"));
 
     const res = await DELETE(new Request("http://t/x") as never, fakeArgs("s1"));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true, errors: ["Vercel: boom"] });
+    // The archive still runs after the host cleanup failed.
+    expect(setRepoArchivedMock).toHaveBeenCalledWith("u1", "jclaw", "my-site", true);
+    expect(prismaMock.site.delete).toHaveBeenCalled();
+  });
+
+  it("does not try to archive when the site has no repo", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue({ ...SITE_ROW, githubRepoOwner: null, githubRepoName: null });
+
+    const res = await DELETE(new Request("http://t/x") as never, fakeArgs("s1"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true, errors: [] });
+    expect(setRepoArchivedMock).not.toHaveBeenCalled();
     expect(prismaMock.site.delete).toHaveBeenCalled();
   });
 
@@ -132,7 +180,8 @@ describe("DELETE /api/sites/[siteId]", () => {
     const res = await DELETE(new Request("http://t/x") as never, fakeArgs("s1"));
 
     expect(res.status).toBe(404);
-    expect(deleteResourcesMock).not.toHaveBeenCalled();
+    expect(setRepoArchivedMock).not.toHaveBeenCalled();
+    expect(vercelDeleteMock).not.toHaveBeenCalled();
     expect(prismaMock.site.delete).not.toHaveBeenCalled();
   });
 
@@ -142,6 +191,7 @@ describe("DELETE /api/sites/[siteId]", () => {
     const res = await DELETE(new Request("http://t/x") as never, fakeArgs("s1"));
 
     expect(res.status).toBe(401);
-    expect(deleteResourcesMock).not.toHaveBeenCalled();
+    expect(setRepoArchivedMock).not.toHaveBeenCalled();
+    expect(prismaMock.site.delete).not.toHaveBeenCalled();
   });
 });

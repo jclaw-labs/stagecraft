@@ -80,6 +80,32 @@ describe("POST /api/admin/nuke-my-sites", () => {
     expect(prismaMock.site.delete).toHaveBeenCalledTimes(1);
   });
 
+  it("selects the repo coordinates so cleanup can archive each site's repo", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1", email: "jclaw3456@gmail.com" } });
+    const row = {
+      id: "s1",
+      name: "S1",
+      slug: "s1",
+      githubRepoOwner: "jclaw",
+      githubRepoName: "stagecraft-site-s1",
+      netlifySiteId: null,
+      vercelProjectId: "prj_1",
+      vercelTeamId: null,
+    };
+    prismaMock.site.findMany.mockResolvedValue([row]);
+    deleteResourcesMock.mockResolvedValueOnce(["GitHub: could not archive jclaw/stagecraft-site-s1: boom"]);
+
+    const res = await POST();
+    const body = (await res.json()) as { sites: Array<{ errors: string[] }> };
+
+    const findArgs = prismaMock.site.findMany.mock.calls[0][0];
+    expect(findArgs.select).toMatchObject({ githubRepoOwner: true, githubRepoName: true });
+    expect(deleteResourcesMock).toHaveBeenCalledWith("u1", row);
+    // An archive failure is reported like any other cleanup error.
+    expect(body.sites[0].errors).toEqual(["GitHub: could not archive jclaw/stagecraft-site-s1: boom"]);
+    expect(prismaMock.site.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+  });
+
   it("returns an empty report when the operator has no sites (no-op success)", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", email: "jclaw3456@gmail.com" } });
     prismaMock.site.findMany.mockResolvedValue([]);

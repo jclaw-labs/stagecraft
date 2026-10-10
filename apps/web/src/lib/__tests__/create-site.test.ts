@@ -210,15 +210,16 @@ describe("handleCreateSite — common preconditions", () => {
   });
 
   it("fails without retrying, naming the kept repo, when a deleted site's repo has the name", async () => {
-    // Deleting a site keeps its repo, so recreating a site with the same
-    // name hits GitHub's 422 on the kept repo.
+    // Deleting a site archives but keeps its repo, so recreating a site with
+    // the same name hits GitHub's 422 on the kept repo.
     mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
     mockGetOwnRepo.mockResolvedValueOnce({ ...REPO_RESULT, name: "stagecraft-site-sarah-chen-music" });
     const result = await handleCreateSite(makeContext());
     expect(result.success).toBe(false);
     expect(result.message).toBe(
       "A repository named jclaw/stagecraft-site-sarah-chen-music already exists on your GitHub account, " +
-        "probably from a site you deleted. Delete or rename it on GitHub, then retry setup. " +
+        "probably from a site you deleted (deleting a site archives its repository but keeps it). " +
+        "Delete or rename it on GitHub (unarchive it first if it's archived), then retry setup. " +
         "Or delete this site and create one with a different name.",
     );
     expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music");
