@@ -343,9 +343,14 @@ function ClauseRow({
   const unfilterable =
     !ignored && pick?.kind === "unfilterable" && comparesValues(op) ? pick.field : undefined;
   // The note explains the "(ignored)" and "unfilterable" options, so the
-  // row's field pickers point at it while it shows.
+  // Field picker points at it while it shows. The ignored note is about
+  // the whole clause, so the current-item pickers point at it too; the
+  // unfilterable one is about the field and suggests another operator, so
+  // the Operator picker points at it instead.
   const noteId = useId();
   const describedBy = ignored || unfilterable ? noteId : undefined;
+  const valueDescribedBy = ignored ? noteId : undefined;
+  const opDescribedBy = unfilterable ? noteId : undefined;
 
   function handleOpChange(newOp: ClauseOp) {
     onChange(morphClauseToOp(clause, newOp, sourceFields));
@@ -389,6 +394,7 @@ function ClauseRow({
           onChange={(e) => handleOpChange(e.target.value as ClauseOp)}
           style={{ ...selectStyle, flex: 1 }}
           aria-label="Operator"
+          aria-describedby={opDescribedBy}
         >
           {CLAUSE_OPS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -414,7 +420,7 @@ function ClauseRow({
           field={field}
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
-          describedBy={describedBy}
+          describedBy={valueDescribedBy}
         />
       ) : null}
 
@@ -425,7 +431,7 @@ function ClauseRow({
           field={field}
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
-          describedBy={describedBy}
+          describedBy={valueDescribedBy}
         />
       ) : null}
 

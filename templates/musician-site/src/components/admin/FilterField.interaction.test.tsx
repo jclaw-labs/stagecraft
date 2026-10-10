@@ -18,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { FilterField } from "./FilterField";
 import type { Filter } from "@/lib/collections/filter-schema";
 import type { CollectionDef } from "@/lib/collections";
-import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
+import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 
 const SOURCE_DEF: CollectionDef = {
   schemaVersion: 1,
@@ -636,6 +636,44 @@ describe("FilterField — clauses on unfilterable fields", () => {
     expect(screen.getAllByText(/so this clause matches no item/)).toHaveLength(1);
     expect(screen.queryByText(/hides every item/)).toBeNull();
     expect(cityField!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("points the Operator picker at the note, not the current-item picker", () => {
+    const filter: Filter = {
+      all: [{ field: "f_poster", op: "equals", value: { kind: "currentItemField", fieldId: "p_title" } }],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={WITH_IMAGE}
+        currentItemDef={CURRENT_ITEM_DEF}
+      />,
+    );
+
+    const noteId = fieldSelect().getAttribute("aria-describedby");
+    expect(noteId).toBeTruthy();
+    expect(screen.getByLabelText("Operator").getAttribute("aria-describedby")).toBe(noteId);
+    expect(screen.getByLabelText("Current item field").hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("names the re-added same-name image field a declared id now reads", () => {
+    const posts: CollectionDef = {
+      ...SOURCE_DEF,
+      slug: "posts",
+      fields: [
+        { id: "p_title", key: "title", type: "text", required: true },
+        { id: "fld_new_cover", key: "coverImage", type: "image", required: false },
+      ],
+    };
+    const filter: Filter = {
+      all: [{ field: POSTS_FIELD_IDS.coverImage, op: "equals", value: { kind: "literal", value: "x" } }],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={posts} />);
+
+    expect(fieldSelect().value).toBe("fld_new_cover");
+    expect(selectedText(fieldSelect())).toBe("coverImage (image, unfilterable)");
+    expect(screen.getByText(/can't compare values of the image field “coverImage”/)).toBeTruthy();
   });
 
   it("names the field without the note for a presence check, which the page still runs", () => {

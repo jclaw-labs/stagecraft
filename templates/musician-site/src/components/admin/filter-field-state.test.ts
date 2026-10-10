@@ -33,7 +33,7 @@ import {
   type ClauseOp,
 } from "./filter-field-state";
 import type { CollectionDef, FieldDef } from "@/lib/collections";
-import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
+import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 import type { Filter, FilterClause } from "@/lib/collections/filter-schema";
 
 const FIELDS: FieldDef[] = [
@@ -608,6 +608,15 @@ describe("fieldPickFor / isClauseIgnored", () => {
     for (const field of fields) {
       expect(fieldPickFor(def, field.id)).toEqual({ kind: "unfilterable", field });
     }
+  });
+
+  it("names the re-added same-name image field a declared id now reads as unfilterable", () => {
+    const cover: FieldDef = { id: "fld_new_cover", key: "coverImage", type: "image", required: false };
+    const def: Pick<CollectionDef, "slug" | "fields"> = {
+      slug: "posts",
+      fields: [{ id: "p_title", key: "title", type: "text", required: true }, cover],
+    };
+    expect(fieldPickFor(def, POSTS_FIELD_IDS.coverImage)).toEqual({ kind: "unfilterable", field: cover });
   });
 
   it("picks every field type `filterableFields` keeps", () => {
