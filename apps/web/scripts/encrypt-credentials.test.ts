@@ -556,6 +556,26 @@ describe("assertBackfillComplete", () => {
     expect(check).not.toThrow(CREDENTIALS_OLD_KEYS_ENV);
     expect(check).not.toThrow("--upgrade-v1");
   });
+
+  // Runbook §9 "Rotating the key" step 3: the final error names the first kind
+  // found, in the order undecryptable, then v1 left as is, then unbindable.
+  it("names undecryptable first when all three kinds are left", () => {
+    expect(() =>
+      assertBackfillComplete({
+        account: { ...clean, v1LeftAsIs: 2, unbindable: 3 },
+        integrationAccount: { ...clean, undecryptable: 1 },
+      }),
+    ).toThrow(/^1 stored value\(s\) could not be decrypted/);
+  });
+
+  it("names v1 left as is before unbindable when nothing is undecryptable", () => {
+    expect(() =>
+      assertBackfillComplete({
+        account: { ...clean, unbindable: 3 },
+        integrationAccount: { ...clean, v1LeftAsIs: 2 },
+      }),
+    ).toThrow(/^2 legacy v1 value\(s\) were left as they are/);
+  });
 });
 
 describe("main", () => {
