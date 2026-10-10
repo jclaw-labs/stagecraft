@@ -1,6 +1,6 @@
 /**
  * Unknown `/admin/*` URLs land on this catch-all, which hands off to
- * `admin/not-found.tsx` rather than the artist-themed root 404.
+ * `admin/not-found.tsx` rather than the artist-themed global 404.
  */
 
 import { describe, expect, it } from "vitest";
