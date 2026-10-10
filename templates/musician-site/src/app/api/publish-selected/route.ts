@@ -9,7 +9,10 @@
  * or partially publish an image (all of an image's variants share one key).
  *
  * Returns:
- *   - `{ ok: true, mode, commitSha, alreadyInSync }` on success.
+ *   - `{ ok: true, mode, commitSha, alreadyInSync, warning? }` on success.
+ *     `warning` (a `PublishWarning`) is set when the selected changes
+ *     shipped but reconciling the draft afterwards didn't finish — still
+ *     a success, since `main` has the change and the deploy fired.
  *   - `{ ok: false, code, error }` on auth / GitHub failures.
  *
  * `alreadyInSync: true` means the selection resolved to nothing actually
@@ -76,6 +79,7 @@ export async function POST(request: Request) {
       mode: result.mode,
       commitSha: result.commitSha,
       alreadyInSync: result.alreadyInSync,
+      ...(result.warning ? { warning: result.warning } : {}),
     });
   } catch (cause) {
     if (cause instanceof PublishError) {

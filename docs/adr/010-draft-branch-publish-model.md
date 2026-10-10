@@ -382,8 +382,8 @@ The publish-token endpoint surface is unchanged.
   unreachable (`getReadStore` → `draft+fs-fallback`). PR 5v surfaces
   that state — `ReadStore.wasDegraded()` flips on a genuine outage
   (broker-unreachable token mint, or a per-read `github-unreachable` /
-  `rate-limited` fallback; deliberately *not* on `branch-missing` or a
-  single `too-large` file), and `AdminShell` renders a "GitHub
+  `rate-limited` fallback; deliberately *not* on `branch-missing`), and
+  `AdminShell` renders a "GitHub
   unavailable — you're viewing the last published version" banner.
   The chrome's global mutate actions — **Publish** and **Discard** —
   are now disabled while degraded (PR 5w), since both require GitHub and

@@ -662,6 +662,152 @@ describe("squashBranchInto", () => {
     expect(createCommit).not.toHaveBeenCalled();
     expect(updateRef).not.toHaveBeenCalled();
   });
+
+  // -------------------------------------------------------------------------
+  // Stale-ref retry on the toBranch update (ADR-012 "Concurrency")
+  // -------------------------------------------------------------------------
+
+  function staleMainError(): RequestError {
+    const message = "Update is not a fast-forward";
+    return new RequestError(message, 422, {
+      request: { method: "PATCH", url: "x", headers: {} },
+      response: { status: 422, url: "x", headers: {}, data: { message } },
+    });
+  }
+
+  const SQUASH_ARGS = {
+    token: "t",
+    owner: "o",
+    repo: "r",
+    fromBranch: "draft",
+    toBranch: "main",
+    message: "Publish",
+  };
+
+  /** updateRef: draft updates succeed; main updates follow `mainOutcomes`. */
+  function updateRefByBranch(mainOutcomes: Array<"stale" | "ok">) {
+    const queue = [...mainOutcomes];
+    updateRef.mockImplementation(({ ref }: { ref: string }) => {
+      if (ref !== "heads/main") return Promise.resolve({ data: {} });
+      return queue.shift() === "stale"
+        ? Promise.reject(staleMainError())
+        : Promise.resolve({ data: {} });
+    });
+  }
+
+  it("retries when main moved (stale ref): merges main into draft, rebuilds on the new main HEAD", async () => {
+    // Attempt 1 sees main at main-1; a per-item publish lands main-2
+    // before our updateRef. Attempt 2 must parent on main-2 and take the
+    // tree of the draft *after* main-2 was merged into it.
+    getRef.mockImplementation(({ ref }: { ref: string }) => {
+      const calls = getRef.mock.calls.filter(([a]) => a.ref === ref).length;
+      if (ref === "heads/draft") {
+        return Promise.resolve({ data: { object: { sha: calls === 1 ? "draft-1" : "draft-merged" } } });
+      }
+      return Promise.resolve({ data: { object: { sha: calls === 1 ? "main-1" : "main-2" } } });
+    });
+    getCommit.mockImplementation(({ commit_sha }: { commit_sha: string }) =>
+      Promise.resolve({ data: { tree: { sha: `tree-of-${commit_sha}` } } }),
+    );
+    createCommit
+      .mockResolvedValueOnce({ data: { sha: "squash-1" } })
+      .mockResolvedValueOnce({ data: { sha: "squash-2" } });
+    updateRefByBranch(["stale", "ok"]);
+    reposMerge.mockResolvedValue({ status: 201, data: { sha: "draft-merged" } });
+
+    const result = await squashBranchInto(SQUASH_ARGS);
+
+    expect(result).toEqual({ commitSha: "squash-2", alreadyInSync: false });
+    // The winner's publish is folded into the draft before the rebuild,
+    // so the second squash can't revert it.
+    expect(reposMerge).toHaveBeenCalledTimes(1);
+    expect(reposMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ base: "draft", head: "main" }),
+    );
+    expect(createCommit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ tree: "tree-of-draft-merged", parents: ["main-2"] }),
+    );
+    expect(updateRef).toHaveBeenLastCalledWith({
+      owner: "o",
+      repo: "r",
+      ref: "heads/main",
+      sha: "squash-2",
+    });
+  });
+
+  it("throws ConcurrentEditError after exhausting retries on a stale main", async () => {
+    getRef.mockImplementation(({ ref }: { ref: string }) => {
+      const n = getRef.mock.calls.filter(([a]) => a.ref === ref).length;
+      return Promise.resolve({ data: { object: { sha: `${ref.slice(6)}-${n}` } } });
+    });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash" } });
+    updateRefByBranch(["stale", "stale", "stale"]);
+    reposMerge.mockResolvedValue({ status: 201, data: { sha: "merged" } });
+
+    const error = await squashBranchInto(SQUASH_ARGS).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConcurrentEditError);
+    expect(error).toMatchObject({
+      ref: "heads/main",
+      attempts: 3,
+      // Parent of the final (third) attempt.
+      lastAttemptedParentSha: "main-3",
+    });
+    expect(createCommit).toHaveBeenCalledTimes(3);
+    // A merge between each pair of attempts, none after the last.
+    expect(reposMerge).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a stale-ref 422 on the draft update (only main is the guarded race)", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    const draftError = staleMainError();
+    updateRef.mockRejectedValueOnce(draftError);
+
+    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toBe(draftError);
+    expect(createCommit).toHaveBeenCalledTimes(1);
+    expect(reposMerge).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a non-stale error on the main update", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
+    const notFound = new RequestError("Reference does not exist", 422, {
+      request: { method: "PATCH", url: "x", headers: {} },
+      response: { status: 422, url: "x", headers: {}, data: {} },
+    });
+    updateRef.mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce(notFound);
+
+    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toBe(notFound);
+    expect(createCommit).toHaveBeenCalledTimes(1);
+    expect(reposMerge).not.toHaveBeenCalled();
+  });
+
+  it("stops retrying when merging the moved main into the draft conflicts", async () => {
+    getRef
+      .mockResolvedValueOnce({ data: { object: { sha: "draft-1" } } })
+      .mockResolvedValueOnce({ data: { object: { sha: "main-1" } } });
+    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
+    createCommit.mockResolvedValue({ data: { sha: "squash-1" } });
+    updateRefByBranch(["stale"]);
+    reposMerge.mockRejectedValue(
+      new RequestError("Merge conflict", 409, {
+        request: { method: "POST", url: "x", headers: {} },
+        response: { status: 409, url: "x", headers: {}, data: {} },
+      }),
+    );
+
+    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toThrow(/can't merge it cleanly/);
+    expect(createCommit).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

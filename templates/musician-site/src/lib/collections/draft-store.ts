@@ -88,8 +88,7 @@ export class DraftReadError extends Error {
       | "rate-limited"
       | "auth-failed"
       | "github-unreachable"
-      | "github-failed"
-      | "too-large",
+      | "github-failed",
     message: string,
     public cause?: unknown,
   ) {
@@ -246,8 +245,10 @@ async function fetchCached<T>(
  * Wrap a getContent call: return the decoded JSON object, or `null`
  * if the path doesn't exist on the branch. Files over GitHub's
  * Contents API size limit (~1 MB) come back with `encoding: "none"`
- * and an empty content string; we surface that as a typed
- * `too-large` error rather than silently failing to parse.
+ * and an empty content string; those are re-read through the Git
+ * Blob API by the SHA the Contents response carries (see
+ * `readBlobUtf8`), so an oversized file is read live from the draft
+ * rather than from the stale build snapshot.
  */
 async function getJsonFileAtSha<T>(
   ctx: DraftStoreContext,
@@ -273,16 +274,12 @@ async function getJsonFileAtSha<T>(
       }
       // Above ~1 MB GitHub returns `encoding: "none"` with empty
       // content and expects the caller to switch to the Git Blob
-      // API. We don't, today, so surface a typed error rather than
-      // a baffling `JSON.parse("")` SyntaxError. The facade can
-      // decide whether to fall back to the FS snapshot.
-      if (data.encoding !== "base64") {
-        throw new DraftReadError(
-          "too-large",
-          `draft-store: file "${path}" is too large for the Contents API (encoding=${data.encoding}, size=${data.size}); use the Git Blob API`,
-        );
-      }
-      const content = Buffer.from(data.content, "base64").toString("utf-8");
+      // API, which serves blobs up to 100 MB. The Contents response
+      // still carries the blob SHA, so one extra call reads it.
+      const content =
+        data.encoding === "base64"
+          ? Buffer.from(data.content, "base64").toString("utf-8")
+          : await readBlobUtf8(octokit, ctx, path, data.sha);
       return JSON.parse(content) as T;
     } catch (cause) {
       if (cause instanceof RequestError && cause.status === 404) {
@@ -292,6 +289,39 @@ async function getJsonFileAtSha<T>(
       throw wrapRequestError(cause, `draft-store: getContent("${path}")`);
     }
   });
+}
+
+/**
+ * Read one blob through the Git Blob API
+ * (`GET /repos/{owner}/{repo}/git/blobs/{sha}`) and decode it as UTF-8.
+ * Used for files past the Contents API's ~1 MB limit.
+ *
+ * Errors are wrapped into `DraftReadError` here rather than left to the
+ * caller's catch: that catch maps a bare 404 to "file absent", and a
+ * 404 on a blob SHA GitHub just handed us is a GitHub-side failure, not
+ * a deletion.
+ */
+async function readBlobUtf8(
+  octokit: Octokit,
+  ctx: DraftStoreContext,
+  path: string,
+  blobSha: string,
+): Promise<string> {
+  const context = `draft-store: getBlob("${path}", ${blobSha})`;
+  let blob: Awaited<ReturnType<Octokit["git"]["getBlob"]>>;
+  try {
+    blob = await octokit.git.getBlob({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      file_sha: blobSha,
+    });
+  } catch (cause) {
+    throw wrapRequestError(cause, context);
+  }
+  const { content, encoding } = blob.data;
+  if (encoding === "base64") return Buffer.from(content, "base64").toString("utf-8");
+  if (encoding === "utf-8") return content;
+  throw new DraftReadError("github-failed", `${context}: unexpected encoding "${encoding}"`);
 }
 
 async function getJsonFile<T>(

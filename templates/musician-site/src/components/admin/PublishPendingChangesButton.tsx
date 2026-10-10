@@ -28,7 +28,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
-import type { PublishError as PublishErrorPayload } from "@/lib/publish-types";
+import {
+  PUBLISH_WARNING_MESSAGES,
+  type PublishError as PublishErrorPayload,
+  type PublishWarning,
+} from "@/lib/publish-types";
 
 import { PublishConfirmModal, type PublishSelection } from "./PublishConfirmModal";
 import { useDeployStatus } from "./useDeployStatus";
@@ -38,9 +42,12 @@ type Status =
   | { kind: "confirming" }
   | { kind: "publishing" }
   | { kind: "noop" }
-  | { kind: "in_flight"; publishedAt: number }
-  | { kind: "live" }
-  | { kind: "stalled" }
+  // `warning` (ADR-012): the publish shipped but reconciling the draft
+  // didn't finish. Carried through the deploy lifecycle so the note
+  // stays visible until the artist starts another publish.
+  | { kind: "in_flight"; publishedAt: number; warning?: PublishWarning }
+  | { kind: "live"; warning?: PublishWarning }
+  | { kind: "stalled"; warning?: PublishWarning }
   // ADR-010 §6: the publish layer maps a stale-ref retry exhaustion to
   // `code: "concurrent-edit"` (HTTP 409). The recovery is a page
   // reload: the in-memory editor state is stale relative to the
@@ -73,11 +80,11 @@ export function PublishPendingChangesButton({
   useEffect(() => {
     if (status.kind !== "in_flight" || !deployStatus) return;
     if (deployStatus.status === "ready") {
-      setStatus({ kind: "live" });
+      setStatus({ kind: "live", warning: status.warning });
     } else if (deployStatus.status === "error") {
       setStatus({ kind: "error", message: deployStatus.message });
     } else if (deployStatus.status === "stalled") {
-      setStatus({ kind: "stalled" });
+      setStatus({ kind: "stalled", warning: status.warning });
     }
   }, [status, deployStatus]);
 
@@ -228,16 +235,22 @@ function StatusLine({
     // While the deploy is in flight, surface the phase as a hint.
     const phase = deployStatus?.status === "in_flight" ? deployStatus.phase : "queued";
     return (
-      <span role="status" style={mutedStyle}>
-        Deploy is {phase}.
-      </span>
+      <>
+        <span role="status" style={mutedStyle}>
+          Deploy is {phase}.
+        </span>
+        <WarningNote warning={status.warning} />
+      </>
     );
   }
   if (status.kind === "live") {
     return (
-      <span role="status" style={mutedStyle}>
-        Live.
-      </span>
+      <>
+        <span role="status" style={mutedStyle}>
+          Live.
+        </span>
+        <WarningNote warning={status.warning} />
+      </>
     );
   }
   if (status.kind === "noop") {
@@ -249,9 +262,12 @@ function StatusLine({
   }
   if (status.kind === "stalled") {
     return (
-      <span role="status" style={mutedStyle}>
-        Build still running — refresh to check.
-      </span>
+      <>
+        <span role="status" style={mutedStyle}>
+          Build still running — refresh to check.
+        </span>
+        <WarningNote warning={status.warning} />
+      </>
     );
   }
   if (status.kind === "concurrent_edit") {
@@ -270,6 +286,19 @@ function StatusLine({
 }
 
 /**
+ * The post-publish note for a {@link PublishWarning}. The publish
+ * succeeded, so it reads as a note (`role="note"`), not an alert.
+ */
+function WarningNote({ warning }: { warning: PublishWarning | undefined }) {
+  if (!warning) return null;
+  return (
+    <span role="note" style={warningStyle}>
+      {PUBLISH_WARNING_MESSAGES[warning]}
+    </span>
+  );
+}
+
+/**
  * Successful `POST /api/publish-draft` shape, locked here as a
  * literal type so the `body.mode` / `body.alreadyInSync` branches in
  * `statusForFetchResponse` are checked against the actual response.
@@ -282,6 +311,8 @@ type PublishDraftSuccessBody = {
   commitSha: string | null;
   mode: string;
   alreadyInSync: boolean;
+  /** Only `/api/publish-selected` sets this (ADR-012 reconcile follow-up). */
+  warning?: PublishWarning;
 };
 
 /**
@@ -324,14 +355,15 @@ function statusForFetchResponse(
   if (body.alreadyInSync) {
     return { kind: "noop" };
   }
+  const warning = body.warning ? { warning: body.warning } : {};
   if (body.mode === "local" || body.commitSha === null) {
     // Dev fallback: no deploy to poll for; treat as immediately
     // live. The artist's local dev server already serves the
     // saved files.
-    return { kind: "live" };
+    return { kind: "live", ...warning };
   }
   // Production: deploy is in flight; start polling.
-  return { kind: "in_flight", publishedAt: now };
+  return { kind: "in_flight", publishedAt: now, ...warning };
 }
 
 // Exported for direct testing — `PublishPendingChangesButton`'s
@@ -379,6 +411,11 @@ const cancelButtonStyle: CSSProperties = {
 const mutedStyle: CSSProperties = {
   fontSize: "var(--font-size-xs)",
   color: "var(--color-text-muted)",
+};
+
+const warningStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-emphasis)",
 };
 
 const errorStyle: CSSProperties = {

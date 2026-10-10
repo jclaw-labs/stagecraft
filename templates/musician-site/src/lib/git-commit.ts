@@ -63,7 +63,11 @@ export class ConcurrentEditError extends Error {
   }
 }
 
-/** How many tree-rebuild-and-updateRef cycles `commitFiles` tries before giving up. */
+/**
+ * How many build-commit-and-updateRef cycles a ref writer
+ * (`commitFiles`, `commitSelectedPathsInto`, `squashBranchInto`) tries
+ * before giving up with {@link ConcurrentEditError}.
+ */
 const MAX_COMMIT_ATTEMPTS = 3;
 
 /**
@@ -81,6 +85,76 @@ function isStaleRefError(cause: unknown): cause is RequestError {
 }
 
 /**
+ * Internal signal: the guarded `updateRef` of one attempt lost the race
+ * (stale-ref 422). Thrown only by {@link updateRefOrSignalStale}, so a
+ * stale-ref 422 from some *other* ref update in the same attempt (e.g.
+ * `squashBranchInto`'s source-branch update) never triggers a retry.
+ */
+class StaleRefSignal extends Error {
+  constructor(
+    public readonly parentSha: string,
+    public readonly cause: RequestError,
+  ) {
+    super(`stale ref (attempt was parented on ${parentSha})`);
+    this.name = "StaleRefSignal";
+  }
+}
+
+/**
+ * `updateRef` for the ref a writer races on. `parentSha` is the head the
+ * attempt built on — recorded for {@link ConcurrentEditError} forensics.
+ * A stale-ref 422 becomes a {@link StaleRefSignal} for
+ * {@link retryOnStaleRef}; every other error propagates unchanged.
+ */
+async function updateRefOrSignalStale(
+  octokit: Octokit,
+  params: { owner: string; repo: string; ref: string; sha: string },
+  parentSha: string,
+): Promise<void> {
+  try {
+    await octokit.git.updateRef(params);
+  } catch (cause) {
+    if (isStaleRefError(cause)) throw new StaleRefSignal(parentSha, cause);
+    throw cause;
+  }
+}
+
+/**
+ * Concurrent-edit handling shared by every writer that moves a branch
+ * with a non-forced `updateRef` (ADR-010 §6, ADR-012 "Concurrency").
+ * Runs `attempt` — which re-reads the ref's HEAD, builds a commit on it
+ * and finishes with {@link updateRefOrSignalStale} — up to
+ * {@link MAX_COMMIT_ATTEMPTS} times. When the guarded update loses the
+ * race, `beforeRetry` (if any) runs and the next attempt rebuilds on the
+ * new HEAD. Exhaustion throws {@link ConcurrentEditError} for `ref`.
+ *
+ * No backoff between attempts is intentional. The realistic
+ * concurrent-write rate is "two browser tabs," not a thundering herd;
+ * a sleep would slow every write without changing collision behaviour.
+ * Revisit if telemetry shows actual herd patterns.
+ */
+async function retryOnStaleRef<T>(
+  ref: string,
+  attempt: () => Promise<T>,
+  beforeRetry?: () => Promise<void>,
+): Promise<T> {
+  for (let n = 1; n <= MAX_COMMIT_ATTEMPTS; n++) {
+    try {
+      return await attempt();
+    } catch (cause) {
+      if (!(cause instanceof StaleRefSignal)) throw cause;
+      if (n === MAX_COMMIT_ATTEMPTS) {
+        throw new ConcurrentEditError(ref, MAX_COMMIT_ATTEMPTS, cause.parentSha, cause.cause);
+      }
+      await beforeRetry?.();
+    }
+  }
+  // Unreachable: each iteration returns, throws, or (before the last)
+  // loops. The throw lets TypeScript prove the return type.
+  throw new Error(`retryOnStaleRef(${ref}): retry loop exited without returning or throwing`);
+}
+
+/**
  * Commit one or more files in a single commit using GitHub's Git Data API.
  * Pure function over the Octokit interface — no side effects beyond the API
  * calls. Returns the new commit SHA.
@@ -95,8 +169,8 @@ function isStaleRefError(cause: unknown): cause is RequestError {
  * stale-ref 422 (another caller updated `branch` between our
  * `getRef` and our `updateRef`), we re-fetch HEAD, rebuild the tree
  * off the new base, and try again — up to {@link MAX_COMMIT_ATTEMPTS}
- * times. Blob creation lives outside the retry because blobs are
- * content-addressed: the SHAs we computed on the first pass remain
+ * times (see {@link retryOnStaleRef}). Blob creation lives outside the
+ * retry because blobs are content-addressed: the SHAs we computed on the first pass remain
  * valid across retries. After exhausting attempts we throw
  * {@link ConcurrentEditError} so callers can map it to a user-facing
  * message.
@@ -140,22 +214,9 @@ export async function commitFiles(args: CommitArgs): Promise<string> {
     })),
   ];
 
-  // Initialised to "" only to satisfy TypeScript's flow analysis
-  // across the loop / catch boundary — `lastParentSha` is always
-  // reassigned to `headSha` below before any path that reads it
-  // (the `ConcurrentEditError` throw lives after the assignment in
-  // the same iteration).
-  //
-  // No backoff between attempts is intentional. The realistic
-  // concurrent-save rate is "two browser tabs," not a thundering
-  // herd; adding a sleep would just slow every save without changing
-  // collision behaviour. Revisit if telemetry shows actual herd
-  // patterns.
-  let lastParentSha = "";
-  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
+  return retryOnStaleRef(`heads/${branch}`, async () => {
     const ref = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` });
     const headSha = ref.data.object.sha;
-    lastParentSha = headSha;
 
     const headCommit = await octokit.git.getCommit({ owner, repo, commit_sha: headSha });
     const baseTreeSha = headCommit.data.tree.sha;
@@ -179,32 +240,13 @@ export async function commitFiles(args: CommitArgs): Promise<string> {
       author: args.author,
     });
 
-    try {
-      await octokit.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${branch}`,
-        sha: commit.data.sha,
-      });
-      return commit.data.sha;
-    } catch (cause) {
-      if (!isStaleRefError(cause)) throw cause;
-      if (attempt === MAX_COMMIT_ATTEMPTS) {
-        throw new ConcurrentEditError(
-          `heads/${branch}`,
-          MAX_COMMIT_ATTEMPTS,
-          lastParentSha,
-          cause,
-        );
-      }
-      // Else: fall through, loop body re-fetches HEAD and rebuilds.
-    }
-  }
-
-  // Unreachable: the loop body either returns on success or throws on
-  // exhaustion. The throw here exists so TypeScript can prove the
-  // function returns `string`.
-  throw new Error("commitFiles: retry loop exited without returning or throwing");
+    await updateRefOrSignalStale(
+      octokit,
+      { owner, repo, ref: `heads/${branch}`, sha: commit.data.sha },
+      headSha,
+    );
+    return commit.data.sha;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -296,11 +338,48 @@ export type SquashBranchIntoResult = {
  * No-op when the two branches already point at the same SHA;
  * returns `alreadyInSync: true` so the caller can skip downstream
  * work (no deploy to wait for).
+ *
+ * Concurrency (ADR-012): the `toBranch` update is guarded by the same
+ * stale-ref retry as `commitFiles` / `commitSelectedPathsInto`
+ * ({@link retryOnStaleRef}), so a full publish racing a per-item
+ * publish (or another editor's full publish) on `main` serializes. On
+ * a lost race, `toBranch` is merged into `fromBranch` before the
+ * rebuild — the squash takes `fromBranch`'s *whole* tree, so rebuilding
+ * without that merge would revert whatever the winner just published.
+ * A conflicting merge throws (the caller maps it to a publish failure);
+ * exhausting the retries throws {@link ConcurrentEditError}.
  */
 export async function squashBranchInto(
   args: SquashBranchIntoArgs,
 ): Promise<SquashBranchIntoResult> {
   const octokit = new Octokit({ auth: args.token });
+  const { owner, repo, fromBranch, toBranch } = args;
+
+  return retryOnStaleRef(
+    `heads/${toBranch}`,
+    () => squashOnce(octokit, args),
+    async () => {
+      const merge = await mergeBranchInto({
+        token: args.token,
+        owner,
+        repo,
+        from: toBranch,
+        into: fromBranch,
+      });
+      if (merge.kind === "conflict") {
+        throw new Error(
+          `squashBranchInto: ${toBranch} moved during publish and ${fromBranch} can't merge it cleanly.`,
+        );
+      }
+    },
+  );
+}
+
+/** One squash attempt: build on `toBranch`'s current HEAD, then move both refs. */
+async function squashOnce(
+  octokit: Octokit,
+  args: SquashBranchIntoArgs,
+): Promise<SquashBranchIntoResult> {
   const { owner, repo, fromBranch, toBranch } = args;
 
   const [fromRef, toRef] = await Promise.all([
@@ -340,18 +419,21 @@ export async function squashBranchInto(
   // state — silently dropping `toBranch`'s recent content on the
   // next squash. Doing it this way leaves `fromBranch` ahead of
   // `toBranch` on partial failure, which the next call self-heals.
+  //
+  // Only the `toBranch` update is the guarded race: a stale ref there
+  // means another publish landed between our `getRef` and now, and
+  // `retryOnStaleRef` merges + rebuilds.
   await octokit.git.updateRef({
     owner,
     repo,
     ref: `heads/${fromBranch}`,
     sha: squash.data.sha,
   });
-  await octokit.git.updateRef({
-    owner,
-    repo,
-    ref: `heads/${toBranch}`,
-    sha: squash.data.sha,
-  });
+  await updateRefOrSignalStale(
+    octokit,
+    { owner, repo, ref: `heads/${toBranch}`, sha: squash.data.sha },
+    toSha,
+  );
 
   return { commitSha: squash.data.sha, alreadyInSync: false };
 }
@@ -642,11 +724,10 @@ export async function commitSelectedPathsInto(
 
   const tree: TreeEntry[] = [...copyEntries, ...deleteEntries];
 
-  let lastParentSha = "";
-  for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt++) {
+  // A stale-ref loss re-fetches toBranch HEAD and rebuilds on the new base.
+  return retryOnStaleRef(`heads/${toBranch}`, async () => {
     const toRef = await octokit.git.getRef({ owner, repo, ref: `heads/${toBranch}` });
     const toSha = toRef.data.object.sha;
-    lastParentSha = toSha;
 
     const toCommit = await octokit.git.getCommit({ owner, repo, commit_sha: toSha });
 
@@ -674,27 +755,11 @@ export async function commitSelectedPathsInto(
       author,
     });
 
-    try {
-      await octokit.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${toBranch}`,
-        sha: commit.data.sha,
-      });
-      return { commitSha: commit.data.sha, alreadyInSync: false };
-    } catch (cause) {
-      if (!isStaleRefError(cause)) throw cause;
-      if (attempt === MAX_COMMIT_ATTEMPTS) {
-        throw new ConcurrentEditError(
-          `heads/${toBranch}`,
-          MAX_COMMIT_ATTEMPTS,
-          lastParentSha,
-          cause,
-        );
-      }
-      // Else: re-fetch toBranch HEAD and rebuild on the new base.
-    }
-  }
-
-  throw new Error("commitSelectedPathsInto: retry loop exited without returning or throwing");
+    await updateRefOrSignalStale(
+      octokit,
+      { owner, repo, ref: `heads/${toBranch}`, sha: commit.data.sha },
+      toSha,
+    );
+    return { commitSha: commit.data.sha, alreadyInSync: false };
+  });
 }

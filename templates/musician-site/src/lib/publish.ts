@@ -27,7 +27,7 @@ import {
   squashBranchInto,
   type FileToCommit,
 } from "./git-commit";
-import { publishTokenResponseSchema } from "./publish-types";
+import { publishTokenResponseSchema, type PublishWarning } from "./publish-types";
 import { DRAFT_BRANCH, resolveDraftBranch } from "./draft-branch";
 
 // The DRAFT_BRANCH constant and the per-editor resolver now live in
@@ -629,6 +629,11 @@ export async function publishDraftToMain(
       author,
     });
   } catch (cause) {
+    // `squashBranchInto`'s stale-ref retry on `main` exhausted — another
+    // publish kept winning the race (ADR-012 "Concurrency").
+    if (cause instanceof ConcurrentEditError) {
+      throw new PublishError("concurrent-edit", cause.message);
+    }
     throw new PublishError("github-failed", `squash draft → main: ${String(cause)}`);
   }
   return {
@@ -662,6 +667,15 @@ export type PublishSelectedToMainArgs = {
   commitSubject?: string;
 };
 
+export type PublishSelectedToMainResult = PublishDraftToMainResult & {
+  /**
+   * Set when the selected changes shipped to `main` but reconciling the
+   * draft afterwards didn't finish. The publish still succeeded; the
+   * editor shows the matching note. Absent on a clean publish.
+   */
+  warning?: PublishWarning;
+};
+
 /**
  * Publish a SUBSET of the editor's pending changes (ADR-012). Builds one
  * commit on `main` containing only `paths` (copied from the editor's
@@ -673,11 +687,17 @@ export type PublishSelectedToMainArgs = {
  * Leaves the draft a descendant of `main` (ADR-010's invariant holds);
  * the next pending-changes compare reports only the leftover items.
  *
+ * Once the commit to `main` lands the publish has shipped, so a failed
+ * reconcile does NOT throw: it resolves with a `warning`
+ * (`draft-resync-pending` for a transient failure — the next save's
+ * auto-rebase heals it; `draft-resync-conflict` when the draft can't
+ * merge the new `main`).
+ *
  * Dev fallback: no-op — files are already on disk.
  */
 export async function publishSelectedToMain(
   args: PublishSelectedToMainArgs,
-): Promise<PublishDraftToMainResult> {
+): Promise<PublishSelectedToMainResult> {
   const env = readEnv();
   if (!isPlatformConfigured(env)) {
     return { commitSha: null, mode: "local", alreadyInSync: true };
@@ -720,9 +740,17 @@ export async function publishSelectedToMain(
     throw new PublishError("github-failed", `publish selected → main: ${String(cause)}`);
   }
 
+  const published = {
+    commitSha: result.commitSha,
+    mode: "github" as const,
+    alreadyInSync: result.alreadyInSync,
+  };
+
   // Reconcile the draft: merge the new main back in. The published paths
   // are byte-identical on both branches (clean merge); the unselected
-  // changes exist only on draft and remain pending.
+  // changes exist only on draft and remain pending. The publish has
+  // already shipped by now, so a failure here is a warning, not an error.
+  let warning: PublishWarning | undefined;
   try {
     const merge = await mergeBranchInto({
       token,
@@ -732,17 +760,19 @@ export async function publishSelectedToMain(
       into: draftBranch,
     });
     if (merge.kind === "conflict") {
-      throw new PublishError(
-        "github-failed",
-        `reconcile draft after partial publish: ${draftBranch} can't merge cleanly with ${env.branch}. Discard pending changes or contact support.`,
+      console.warn(
+        `[publish] reconcile after partial publish: ${draftBranch} can't merge cleanly with ${env.branch}.`,
       );
+      warning = "draft-resync-conflict";
     }
   } catch (cause) {
-    if (cause instanceof PublishError) throw cause;
-    throw new PublishError("github-failed", `reconcile draft after partial publish: ${String(cause)}`);
+    console.warn(
+      `[publish] reconcile ${draftBranch} after partial publish failed; the next save's auto-rebase resyncs it: ${String(cause)}`,
+    );
+    warning = "draft-resync-pending";
   }
 
-  return { commitSha: result.commitSha, mode: "github", alreadyInSync: result.alreadyInSync };
+  return warning ? { ...published, warning } : published;
 }
 
 // ---------------------------------------------------------------------------

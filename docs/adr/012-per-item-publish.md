@@ -92,21 +92,31 @@ image or desync from the real diff.
 
 ### Concurrency & partial failure
 
-The `updateRef main` in `commitSelectedPathsInto` uses the `commitFiles`
-stale-ref retry, so two near-simultaneous *selected* publishes serialize
-(the loser rebuilds on the new `main`). Caveat: the full-publish path
-(`squashBranchInto`) updates `main` with a plain `updateRef` and **no**
-retry, so a selected publish racing a *full* publish on `main` is not
-guaranteed to serialize — a pre-existing gap, tracked as a follow-up
-(give `squashBranchInto` the same retry).
+Both writers of `main` — `commitSelectedPathsInto` (selected publish)
+and `squashBranchInto` (full publish) — guard their `updateRef main`
+with the same stale-ref retry as `commitFiles` (one shared helper,
+`retryOnStaleRef` in `git-commit.ts`). So any two publishes on `main`
+serialize: the loser rebuilds on the new `main`. A full publish that
+loses first merges the new `main` into the draft, because the squash
+takes the draft's *whole* tree — rebuilding without that merge would
+revert what the winner just published. Exhausting the retries surfaces
+as `concurrent-edit`, as for saves.
 
 If step 3 succeeds but step 4 (reconcile) fails, `main` already has the
 selected changes (the deploy fired) while `draft` is behind on those
-paths but still ahead on the unselected ones. Today this surfaces to the
-caller as a `github-failed` error even though the publish *shipped*; the
-next save's `ensureDraftAndRebase` merges `main` in and self-heals the
-draft. Smoothing that "false failure on a successful publish" is a
-deferred follow-up.
+paths but still ahead on the unselected ones. The publish *shipped*, so
+`publishSelectedToMain` reports success with a typed `warning`
+(`PublishWarning` in `publish-types.ts`) and the editor shows a note
+under the Publish button:
+
+- `draft-resync-pending` — the merge failed transiently. The next
+  save's `ensureDraftAndRebase` merges `main` in and self-heals the
+  draft; until then the pending list can still show the published
+  items.
+- `draft-resync-conflict` — the draft can't merge the new `main`
+  cleanly (another publish touched the same files). The next save hits
+  the same conflict, so the note tells the editor to discard the
+  remaining pending changes.
 
 ## Rejected alternatives
 
