@@ -34,7 +34,7 @@ const CAPTURES: Capture[] = [
   {
     name: "site-examples",
     path: "/examples",
-    waitForHeading: /Templates for every kind of act/i,
+    waitForHeading: /What your site comes with/i,
   },
   { name: "site-migrate", path: "/migrate", waitForHeading: /Bring your site over/i },
   { name: "site-privacy", path: "/privacy", waitForHeading: /Privacy Policy/i },
