@@ -36,6 +36,8 @@ function parisItem(): Item {
   };
 }
 
+const EMPTY_TEMPLATE: Template = { content: [], root: { props: {} } };
+
 function render(template: Template | null, item: Item = parisItem()): string {
   return renderToStaticMarkup(
     <TemplateRenderer template={template} item={item} collection={tourDatesDef()} />,
@@ -351,7 +353,8 @@ describe("TemplateRenderer — content primitives", () => {
       content: [{ type: "Image", props: { image: binding("f_missing_img") } }],
       root: { props: {} },
     });
-    expect(html).not.toContain("<picture");
+    // The whole block is dropped — not swapped for the gradient placeholder.
+    expect(html).toBe(render(EMPTY_TEMPLATE));
   });
 
   it("Image renders a <picture> with the bound image's variants", () => {
@@ -453,6 +456,35 @@ describe("TemplateRenderer — content primitives", () => {
     expect(html).not.toContain("Buy");
   });
 
+  it("Button hides if text or href is bound to a field holding an empty string", () => {
+    const empties: Item = {
+      ...parisItem(),
+      values: {
+        ...parisItem().values,
+        f_venue: { type: "text", value: "" },
+        f_url: { type: "url", value: "" },
+      },
+    };
+    const template = (props: Record<string, unknown>): Template => ({
+      content: [{ type: "Button", props }],
+      root: { props: {} },
+    });
+    expect(render(template({ text: literal("Tickets"), href: binding("f_url") }), empties)).toBe(
+      render(EMPTY_TEMPLATE),
+    );
+    expect(
+      render(template({ text: binding("f_venue"), href: "https://tix.example" }), empties),
+    ).toBe(render(EMPTY_TEMPLATE));
+  });
+
+  it("Button keeps a literal empty string — only an empty binding hides", () => {
+    const html = render({
+      content: [{ type: "Button", props: { text: "Tickets", href: "" } }],
+      root: { props: {} },
+    });
+    expect(html).toContain("Tickets");
+  });
+
   it("Link renders a plain anchor", () => {
     const html = render({
       content: [
@@ -504,7 +536,19 @@ describe("TemplateRenderer — RichText bindings", () => {
       content: [{ type: "RichText", props: { text: binding("f_missing") } }],
       root: { props: {} },
     });
-    expect(html).not.toContain("<p>");
+    expect(html).toBe(render(EMPTY_TEMPLATE));
+  });
+
+  it("renders nothing if the bound field holds an empty string", () => {
+    const item: Item = {
+      ...parisItem(),
+      values: { ...parisItem().values, f_bio: { type: "longText", value: "" } },
+    };
+    const html = render(
+      { content: [{ type: "RichText", props: { text: binding("f_bio") } }], root: { props: {} } },
+      item,
+    );
+    expect(html).toBe(render(EMPTY_TEMPLATE));
   });
 });
 

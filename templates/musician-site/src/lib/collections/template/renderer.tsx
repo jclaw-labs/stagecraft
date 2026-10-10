@@ -209,7 +209,12 @@ function resolveBlock(
     const value = props[propName];
     if (value === undefined) continue;
     const resolved = resolveSlot(value, meta.slotKind, ctx);
-    if (resolved === undefined && meta.hidesBlockWhenUnbound) return null;
+    // A binding to an empty string hides like a missing field (no ticket
+    // URL → no ticket button); a literal "" is what the author stored and
+    // renders as-is.
+    const isEmpty =
+      resolved === undefined || (resolved === "" && isBindableRef(value) && value.kind === "binding");
+    if (isEmpty && meta.hidesBlockWhenUnbound) return null;
     if (resolved !== value) (next ??= { ...props })[propName] = resolved;
   }
   // Recurse into every array of nested blocks. Any prop may be a slot —

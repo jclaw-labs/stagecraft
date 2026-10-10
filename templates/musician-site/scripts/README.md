@@ -15,5 +15,7 @@ Maintenance / one-off scripts. Run with `node scripts/<name>.mjs` (ESM).
   wide` + `padding`, Button `label`, Image `src`, `RichTextRender`) into
   the one library's vocabulary. Page bodies are already in it and come out
   unchanged. `node scripts/migrate-block-library.mjs [contentDir] [--check]`;
-  idempotent.
+  idempotent. It imports the TypeScript migration module directly, which
+  Node runs natively from 22.18; on 22.12–22.17 (the `engines` floor) add
+  `--experimental-strip-types`.
 - **`run-pr3-migration.mjs`** — one-shot content migration (historical).

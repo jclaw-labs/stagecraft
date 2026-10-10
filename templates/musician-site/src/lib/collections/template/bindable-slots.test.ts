@@ -7,6 +7,7 @@ import {
   isFieldTypeCompatible,
 } from "./bindable-slots";
 import type { CollectionDef } from "../schema";
+import { BLOCKS } from "@/puck/config";
 
 function def(): CollectionDef {
   return {
@@ -62,6 +63,18 @@ describe("BINDABLE_SLOTS", () => {
     expect(BINDABLE_SLOTS.Image.image.slotKind).toBe("image");
     expect(BINDABLE_SLOTS.Button.text.slotKind).toBe("string");
     expect(BINDABLE_SLOTS.RichText.text.slotKind).toBe("richText");
+  });
+
+  it("names only blocks and props the block library defines", () => {
+    // A rename in config.tsx must fail here, not silently stop resolving
+    // bindings, swapping pickers and checking orphans for that prop.
+    const blocks = BLOCKS as unknown as Record<string, { fields?: Record<string, unknown> }>;
+    for (const [blockName, slots] of Object.entries(BINDABLE_SLOTS)) {
+      expect(blocks[blockName], blockName).toBeDefined();
+      for (const propName of Object.keys(slots)) {
+        expect(blocks[blockName]!.fields?.[propName], `${blockName}.${propName}`).toBeDefined();
+      }
+    }
   });
 
   it("keeps the image when only its alt override fails to resolve", () => {

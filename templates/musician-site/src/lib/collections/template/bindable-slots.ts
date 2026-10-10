@@ -55,7 +55,8 @@ export type BindableSlotMeta = {
   description?: string;
   /**
    * Implicit hide-if-empty (ADR-009 §4.1): when this prop is *bound* and the
-   * binding resolves to nothing, the walker drops the whole block. Plain
+   * binding resolves to nothing (a missing field, a type mismatch, or an
+   * empty string), the walker drops the whole block. Plain
    * literals never hide a block, so page bodies render exactly what they
    * store.
    */
