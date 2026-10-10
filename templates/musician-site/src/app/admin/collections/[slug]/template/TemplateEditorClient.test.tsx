@@ -114,20 +114,15 @@ describe("<TemplateEditorClient />", () => {
       expect(options?.currentItem?.slug).toBe("paris-2026");
     });
 
-    it("passes the primitive-only registry for item-kind editors", () => {
+    it("resolves no Collection blocks for item-kind editors", () => {
       render({ kind: "item" });
       const [, , options] = resolveTemplateMock.mock.calls[0];
-      // The PR's item template uses just primitives — no Collection
-      // entries. Section/Text/Image/Button/Link/Stack/RichTextRender.
-      const keys = Object.keys(options?.registry ?? {}).sort();
-      expect(keys).toContain("Text");
-      expect(keys).toContain("Image");
-      // Detail-only Collection blocks (e.g. TourDatesView) must NOT
-      // appear in the item-template preview registry.
-      expect(keys.some((k) => k.endsWith("View"))).toBe(false);
+      // ADR §4.3 cycle safety: an item template can't embed Collection
+      // blocks, so its preview walk resolves none.
+      expect(options?.collectionSlugs).toEqual([]);
     });
 
-    it("extends the registry with Collection blocks for detail-kind editors", () => {
+    it("resolves a Collection block per collection for detail-kind editors", () => {
       const tdDef = tourDatesDef();
       const pagesDef = { ...tdDef, slug: "pages" };
       render({
@@ -138,9 +133,7 @@ describe("<TemplateEditorClient />", () => {
         },
       });
       const [, , options] = resolveTemplateMock.mock.calls[0];
-      const keys = Object.keys(options?.registry ?? {});
-      expect(keys).toContain("TourDatesView");
-      expect(keys).toContain("PagesView");
+      expect(options?.collectionSlugs).toEqual(["tour-dates", "pages"]);
       expect(options?.loadedCollections).toBeDefined();
     });
 

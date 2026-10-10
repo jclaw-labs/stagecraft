@@ -1,16 +1,19 @@
 /**
- * Binding resolution for template props.
+ * Binding resolution for block props.
  *
- * Templates contain Primitive blocks whose props are typed `Bindable<T>`
- * — each prop is either a literal value of type `T` or a reference to a
- * `FieldId` on the current item. The renderer (`./renderer.tsx`) walks
- * the template, calls these resolvers per-prop, and feeds the resolved
- * values into block components.
+ * Blocks that can show item data type those props `Bindable<T>` — each
+ * prop is a plain literal `T` (page bodies), an explicit
+ * `{ kind: "literal" }` wrapper, or a reference to a `FieldId` on the
+ * current item (templates). The renderer (`./renderer.tsx`) walks the
+ * tree, calls these resolvers per-prop, and feeds the resolved values
+ * into block components.
  *
  * **The contract:** a binding to a field that doesn't exist on the item,
  * or whose type doesn't match what the block expects, resolves to
- * `undefined`. Blocks treat `undefined` as "render nothing" (the
- * implicit hide-if-empty rule from ADR-009 §4.1). Type-incompatible
+ * `undefined`. The walker then drops the whole block when the prop is
+ * marked `hidesBlockWhenUnbound` (the implicit hide-if-empty rule from
+ * ADR-009 §4.1), and does the same for a binding that resolves to `""`;
+ * literals, wrapped or plain, never hide a block. Type-incompatible
  * bindings are an authoring bug — the editor (PR 6) enforces type
  * compatibility at authoring time, so reaching the wrong-type branch
  * here means someone hand-edited a JSON file. We log a warning and
@@ -26,6 +29,7 @@ import { selectOptionLabel } from "../accessors";
 import type {
   Bindable,
   BindableFormat,
+  BindableRef,
   CollectionDef,
   CollectionRefValue,
   FieldId,
@@ -50,14 +54,35 @@ import type {
 export const bindableFormatSchema = z.enum(["year", "weekday-day", "full", "label"]);
 
 export function bindableSchema<T extends z.ZodTypeAny>(inner: T) {
-  return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("literal"), value: inner }),
-    z.object({
-      kind: z.literal("binding"),
-      fieldId: z.string().min(1),
-      format: bindableFormatSchema.optional(),
-    }),
+  return z.union([
+    z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("literal"), value: inner }),
+      z.object({
+        kind: z.literal("binding"),
+        fieldId: z.string().min(1),
+        format: bindableFormatSchema.optional(),
+      }),
+    ]),
+    inner,
   ]);
+}
+
+/**
+ * Whether a prop value is the object form of a `Bindable<T>` rather than a
+ * plain literal. No literal a block takes (strings, `ImageMetadata`, Tiptap
+ * docs, null) carries a `kind` key, so the check can't misfire on one.
+ */
+export function isBindableRef(value: unknown): value is BindableRef<unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const kind = (value as { kind?: unknown }).kind;
+  if (kind === "literal") return "value" in value;
+  if (kind === "binding") return typeof (value as { fieldId?: unknown }).fieldId === "string";
+  return false;
+}
+
+/** Normalise a `Bindable<T>` to its object form (plain literals get wrapped). */
+export function toBindableRef<T>(value: Bindable<T>): BindableRef<T> {
+  return isBindableRef(value) ? (value as BindableRef<T>) : { kind: "literal", value: value as T };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,10 +125,11 @@ export function resolveBindable<K extends keyof ResolvedTypeFor>(
   item: Item,
   expectedType: K,
 ): ResolvedTypeFor[K] | undefined {
-  if (bindable.kind === "literal") {
-    return bindable.value;
+  const ref = toBindableRef(bindable);
+  if (ref.kind === "literal") {
+    return ref.value;
   }
-  return resolveBinding(bindable.fieldId, item, expectedType);
+  return resolveBinding(ref.fieldId, item, expectedType);
 }
 
 /**
@@ -111,9 +137,7 @@ export function resolveBindable<K extends keyof ResolvedTypeFor>(
  * value. Same contract as `resolveBindable` for the binding arm —
  * returns `undefined` if missing or type-mismatched.
  *
- * Useful for the field-render primitives (RichTextRender,
- * PuckContentRender) where the prop is *always* a fieldId, never a
- * literal.
+ * Useful where a value is *always* a field reference, never a literal.
  */
 export function resolveBinding<K extends keyof ResolvedTypeFor>(
   fieldId: FieldId,
@@ -176,7 +200,16 @@ export function resolveStringBindable(
   item: Item,
   itemDef?: CollectionDef,
 ): string | undefined {
-  if (bindable.kind === "literal") return bindable.value;
+  const ref = toBindableRef(bindable);
+  if (ref.kind === "literal") return ref.value;
+  return resolveStringBinding(ref, item, itemDef);
+}
+
+function resolveStringBinding(
+  bindable: Extract<BindableRef<string>, { kind: "binding" }>,
+  item: Item,
+  itemDef?: CollectionDef,
+): string | undefined {
   const value = item.values[bindable.fieldId];
   if (value === undefined) return undefined;
   if (!STRING_VALUED_FIELD_TYPES.includes(value.type as StringValuedType)) {
@@ -245,6 +278,25 @@ function formatBoundString(
     default:
       return raw;
   }
+}
+
+/**
+ * Resolve a `Bindable<string | TiptapJSON>` — the RichText block's text. A
+ * literal is the paragraph text a page stores; a binding may point at a
+ * `richText` field (resolves to its Tiptap doc) or at any string-valued field
+ * (resolves like `resolveStringBindable`, so a longText bio can fill a
+ * RichText block).
+ */
+export function resolveRichTextBindable(
+  bindable: Bindable<string | TiptapJSON>,
+  item: Item,
+  itemDef?: CollectionDef,
+): string | TiptapJSON | undefined {
+  const ref = toBindableRef(bindable);
+  if (ref.kind === "literal") return ref.value;
+  const value = item.values[ref.fieldId];
+  if (value?.type === "richText") return value.value;
+  return resolveStringBinding(ref, item, itemDef);
 }
 
 // ---------------------------------------------------------------------------

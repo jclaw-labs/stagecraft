@@ -53,7 +53,7 @@ import type { Filter } from "@/lib/collections/filter-schema";
 type ComponentConfig = Config["components"][string];
 
 // Puck's `Field<T>` distributes badly through generic helpers; cast
-// at the registration site, same pattern as buildEditorPuckConfig.
+// at the registration site, same pattern as buildPuckConfig.
 type AnyField = Field<unknown>;
 
 export function buildCollectionBlockComponentConfig(

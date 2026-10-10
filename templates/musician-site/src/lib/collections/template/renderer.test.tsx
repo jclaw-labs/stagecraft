@@ -14,7 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { asImageId } from "@/lib/image-types";
 
 import { binding, literal } from "./binding";
-import { blockNameForCollection, buildCollectionBlockRegistry } from "./collection-block";
+import { blockNameForCollection } from "./collection-block";
 import { resolveTemplate, TemplateRenderer } from "./renderer";
 import type { Template } from "./types";
 import type { Item } from "../schema";
@@ -35,6 +35,8 @@ function parisItem(): Item {
     },
   };
 }
+
+const EMPTY_TEMPLATE: Template = { content: [], root: { props: {} } };
 
 function render(template: Template | null, item: Item = parisItem()): string {
   return renderToStaticMarkup(
@@ -73,18 +75,17 @@ describe("TemplateRenderer — boundary cases", () => {
 // Walker: slot recursion through unknown (page chrome) blocks
 // ---------------------------------------------------------------------------
 
-// ADR-015: hand-authored pages embed Collection blocks / bound primitives
-// inside page chrome blocks (Section, Columns) that the template registry
-// doesn't define. The walker must still descend into those chrome blocks'
-// slot arrays so the nested blocks resolve.
+// ADR-015: hand-authored pages embed Collection blocks / bound blocks inside
+// layout blocks (Section, Columns). The walker descends into every array of
+// nested blocks, whatever the block, so the nested blocks resolve.
 type ChildSlot = { props: { children: Array<{ type: string; props: Record<string, unknown> }> } };
 
-describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => {
-  it("resolves a bound primitive nested in an unknown block's slot array", () => {
+describe("resolveTemplate — recurses every block's slots", () => {
+  it("resolves a bound block nested in a Section's slot array", () => {
     const tpl: Template = {
       content: [
         {
-          type: "Section", // unknown to PRIMITIVE_BLOCKS
+          type: "Section",
           props: { id: "s1", children: [{ type: "Text", props: { content: binding("f_venue") } }] },
         },
       ],
@@ -96,7 +97,7 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     expect(section.props.children[0].props.content).toBe("La Cigale");
   });
 
-  it("recurses deeply (bound primitive two unknown levels down)", () => {
+  it("recurses deeply (bound block two levels down)", () => {
     const tpl: Template = {
       content: [
         {
@@ -130,7 +131,7 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     expect(gallery.props.images).toEqual([{ image: null }, { image: null }]);
   });
 
-  it("leaves an unknown block with no slots unchanged", () => {
+  it("leaves a block with no slots or bindings unchanged", () => {
     const tpl: Template = {
       content: [{ type: "Divider", props: { id: "d1", inset: true } }],
       root: { props: {} },
@@ -143,7 +144,7 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     const tpl: Template = {
       content: [
         {
-          type: "Section", // unknown chrome
+          type: "Section",
           props: {
             children: [
               {
@@ -157,7 +158,7 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
       root: { props: {} },
     } as Template;
     const resolved = resolveTemplate(tpl, parisItem(), {
-      registry: buildCollectionBlockRegistry(["tour-dates"]),
+      collectionSlugs: ["tour-dates"],
       loadedCollections: { "tour-dates": { def: tourDatesDef(), items: [parisItem()] } },
     });
     const view = (resolved.content[0] as unknown as ChildSlot).props.children[0];
@@ -170,7 +171,7 @@ describe("resolveTemplate — recurses slots of unknown (chrome) blocks", () => 
     const tpl: Template = {
       content: [
         {
-          type: "Frame", // unknown; a slot AND a data array side by side
+          type: "Frame", // not in the library; a slot AND a data array side by side
           props: {
             children: [{ type: "Text", props: { content: binding("f_venue") } }],
             images: [{ image: null }],
@@ -284,8 +285,7 @@ describe("TemplateRenderer — layout primitives", () => {
         {
           type: "Section",
           props: {
-            width: "default",
-            padding: "default",
+            width: "md",
             children: [
               {
                 type: "Stack",
@@ -350,10 +350,11 @@ describe("TemplateRenderer — content primitives", () => {
 
   it("Image hides when the bound image field is missing", () => {
     const html = render({
-      content: [{ type: "Image", props: { src: binding("f_missing_img") } }],
+      content: [{ type: "Image", props: { image: binding("f_missing_img") } }],
       root: { props: {} },
     });
-    expect(html).not.toContain("<picture");
+    // The whole block is dropped — not swapped for the gradient placeholder.
+    expect(html).toBe(render(EMPTY_TEMPLATE));
   });
 
   it("Image renders a <picture> with the bound image's variants", () => {
@@ -363,7 +364,7 @@ describe("TemplateRenderer — content primitives", () => {
     };
     const html = render(
       {
-        content: [{ type: "Image", props: { src: binding("f_img") } }],
+        content: [{ type: "Image", props: { image: binding("f_img") } }],
         root: { props: {} },
       },
       item,
@@ -383,7 +384,7 @@ describe("TemplateRenderer — content primitives", () => {
         content: [
           {
             type: "Image",
-            props: { src: binding("f_img"), altOverride: literal("Custom alt") },
+            props: { image: binding("f_img"), altOverride: literal("Custom alt") },
           },
         ],
         root: { props: {} },
@@ -404,7 +405,7 @@ describe("TemplateRenderer — content primitives", () => {
         content: [
           {
             type: "Image",
-            props: { src: binding("f_img"), altOverride: literal("") },
+            props: { image: binding("f_img"), altOverride: literal("") },
           },
         ],
         root: { props: {} },
@@ -420,7 +421,7 @@ describe("TemplateRenderer — content primitives", () => {
         {
           type: "Button",
           props: {
-            label: literal("Buy tickets"),
+            text: literal("Buy tickets"),
             href: binding("f_url"),
             variant: "primary",
           },
@@ -432,7 +433,7 @@ describe("TemplateRenderer — content primitives", () => {
     expect(html).toContain('href="https://tix.example/paris"');
   });
 
-  it("Button hides if either label or href is missing", () => {
+  it("Button hides if either text or href is bound to a missing field", () => {
     const noUrl: Item = {
       ...parisItem(),
       values: Object.fromEntries(
@@ -444,7 +445,7 @@ describe("TemplateRenderer — content primitives", () => {
         content: [
           {
             type: "Button",
-            props: { label: literal("Buy"), href: binding("f_url") },
+            props: { text: literal("Buy"), href: binding("f_url") },
           },
         ],
         root: { props: {} },
@@ -453,6 +454,41 @@ describe("TemplateRenderer — content primitives", () => {
     );
     // No anchor for the missing href
     expect(html).not.toContain("Buy");
+  });
+
+  it("Button hides if text or href is bound to a field holding an empty string", () => {
+    const empties: Item = {
+      ...parisItem(),
+      values: {
+        ...parisItem().values,
+        f_venue: { type: "text", value: "" },
+        f_url: { type: "url", value: "" },
+      },
+    };
+    const template = (props: Record<string, unknown>): Template => ({
+      content: [{ type: "Button", props }],
+      root: { props: {} },
+    });
+    expect(render(template({ text: literal("Tickets"), href: binding("f_url") }), empties)).toBe(
+      render(EMPTY_TEMPLATE),
+    );
+    expect(
+      render(template({ text: binding("f_venue"), href: "https://tix.example" }), empties),
+    ).toBe(render(EMPTY_TEMPLATE));
+  });
+
+  it("Button keeps a literal empty string — only an empty binding hides", () => {
+    const html = render({
+      content: [{ type: "Button", props: { text: "Tickets", href: "" } }],
+      root: { props: {} },
+    });
+    expect(html).toContain("Tickets");
+    // The wrapped form the template editor's Literal mode writes.
+    const wrapped = render({
+      content: [{ type: "Button", props: { text: literal("Tickets"), href: literal("") } }],
+      root: { props: {} },
+    });
+    expect(wrapped).toContain("Tickets");
   });
 
   it("Link renders a plain anchor", () => {
@@ -471,10 +507,10 @@ describe("TemplateRenderer — content primitives", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RichTextRender
+// RichText bound to a field
 // ---------------------------------------------------------------------------
 
-describe("TemplateRenderer — RichTextRender", () => {
+describe("TemplateRenderer — RichText bindings", () => {
   it("renders the bound richText field's Tiptap content", () => {
     const item: Item = {
       ...parisItem(),
@@ -493,7 +529,7 @@ describe("TemplateRenderer — RichTextRender", () => {
     };
     const html = render(
       {
-        content: [{ type: "RichTextRender", props: { field: "f_bio" } }],
+        content: [{ type: "RichText", props: { text: binding("f_bio") } }],
         root: { props: {} },
       },
       item,
@@ -503,35 +539,73 @@ describe("TemplateRenderer — RichTextRender", () => {
 
   it("renders nothing if the field is missing", () => {
     const html = render({
-      content: [{ type: "RichTextRender", props: { field: "f_missing" } }],
+      content: [{ type: "RichText", props: { text: binding("f_missing") } }],
       root: { props: {} },
     });
-    expect(html).not.toContain("<p>");
+    expect(html).toBe(render(EMPTY_TEMPLATE));
+  });
+
+  it("renders nothing if the bound field holds an empty string", () => {
+    const item: Item = {
+      ...parisItem(),
+      values: { ...parisItem().values, f_bio: { type: "longText", value: "" } },
+    };
+    const html = render(
+      { content: [{ type: "RichText", props: { text: binding("f_bio") } }], root: { props: {} } },
+      item,
+    );
+    expect(html).toBe(render(EMPTY_TEMPLATE));
   });
 });
 
 // ---------------------------------------------------------------------------
-// Custom registry (PR 7 extension point)
+// One library for pages and templates (#349)
 // ---------------------------------------------------------------------------
 
-describe("TemplateRenderer — custom registry", () => {
-  it("accepts a custom registry for blocks PR 7 will add", () => {
-    const customRegistry = {
-      Marker: {
-        Component: () => <div data-test="custom-block">marker</div>,
-        resolveProps: () => ({}),
-        fields: {},
-      },
+describe("resolveTemplate — page bodies", () => {
+  it("passes plain literal props through by identity", () => {
+    const button = {
+      type: "Button",
+      props: { id: "b1", text: "Listen", href: "/music", variant: "primary", isExternal: false },
     };
-    const html = renderToStaticMarkup(
-      <TemplateRenderer
-        template={{ content: [{ type: "Marker", props: {} }], root: { props: {} } }}
-        item={parisItem()}
-        collection={tourDatesDef()}
-        registry={customRegistry}
-      />,
+    const tpl = { content: [button], root: { props: {} } } as Template;
+    const resolved = resolveTemplate(tpl, parisItem());
+    expect(resolved.content[0]).toBe(button);
+  });
+
+  it("never hides a block for a plain empty literal (only a failed binding hides)", () => {
+    const tpl = {
+      content: [{ type: "Button", props: { text: "", href: "#" } }],
+      root: { props: {} },
+    } as Template;
+    expect(resolveTemplate(tpl, parisItem()).content).toHaveLength(1);
+  });
+
+  it("binds a longText field into a RichText block as paragraphs", () => {
+    const item: Item = {
+      ...parisItem(),
+      values: { ...parisItem().values, f_notes: { type: "longText", value: "One\n\nTwo" } },
+    };
+    const html = render(
+      { content: [{ type: "RichText", props: { text: binding("f_notes") } }], root: { props: {} } },
+      item,
     );
-    expect(html).toContain('data-test="custom-block"');
-    expect(html).toContain("marker");
+    expect(html).toContain("<p>One</p><p>Two</p>");
+  });
+});
+
+describe("resolveTemplate — Collection blocks need collectionSlugs", () => {
+  // ADR §4.3 cycle safety: an item template's walk passes no slugs, so a
+  // Collection block in it never resolves (and never iterates items whose
+  // templates could embed it again).
+  it("leaves a Collection block unresolved without collectionSlugs", () => {
+    const tpl = {
+      content: [{ type: "TourDatesView", props: { sourceCollection: "tour-dates" } }],
+      root: { props: {} },
+    } as Template;
+    const resolved = resolveTemplate(tpl, parisItem(), {
+      loadedCollections: { "tour-dates": { def: tourDatesDef(), items: [parisItem()] } },
+    });
+    expect((resolved.content[0] as { props: { items?: unknown } }).props.items).toBeUndefined();
   });
 });

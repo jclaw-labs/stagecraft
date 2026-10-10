@@ -706,6 +706,30 @@ describe("validateSchemaChange — template references", () => {
     );
   });
 
+  it("lets a RichText block bind a text-like field but not an image field", () => {
+    const def: CollectionDef = {
+      ...tourDatesDef(),
+      fields: [
+        ...tourDatesDef().fields,
+        { id: "f_photo", key: "photo", type: "image", required: false },
+      ],
+      itemTemplate: {
+        content: [
+          { type: "RichText", props: { text: { kind: "binding", fieldId: "f_venue" } } },
+          { type: "RichText", props: { text: { kind: "binding", fieldId: "f_photo" } } },
+        ],
+      } as unknown as CollectionDef["itemTemplate"],
+    };
+    const report = validateSchemaChange(def, def, []);
+    expect(report.issues).toEqual([
+      expect.objectContaining({
+        kind: "template-binding-type-mismatch",
+        fieldId: "f_photo",
+        expectedKind: "richText",
+      }),
+    ]);
+  });
+
   it("recurses into slot children", () => {
     const def = defWithTemplate({
       content: [

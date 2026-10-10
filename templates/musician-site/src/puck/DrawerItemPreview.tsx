@@ -39,7 +39,7 @@
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import type { BlockProps } from "./config";
-import { puckConfig } from "./config";
+import { BLOCKS } from "./config";
 
 /**
  * Component names that are unsuitable for a thumbnail-scale live
@@ -61,7 +61,7 @@ import { puckConfig } from "./config";
  *     render is just decorative gradient blocks with no context.
  *
  * The page editor's generic Collection blocks (`TourDatesView` etc., added by
- * `buildUnifiedEditorConfig`) aren't in `puckConfig.components`, so they fall
+ * `buildPuckConfig`) aren't in the block library (`BLOCKS`), so they fall
  * through to the static name-pill via the not-in-registry branch below — no
  * `STATIC_PREVIEW_BLOCKS` entry needed.
  *
@@ -110,9 +110,7 @@ function PreviewBox({ name }: { name: string }) {
   if (STATIC_PREVIEW_BLOCKS.has(name as keyof BlockProps)) {
     return <StaticFallback name={name} />;
   }
-  const component = (
-    puckConfig.components as unknown as Record<string, ConfigComponent>
-  )[name];
+  const component = (BLOCKS as unknown as Record<string, ConfigComponent>)[name];
   if (!component?.render || !component.defaultProps) {
     return <StaticFallback name={name} />;
   }

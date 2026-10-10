@@ -3,10 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bindableSchema,
   binding,
+  isBindableRef,
   literal,
   resolveBindable,
   resolveBinding,
+  resolveRichTextBindable,
   resolveStringBindable,
+  toBindableRef,
   STRING_VALUED_FIELD_TYPES,
 } from "./binding";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
@@ -293,5 +296,77 @@ describe("bindableSchema", () => {
 
   it("rejects a binding with an empty fieldId", () => {
     expect(textBindable.safeParse({ kind: "binding", fieldId: "" }).success).toBe(false);
+  });
+
+  it("accepts a plain literal — the page form (#349)", () => {
+    expect(textBindable.parse("Hello")).toBe("Hello");
+    expect(textBindable.safeParse(42).success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isBindableRef / toBindableRef
+// ---------------------------------------------------------------------------
+
+describe("isBindableRef", () => {
+  it("recognises both object arms", () => {
+    expect(isBindableRef({ kind: "literal", value: "x" })).toBe(true);
+    expect(isBindableRef({ kind: "literal", value: undefined })).toBe(true);
+    expect(isBindableRef({ kind: "binding", fieldId: "f_x" })).toBe(true);
+  });
+
+  it("treats plain literals as literals", () => {
+    for (const value of ["text", "", 0, null, undefined, { type: "doc", content: [] }, ["a"]]) {
+      expect(isBindableRef(value)).toBe(false);
+    }
+  });
+
+  it("rejects malformed refs", () => {
+    expect(isBindableRef({ kind: "literal" })).toBe(false);
+    expect(isBindableRef({ kind: "binding" })).toBe(false);
+    expect(isBindableRef({ kind: "binding", fieldId: 1 })).toBe(false);
+    expect(isBindableRef({ kind: "other", value: "x" })).toBe(false);
+  });
+});
+
+describe("toBindableRef", () => {
+  it("wraps a plain literal", () => {
+    expect(toBindableRef("Hi")).toEqual({ kind: "literal", value: "Hi" });
+  });
+
+  it("returns an object ref by identity", () => {
+    const ref = binding<string>("f_x");
+    expect(toBindableRef(ref)).toBe(ref);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveRichTextBindable
+// ---------------------------------------------------------------------------
+
+describe("resolveRichTextBindable", () => {
+  const doc = { type: "doc" as const, content: [{ type: "paragraph" }] };
+  const item = makeItem({
+    f_body: { type: "richText", value: doc },
+    f_bio: { type: "longText", value: "A bio." },
+    f_count: { type: "number", value: 3 },
+  });
+
+  it("returns a literal as-is, wrapped or plain", () => {
+    expect(resolveRichTextBindable("Plain", item)).toBe("Plain");
+    expect(resolveRichTextBindable(literal("Wrapped"), item)).toBe("Wrapped");
+  });
+
+  it("resolves a richText binding to its Tiptap doc", () => {
+    expect(resolveRichTextBindable(binding("f_body"), item)).toBe(doc);
+  });
+
+  it("resolves a string-valued binding to its text", () => {
+    expect(resolveRichTextBindable(binding("f_bio"), item)).toBe("A bio.");
+  });
+
+  it("returns undefined for a missing or non-string field", () => {
+    expect(resolveRichTextBindable(binding("f_missing"), item)).toBeUndefined();
+    expect(resolveRichTextBindable(binding("f_count"), item)).toBeUndefined();
   });
 });

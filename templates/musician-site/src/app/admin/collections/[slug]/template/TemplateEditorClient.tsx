@@ -27,11 +27,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
-import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
-import {
-  buildEditorPuckConfig,
-  type ExtraBlocks,
-} from "@/components/admin/buildEditorPuckConfig";
 import {
   PuckBackLink,
   PuckLabelPill,
@@ -42,16 +37,11 @@ import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirt
 
 import type { CollectionDef, Item } from "@/lib/collections";
 import {
-  blockNameForCollection,
-  buildCollectionBlockRegistry,
-} from "@/lib/collections/template/collection-block";
-import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
-import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
-import {
   resolveTemplate,
   type LoadedCollections,
 } from "@/lib/collections/template/renderer";
 import type { Template } from "@/lib/collections/template/types";
+import { buildPuckConfig } from "@/puck/build-config";
 
 export type TemplateKind = "item" | "detail";
 
@@ -70,11 +60,11 @@ type Props = {
   previewItems: ReadonlyArray<Item>;
   /**
    * Non-singleton CollectionDefs the detail-template editor offers as
-   * Collection blocks. Defs cross the RSC boundary as plain data; we
-   * derive both `extraBlocks` (Puck `ComponentConfig`s, whose render
-   * closures aren't serialisable) and the preview registry from them
-   * here, client-side. Item-template editors pass undefined — item
-   * templates can't embed Collection blocks (ADR §4.3 cycle safety).
+   * Collection blocks. Defs cross the RSC boundary as plain data; the
+   * editor and preview configs (whose render closures aren't
+   * serialisable) are built from them here, client-side. Item-template
+   * editors pass undefined — item templates can't embed Collection
+   * blocks (ADR §4.3 cycle safety).
    */
   iterableCollectionDefs?: ReadonlyArray<CollectionDef>;
   /**
@@ -96,18 +86,6 @@ export function TemplateEditorClient({
   iterableCollectionDefs,
   loadedCollections,
 }: Props) {
-  const extraBlocks = useMemo<ExtraBlocks | undefined>(() => {
-    if (kind !== "detail" || !iterableCollectionDefs) return undefined;
-    return Object.fromEntries(
-      iterableCollectionDefs.map((d) => [
-        blockNameForCollection(d.slug),
-        // `d` is the source collection this block iterates; `def` is
-        // the containing template's collection so the FilterField's
-        // currentItemField picker has fields to offer.
-        buildCollectionBlockComponentConfig(d, def),
-      ]),
-    );
-  }, [def, kind, iterableCollectionDefs]);
   const initialData = useMemo<Data>(() => {
     const stored = kind === "item" ? def.itemTemplate : def.detailTemplate;
     if (stored && typeof stored === "object" && "content" in stored) {
@@ -119,11 +97,16 @@ export function TemplateEditorClient({
   const config = useMemo(
     // Detail templates can embed Collection blocks (one per existing
     // collection); item templates can't, per ADR §4.3 cycle safety.
-    // `extraBlocks` is built from the server-supplied `iterableCollectionDefs`
-    // above — the closures inside each block's render aren't
-    // RSC-serialisable, so the factory has to run client-side.
-    () => buildEditorPuckConfig(def, { kind, extraBlocks }),
-    [def, kind, extraBlocks],
+    () =>
+      kind === "item"
+        ? buildPuckConfig({ variant: "editor", surface: "item-template", def })
+        : buildPuckConfig({
+            variant: "editor",
+            surface: "detail-template",
+            def,
+            collectionDefs: iterableCollectionDefs,
+          }),
+    [def, kind, iterableCollectionDefs],
   );
 
   const [status, setStatus] = useState<PuckEditorSaveStatus>("idle");
@@ -183,37 +166,29 @@ export function TemplateEditorClient({
     return previewItems.find((i) => i.slug === selectedItemSlug) ?? null;
   }, [previewItems, selectedItemSlug]);
 
-  const previewRegistry = useMemo(() => {
-    // Two different reasons for the primitives-only registry, both
-    // landing here:
-    //   - item kind → Collection blocks aren't permitted (ADR §4.3
-    //     cycle safety). Always primitives only.
-    //   - detail kind with no `iterableCollectionDefs` → caller
-    //     misconfiguration (the detail route should always pass
-    //     them). Fall back to primitives so the preview still
-    //     renders; surfaces as a missing-block-type in the resolved
-    //     output rather than a crash.
-    if (kind === "item" || !iterableCollectionDefs) return PRIMITIVE_BLOCKS;
-    const collectionRegistry = buildCollectionBlockRegistry(
-      iterableCollectionDefs.map((d) => d.slug),
-    );
-    return { ...PRIMITIVE_BLOCKS, ...collectionRegistry };
-  }, [kind, iterableCollectionDefs]);
+  // Collections whose blocks the preview resolves. Item templates get none
+  // (ADR §4.3 cycle safety); a detail editor missing its defs (a caller
+  // misconfiguration) also gets none, so its Collection blocks render
+  // nothing rather than crash.
+  const previewCollectionSlugs = useMemo(
+    () => (kind === "item" ? [] : (iterableCollectionDefs ?? []).map((d) => d.slug)),
+    [kind, iterableCollectionDefs],
+  );
 
   const previewPuckConfig = useMemo(
-    () => buildTemplatePuckConfig(previewRegistry),
-    [previewRegistry],
+    () => buildPuckConfig({ variant: "render", collectionSlugs: previewCollectionSlugs }),
+    [previewCollectionSlugs],
   );
 
   const resolvedPreview = useMemo(() => {
     if (!selectedItem) return null;
     return resolveTemplate(liveData, selectedItem, {
-      registry: previewRegistry,
+      collectionSlugs: previewCollectionSlugs,
       currentItem: selectedItem,
       itemDef: def,
       loadedCollections: loadedCollections ?? {},
     });
-  }, [liveData, selectedItem, previewRegistry, def, loadedCollections]);
+  }, [liveData, selectedItem, previewCollectionSlugs, def, loadedCollections]);
 
   const onPublish = useCallback(
     async (data: Data) => {
@@ -395,7 +370,7 @@ function PreviewPane({
   selectedSlug,
 }: {
   collectionSlug: string;
-  config: ReturnType<typeof buildTemplatePuckConfig>;
+  config: ReturnType<typeof buildPuckConfig>;
   data: Template | null;
   hasItems: boolean;
   selectedSlug: string | null;

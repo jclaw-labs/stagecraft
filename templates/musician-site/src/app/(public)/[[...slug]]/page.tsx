@@ -19,13 +19,10 @@ import {
   type CollectionDef,
   type Item,
 } from "@/lib/collections";
-import { buildCollectionBlockRegistry } from "@/lib/collections/template/collection-block";
 import { DefaultItemDetail } from "@/lib/collections/template/item-detail";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
 import { pagesCollectionDef } from "@/lib/collections/seeds";
 import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
-import { PRIMITIVE_BLOCKS } from "@/lib/collections/template/primitives";
-import { buildTemplatePuckConfig } from "@/lib/collections/template/puck-config";
 import { resolveTemplate } from "@/lib/collections/template/renderer";
 import type { Template } from "@/lib/collections/template/types";
 import {
@@ -38,7 +35,7 @@ import {
   resolveRootPageSlug,
 } from "@/lib/content";
 import { pageSlugSchema } from "@/lib/site-config-types";
-import { buildUnifiedPublicConfig } from "@/puck/unified-config";
+import { buildPuckConfig } from "@/puck/build-config";
 
 // ---------------------------------------------------------------------------
 // Per-request caches
@@ -130,13 +127,12 @@ export async function generateStaticParams(): Promise<{ slug: string[] }[]> {
  *   1. `resolveCollectionItemUrl` matches the URL against every
  *      collection's `detailUrlPrefix` (longest-prefix-first). A
  *      non-Pages match renders the collection's `detailTemplate`.
- *   2. Pages fall through to the legacy `readPageOrNull` flow,
- *      which renders via the page-specific `puckConfig` (root
- *      props + `puckContent` body). Pages don't have a
- *      `detailTemplate` — the page body IS the page, with no
- *      surrounding template — so the legacy flow stays canonical
- *      for Pages until the legacy Pages editor migrates to the
- *      collections surface.
+ *   2. Pages fall through to `renderPage`, which reads the page
+ *      with `readPageOrNull` and walks its body with the same block
+ *      library and render config as a detail template; it also owns
+ *      the root props (splash, footer, background). Pages don't have
+ *      a `detailTemplate` — the page body IS the page, with no
+ *      surrounding template.
  */
 export default async function CatchAllPage({ params }: Props) {
   const { slug: segments } = await params;
@@ -148,10 +144,8 @@ export default async function CatchAllPage({ params }: Props) {
   if (itemUrl && itemUrl.collectionSlug !== "pages") {
     // Non-Pages detail page. Pages have their own canonical
     // rendering path below — the resolver returns a `pages`
-    // collectionSlug for Page URLs too, but we skip it here so the
-    // existing `puckConfig`-based render flow applies. The legacy/
-    // collection-detail split for Pages lives until the legacy
-    // Pages editor migrates to the collections surface.
+    // collectionSlug for Page URLs too, but we skip it here so
+    // `renderPage` handles the page's root props and chrome.
     return await renderCollectionItemDetail({
       collectionSlug: itemUrl.collectionSlug,
       itemSlug: itemUrl.itemSlug,
@@ -163,7 +157,7 @@ export default async function CatchAllPage({ params }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Pages rendering (legacy puckConfig flow — still canonical for Pages)
+// Pages rendering
 // ---------------------------------------------------------------------------
 
 async function renderPage({ segs }: { segs: string[] }) {
@@ -190,30 +184,22 @@ async function renderPage({ segs }: { segs: string[] }) {
 
   if (!pageData) notFound();
 
-  // Render the page body through the template walker (ADR-015 convergence):
-  // chrome blocks (Section, Columns, …) pass through with their literal props,
-  // and Collection blocks (TourDatesView / ReleasesView / PostsView, now the
-  // generic block) resolve their items from the live collections via the same
-  // machinery the collection detail pages use. The page is its own
-  // `currentItem` (ADR-009 §2); root props / metadata / chrome stay outside
-  // the walker (handled below). `loadCollectionsForTemplate` short-circuits
-  // when the page embeds no Collection block, so the common case is cheap.
+  // Render the page body through the template walker (ADR-015 convergence),
+  // with the same block library and render config as collection templates
+  // (#349). A page's bindable props hold plain literals, which the walker
+  // passes through; Collection blocks (TourDatesView, …) resolve their items
+  // from the live collections. The page is its own `currentItem` (ADR-009
+  // §2); root props / metadata / chrome stay outside the walker (handled
+  // below). `loadCollectionsForTemplate` short-circuits when the page embeds
+  // no Collection block, so the common case is cheap.
   const allDefs = await cachedAllDefs();
   const slugs = allDefs.map((d) => d.slug);
-  // Walker registry is Collection blocks ONLY — no primitives. The page body's
-  // chrome blocks (Section, Button, Image, …) are unknown to this registry, so
-  // the walker passes them through (recursing their slots, renderer.tsx) and
-  // they render via their chrome fns in the unified config. Including
-  // primitives would mis-dispatch same-named chrome blocks to Bindable
-  // resolvers. (A collection's own itemTemplate still uses PRIMITIVE_BLOCKS
-  // internally, inside CollectionBlockItem.)
-  const registry = buildCollectionBlockRegistry(slugs);
   const pageItem = pageDataToItem(requestedSlug, pageData as Template, {
     id: `page_${requestedSlug}`,
   });
   const loaded = await loadCollectionsForTemplate(pageData as Template);
   const resolvedPageData = resolveTemplate(pageData as Template, pageItem, {
-    registry,
+    collectionSlugs: slugs,
     currentItem: pageItem,
     itemDef: pagesCollectionDef,
     loadedCollections: loaded,
@@ -256,7 +242,10 @@ async function renderPage({ segs }: { segs: string[] }) {
           }
         />
       ) : null}
-      <Render config={buildUnifiedPublicConfig(slugs)} data={resolvedPageData} />
+      <Render
+        config={buildPuckConfig({ variant: "render", collectionSlugs: slugs })}
+        data={resolvedPageData}
+      />
     </PublicPageChrome>
   );
 }
@@ -369,22 +358,17 @@ async function CollectionItemBody({
   const template = def.detailTemplate as Template | null;
   if (!template) return <DefaultItemDetail def={def} item={item} />;
 
-  // Build the extended registry: primitives + one Collection block
-  // entry per known collection. The dispatcher's render is the same
-  // `CollectionBlockRender` component regardless of slug; the slug
-  // shows up as the block's `type`.
-  const collectionRegistry = buildCollectionBlockRegistry(allDefs.map((d) => d.slug));
-  const registry = { ...PRIMITIVE_BLOCKS, ...collectionRegistry };
-
+  // A detail template may embed a Collection block for any collection.
+  const collectionSlugs = allDefs.map((d) => d.slug);
   const loaded = await loadCollectionsForTemplate(template);
   const resolved = resolveTemplate(template, item, {
-    registry,
+    collectionSlugs,
     currentItem: item,
     itemDef: def,
     loadedCollections: loaded,
   });
 
-  return <Render config={buildTemplatePuckConfig(registry)} data={resolved} />;
+  return <Render config={buildPuckConfig({ variant: "render", collectionSlugs })} data={resolved} />;
 }
 
 // ---------------------------------------------------------------------------

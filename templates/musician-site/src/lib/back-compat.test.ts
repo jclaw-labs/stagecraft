@@ -12,11 +12,11 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
-import { puckConfig } from "@/puck/config";
+import { BLOCKS } from "@/puck/config";
 import { extractPageRootProps } from "@/lib/content";
 
-function renderBlock(name: keyof typeof puckConfig.components, props: unknown): string {
-  const component = puckConfig.components[name];
+function renderBlock(name: keyof typeof BLOCKS, props: unknown): string {
+  const component = BLOCKS[name];
   const renderFn = component.render as (p: unknown) => React.ReactElement;
   // Mimic what <Render> does at runtime — merge defaults into the passed
   // props so missing fields fall back. This matches Puck's actual behaviour.

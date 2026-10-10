@@ -792,13 +792,12 @@ export const orderFileSchema = z.array(slugSchema);
 // ---------------------------------------------------------------------------
 
 /**
- * Value held by a content-bearing prop on a Primitive block in a template.
- * Either a literal of type `T`, or a binding to a `FieldId` resolved
- * against the item at render time.
+ * Value held by a content-bearing block prop. Either a literal of type `T`,
+ * or a binding to a `FieldId` resolved against the item at render time.
  *
- * Only meaningful inside templates (itemTemplate / detailTemplate /
- * listTemplate). When the artist edits a specific item's `puckContent`
- * value, every prop is a literal — there's no "field" to bind to,
+ * Bindings only mean something inside templates (itemTemplate /
+ * detailTemplate / listTemplate). Page bodies and an item's own
+ * `puckContent` hold plain literals — there's no "field" to bind to,
  * because the artist is producing this item's data, not a template.
  */
 /**
@@ -815,9 +814,20 @@ export const orderFileSchema = z.array(slugSchema);
  */
 export type BindableFormat = "year" | "weekday-day" | "full" | "label";
 
-export type Bindable<T> =
+/**
+ * The object form of a `Bindable<T>`: an explicit literal or a binding. The
+ * template editor's pickers always write this form.
+ */
+export type BindableRef<T> =
   | { kind: "literal"; value: T }
   | { kind: "binding"; fieldId: FieldId; format?: BindableFormat };
+
+/**
+ * A block prop that takes either a plain literal `T` (what the page editor
+ * writes, and every committed page body holds) or a `BindableRef<T>` (what the
+ * template editor writes). The same block works on pages and in templates.
+ */
+export type Bindable<T> = T | BindableRef<T>;
 
 // ---------------------------------------------------------------------------
 // 7. Collection-block filters (ADR-009 §5.1)

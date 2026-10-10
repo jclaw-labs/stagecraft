@@ -16,8 +16,11 @@ Puck `Config` objects (`fields`, `defaultProps`, `render`). The
 existing legacy template's tags are a reference for *what* artists need,
 not a contract for *how* Puck is configured.
 
-The Puck config at `src/puck/config.tsx` is the source of truth for
-block schemas. Don't auto-generate it from Zod; don't share block
+The block library at `src/puck/config.tsx` is the source of truth for
+block schemas — one library for pages, collection templates and item
+bodies (#349). `buildPuckConfig` (`src/puck/build-config.tsx`) is the only
+place a Puck `Config` is assembled: an `editor` variant per surface (page,
+body, item template, detail template) and a `render` variant. Don't auto-generate it from Zod; don't share block
 schemas with the legacy template. ADR-007 explicitly exempts Puck
 block configs from the cross-system SSOT rule in the top-level
 `CLAUDE.md` §1.
@@ -68,7 +71,10 @@ src/
       useSettingsForm.ts      dirty-tracking + POST hook (shared by all
                               singleton forms)
   puck/
-    config.tsx              Puck Config — blocks, root fields, render
+    config.tsx              Block library — every block, page root
+                            fields, drawer categories
+    build-config.tsx        buildPuckConfig: the one config factory
+                            (editor surfaces + render)
     ImagePickerField.tsx    Custom field for image picking
   lib/
     fs-helpers.ts           Shared filesystem primitives used by every
@@ -96,30 +102,32 @@ src/
                                           pages / site / header /
                                           appearance + their field-id
                                           maps
+                              migrate-block-library.ts
+                                          #349 content migration:
+                                          old template-primitive
+                                          vocabulary → the one block
+                                          library (run via
+                                          scripts/migrate-block-library.mjs)
                               migrate-from-legacy.ts
                                           Pure converters between the
                                           legacy PageData/SiteConfig/
                                           HeaderConfig/Appearance
                                           shapes and the new Item shape
-                              template/   PR 2 — template renderer.
-                                            Walker resolves Bindables
-                                            top-down; Puck's <Render>
-                                            then renders the resolved
-                                            data. Block components
-                                            are pure (no context, no
-                                            "use client"), see only
-                                            literal props.
+                              template/   Template renderer. Walker
+                                            resolves Bindables top-down
+                                            (pages, templates and item
+                                            bodies alike); Puck's
+                                            <Render> then renders the
+                                            resolved data. Block
+                                            components are pure (no
+                                            context, no "use client"),
+                                            see only literal props.
                                 binding.ts    Bindable<T> resolution
                                               (resolveBindable,
                                               resolveStringBindable)
-                                primitives.tsx  Primitive block library
-                                              (Section, Stack, Text,
-                                              Image, Button, Link,
-                                              RichTextRender) +
-                                              PRIMITIVE_BLOCKS registry
-                                              (frozen).
-                                puck-config.ts  templatePuckConfig
-                                              built from the registry
+                                bindable-slots.ts  Which block props
+                                              take a Bindable<T>
+                                              (BINDABLE_SLOTS)
                                 tiptap-render.tsx  Tiptap doc → React
                                 renderer.tsx  <TemplateRenderer> +
                                               `resolveTemplate` walker
@@ -471,9 +479,10 @@ These ship in stacked PRs.
 > **Collection blocks on hand-authored pages (ADR-015, done).** Pages embed a
 > collection via the generic Collection block (`<Slug>View`, e.g.
 > `TourDatesView`): the public catch-all walks the page through the ADR-009
-> template renderer (`resolveTemplate` + `buildUnifiedPublicConfig`), resolving
-> each block's `sourceCollection`/`sort`/`filter` against the live collection;
-> the page editor authors them via `buildUnifiedEditorConfig`. This replaced the
+> template renderer (`resolveTemplate` + `buildPuckConfig`'s render variant),
+> resolving each block's `sourceCollection`/`sort`/`filter` against the live
+> collection; the page editor authors them via `buildPuckConfig`'s page
+> surface. This replaced the
 > bespoke `TourDatesView`/`ReleasesView`/`PostsView` page blocks +
 > `resolvePageCollectionBlocks` (deleted). Any collection is embeddable — no
 > per-collection code. Per-slug card layouts live in `specialized-views.tsx`.

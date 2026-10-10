@@ -8,10 +8,8 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
-import {
-  buildUnifiedEditorConfig,
-  type EmbeddableCollection,
-} from "@/puck/collection-view-editor";
+import { buildPuckConfig } from "@/puck/build-config";
+import type { EmbeddableCollection } from "@/puck/collection-view-editor";
 import { BLOCK_DESCRIPTIONS } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { CollectionDef, Item } from "@/lib/collections/schema";
@@ -32,7 +30,7 @@ type Props = {
   /**
    * Collections embeddable as page blocks (non-singleton, non-`pages`),
    * resolved server-side. Drives the generic Collection-block authoring config
-   * (ADR-015 step 5) — see `buildUnifiedEditorConfig`.
+   * (ADR-015 step 5) — see `buildPuckConfig`'s page surface.
    */
   embeddableCollections: EmbeddableCollection[];
   /** The site's theme, applied to the canvas so it matches the public page. */
@@ -70,12 +68,12 @@ export function Editor({
   embeddableCollections,
   appearance,
 }: Props) {
-  // Page editor's unified config (ADR-015 step 5): chrome blocks + the generic
-  // Collection-block authoring config per embeddable collection. Memoised so
+  // The block library's page surface (#349): every block, the page root
+  // fields, and a Collection block per embeddable collection. Memoised so
   // Puck doesn't re-init on every keystroke (a fresh config identity resets
   // editor state).
   const config = useMemo(
-    () => buildUnifiedEditorConfig(embeddableCollections),
+    () => buildPuckConfig({ variant: "editor", surface: "page", collections: embeddableCollections }),
     [embeddableCollections],
   );
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });

@@ -2,10 +2,14 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
+import { asImageId, type ImageMetadata } from "@/lib/image-types";
+
 import {
   BLOCK_DESCRIPTIONS,
   newsletterUrlDescription,
-  puckConfig,
+  BLOCKS,
+  BLOCK_CATEGORIES,
+  PAGE_ROOT,
   HEADING_LEVELS,
   SECTION_WIDTHS,
   BUTTON_VARIANTS,
@@ -14,20 +18,20 @@ import {
   TEXT_ALIGNMENTS,
 } from "./config";
 
-function render<K extends keyof typeof puckConfig.components>(
+function render<K extends keyof typeof BLOCKS>(
   name: K,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   props: any,
 ): string {
-  const component = puckConfig.components[name];
+  const component = BLOCKS[name];
   // Puck's render is typed loosely; cast to a callable for tests.
   const renderFn = component.render as (p: unknown) => React.ReactElement;
   return renderToStaticMarkup(createElement(() => renderFn(props)));
 }
 
-describe("puckConfig", () => {
+describe("block library", () => {
   it("exposes the expected block names", () => {
-    expect(Object.keys(puckConfig.components).sort()).toEqual(
+    expect(Object.keys(BLOCKS).sort()).toEqual(
       [
         "Button",
         "ButtonRow",
@@ -47,16 +51,19 @@ describe("puckConfig", () => {
         "NewsletterSignup",
         "Quote",
         "RichText",
+        "Link",
         "Section",
         "Spacer",
+        "Stack",
+        "Text",
       ].sort(),
     );
   });
 
   it("declares per-page root fields (title, isSplashPage, isFooterHidden)", () => {
-    expect(puckConfig.root?.fields?.title?.type).toBe("text");
-    expect(puckConfig.root?.fields?.isSplashPage?.type).toBe("radio");
-    expect(puckConfig.root?.fields?.isFooterHidden?.type).toBe("radio");
+    expect(PAGE_ROOT.fields?.title?.type).toBe("text");
+    expect(PAGE_ROOT.fields?.isSplashPage?.type).toBe("radio");
+    expect(PAGE_ROOT.fields?.isFooterHidden?.type).toBe("radio");
   });
 
   it("categorises every registered component (no implicit `other` group)", () => {
@@ -66,16 +73,16 @@ describe("puckConfig", () => {
     // in an unstyled fallback section. Catch that here rather than
     // discovering it via "where's my block in the drawer?".
     const inCategories = new Set(
-      Object.values(puckConfig.categories ?? {}).flatMap(
+      Object.values(BLOCK_CATEGORIES ?? {}).flatMap(
         (c) => c?.components ?? [],
       ),
     );
-    const categoryKeys = Object.keys(puckConfig.categories ?? {}).join(" | ");
-    for (const name of Object.keys(puckConfig.components)) {
+    const categoryKeys = Object.keys(BLOCK_CATEGORIES ?? {}).join(" | ");
+    for (const name of Object.keys(BLOCKS)) {
       expect(
         inCategories,
         `block "${name}" is not assigned to any drawer category. ` +
-          `Add it to one of [${categoryKeys}] in puckConfig.categories ` +
+          `Add it to one of [${categoryKeys}] in BLOCK_CATEGORIES ` +
           `(src/puck/config.tsx).`,
       ).toContain(name);
     }
@@ -88,7 +95,7 @@ describe("puckConfig", () => {
     // block being added via cast / refactor that bypasses the static
     // record.
     const where = "Add an entry in BLOCK_DESCRIPTIONS (src/puck/config.tsx).";
-    for (const name of Object.keys(puckConfig.components)) {
+    for (const name of Object.keys(BLOCKS)) {
       const description =
         BLOCK_DESCRIPTIONS[name as keyof typeof BLOCK_DESCRIPTIONS];
       expect(
@@ -105,7 +112,7 @@ describe("puckConfig", () => {
 
   describe("Heading", () => {
     it("select options match HEADING_LEVELS", () => {
-      const field = puckConfig.components.Heading.fields?.level;
+      const field = BLOCKS.Heading.fields?.level;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...HEADING_LEVELS]);
@@ -115,7 +122,7 @@ describe("puckConfig", () => {
 
   describe("Section", () => {
     it("select options match SECTION_WIDTHS", () => {
-      const field = puckConfig.components.Section.fields?.width;
+      const field = BLOCKS.Section.fields?.width;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...SECTION_WIDTHS]);
@@ -125,7 +132,7 @@ describe("puckConfig", () => {
     it("uses a slot for children (artists drop blocks inside, not a textarea body)", () => {
       // Puck's `Config<T>` generic collapses BlockProps.Section's `children`
       // slot through the same path as Image — cast for the runtime check.
-      const fields = (puckConfig.components.Section.fields ?? {}) as Record<
+      const fields = (BLOCKS.Section.fields ?? {}) as Record<
         string,
         { type?: string }
       >;
@@ -175,7 +182,7 @@ describe("puckConfig", () => {
 
   describe("Button", () => {
     it("select options match BUTTON_VARIANTS", () => {
-      const field = puckConfig.components.Button.fields?.variant;
+      const field = BLOCKS.Button.fields?.variant;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...BUTTON_VARIANTS]);
@@ -211,12 +218,12 @@ describe("puckConfig", () => {
       // through the branded ImageId — TS infers `fields` as `{}` so the
       // `image`/`caption` keys aren't statically reachable. Cast through
       // a permissive shape; runtime keys + types are what we're asserting.
-      const fields = (puckConfig.components.Image.fields ?? {}) as Record<
+      const fields = (BLOCKS.Image.fields ?? {}) as Record<
         string,
         { type?: string }
       >;
       const fieldKeys = Object.keys(fields).sort();
-      expect(fieldKeys).toEqual(["aspectRatio", "caption", "image", "tone"].sort());
+      expect(fieldKeys).toEqual(["altOverride", "aspectRatio", "caption", "image", "tone"].sort());
       expect(fields.image?.type).toBe("custom");
     });
 
@@ -258,7 +265,7 @@ describe("puckConfig", () => {
 
   describe("Spacer", () => {
     it("select options match SPACER_SIZES", () => {
-      const field = puckConfig.components.Spacer.fields?.size;
+      const field = BLOCKS.Spacer.fields?.size;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...SPACER_SIZES]);
@@ -289,7 +296,7 @@ describe("puckConfig", () => {
       (() => label as unknown as React.ReactElement) as unknown;
 
     it("count options match COLUMN_COUNTS", () => {
-      const field = puckConfig.components.Columns.fields?.count;
+      const field = BLOCKS.Columns.fields?.count;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...COLUMN_COUNTS]);
@@ -297,7 +304,7 @@ describe("puckConfig", () => {
     });
 
     it("declares col1..col4 as slots (each column accepts any block)", () => {
-      const fields = (puckConfig.components.Columns.fields ?? {}) as Record<
+      const fields = (BLOCKS.Columns.fields ?? {}) as Record<
         string,
         { type?: string }
       >;
@@ -528,7 +535,7 @@ describe("puckConfig", () => {
     });
 
     it("select options match EMBED_ASPECT_RATIOS", () => {
-      const field = puckConfig.components.EmbedResponsive.fields?.aspectRatio;
+      const field = BLOCKS.EmbedResponsive.fields?.aspectRatio;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["auto", "16/9", "4/3", "1/1"]);
@@ -562,7 +569,7 @@ describe("puckConfig", () => {
     });
 
     it("declares `children` as a slot so any block can nest", () => {
-      const fields = (puckConfig.components.CenteredBlock.fields ?? {}) as Record<
+      const fields = (BLOCKS.CenteredBlock.fields ?? {}) as Record<
         string,
         { type?: string }
       >;
@@ -573,7 +580,7 @@ describe("puckConfig", () => {
     });
 
     it("select options match CENTERED_BLOCK_MAX_WIDTHS", () => {
-      const field = puckConfig.components.CenteredBlock.fields?.maxWidth;
+      const field = BLOCKS.CenteredBlock.fields?.maxWidth;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["narrow", "regular"]);
@@ -704,7 +711,7 @@ describe("puckConfig", () => {
     });
 
     it("select options match CARD_ORIENTATIONS", () => {
-      const field = puckConfig.components.Card.fields?.orientation;
+      const field = BLOCKS.Card.fields?.orientation;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["vertical", "horizontal"]);
@@ -742,7 +749,7 @@ describe("puckConfig", () => {
     });
 
     it("select options match CARD_VARIANTS", () => {
-      const field = puckConfig.components.Card.fields?.variant;
+      const field = BLOCKS.Card.fields?.variant;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["filled", "outlined", "minimal"]);
@@ -810,7 +817,7 @@ describe("puckConfig", () => {
     });
 
     it("size select options match CARD_SIZES", () => {
-      const field = puckConfig.components.Card.fields?.size;
+      const field = BLOCKS.Card.fields?.size;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual(["sm", "md", "lg"]);
@@ -978,7 +985,7 @@ describe("puckConfig", () => {
     });
 
     it("Puck field is a radio (off / on)", () => {
-      const field = puckConfig.components.Card.fields?.isHoverable;
+      const field = BLOCKS.Card.fields?.isHoverable;
       expect(field?.type).toBe("radio");
       if (field?.type === "radio") {
         expect(field.options.map((o) => o.value)).toEqual([false, true]);
@@ -1117,24 +1124,24 @@ describe("puckConfig", () => {
       // The on-disk shape (`pageRootPropsSchema`) carries `pageBackground:
       // ImageMetadata | null`; the Puck root field surfaces it through
       // the same ImagePickerField the Image block uses.
-      const field = puckConfig.root?.fields?.pageBackground;
+      const field = PAGE_ROOT.fields?.pageBackground;
       expect(field?.type).toBe("custom");
-      expect(puckConfig.root?.defaultProps?.pageBackground).toBeNull();
+      expect(PAGE_ROOT.defaultProps?.pageBackground).toBeNull();
     });
 
     it("declares pageBackgroundOverlay as a custom field with a null default (inherit)", () => {
       // Custom (not number) so the editor can express null=inherit vs
       // 0..1=explicit override unambiguously — see PageOverlayField.
-      const field = puckConfig.root?.fields?.pageBackgroundOverlay;
+      const field = PAGE_ROOT.fields?.pageBackgroundOverlay;
       expect(field?.type).toBe("custom");
       // Default null = inherit the site-wide overlay.
-      expect(puckConfig.root?.defaultProps?.pageBackgroundOverlay).toBeNull();
+      expect(PAGE_ROOT.defaultProps?.pageBackgroundOverlay).toBeNull();
     });
   });
 
   describe("NewsletterSignup — optional name field", () => {
     it("exposes hasNameField + nameLabel as inspector fields", () => {
-      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+      const fields = (BLOCKS.NewsletterSignup.fields ?? {}) as Record<
         string,
         { type?: string }
       >;
@@ -1143,7 +1150,7 @@ describe("puckConfig", () => {
     });
 
     it("defaults hasNameField to false (email-only) and nameLabel to 'First name'", () => {
-      const defaults = puckConfig.components.NewsletterSignup.defaultProps as Record<
+      const defaults = BLOCKS.NewsletterSignup.defaultProps as Record<
         string,
         unknown
       >;
@@ -1154,7 +1161,7 @@ describe("puckConfig", () => {
 
   describe("NewsletterSignup — additional fields array", () => {
     it("exposes additionalFields as an array field with label / name / type sub-fields", () => {
-      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+      const fields = (BLOCKS.NewsletterSignup.fields ?? {}) as Record<
         string,
         { type?: string; arrayFields?: Record<string, { type?: string }> }
       >;
@@ -1166,7 +1173,7 @@ describe("puckConfig", () => {
     });
 
     it("the type sub-field options match NEWSLETTER_FIELD_TYPES", () => {
-      const fields = (puckConfig.components.NewsletterSignup.fields ?? {}) as Record<
+      const fields = (BLOCKS.NewsletterSignup.fields ?? {}) as Record<
         string,
         {
           arrayFields?: Record<
@@ -1185,7 +1192,7 @@ describe("puckConfig", () => {
     });
 
     it("defaults additionalFields to an empty array (no extra fields out of the box)", () => {
-      const defaults = puckConfig.components.NewsletterSignup.defaultProps as Record<
+      const defaults = BLOCKS.NewsletterSignup.defaultProps as Record<
         string,
         unknown
       >;
@@ -1239,7 +1246,7 @@ describe("puckConfig", () => {
     // renderer silently drops the colliding row, so without this the
     // artist would just see their field vanish.
     function resolveNewsletterFields(props: Record<string, unknown>) {
-      const config = puckConfig.components.NewsletterSignup as unknown as {
+      const config = BLOCKS.NewsletterSignup as unknown as {
         resolveFields: (
           data: { props: Record<string, unknown> },
           params: { fields: Record<string, { label?: string }> },
@@ -1384,7 +1391,7 @@ describe("puckConfig", () => {
       // small data shape and confirm the returned actionUrl is a
       // custom field — render is the only public surface of the
       // hint, so we render it and assert the warning text appears.
-      const config = puckConfig.components.NewsletterSignup as unknown as {
+      const config = BLOCKS.NewsletterSignup as unknown as {
         resolveFields: (
           data: { props: { service: string; actionUrl: string } },
           params: { fields: Record<string, { type?: string }> },
@@ -1411,7 +1418,7 @@ describe("puckConfig", () => {
 
   describe("text alignment shared enum", () => {
     it("Heading exposes start/center/end via a select", () => {
-      const field = puckConfig.components.Heading.fields?.textAlign;
+      const field = BLOCKS.Heading.fields?.textAlign;
       expect(field?.type).toBe("select");
       if (field?.type === "select") {
         expect(field.options.map((o) => o.value)).toEqual([...TEXT_ALIGNMENTS]);
@@ -1451,7 +1458,7 @@ describe("puckConfig", () => {
     it("exposes no artist-editable fields", () => {
       // The form is intentionally fixed — the only configurable bit is
       // the delivery address in site.json#contactEmail.
-      const fields = puckConfig.components.ContactForm.fields ?? {};
+      const fields = BLOCKS.ContactForm.fields ?? {};
       expect(Object.keys(fields)).toHaveLength(0);
     });
 
@@ -1511,5 +1518,65 @@ describe("puckConfig", () => {
       const html = render("Gallery", { images: [] });
       expect(html).toBe("");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blocks merged from the template primitives (#349)
+// ---------------------------------------------------------------------------
+
+describe("merged template blocks", () => {
+  const photo: ImageMetadata = {
+    id: asImageId("abc1234567890def"),
+    alt: "Stored alt",
+    width: 1600,
+    height: 1067,
+    placeholderDataUri: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4TAo=",
+    contentSlug: "home",
+    originalExt: "jpg",
+  };
+
+  it("RichText renders a Tiptap doc (a bound richText field) as rich text", () => {
+    const html = render("RichText", {
+      text: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Bound body" }] }] },
+      align: "start",
+    });
+    expect(html).toContain("<p>Bound body</p>");
+  });
+
+  it("RichText still splits plain text into paragraphs", () => {
+    const html = render("RichText", { text: "One\n\nTwo", align: "start" });
+    expect(html).toContain("<p>One</p><p>Two</p>");
+  });
+
+  it("Image uses altOverride when set and the stored alt otherwise", () => {
+    const base = { image: photo, caption: "", aspectRatio: "auto", tone: "accent" };
+    expect(render("Image", { ...base, altOverride: "Override" })).toContain('alt="Override"');
+    expect(render("Image", { ...base, altOverride: "" })).toContain('alt="Stored alt"');
+  });
+
+  it("Text renders its variant and renders nothing when empty", () => {
+    expect(render("Text", { content: "Hello", variant: "lead", align: "center" })).toContain(
+      "font-size:var(--font-size-lg)",
+    );
+    expect(render("Text", { content: "", variant: "body", align: "start" })).toBe("");
+  });
+
+  it("Link renders an anchor and nothing without a label or href", () => {
+    expect(render("Link", { label: "More", href: "/more" })).toBe('<a href="/more">More</a>');
+    expect(render("Link", { label: "", href: "/more" })).toBe("");
+  });
+
+  it("Stack lays its children out as a flex row or column", () => {
+    const html = render("Stack", {
+      direction: "horizontal",
+      gap: "small",
+      align: "center",
+      justify: "between",
+      children: () => null,
+    });
+    expect(html).toContain("flex-direction:row");
+    expect(html).toContain("gap:var(--space-2)");
+    expect(html).toContain("justify-content:space-between");
   });
 });
