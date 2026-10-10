@@ -96,11 +96,16 @@ Both writers of `main` — `commitSelectedPathsInto` (selected publish)
 and `squashBranchInto` (full publish) — guard their `updateRef main`
 with the same stale-ref retry as `commitFiles` (one shared helper,
 `retryOnStaleRef` in `git-commit.ts`). So any two publishes on `main`
-serialize: the loser rebuilds on the new `main`. A full publish that
-loses first merges the new `main` into the draft, because the squash
-takes the draft's *whole* tree — rebuilding without that merge would
-revert what the winner just published. Exhausting the retries surfaces
-as `concurrent-edit`, as for saves.
+serialize: the loser rebuilds on the new `main`. The squash takes the
+draft's *whole* tree, so a full publish also checks, on every attempt,
+that the draft contains the `main` it is about to build on. If it
+doesn't (a publish landed after the auto-rebase, or between a retry's
+merge and the next attempt), that counts as a lost race: the new `main`
+is merged into the draft first, so the squash can't revert what the
+other publish shipped. Exhausting the retries surfaces as
+`concurrent-edit`, as for saves. A full publish only moves `main`; it
+then merges `main` back into the draft, the same reconcile step as
+below.
 
 If step 3 succeeds but step 4 (reconcile) fails, `main` already has the
 selected changes (the deploy fired) while `draft` is behind on those

@@ -85,15 +85,17 @@ function isStaleRefError(cause: unknown): cause is RequestError {
 }
 
 /**
- * Internal signal: the guarded `updateRef` of one attempt lost the race
- * (stale-ref 422). Thrown only by {@link updateRefOrSignalStale}, so a
- * stale-ref 422 from some *other* ref update in the same attempt (e.g.
- * `squashBranchInto`'s source-branch update) never triggers a retry.
+ * Internal signal: one attempt built on a `toBranch` HEAD that is no
+ * longer safe to publish on. Thrown by {@link updateRefOrSignalStale}
+ * when the guarded `updateRef` loses the race (stale-ref 422), and by
+ * `squashOnce` when the source branch doesn't contain that HEAD yet.
+ * A stale-ref 422 from any other GitHub call never becomes this signal,
+ * so it never triggers a retry.
  */
 class StaleRefSignal extends Error {
   constructor(
     public readonly parentSha: string,
-    public readonly cause: RequestError,
+    public readonly cause: unknown,
   ) {
     super(`stale ref (attempt was parented on ${parentSha})`);
     this.name = "StaleRefSignal";
@@ -325,10 +327,13 @@ export type SquashBranchIntoResult = {
 /**
  * Squash `fromBranch` into `toBranch`: create a new commit on
  * `toBranch` whose parent is `toBranch`'s current HEAD and whose
- * tree comes from `fromBranch`'s current HEAD. Then fast-forward
- * `fromBranch` to point at the new commit (so the invariant
- * `fromBranch === toBranch OR fromBranch is ahead of toBranch`
- * holds again).
+ * tree comes from `fromBranch`'s current HEAD. Only `toBranch` moves.
+ * The squash doesn't descend from `fromBranch`'s HEAD, so moving
+ * `fromBranch` onto it would be a non-fast-forward that GitHub
+ * rejects without `force` (and `force` could drop a save landing at
+ * the same moment). The caller brings `fromBranch` along afterwards by
+ * merging `toBranch` into it: the trees match, so that merge is clean
+ * and leaves `fromBranch` a descendant of `toBranch` again.
  *
  * Per ADR-010 §3 — this is the Publish flow. The per-save commits
  * on `fromBranch` between the previous and new `toBranch` HEAD
@@ -368,14 +373,21 @@ export async function squashBranchInto(
       });
       if (merge.kind === "conflict") {
         throw new Error(
-          `squashBranchInto: ${toBranch} moved during publish and ${fromBranch} can't merge it cleanly.`,
+          `squashBranchInto: ${toBranch} moved during publish and ${fromBranch} can't merge it cleanly. Discard pending changes or contact support.`,
         );
       }
     },
   );
 }
 
-/** One squash attempt: build on `toBranch`'s current HEAD, then move both refs. */
+/**
+ * One squash attempt: build on `toBranch`'s current HEAD and move
+ * `toBranch` to the squash. The squash takes `fromBranch`'s whole tree,
+ * so it is only safe when `fromBranch` already contains that HEAD;
+ * otherwise it would revert whatever `toBranch` gained since the last
+ * merge (another editor's publish, say). In that case the attempt
+ * signals stale and `retryOnStaleRef` merges `toBranch` in first.
+ */
 async function squashOnce(
   octokit: Octokit,
   args: SquashBranchIntoArgs,
@@ -393,14 +405,36 @@ async function squashOnce(
     return { commitSha: toSha, alreadyInSync: true };
   }
 
+  // `toBranch` must be an ancestor of `fromBranch` (`ahead`), else
+  // `fromBranch`'s tree is missing `toBranch`'s newest commits. This
+  // covers a publish landing after the caller's auto-rebase, and one
+  // landing between a retry's merge and this attempt's `getRef`.
+  const compare = await octokit.repos.compareCommitsWithBasehead({
+    owner,
+    repo,
+    basehead: `${toSha}...${fromSha}`,
+    per_page: 1,
+  });
+  if (compare.data.status !== "ahead") {
+    throw new StaleRefSignal(
+      toSha,
+      new Error(`${fromBranch} doesn't contain ${toBranch} (${compare.data.status})`),
+    );
+  }
+
   // Take the tree pointer off the source-branch's HEAD commit. We're
   // not building a new tree from blobs — we're reusing what `draft`
   // already committed.
-  const fromCommit = await octokit.git.getCommit({
-    owner,
-    repo,
-    commit_sha: fromSha,
-  });
+  const [fromCommit, toCommit] = await Promise.all([
+    octokit.git.getCommit({ owner, repo, commit_sha: fromSha }),
+    octokit.git.getCommit({ owner, repo, commit_sha: toSha }),
+  ]);
+  // Same tree means nothing to publish (e.g. the draft's only commits
+  // since the last publish are merges of `toBranch`). Skip the empty
+  // commit: it would trigger a pointless deploy.
+  if (fromCommit.data.tree.sha === toCommit.data.tree.sha) {
+    return { commitSha: toSha, alreadyInSync: true };
+  }
 
   const squash = await octokit.git.createCommit({
     owner,
@@ -411,24 +445,9 @@ async function squashOnce(
     author: args.author,
   });
 
-  // Update the source ref first — that preserves ADR-010's invariant
-  // (`fromBranch === toBranch OR fromBranch is ahead of toBranch`) on
-  // partial failure. If we updated `toBranch` first and then the
-  // `fromBranch` FF failed, `fromBranch` would be BEHIND `toBranch`,
-  // and the next save's commit would be parented on stale draft
-  // state — silently dropping `toBranch`'s recent content on the
-  // next squash. Doing it this way leaves `fromBranch` ahead of
-  // `toBranch` on partial failure, which the next call self-heals.
-  //
-  // Only the `toBranch` update is the guarded race: a stale ref there
+  // Only `toBranch` moves (see `squashBranchInto`); a stale ref here
   // means another publish landed between our `getRef` and now, and
   // `retryOnStaleRef` merges + rebuilds.
-  await octokit.git.updateRef({
-    owner,
-    repo,
-    ref: `heads/${fromBranch}`,
-    sha: squash.data.sha,
-  });
   await updateRefOrSignalStale(
     octokit,
     { owner, repo, ref: `heads/${toBranch}`, sha: squash.data.sha },

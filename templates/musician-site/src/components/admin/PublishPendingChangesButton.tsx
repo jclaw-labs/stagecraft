@@ -31,6 +31,7 @@ import type { CSSProperties } from "react";
 import {
   PUBLISH_WARNING_MESSAGES,
   type PublishError as PublishErrorPayload,
+  publishWarningSchema,
   type PublishWarning,
 } from "@/lib/publish-types";
 
@@ -311,8 +312,12 @@ type PublishDraftSuccessBody = {
   commitSha: string | null;
   mode: string;
   alreadyInSync: boolean;
-  /** Only `/api/publish-selected` sets this (ADR-012 reconcile follow-up). */
-  warning?: PublishWarning;
+  /**
+   * ADR-012 reconcile follow-up. Typed `unknown` because it comes off
+   * the wire: `statusForFetchResponse` parses it, so a value this build
+   * doesn't know never renders an empty note.
+   */
+  warning?: unknown;
 };
 
 /**
@@ -355,7 +360,8 @@ function statusForFetchResponse(
   if (body.alreadyInSync) {
     return { kind: "noop" };
   }
-  const warning = body.warning ? { warning: body.warning } : {};
+  const parsedWarning = publishWarningSchema.safeParse(body.warning);
+  const warning = parsedWarning.success ? { warning: parsedWarning.data } : {};
   if (body.mode === "local" || body.commitSha === null) {
     // Dev fallback: no deploy to poll for; treat as immediately
     // live. The artist's local dev server already serves the

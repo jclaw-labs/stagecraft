@@ -10,11 +10,12 @@ const createCommit = vi.fn();
 const createRef = vi.fn();
 const updateRef = vi.fn();
 const reposMerge = vi.fn();
+const compareCommitsWithBasehead = vi.fn();
 
 vi.mock("@octokit/rest", () => ({
   Octokit: class {
     git = { getRef, getCommit, getTree, createBlob, createTree, createCommit, createRef, updateRef };
-    repos = { merge: reposMerge };
+    repos = { merge: reposMerge, compareCommitsWithBasehead };
   },
 }));
 
@@ -38,6 +39,7 @@ beforeEach(() => {
   createRef.mockReset();
   updateRef.mockReset();
   reposMerge.mockReset();
+  compareCommitsWithBasehead.mockReset();
 });
 
 function setupHappyPath() {
@@ -566,114 +568,120 @@ describe("ensureBranchExists", () => {
 // ---------------------------------------------------------------------------
 
 describe("squashBranchInto", () => {
-  it("creates a new commit on toBranch with fromBranch's tree, then FFs fromBranch", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } }) // fromBranch
-      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } }); // toBranch
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree-sha" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
-    updateRef.mockResolvedValue({ data: {} });
+  // An ancestry-aware fake of the slice of GitHub that squashBranchInto
+  // and mergeBranchInto use. Unlike per-call mocks it enforces what the
+  // real API does: a non-forced updateRef must be a fast-forward, merges
+  // are three-way per file, and compare reports ahead / behind /
+  // diverged from real ancestry. So a ref move GitHub would reject fails
+  // here too.
+  type Files = Record<string, string>;
+  let commits: Map<string, { tree: string; parents: string[] }>;
+  let trees: Map<string, Files>;
+  let refs: Map<string, string>;
+  let seq: number;
+  /** Runs inside each updateRef of main, before the write (a racing publish). */
+  let beforeMainUpdate: (() => void) | undefined;
 
-    const result = await squashBranchInto({
-      token: "t",
-      owner: "o",
-      repo: "r",
-      fromBranch: "draft",
-      toBranch: "main",
-      message: "Publish from draft",
-      author: { name: "A", email: "a@e.com" },
-    });
-
-    expect(result).toEqual({ commitSha: "squash-sha", alreadyInSync: false });
-    // Squash commit: parent = main's current HEAD, tree = draft's tree.
-    expect(createCommit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        owner: "o",
-        repo: "r",
-        message: "Publish from draft",
-        tree: "draft-tree-sha",
-        parents: ["main-head"],
-        author: { name: "A", email: "a@e.com" },
-      }),
-    );
-    // Both refs end at the new commit. Order MATTERS: source (draft)
-    // first, then target (main). On partial failure that order
-    // preserves ADR-010's invariant `draft.sha === main.sha OR draft
-    // is ahead of main`; the reverse order would leave draft behind
-    // main and the next save would lose data.
-    expect(updateRef).toHaveBeenNthCalledWith(1, {
-      owner: "o",
-      repo: "r",
-      ref: "heads/draft",
-      sha: "squash-sha",
-    });
-    expect(updateRef).toHaveBeenNthCalledWith(2, {
-      owner: "o",
-      repo: "r",
-      ref: "heads/main",
-      sha: "squash-sha",
-    });
-  });
-
-  it("on partial failure (draft updated, main not) the invariant holds (draft ahead of main)", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
-      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
-    // First updateRef (draft) succeeds; second (main) throws.
-    updateRef
-      .mockResolvedValueOnce({ data: {} })
-      .mockRejectedValueOnce(new Error("transient: 503"));
-    await expect(
-      squashBranchInto({
-        token: "t",
-        owner: "o",
-        repo: "r",
-        fromBranch: "draft",
-        toBranch: "main",
-        message: "msg",
-      }),
-    ).rejects.toThrow("transient: 503");
-    // Crucially: draft *did* get updated to the squash. Next save's
-    // commitFiles will append to it, and the retry's squash will
-    // catch main up from a draft tree that includes the previous
-    // squash's content.
-    expect(updateRef).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      ref: "heads/draft",
-      sha: "squash-sha",
-    }));
-  });
-
-  it("returns alreadyInSync without creating a commit when the refs match", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "same" } } })
-      .mockResolvedValueOnce({ data: { object: { sha: "same" } } });
-    const result = await squashBranchInto({
-      token: "t",
-      owner: "o",
-      repo: "r",
-      fromBranch: "draft",
-      toBranch: "main",
-      message: "noop",
-    });
-    expect(result).toEqual({ commitSha: "same", alreadyInSync: true });
-    expect(getCommit).not.toHaveBeenCalled();
-    expect(createCommit).not.toHaveBeenCalled();
-    expect(updateRef).not.toHaveBeenCalled();
-  });
-
-  // -------------------------------------------------------------------------
-  // Stale-ref retry on the toBranch update (ADR-012 "Concurrency")
-  // -------------------------------------------------------------------------
-
-  function staleMainError(): RequestError {
-    const message = "Update is not a fast-forward";
-    return new RequestError(message, 422, {
-      request: { method: "PATCH", url: "x", headers: {} },
-      response: { status: 422, url: "x", headers: {}, data: { message } },
+  function treeSha(files: Files): string {
+    const sha = `tree:${JSON.stringify(Object.entries(files).sort())}`;
+    trees.set(sha, files);
+    return sha;
+  }
+  function commit(files: Files, parents: string[]): string {
+    const sha = `c${seq++}`;
+    commits.set(sha, { tree: treeSha(files), parents });
+    return sha;
+  }
+  function filesAt(sha: string): Files {
+    return trees.get(commits.get(sha)!.tree)!;
+  }
+  function ancestors(sha: string): Set<string> {
+    const seen = new Set<string>();
+    const queue = [sha];
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(...commits.get(next)!.parents);
+    }
+    return seen;
+  }
+  const isAncestor = (a: string, b: string) => ancestors(b).has(a);
+  function requestError(status: number, message: string): RequestError {
+    return new RequestError(message, status, {
+      request: { method: "POST", url: "x", headers: {} },
+      response: { status, url: "x", headers: {}, data: { message } },
     });
   }
+  /** Land a commit on main directly, as another editor's publish would. */
+  function landOnMain(files: Files): string {
+    const sha = commit(files, [refs.get("heads/main")!]);
+    refs.set("heads/main", sha);
+    return sha;
+  }
+
+  beforeEach(() => {
+    commits = new Map();
+    trees = new Map();
+    refs = new Map();
+    seq = 0;
+    beforeMainUpdate = undefined;
+
+    getRef.mockImplementation(async ({ ref }: { ref: string }) => ({
+      data: { object: { sha: refs.get(ref)! } },
+    }));
+    getCommit.mockImplementation(async ({ commit_sha }: { commit_sha: string }) => ({
+      data: { tree: { sha: commits.get(commit_sha)!.tree } },
+    }));
+    createCommit.mockImplementation(
+      async ({ tree, parents }: { tree: string; parents: string[] }) => {
+        const sha = `c${seq++}`;
+        commits.set(sha, { tree, parents });
+        return { data: { sha } };
+      },
+    );
+    updateRef.mockImplementation(
+      async ({ ref, sha, force }: { ref: string; sha: string; force?: boolean }) => {
+        if (ref === "heads/main") beforeMainUpdate?.();
+        if (!force && !isAncestor(refs.get(ref)!, sha)) {
+          throw requestError(422, "Update is not a fast forward");
+        }
+        refs.set(ref, sha);
+        return { data: {} };
+      },
+    );
+    compareCommitsWithBasehead.mockImplementation(async ({ basehead }: { basehead: string }) => {
+      const [base, head] = basehead.split("...");
+      const status =
+        base === head
+          ? "identical"
+          : isAncestor(base, head)
+            ? "ahead"
+            : isAncestor(head, base)
+              ? "behind"
+              : "diverged";
+      return { data: { status } };
+    });
+    reposMerge.mockImplementation(async ({ base, head }: { base: string; head: string }) => {
+      const ours = refs.get(`heads/${base}`)!;
+      const theirs = refs.get(`heads/${head}`)!;
+      if (isAncestor(theirs, ours)) return { status: 204, data: {} };
+      const theirAncestors = ancestors(theirs);
+      const mergeBase = [...ancestors(ours)].find((sha) => theirAncestors.has(sha))!;
+      const [b, o, t] = [filesAt(mergeBase), filesAt(ours), filesAt(theirs)];
+      const merged: Files = {};
+      for (const path of new Set([...Object.keys(o), ...Object.keys(t)])) {
+        let value: string | undefined;
+        if (o[path] === t[path] || t[path] === b[path]) value = o[path];
+        else if (o[path] === b[path]) value = t[path];
+        else throw requestError(409, "Merge conflict");
+        if (value !== undefined) merged[path] = value;
+      }
+      const sha = commit(merged, [ours, theirs]);
+      refs.set(`heads/${base}`, sha);
+      return { status: 201, data: { sha } };
+    });
+  });
 
   const SQUASH_ARGS = {
     token: "t",
@@ -682,131 +690,146 @@ describe("squashBranchInto", () => {
     fromBranch: "draft",
     toBranch: "main",
     message: "Publish",
+    author: { name: "A", email: "a@e.com" },
   };
 
-  /** updateRef: draft updates succeed; main updates follow `mainOutcomes`. */
-  function updateRefByBranch(mainOutcomes: Array<"stale" | "ok">) {
-    const queue = [...mainOutcomes];
-    updateRef.mockImplementation(({ ref }: { ref: string }) => {
-      if (ref !== "heads/main") return Promise.resolve({ data: {} });
-      return queue.shift() === "stale"
-        ? Promise.reject(staleMainError())
-        : Promise.resolve({ data: {} });
-    });
+  /** main at a root commit; draft one save ahead of it. */
+  function setupDraftAhead(): { root: string; draft: string } {
+    const root = commit({ "a.json": "1" }, []);
+    const draft = commit({ "a.json": "1", "b.json": "draft" }, [root]);
+    refs.set("heads/main", root);
+    refs.set("heads/draft", draft);
+    return { root, draft };
   }
 
-  it("retries when main moved (stale ref): merges main into draft, rebuilds on the new main HEAD", async () => {
-    // Attempt 1 sees main at main-1; a per-item publish lands main-2
-    // before our updateRef. Attempt 2 must parent on main-2 and take the
-    // tree of the draft *after* main-2 was merged into it.
-    getRef.mockImplementation(({ ref }: { ref: string }) => {
-      const calls = getRef.mock.calls.filter(([a]) => a.ref === ref).length;
-      if (ref === "heads/draft") {
-        return Promise.resolve({ data: { object: { sha: calls === 1 ? "draft-1" : "draft-merged" } } });
-      }
-      return Promise.resolve({ data: { object: { sha: calls === 1 ? "main-1" : "main-2" } } });
-    });
-    getCommit.mockImplementation(({ commit_sha }: { commit_sha: string }) =>
-      Promise.resolve({ data: { tree: { sha: `tree-of-${commit_sha}` } } }),
-    );
-    createCommit
-      .mockResolvedValueOnce({ data: { sha: "squash-1" } })
-      .mockResolvedValueOnce({ data: { sha: "squash-2" } });
-    updateRefByBranch(["stale", "ok"]);
-    reposMerge.mockResolvedValue({ status: 201, data: { sha: "draft-merged" } });
+  it("lands the draft's tree on main as one commit and leaves the draft for the caller to merge", async () => {
+    const { root, draft } = setupDraftAhead();
 
     const result = await squashBranchInto(SQUASH_ARGS);
 
-    expect(result).toEqual({ commitSha: "squash-2", alreadyInSync: false });
-    // The winner's publish is folded into the draft before the rebuild,
-    // so the second squash can't revert it.
-    expect(reposMerge).toHaveBeenCalledTimes(1);
-    expect(reposMerge).toHaveBeenCalledWith(
-      expect.objectContaining({ base: "draft", head: "main" }),
+    const main = refs.get("heads/main")!;
+    expect(result).toEqual({ commitSha: main, alreadyInSync: false });
+    expect(commits.get(main)).toEqual({ tree: commits.get(draft)!.tree, parents: [root] });
+    expect(createCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Publish", author: { name: "A", email: "a@e.com" } }),
     );
-    expect(createCommit).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ tree: "tree-of-draft-merged", parents: ["main-2"] }),
-    );
-    expect(updateRef).toHaveBeenLastCalledWith({
-      owner: "o",
-      repo: "r",
-      ref: "heads/main",
-      sha: "squash-2",
-    });
+    // The draft isn't moved onto the squash: that would be a
+    // non-fast-forward, which GitHub rejects without `force`.
+    expect(refs.get("heads/draft")).toBe(draft);
+    expect(updateRef).toHaveBeenCalledTimes(1);
+
+    // The caller's follow-up merge is clean and restores the invariant.
+    await expect(
+      mergeBranchInto({ token: "t", owner: "o", repo: "r", from: "main", into: "draft" }),
+    ).resolves.toMatchObject({ kind: "merged" });
+    expect(isAncestor(main, refs.get("heads/draft")!)).toBe(true);
+    expect(filesAt(refs.get("heads/draft")!)).toEqual(filesAt(draft));
   });
 
-  it("throws ConcurrentEditError after exhausting retries on a stale main", async () => {
-    getRef.mockImplementation(({ ref }: { ref: string }) => {
-      const n = getRef.mock.calls.filter(([a]) => a.ref === ref).length;
-      return Promise.resolve({ data: { object: { sha: `${ref.slice(6)}-${n}` } } });
+  it("returns alreadyInSync without creating a commit when the refs match", async () => {
+    const root = commit({ "a.json": "1" }, []);
+    refs.set("heads/main", root);
+    refs.set("heads/draft", root);
+
+    await expect(squashBranchInto(SQUASH_ARGS)).resolves.toEqual({
+      commitSha: root,
+      alreadyInSync: true,
     });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash" } });
-    updateRefByBranch(["stale", "stale", "stale"]);
-    reposMerge.mockResolvedValue({ status: 201, data: { sha: "merged" } });
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(updateRef).not.toHaveBeenCalled();
+  });
+
+  it("returns alreadyInSync when the draft's tree already matches main (only merges since)", async () => {
+    const root = commit({ "a.json": "1" }, []);
+    refs.set("heads/main", root);
+    refs.set("heads/draft", commit({ "a.json": "1" }, [root]));
+
+    await expect(squashBranchInto(SQUASH_ARGS)).resolves.toEqual({
+      commitSha: root,
+      alreadyInSync: true,
+    });
+    expect(createCommit).not.toHaveBeenCalled();
+    expect(refs.get("heads/main")).toBe(root);
+  });
+
+  it("retries when main moves during the attempt, without reverting what landed", async () => {
+    setupDraftAhead();
+    let raced = false;
+    beforeMainUpdate = () => {
+      if (raced) return;
+      raced = true;
+      landOnMain({ "a.json": "1", "c.json": "other-editor" });
+    };
+
+    await squashBranchInto(SQUASH_ARGS);
+
+    expect(filesAt(refs.get("heads/main")!)).toEqual({
+      "a.json": "1",
+      "b.json": "draft",
+      "c.json": "other-editor",
+    });
+    expect(reposMerge).toHaveBeenCalledTimes(1);
+    expect(createCommit).toHaveBeenCalledTimes(2);
+  });
+
+  it("merges main in first when the draft doesn't contain it, instead of reverting it", async () => {
+    // Another editor's publish landed after this editor's auto-rebase.
+    // The squash would be a valid fast-forward of main, so only the
+    // ancestry check stands between it and silently dropping c.json.
+    setupDraftAhead();
+    landOnMain({ "a.json": "1", "c.json": "other-editor" });
+
+    await squashBranchInto(SQUASH_ARGS);
+
+    expect(filesAt(refs.get("heads/main")!)).toEqual({
+      "a.json": "1",
+      "b.json": "draft",
+      "c.json": "other-editor",
+    });
+    expect(reposMerge).toHaveBeenCalledTimes(1);
+    expect(createCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws ConcurrentEditError when main keeps moving", async () => {
+    setupDraftAhead();
+    let n = 0;
+    beforeMainUpdate = () => {
+      landOnMain({ "a.json": "1", [`other-${n++}.json`]: "x" });
+    };
 
     const error = await squashBranchInto(SQUASH_ARGS).catch((e) => e);
 
     expect(error).toBeInstanceOf(ConcurrentEditError);
-    expect(error).toMatchObject({
-      ref: "heads/main",
-      attempts: 3,
-      // Parent of the final (third) attempt.
-      lastAttemptedParentSha: "main-3",
-    });
+    expect(error).toMatchObject({ ref: "heads/main", attempts: 3 });
     expect(createCommit).toHaveBeenCalledTimes(3);
     // A merge between each pair of attempts, none after the last.
     expect(reposMerge).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry a stale-ref 422 on the draft update (only main is the guarded race)", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
-      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
-    const draftError = staleMainError();
-    updateRef.mockRejectedValueOnce(draftError);
+  it("stops retrying when the moved main conflicts with the draft, leaving both refs alone", async () => {
+    const { draft } = setupDraftAhead();
+    let other = "";
+    beforeMainUpdate = () => {
+      if (other) return;
+      other = landOnMain({ "a.json": "1", "b.json": "other-editor" });
+    };
 
-    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toBe(draftError);
+    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toThrow(/can't merge it cleanly/);
     expect(createCommit).toHaveBeenCalledTimes(1);
-    expect(reposMerge).not.toHaveBeenCalled();
+    expect(refs.get("heads/main")).toBe(other);
+    expect(refs.get("heads/draft")).toBe(draft);
   });
 
   it("does not retry a non-stale error on the main update", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "draft-head" } } })
-      .mockResolvedValueOnce({ data: { object: { sha: "main-head" } } });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash-sha" } });
-    const notFound = new RequestError("Reference does not exist", 422, {
-      request: { method: "PATCH", url: "x", headers: {} },
-      response: { status: 422, url: "x", headers: {}, data: {} },
-    });
-    updateRef.mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce(notFound);
+    setupDraftAhead();
+    const notFound = requestError(422, "Reference does not exist");
+    beforeMainUpdate = () => {
+      throw notFound;
+    };
 
     await expect(squashBranchInto(SQUASH_ARGS)).rejects.toBe(notFound);
     expect(createCommit).toHaveBeenCalledTimes(1);
     expect(reposMerge).not.toHaveBeenCalled();
-  });
-
-  it("stops retrying when merging the moved main into the draft conflicts", async () => {
-    getRef
-      .mockResolvedValueOnce({ data: { object: { sha: "draft-1" } } })
-      .mockResolvedValueOnce({ data: { object: { sha: "main-1" } } });
-    getCommit.mockResolvedValue({ data: { tree: { sha: "draft-tree" } } });
-    createCommit.mockResolvedValue({ data: { sha: "squash-1" } });
-    updateRefByBranch(["stale"]);
-    reposMerge.mockRejectedValue(
-      new RequestError("Merge conflict", 409, {
-        request: { method: "POST", url: "x", headers: {} },
-        response: { status: 409, url: "x", headers: {}, data: {} },
-      }),
-    );
-
-    await expect(squashBranchInto(SQUASH_ARGS)).rejects.toThrow(/can't merge it cleanly/);
-    expect(createCommit).toHaveBeenCalledTimes(1);
   });
 });
 

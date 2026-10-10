@@ -171,6 +171,20 @@ describe("PublishPendingChangesButton > statusForFetchResponse", () => {
       warning: "draft-resync-conflict",
     });
   });
+
+  it("drops a warning this build doesn't know instead of rendering an empty note", () => {
+    const body = {
+      ok: true as const,
+      commitSha: "abc",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-someday",
+    };
+    expect(statusForFetchResponse(fakeRes(true, 200), body, FIXED_NOW)).toEqual({
+      kind: "in_flight",
+      publishedAt: FIXED_NOW,
+    });
+  });
 });
 
 describe("PublishPendingChangesButton > StatusLine publish warnings", () => {

@@ -580,13 +580,22 @@ export type PublishDraftToMainArgs = {
 export type PublishDraftToMainResult = PublishResult & {
   /** True when draft and main were already in sync (no commit created). */
   alreadyInSync: boolean;
+  /**
+   * Set when the publish shipped to `main` but reconciling the draft
+   * afterwards didn't finish. The publish still succeeded; the editor
+   * shows the matching note. Absent on a clean publish.
+   */
+  warning?: PublishWarning;
 };
 
 /**
  * Publish every pending change on `draft` to `main` in one squash
  * commit. The squash's tree comes from `draft`'s HEAD; its parent is
- * `main`'s current HEAD. After the commit lands on `main`, `draft` is
- * fast-forwarded to match.
+ * `main`'s current HEAD. After the commit lands on `main`, `main` is
+ * merged back into `draft` (a clean merge: the trees match) so the
+ * draft is a descendant of `main` again. As with `publishSelectedToMain`,
+ * a failed reconcile doesn't fail the publish: it resolves with a
+ * `warning`.
  *
  * Auto-rebase fires first (belt and suspenders alongside saveToDraft's
  * own rebase) so a `main` push between the artist's last save and
@@ -636,11 +645,55 @@ export async function publishDraftToMain(
     }
     throw new PublishError("github-failed", `squash draft → main: ${String(cause)}`);
   }
-  return {
+  const published = {
     commitSha: squash.commitSha,
-    mode: "github",
+    mode: "github" as const,
     alreadyInSync: squash.alreadyInSync,
   };
+  if (squash.alreadyInSync) return published;
+
+  const warning = await reconcileDraftAfterPublish({
+    token,
+    owner,
+    repo,
+    mainBranch: env.branch,
+    draftBranch,
+  });
+  return warning ? { ...published, warning } : published;
+}
+
+/**
+ * After a publish has moved `main`, merge `main` back into the draft so
+ * the draft is a descendant of `main` again (ADR-010's invariant) and
+ * the published paths stop showing as pending. The publish has already
+ * shipped, so a failure is returned as a {@link PublishWarning}, never
+ * thrown: `draft-resync-pending` for a transient failure (the next
+ * save's auto-rebase heals it), `draft-resync-conflict` when the draft
+ * can't merge the new `main`.
+ */
+async function reconcileDraftAfterPublish(args: {
+  token: string;
+  owner: string;
+  repo: string;
+  mainBranch: string;
+  draftBranch: string;
+}): Promise<PublishWarning | undefined> {
+  const { token, owner, repo, mainBranch, draftBranch } = args;
+  try {
+    const merge = await mergeBranchInto({ token, owner, repo, from: mainBranch, into: draftBranch });
+    if (merge.kind === "conflict") {
+      console.warn(
+        `[publish] reconcile after publish: ${draftBranch} can't merge cleanly with ${mainBranch}.`,
+      );
+      return "draft-resync-conflict";
+    }
+    return undefined;
+  } catch (cause) {
+    console.warn(
+      `[publish] reconcile ${draftBranch} after publish failed; the next save's auto-rebase resyncs it: ${String(cause)}`,
+    );
+    return "draft-resync-pending";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -667,14 +720,7 @@ export type PublishSelectedToMainArgs = {
   commitSubject?: string;
 };
 
-export type PublishSelectedToMainResult = PublishDraftToMainResult & {
-  /**
-   * Set when the selected changes shipped to `main` but reconciling the
-   * draft afterwards didn't finish. The publish still succeeded; the
-   * editor shows the matching note. Absent on a clean publish.
-   */
-  warning?: PublishWarning;
-};
+export type PublishSelectedToMainResult = PublishDraftToMainResult;
 
 /**
  * Publish a SUBSET of the editor's pending changes (ADR-012). Builds one
@@ -746,32 +792,19 @@ export async function publishSelectedToMain(
     alreadyInSync: result.alreadyInSync,
   };
 
+  // Nothing shipped, so there's nothing to reconcile.
+  if (result.alreadyInSync) return published;
+
   // Reconcile the draft: merge the new main back in. The published paths
   // are byte-identical on both branches (clean merge); the unselected
-  // changes exist only on draft and remain pending. The publish has
-  // already shipped by now, so a failure here is a warning, not an error.
-  let warning: PublishWarning | undefined;
-  try {
-    const merge = await mergeBranchInto({
-      token,
-      owner,
-      repo,
-      from: env.branch,
-      into: draftBranch,
-    });
-    if (merge.kind === "conflict") {
-      console.warn(
-        `[publish] reconcile after partial publish: ${draftBranch} can't merge cleanly with ${env.branch}.`,
-      );
-      warning = "draft-resync-conflict";
-    }
-  } catch (cause) {
-    console.warn(
-      `[publish] reconcile ${draftBranch} after partial publish failed; the next save's auto-rebase resyncs it: ${String(cause)}`,
-    );
-    warning = "draft-resync-pending";
-  }
-
+  // changes exist only on draft and remain pending.
+  const warning = await reconcileDraftAfterPublish({
+    token,
+    owner,
+    repo,
+    mainBranch: env.branch,
+    draftBranch,
+  });
   return warning ? { ...published, warning } : published;
 }
 

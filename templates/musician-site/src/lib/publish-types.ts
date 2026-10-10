@@ -46,7 +46,8 @@ export type PublishError = z.infer<typeof publishErrorSchema>;
 
 /**
  * Non-fatal follow-ups a *successful* publish can carry back to the
- * editor (`warning` on the `/api/publish-selected` success envelope).
+ * editor (`warning` on the `/api/publish-draft` and `/api/publish-selected`
+ * success envelopes).
  * The publish shipped — `main` has the change and the deploy fired —
  * but something after it didn't finish (ADR-012 "Concurrency & partial
  * failure"):

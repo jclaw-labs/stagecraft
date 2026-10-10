@@ -927,6 +927,50 @@ describe("publishDraftToMain", () => {
       message: expect.stringMatching(/^squash draft → main: /),
     });
   });
+
+  it("merges main back into the draft after the squash lands", async () => {
+    configurePlatform();
+    await publishDraftToMain({ authorEmail: "a@e.com" });
+    // Call 1 is the pre-squash auto-rebase; call 2 the post-publish reconcile.
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(2);
+    expect(mergeBranchIntoMock.mock.invocationCallOrder[1]).toBeGreaterThan(
+      squashBranchIntoMock.mock.invocationCallOrder[0],
+    );
+    expect(mergeBranchIntoMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: "main", into: "draft" }),
+    );
+  });
+
+  it("skips the reconcile when nothing was published", async () => {
+    configurePlatform();
+    squashBranchIntoMock.mockResolvedValue({ commitSha: "main-sha", alreadyInSync: true });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the auto-rebase only
+    expect(result).not.toHaveProperty("warning");
+  });
+
+  it("still succeeds with draft-resync-conflict when the reconcile conflicts", async () => {
+    configurePlatform();
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockResolvedValueOnce({ kind: "conflict" });
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toEqual({
+      commitSha: "squash-sha",
+      mode: "github",
+      alreadyInSync: false,
+      warning: "draft-resync-conflict",
+    });
+  });
+
+  it("still succeeds with draft-resync-pending when the reconcile throws", async () => {
+    configurePlatform();
+    mergeBranchIntoMock
+      .mockResolvedValueOnce({ kind: "already-included", reason: "ancestor" })
+      .mockRejectedValueOnce(new Error("GitHub 502"));
+    const result = await publishDraftToMain({ authorEmail: "a@e.com" });
+    expect(result).toMatchObject({ commitSha: "squash-sha", warning: "draft-resync-pending" });
+  });
 });
 
 
@@ -1104,6 +1148,14 @@ describe("publishSelectedToMain (ADR-012 per-item publish)", () => {
     const res = await publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: [], deletePaths: [] });
     expect(res).toEqual({ commitSha: null, mode: "github", alreadyInSync: true });
     expect(commitSelectedPathsIntoMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the reconcile merge when the selected paths already matched main", async () => {
+    configurePlatform();
+    commitSelectedPathsIntoMock.mockResolvedValue({ commitSha: "main-sha", alreadyInSync: true });
+    const res = await publishSelectedToMain({ authorEmail: "a@e.com", copyPaths: ["src/content/x.json"] });
+    expect(res).toEqual({ commitSha: "main-sha", mode: "github", alreadyInSync: true });
+    expect(mergeBranchIntoMock).toHaveBeenCalledTimes(1); // the pre-flight auto-rebase only
   });
 
   it("commits the selected copy/delete paths onto main (no [skip ci]), then merges main into the draft", async () => {
