@@ -497,6 +497,17 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
     );
     expect(() => assertAllDecryptable(stats)).toThrow(/legacy v1 value\(s\) were left as they are/);
   });
+
+  it("fails up front on a value other than true or false, instead of blaming a missing key", async () => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "flase");
+    const v1 = encryptV1ForTests("ghp_old", KEY_A);
+    const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: v1 })]);
+
+    await expect(encryptStoredCredentials(db, { upgradeV1: true })).rejects.toThrow(
+      `${CREDENTIALS_ACCEPT_V1_ENV} must be "true" or "false"`,
+    );
+    expect(integrationAccount.store[0].accessToken).toBe(v1);
+  });
 });
 
 describe("assertAllDecryptable", () => {

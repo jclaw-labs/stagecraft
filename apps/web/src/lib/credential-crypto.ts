@@ -97,9 +97,9 @@ const V1_PREFIX = "enc:v1:";
 const V2_PREFIX = "enc:v2:";
 
 /**
- * The prefix each encrypted format starts with. A value is parsed by
- * slicing off its own format's prefix, so formats needn't share a prefix
- * length.
+ * The prefix each encrypted format starts with: `credentialFormat` detects
+ * a format by it, and a value is parsed by slicing off its own format's
+ * prefix, so formats needn't share a prefix length.
  */
 export const CREDENTIAL_FORMAT_PREFIXES: Readonly<Record<EncryptedCredentialFormat, string>> = {
   v1: V1_PREFIX,
@@ -270,8 +270,13 @@ export function isEncryptedCredential(value: string): boolean {
  */
 export function credentialFormat(stored: string): CredentialFormat {
   if (!isEncryptedCredential(stored)) return "plaintext";
-  if (stored.startsWith(V1_PREFIX)) return "v1";
-  if (stored.startsWith(V2_PREFIX)) return "v2";
+  // Detection and parsing (`encryptedSegments`) share the one prefix map.
+  for (const [format, prefix] of Object.entries(CREDENTIAL_FORMAT_PREFIXES) as [
+    EncryptedCredentialFormat,
+    string,
+  ][]) {
+    if (stored.startsWith(prefix)) return format;
+  }
   throw new Error("Stored credential has an unsupported format version");
 }
 

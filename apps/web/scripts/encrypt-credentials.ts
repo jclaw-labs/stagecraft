@@ -266,6 +266,10 @@ export async function encryptStoredCredentials(
     // front instead of "succeeding" without encrypting anything.
     throw new Error(`${CREDENTIALS_KEY_ENV} is not set; nothing would be encrypted`);
   }
+  // Read the flag once up front: a typo throws its own configuration error
+  // here, instead of inside a row's decrypt, where it would be counted as
+  // undecryptable and blamed on a missing key.
+  credentialsAcceptV1();
 
   const account = await backfillTable({
     name: "Account",
