@@ -160,7 +160,9 @@ body:has(> #frame-root) {
    `<div data-collection-view="<slug>">`; per-slug grid layout lives
    here so the tile components (specialized-views.tsx) stay
    layout-agnostic. Falls back to vertical flow for any collection
-   without a registered grid below. */
+   without a registered grid below, and for a specialised slug whose
+   schema edits sent it to the default card (its wrapper drops the
+   slug). */
 [data-collection-view="photos"],
 [data-collection-view="videos"] {
   display: grid;

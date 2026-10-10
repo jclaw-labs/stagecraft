@@ -34,10 +34,21 @@ describe("removeFieldPrompt", () => {
     );
   });
 
-  it("explains the default-card fallback for a field the view requires", () => {
-    expect(removeFieldPrompt(tourDatesCollectionDef, CITY, false)).toMatch(
-      /^Removing "city" means the public tour dates list will switch to the plain default card/,
+  it("explains what removing a field the view reads does", () => {
+    expect(removeFieldPrompt(tourDatesCollectionDef, CITY, false)).toBe(
+      'Removing "city" means the city will no longer show on the public tour dates list. Continue?',
     );
+  });
+
+  it("is the plain prompt for a field the draft already broke", () => {
+    expect(
+      removeFieldPrompt(
+        draftWithType(TOUR_DATES_FIELD_IDS.city, "url"),
+        CITY,
+        false,
+        tourDatesCollectionDef,
+      ),
+    ).toBe('Remove field "city"?');
   });
 
   it("combines the slug-source note with the view impact", () => {
@@ -57,7 +68,7 @@ function renderEditor(
 }
 
 /** The tour-dates seed with one field's type changed in the (unsaved) draft. */
-function draftWithType(fieldId: string, type: "number" | "text"): CollectionDef {
+function draftWithType(fieldId: string, type: "number" | "text" | "url"): CollectionDef {
   return {
     ...tourDatesCollectionDef,
     fields: tourDatesCollectionDef.fields.map((f) =>
@@ -78,7 +89,7 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     const onChange = renderEditor();
     const card = fieldCard("city");
     fireEvent.click(card.querySelector("button")!);
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("plain default card"));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("will no longer show"));
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -157,14 +168,48 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it("doesn't ask again when retyping a field the draft already broke", () => {
+    // city is URL in the draft (saved as Short text), so the heads-up
+    // already says the city doesn't show; Email next changes nothing.
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const onChange = renderEditor(draftWithType(TOUR_DATES_FIELD_IDS.city, "url"));
+    fireEvent.change(fieldCard("city").querySelector("select")!, { target: { value: "email" } });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it("shows a standing heads-up for a field the draft already broke", () => {
     renderEditor({
       ...tourDatesCollectionDef,
       fields: tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.city),
     });
     expect(
-      screen.getByText(/The city field was removed, so the public tour dates list falls back/),
+      screen.getByText(
+        "The city field was removed, so the city doesn't show on the public tour dates list.",
+      ),
     ).toBeTruthy();
+  });
+
+  it("warns in the heads-up that existing values can block an unsaved retype", () => {
+    renderEditor(draftWithType(TOUR_DATES_FIELD_IDS.city, "url"));
+    expect(
+      screen.getByText(/The save only goes through if every existing city is a valid URL value\.$/),
+    ).toBeTruthy();
+  });
+
+  it("lists server warnings and view problems in one heads-up", () => {
+    render(
+      <SchemaEditor
+        def={draftWithType(TOUR_DATES_FIELD_IDS.city, "url")}
+        savedDef={tourDatesCollectionDef}
+        onChange={vi.fn()}
+        warnings={[{ kind: "server-warning", message: "A warning from the last save." }]}
+      />,
+    );
+    expect(screen.getAllByText("Heads-up")).toHaveLength(1);
+    const box = screen.getByRole("status");
+    expect(box.textContent).toContain("A warning from the last save.");
+    expect(box.textContent).toContain("The city field is now URL");
   });
 
   it("shows no heads-up when the schema satisfies the view", () => {

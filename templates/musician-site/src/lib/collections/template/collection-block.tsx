@@ -31,7 +31,12 @@ import { buildPuckConfig } from "@/puck/build-config";
 
 import { applyFilter } from "./filter";
 import { resolveTemplate, type ResolveContext } from "./renderer";
-import { emptyMessageFor, specialisedRendererForDef } from "./specialized-views";
+import {
+  emptyMessageFor,
+  specialisedRendererForDef,
+  type SpecialisedRenderer,
+} from "./specialized-views";
+import { isSpecialisedViewSlug } from "./view-requirements";
 import type { Template } from "./types";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
 import { compareItemsByField, scalarSortKey } from "../sort-key";
@@ -156,14 +161,26 @@ export function CollectionBlockRender({
       <div data-collection-view={sourceDef.slug} />
     );
   }
+  // Specialised renderer (photos / videos / tour-dates / releases /
+  // posts) — hand-tuned per-slug cards. Null when no specialisation is
+  // registered, or when the artist's schema edits removed / retyped a
+  // field the card requires.
+  const specialised = specialisedRendererForDef(sourceDef);
+  // A specialised slug whose cards fell back to the default render drops
+  // the slug from its wrapper, so the default cards stack in normal flow
+  // instead of sitting in that view's grid tracks (`globals.css`). An
+  // itemTemplate isn't a fallback: it keeps the slug's layout.
+  const fellBack =
+    !sourceDef.itemTemplate && specialised === null && isSpecialisedViewSlug(sourceDef.slug);
   return (
-    <div data-collection-view={sourceDef.slug}>
+    <div data-collection-view={fellBack ? undefined : sourceDef.slug}>
       {items.map((item) => (
         <CollectionBlockItem
           key={item.id}
           item={item}
           sourceDef={sourceDef}
           currentItem={currentItem}
+          specialised={specialised}
         />
       ))}
     </div>
@@ -174,10 +191,12 @@ function CollectionBlockItem({
   item,
   sourceDef,
   currentItem,
+  specialised,
 }: {
   item: Item;
   sourceDef: CollectionDef;
   currentItem: Item;
+  specialised: SpecialisedRenderer | null;
 }): ReactNode {
   const template = sourceDef.itemTemplate;
   if (template) {
@@ -194,11 +213,6 @@ function CollectionBlockItem({
     });
     return <Render config={buildPuckConfig({ variant: "render" })} data={resolved} />;
   }
-  // Specialised renderer (photos / videos / tour-dates / releases /
-  // posts) — hand-tuned per-slug cards. Falls through to the default
-  // field-stack when no specialisation is registered, or when the
-  // artist's schema edits removed / retyped a field the card requires.
-  const specialised = specialisedRendererForDef(sourceDef);
   if (specialised) {
     return specialised({ item, def: sourceDef });
   }

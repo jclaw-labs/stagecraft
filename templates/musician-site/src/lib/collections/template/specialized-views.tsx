@@ -323,22 +323,23 @@ function formatTourDate(iso: string | null): string {
  *
  * When the artist removed (or incompatibly retyped) the ticket-link field,
  * the Tickets affordance is dropped entirely rather than shown disabled on
- * every row.
+ * every row. Without a city the place line shows the country alone.
  */
 function TourDateRow({ item, def }: SpecialisedRendererArgs): ReactNode {
   const fields = resolveViewFields(def, "tour-dates");
   if (!fields) return null;
   const date = formatTourDate(fields.string(item, "date"));
   const venue = fields.string(item, "venue");
-  const city = fields.string(item, "city");
-  const country = fields.string(item, "country");
+  const place = [fields.string(item, "city"), fields.string(item, "country")]
+    .filter(Boolean)
+    .join(", ");
   const ticketUrl = fields.string(item, "ticketUrl");
   return (
     <div style={tourRowStyle}>
       <span>
         {date ? <strong>{date}</strong> : null}
         {venue ? ` — ${venue}` : ""}
-        {city ? ` — ${city}${country ? `, ${country}` : ""}` : ""}
+        {place ? ` — ${place}` : ""}
       </span>
       {!fields.has("ticketUrl") ? null : ticketUrl ? (
         <a href={ticketUrl} target="_blank" rel="noopener noreferrer" style={tourTicketStyle}>
@@ -546,16 +547,6 @@ export const SPECIALISED_RENDERERS: Readonly<Record<SpecialisedViewSlug, Special
     releases: ReleaseTile,
     posts: PostTile,
   });
-
-/**
- * Convenience: look up a specialisation by slug. Returns null when
- * the slug doesn't have one (the common case — most collections
- * fall through to the default fallback). Doesn't check the schema —
- * render paths use `specialisedRendererForDef`.
- */
-export function specialisedRendererFor(slug: string): SpecialisedRenderer | null {
-  return isSpecialisedViewSlug(slug) ? SPECIALISED_RENDERERS[slug] : null;
-}
 
 /**
  * The specialisation to render `def`'s items with, or null to use the

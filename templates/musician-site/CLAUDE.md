@@ -259,8 +259,9 @@ import via sibling submodules that have no node imports:
 - `lib/collections/template/view-requirements.ts` — which fields each
   specialised card view (`specialized-views.tsx`) reads, by role and
   accepted type (plus the tour-dates `status` the default block filters
-  on); drives the default-card fallback and the schema editor's remove /
-  retype warnings
+  on). A role resolves by field id, or by a same-name field once that id
+  is gone. Drives the default-card fallback and the schema editor's
+  remove / retype warnings
 - `lib/collections/puck-content-value.ts` — `puckContentValue(data)` helper
 - `lib/collections/field-ids.ts` — stable field-id constants for the
   prebaked collections (`PAGES_FIELD_IDS` etc.). `seeds.ts` re-exports
