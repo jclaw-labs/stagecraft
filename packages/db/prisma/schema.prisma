@@ -133,12 +133,12 @@ model SiteJob {
   id             String    @id @default(cuid())
   siteId         String
   userId         String
-  type           String    // create_site | migrate_site
-  status         String    @default("queued") // queued | running | completed | failed | awaiting_review | canceled
+  type           String    // create_site | migrate_site (old rows may hold a retired type, e.g. edit_site)
+  status         String    @default("queued") // queued | running | completed | failed | canceled (old rows may hold awaiting_review)
   requestPayload Json?
   resultPayload  Json?
   errorMessage    String?   @db.Text
-  failureCategory String?   // github_api_error | netlify_deploy_error | validation_error | ai_error | timeout | unknown
+  failureCategory String?   // FailureCategory in @stagecraft/shared (old rows may hold ai_error)
   repairAttempts  Int       @default(0)
   // Failed runs (handler threw, or its lease expired) that were retried.
   // Bounded by MAX_RETRY_ATTEMPTS in @stagecraft/queue.

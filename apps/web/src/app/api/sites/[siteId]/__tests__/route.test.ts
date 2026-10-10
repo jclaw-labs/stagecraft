@@ -49,6 +49,26 @@ describe("GET /api/sites/[siteId] response shape", () => {
     expect(body.site.githubAppSuspended).toBe(false);
   });
 
+  it("narrows jobs left over from the retired AI-edit flow", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue({
+      id: "s1",
+      userId: "u1",
+      brokerSecretHash: null,
+      jobs: [
+        { id: "j2", type: "edit_site", status: "awaiting_review", failureCategory: "ai_error", errorMessage: "old" },
+        { id: "j1", type: "create_site", status: "completed", failureCategory: null, errorMessage: null },
+      ],
+    });
+    const res = await GET(new Request("http://t/x") as never, fakeArgs("s1"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { site: { jobs: unknown[] } };
+    expect(body.site.jobs).toEqual([
+      { id: "j2", type: null, status: null, failureCategory: "unknown", errorMessage: "old" },
+      { id: "j1", type: "create_site", status: "completed", failureCategory: null, errorMessage: null },
+    ]);
+  });
+
   it("404 when no site matches the user", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     prismaMock.site.findFirst.mockResolvedValue(null);

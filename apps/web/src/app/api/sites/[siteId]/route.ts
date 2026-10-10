@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
+import { narrowJobFields } from "@stagecraft/shared";
 import { setRepoArchived } from "@/lib/integrations/github";
 import { deleteSiteResources } from "@/lib/site-cleanup";
 
@@ -32,9 +33,11 @@ export async function GET(
   // Never leak the broker secret hash to the client. Even though it's
   // a hash, there's no client-side use for it and exposure widens the
   // attack surface for any future weaknesses.
-  const { brokerSecretHash, ...safeSite } = site;
+  const { brokerSecretHash, jobs, ...safeSite } = site;
   void brokerSecretHash;
-  return NextResponse.json({ site: safeSite });
+  // Old rows can hold a job type, status or failure category that no longer
+  // exists, so the page gets them narrowed rather than as raw strings.
+  return NextResponse.json({ site: { ...safeSite, jobs: jobs.map((job) => narrowJobFields(job)) } });
 }
 
 export async function PATCH(
