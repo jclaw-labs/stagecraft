@@ -21,8 +21,8 @@
 
 "use client";
 
-import { Puck, Render, type Data } from "@measured/puck";
-import "@measured/puck/puck.css";
+import { Puck, Render, type Data } from "@puckeditor/core";
+import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

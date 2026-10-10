@@ -6,7 +6,7 @@ Conventions for the musician-site template per ADR-007.
 
 - Next.js 15 (App Router)
 - React 19
-- Puck (`@measured/puck`) — visual block editor at `/admin`
+- Puck (`@puckeditor/core`) — visual block editor at `/admin`
 - Files only; no database. Content lives in `src/content/`.
 
 ## Editor philosophy
@@ -315,6 +315,7 @@ server against an isolated content directory.
 | `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |
 | `e2e/reset.spec.ts`           | Three-stage danger-zone confirm (idle → warned → confirming) + the type-to-confirm gating + the post-reset return to `/admin/welcome`. |
 | `e2e/not-found.spec.ts`       | Admin HTML and RSC payloads carry no public layout or theme; unknown admin and public URLs get their own 404s with status 404. |
+| `e2e/puck-editors.spec.ts`    | Smoke test of the real Puck editors (unit tests mock Puck): the page editor and the tour-dates item template editor each load, take a block dragged in from the drawer, edit it in the fields panel, save via Publish, and log no console errors. Run it after any Puck upgrade. |
 | `e2e/canvas-matches-public.spec.ts` | The Puck canvas iframe and the public page lay the demo home page out the same at 1280px: body margin and background, plus each Section's position, width, padding and radius. The canvas gets the theme by wrapping its root in `.stagecraft-site` with `AppearanceStyles` (`Editor.tsx`'s `iframe` override). |
 
 **Adding a new spec.** New admin surfaces follow the same pattern:

@@ -66,7 +66,6 @@ model User {
   integrationAccounts IntegrationAccount[]
   sites               Site[]
   siteJobs            SiteJob[]
-  assetUploads        AssetUpload[]
 }
 
 model IntegrationAccount {
@@ -125,7 +124,6 @@ model Site {
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobs           SiteJob[]
-  assetUploads   AssetUpload[]
 
   @@index([userId])
   @@index([slug])
@@ -160,30 +158,6 @@ model SiteJob {
   @@index([siteId])
   @@index([status])
   @@index([type, status])
-}
-
-model AssetUpload {
-  id                  String   @id @default(cuid())
-  siteId              String
-  userId              String
-  originalFilename    String
-  normalizedFilename  String
-  mimeType            String
-  fileSize            Int
-  uploadStatus        String   @default("uploading") // uploading | processing | ready | committed | failed
-  temporaryStorageRef String?  @db.Text
-  targetRepoPath      String?
-  alt                 String?
-  caption             String?  @db.Text
-  credit              String?
-  usageSlot           String?  // hero | gallery | about | press | logo
-  metadata            Json?
-  createdAt           DateTime @default(now())
-
-  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
-
-  @@index([siteId])
 }
 
 model WebhookDelivery {

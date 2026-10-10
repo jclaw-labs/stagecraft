@@ -24,7 +24,7 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { Render } from "@measured/puck";
+import { Render } from "@puckeditor/core";
 
 import { Image } from "@/components/Image";
 import type { ImageMetadata } from "@/lib/image-types";

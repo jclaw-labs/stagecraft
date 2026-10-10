@@ -20,7 +20,7 @@
  * return `undefined` so the public site fails safe rather than crashing.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 import { z } from "zod";
 
 import type { ImageMetadata } from "../../image-types";

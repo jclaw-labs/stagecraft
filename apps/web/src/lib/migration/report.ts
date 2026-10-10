@@ -105,7 +105,7 @@ function buildManualReviewItems(
     items.push({
       label: "Images",
       status: "manual_review",
-      detail: `${totalImages} image reference${totalImages === 1 ? "" : "s"} found. Images are not automatically downloaded — please upload your photos via the asset manager.`,
+      detail: `${totalImages} image reference${totalImages === 1 ? "" : "s"} found. Images are not downloaded automatically — add your photos in your site's admin (/admin), using the image fields on each page or item.`,
     });
   }
 
@@ -185,7 +185,7 @@ function buildSummary(
   lines.push(`Crawled ${extracted.pages.length} page${extracted.pages.length === 1 ? "" : "s"}, mapped ${pageCount} to template`);
 
   if (imageCount > 0) {
-    lines.push(`Found ${imageCount} image${imageCount === 1 ? "" : "s"} — upload via asset manager to add to your site`);
+    lines.push(`Found ${imageCount} image${imageCount === 1 ? "" : "s"} — add photos in your site's admin (/admin) via the image fields`);
   }
   if (embedCount > 0) {
     lines.push(`Found ${embedCount} media embed${embedCount === 1 ? "" : "s"} (YouTube, Spotify, etc.) — add via edit request`);

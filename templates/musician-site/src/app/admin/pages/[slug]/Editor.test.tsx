@@ -12,7 +12,7 @@ import { DEFAULT_APPEARANCE } from "@/lib/site-config-types";
 // the way Puck's own "Publish" header button does. It also records the
 // canvas `iframe` override from each render.
 const iframeOverrides = vi.hoisted(() => [] as unknown[]);
-vi.mock("@measured/puck", () => ({
+vi.mock("@puckeditor/core", () => ({
   Puck: ({
     data,
     onPublish,
@@ -32,9 +32,12 @@ vi.mock("@measured/puck", () => ({
       </div>
     );
   },
-  usePuck: () => ({ dispatch: () => {}, selectedItem: null }),
+  createUsePuck:
+    () =>
+    <T,>(selector: (state: { dispatch: () => void; selectedItem: null }) => T) =>
+      selector({ dispatch: () => {}, selectedItem: null }),
 }));
-vi.mock("@measured/puck/puck.css", () => ({}));
+vi.mock("@puckeditor/core/puck.css", () => ({}));
 
 import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
 import type { Item } from "@/lib/collections/schema";

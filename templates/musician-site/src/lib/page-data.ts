@@ -7,7 +7,7 @@
  * module must not pull in the filesystem store or `node:crypto`.
  */
 
-import type { Data } from "@measured/puck";
+import type { Data } from "@puckeditor/core";
 
 import type { BlockProps } from "@/puck/config";
 

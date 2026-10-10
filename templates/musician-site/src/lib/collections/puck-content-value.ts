@@ -17,7 +17,7 @@
  * One helper, one cast site.
  */
 
-import type { Data as PuckData } from "@measured/puck";
+import type { Data as PuckData } from "@puckeditor/core";
 
 import type { FieldValue } from "./schema";
 

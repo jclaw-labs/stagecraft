@@ -1,4 +1,4 @@
-import { Render } from "@measured/puck";
+import { Render } from "@puckeditor/core";
 // Never import Puck's editor stylesheet here (issue #348; see src/app/editor-css-boundary.test.ts).
 import { cache } from "react";
 import type { Metadata } from "next";
