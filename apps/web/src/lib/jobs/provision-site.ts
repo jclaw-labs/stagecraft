@@ -8,7 +8,12 @@ import {
   type JobResult,
   type StepRunner,
 } from "@stagecraft/queue";
-import { connectedProviders, type IntegrationProvider, type SiteSetupAction } from "@stagecraft/shared";
+import {
+  connectedProviders,
+  MUSICIAN_SITE_NETLIFY_BUILD,
+  type IntegrationProvider,
+  type SiteSetupAction,
+} from "@stagecraft/shared";
 
 import { generateBrokerSecret, type GeneratedBrokerSecret } from "@/lib/broker-secret";
 import {
@@ -196,8 +201,7 @@ async function createNetlifyHost(args: {
         provider: "github",
         repo_path: `${args.repoOwner}/${args.repoName}`,
         repo_branch: args.repoBranch,
-        cmd: "npm run build",
-        dir: ".next",
+        ...MUSICIAN_SITE_NETLIFY_BUILD,
         ...(installationId !== null ? { installation_id: installationId } : {}),
       },
     });

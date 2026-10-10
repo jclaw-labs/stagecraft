@@ -1,4 +1,5 @@
 import { prisma } from "@stagecraft/db";
+import { MUSICIAN_SITE_NETLIFY_BUILD } from "@stagecraft/shared";
 import { decryptCredential, integrationCredentialField } from "../credential-crypto";
 
 interface CreateSiteOptions {
@@ -86,7 +87,9 @@ export async function createSite(options: CreateSiteOptions): Promise<NetlifySit
     ? { name: options.name, repo: options.repo }
     : {
         name: options.name,
-        build_settings: { cmd: "npm run build", dir: "dist" },
+        // The default build settings stored on the bare site, for when the
+        // artist links the repo by hand (provision-site's fallback).
+        build_settings: MUSICIAN_SITE_NETLIFY_BUILD,
       };
 
   const data = await netlifyApi(token, "/sites", {
