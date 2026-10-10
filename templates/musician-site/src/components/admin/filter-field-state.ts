@@ -16,6 +16,8 @@ import type {
   FilterValue,
 } from "@/lib/collections/filter-schema";
 import type { FieldDef, FieldType } from "@/lib/collections";
+import { filterForDefs, type FilterFieldsDef } from "@/lib/collections/template/filter";
+import { viewFieldIdFor } from "@/lib/collections/template/view-requirements";
 
 /**
  * Op token shown in the operator picker. Adds an `excludeCurrentItem`
@@ -254,4 +256,44 @@ export function setClauseValues(clause: FilterClause, values: FilterValue[]): Fi
   if ("excludeCurrentItem" in clause) return clause;
   if ("values" in clause) return { ...clause, values };
   return clause;
+}
+
+// ---------------------------------------------------------------------------
+// Clauses the page ignores
+// ---------------------------------------------------------------------------
+
+/**
+ * Which option a field picker shows for a saved field id. The id first
+ * goes through `viewFieldIdFor`, so a default block's declared id that a
+ * re-added same-name field took over shows that field, the one the page
+ * reads. An id the def lacks even then is `"removed"`: the page ignores
+ * the clause, and the picker says so instead of showing its first field.
+ * An empty id is `"none"`: no field was ever picked (a collection with
+ * no filterable fields saves one), and the page ignores that clause too.
+ */
+export type FieldPick = { kind: "field"; fieldId: string } | { kind: "removed" } | { kind: "none" };
+
+export function fieldPickFor(def: FilterFieldsDef, savedId: string): FieldPick {
+  if (savedId === "") return { kind: "none" };
+  const fieldId = viewFieldIdFor(def, savedId);
+  return def.fields.some((f) => f.id === fieldId) ? { kind: "field", fieldId } : { kind: "removed" };
+}
+
+/**
+ * Whether the page ignores `clause`, for a block iterating `sourceDef`
+ * inside a template for `currentItemDef`. Runs the clause through
+ * `filterForDefs`, the same call the Collection block's resolver
+ * (`resolveCollectionBlockProps`) makes, so the inspector marks what the
+ * page skips. Without `currentItemDef`, `currentItemField` values count
+ * as present, as they do on the page.
+ */
+export function isClauseIgnored(
+  clause: FilterClause,
+  sourceDef: FilterFieldsDef,
+  currentItemDef?: FilterFieldsDef,
+): boolean {
+  // In an `all` group of one, a clause that names no missing field
+  // survives (an `excludeCurrentItem` clause included), and one that does
+  // leaves nothing, so the result is `null`.
+  return filterForDefs({ all: [clause] }, sourceDef, currentItemDef) === null;
 }
