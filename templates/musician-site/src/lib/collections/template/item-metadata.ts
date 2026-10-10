@@ -83,7 +83,8 @@ export function metaDescription(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   if (oneLine.length <= META_DESCRIPTION_MAX_LENGTH) return oneLine;
   const room = oneLine.slice(0, META_DESCRIPTION_MAX_LENGTH - 1);
-  const lastSpace = room.lastIndexOf(" ");
-  const cut = lastSpace > 0 ? room.slice(0, lastSpace) : room;
+  // A word that ends exactly at the cut fits whole.
+  const end = oneLine[room.length] === " " ? room.length : room.lastIndexOf(" ");
+  const cut = end > 0 ? room.slice(0, end) : room;
   return `${cut.replace(/[\s.,;:!?—–-]+$/, "")}…`;
 }

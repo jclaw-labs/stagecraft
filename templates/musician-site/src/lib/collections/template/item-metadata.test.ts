@@ -123,6 +123,15 @@ describe("itemDetailMetadata", () => {
     expect(itemDetailMetadata(postsCollectionDef, item, SITE).openGraph).toBeUndefined();
   });
 
+  it("shares a cover exactly as wide as the smallest variant", () => {
+    const item = post({
+      [POSTS_FIELD_IDS.coverImage]: { type: "image", value: { ...COVER, width: 400, height: 300 } },
+    });
+    expect(itemDetailMetadata(postsCollectionDef, item, SITE).openGraph).toEqual({
+      images: [{ url: "/images/post/abc1234567890def/400.webp", alt: "Studio shot" }],
+    });
+  });
+
   it("leaves og:image off for a cover narrower than the smallest variant", () => {
     // No webp variant exists, and the original may be AVIF.
     const item = post({
@@ -155,11 +164,12 @@ describe("metaDescription", () => {
     expect(metaDescription(text)).toBe(text);
   });
 
-  it("cuts longer text at the last word boundary, adding an ellipsis", () => {
+  it("cuts longer text at the last word boundary that fits, adding an ellipsis", () => {
     const text = "word ".repeat(40).trim(); // 199 characters
     const result = metaDescription(text);
     expect(result.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX_LENGTH);
-    expect(result).toBe(`${"word ".repeat(31).trim()}…`);
+    // The 32nd word ends at character 159, so it fits with the ellipsis.
+    expect(result).toBe(`${"word ".repeat(32).trim()}…`);
   });
 
   it("drops trailing punctuation before the ellipsis", () => {

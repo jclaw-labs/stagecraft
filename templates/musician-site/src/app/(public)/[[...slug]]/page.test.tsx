@@ -123,11 +123,10 @@ describe("public catch-all — unknown URLs", () => {
 describe("public catch-all — generateMetadata", () => {
   const metadataFor = (slug: string[]) => generateMetadata({ params: Promise.resolve({ slug }) });
 
-  // Pin the host env: a shell that exports Netlify's URL would otherwise
-  // change `metadataBase`.
+  // Pin the host env: a shell that exports Netlify's variables would
+  // otherwise change `metadataBase`.
   beforeEach(() => {
-    vi.stubEnv("NETLIFY", "");
-    vi.stubEnv("URL", "");
+    for (const name of ["NETLIFY", "URL", "CONTEXT", "DEPLOY_PRIME_URL"]) vi.stubEnv(name, "");
   });
   afterEach(() => {
     vi.unstubAllEnvs();
