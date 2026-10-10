@@ -1,24 +1,41 @@
 # AI-Orchestrated Static Website Platform for Musicians
 
 > **Status (2026-10-10): partly superseded.** This is the original product
-> spec. The goals it states still hold: artist-owned repos and hosting,
+> spec. The aims behind it still hold: artist-owned repos and hosting,
 > structured content, low cost. One part of how it gets there doesn't:
 > **AI edits through pull requests** (natural-language change requests,
-> the request classifier, the AI worker, PR review, §16, §17.2, and the
-> AI wording elsewhere) were cut in issue #344. Artists edit their site
-> directly in its built-in editor; saves go to a draft branch and Publish
-> merges them (ADR-010). §15.3 says this; the other AI sections are kept
-> as originally written.
+> the request classifier, the AI worker, PR review) were cut in issue
+> #344. Artists edit their site directly in its built-in editor; saves go
+> to a draft branch and Publish commits them to `main` (ADR-010–ADR-012).
+> §15.3 says this.
 >
-> The stack is current: §1, §7.2, §8.2, §8.4, §9, §10, §13.3, §21.2 and
-> the stack lines in §25–§29 describe the Next.js + Puck template
-> (ADR-007) that replaced the original Astro template (ADR-014). The
-> file paths in §11 and §12 are
-> still the original design; `templates/musician-site/CLAUDE.md` lists
-> where content and images actually live.
+> **Out of date**, kept as originally written:
+>
+> - the AI edit and PR-review model: §1 (its AI and natural-language
+>   wording), §2, §3.1 goals 2 and 6, §5 (plain-language edit requests), §6
+>   principles 2, 3 and 7 and the AI sentence of 8, §7.1 (the
+>   edit-request, Claude Code, PR/preview and approval bullets), §8.3,
+>   §14.3, §15.2 steps 4–7, §16, all of §17, §19.1 items 1, 3 and 6,
+>   §19.3–§19.4, §22 (PR/preview records), §25 Phase 1 (the AI edit
+>   flow), §27 rule 10, §28 question 8, §29 step 6 and §30 (its AI,
+>   preview and natural-language wording);
+> - §4 non-goals 4 and 8 (an admin panel and drag-and-drop editing),
+>   which the built-in Puck editor now provides (ADR-007);
+> - §11 apart from §11.6, and §12.4: the original Astro content layout,
+>   image fields and AI editing rules;
+> - §18.1's content, asset and link validation scripts, which the
+>   template doesn't have;
+> - §20's README and setup docs, which generated repos don't include.
+>
+> **Current:** §3.1 goal 4, §7.2, §8.2, §8.4, §9, §10, §11.6,
+> §12.1–§12.3, §13.3, §14 (except §14.3), §15.1, §15.3, §21.2, §26 and
+> §27 rule 1, and the stack wording (Next.js + Puck, Vercel or Netlify,
+> Resend) in §1, §7.1, §19.1, §20, §23.2, §25, §29 and §30. These
+> describe the Next.js + Puck template (ADR-007) that replaced the
+> original Astro template (ADR-014). Sections in neither list are general
+> requirements that haven't been checked against the code.
 >
 > `docs/specs/technical-architecture.md` describes the system as built.
-> §14 (seeded site and themes) and §15.1 (new site creation) are current.
 
 ## 1. Overview
 
@@ -67,7 +84,7 @@ The platform should not primarily be positioned as a generic AI website builder.
 1. Allow a non-technical musician to create a custom static website with minimal setup friction.
 2. Allow a non-technical musician to edit their website through plain-language requests.
 3. Ensure every site is fully portable via a normal GitHub repository the user owns.
-4. Ensure changes are safe and reviewable through Git branches, pull requests, and Netlify deploy previews.
+4. Ensure changes are safe and reviewable: edits are saved to a draft branch and reach the live site only when the artist publishes (ADR-010).
 5. Keep site content database-free and repo-native.
 6. Make the generated code maintainable for humans and constrained enough for reliable AI edits.
 7. Support migration from existing brochure-style musician sites.
@@ -132,7 +149,7 @@ They want:
    Customers should always be able to clone their repo and continue without the platform.
 
 5. **Static-first**
-   Sites should be generated as static-first brochure sites with optional small interactive islands.
+   Sites should be generated as static-first brochure sites with optional small client components.
 
 6. **No customer content DB**
    Page content and media metadata should live in the repo instead of a hosted CMS. This includes v1: no Keystatic, no Contentlayer, no headless CMS integration. Content files are the CMS.
@@ -197,7 +214,8 @@ The artist connects either Vercel or Netlify. The chosen host is used for:
 
 - site hosting
 - production deploys, rebuilt when the editor publishes to `main`
-- environment variables for the site's editor sign-in and contact form
+- environment variables for the site's editor sign-in, saving and publishing
+  through the platform, and the contact form
 
 ### 8.3 AI provider
 
@@ -276,8 +294,6 @@ Use:
 
 Each customer site repo should follow a standard layout.
 
-Example:
-
 Every repo starts as a copy of `templates/musician-site`. Abridged:
 
 ```txt
@@ -285,7 +301,6 @@ Every repo starts as a copy of `templates/musician-site`. Abridged:
   next.config.ts
   package.json
   tsconfig.json
-  CLAUDE.md
   .env.example
   /src
     /app
@@ -313,7 +328,10 @@ Every repo starts as a copy of `templates/musician-site`. Abridged:
 5. `src/content/collections/<slug>/` holds all site content as JSON, one directory per collection (ADR-009).
 6. `public/images/` holds uploaded images and their generated variants.
 7. Unit tests sit next to the code (`*.test.ts`); `e2e/` holds Playwright tests.
-8. `CLAUDE.md` contains agent-specific instructions for editing within the repo.
+
+Provisioning doesn't copy the template's `CLAUDE.md` into the repo
+(`apps/web/scripts/generate-template-bundle.mjs`); it stays in this monorepo
+as the template's documentation.
 
 ## 11. Content model
 
@@ -420,12 +438,10 @@ This metadata should live alongside the image reference in content files, not on
 
 File paths and naming follow a strict convention so that the AI and humans can always find content without searching:
 
-- Singletons: `src/content/config/*.json` or `src/content/pages/*.md`
-- Collections: `src/content/collections/{collectionName}/*.json` (one file per item) or a single `*.json` array for small collections
-- Images: `src/assets/images/{context}/{slug}.{ext}` (e.g. `src/assets/images/gallery/show-2024.jpg`)
-- Public assets (favicons, downloads): `public/{type}/`
+- Content: `src/content/collections/<slug>/`, with the collection's definition in `_collection.json` and one JSON file per item under `items/`; a singleton keeps its one item in `items/_singleton.json` (ADR-009)
+- Images: `public/images/<content-slug>/<image-id>/` (§12.1)
 
-These conventions must be documented in `EDITING.md` and enforced by the content validation script.
+These conventions are documented in `templates/musician-site/CLAUDE.md`, which stays in this monorepo rather than in the artist's repo (§10.1).
 
 ### 11.7 Content-editing principle
 
@@ -443,28 +459,34 @@ The AI should only edit layout or component code when the request explicitly imp
 
 ### 12.1 Asset storage strategy
 
-Store source image assets in the repo under `src/assets/` or equivalent.
-
-Do not place user-uploaded source images in `public/` if they should participate in optimization.
+Uploaded images are stored in the repo under
+`public/images/<content-slug>/<image-id>/`, where `<image-id>` is the first 16
+characters of the SHA-256 of the original bytes (ADR-007 §6, `src/lib/image.ts`,
+`src/lib/commit-image.ts`). The original is kept as `original.<ext>` next to
+its variants so the variants can be regenerated. On a site connected to the
+platform, an upload is committed to the editor's draft branch and goes live
+with the next Publish (§15.3).
 
 ### 12.2 Responsive image strategy
 
-For each source image:
+`POST /api/upload-image` processes each raster upload with `sharp` at upload
+time, not at build time (ADR-007 §6):
 
-1. store the original normalized asset in the repo
-2. generate multiple responsive sizes at build time
-3. render with `srcset` / `sizes`
-4. use `<picture>` for mobile/desktop art direction when needed
+1. store the original in the repo
+2. generate the responsive variants (§12.3) and a small LQIP placeholder,
+   kept inline in the image's metadata as `placeholderDataUri`
+3. render with the `<Image>` component (`src/components/Image.tsx`): a
+   `<picture>` with avif and webp `<source>`s using `srcset` / `sizes`, and the
+   placeholder as its background image
+
+SVG and ICO uploads skip `sharp`: only the original is stored, with no
+variants and no generated placeholder.
 
 ### 12.3 Default generated variants
 
-Suggested standard sizes:
-
-- 640w
-- 960w
-- 1280w
-- 1600w
-- 2400w for large hero use cases only
+`IMAGE_VARIANT_WIDTHS` and `IMAGE_VARIANT_FORMATS`
+(`src/lib/image-types.ts`) set the variants: 400w, 800w and 1600w, each in
+webp and avif, written as `{400,800,1600}.{webp,avif}`.
 
 ### 12.4 Asset metadata
 
@@ -619,8 +641,11 @@ rather than inventing an unconstrained site structure from scratch.
 
 ### 15.3 Editing a site
 
-Artists edit their site in its own editor at `/admin` (Puck, ADR-007):
-saves go to a draft branch and Publish merges them to `main` (ADR-010).
+Artists edit their site in its own editor at `/admin` (Puck, ADR-007).
+Saves commit to a draft branch (one per editor when a site has several,
+ADR-011) and don't change the live site. Publish creates one commit on `main`
+from the draft, or from only the selected items (ADR-010 §3, ADR-012), and the
+host deploys it.
 
 ## 16. AI orchestration requirements
 
@@ -692,7 +717,7 @@ Each change request should:
 
 ### 17.3 Preview model
 
-Netlify deploy previews should be surfaced prominently in the platform UI.
+Deploy previews should be surfaced prominently in the platform UI.
 
 The user should be able to:
 
@@ -827,6 +852,9 @@ Every repo should therefore include:
 - explanation of content structure
 - explanation of image handling
 - explanation of deployment flow
+
+Generated repos don't include these yet: the template has no top-level
+README, and provisioning skips its `CLAUDE.md` (§10.1).
 
 ## 21. Contact form design
 
@@ -967,7 +995,7 @@ Claude Code should assume the following defaults unless explicitly changed:
 3. content source of truth: repo files
 4. images: stored in `public/images/`, with responsive variants generated at upload time
 5. interactivity: server-rendered components, client components only where justified
-6. review model: branch + PR + deploy preview
+6. review model: draft branch + Publish to `main` (ADR-010)
 7. contact form: the site's `/api/contact` route + Resend
 8. tests: lint + typecheck + build + smoke tests
 9. portability: always preserved
