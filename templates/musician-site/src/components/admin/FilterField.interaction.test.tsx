@@ -18,6 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { FilterField } from "./FilterField";
 import type { Filter } from "@/lib/collections/filter-schema";
 import type { CollectionDef } from "@/lib/collections";
+import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 
 const SOURCE_DEF: CollectionDef = {
   schemaVersion: 1,
@@ -282,6 +283,105 @@ describe("FilterField — field + value editing", () => {
 // ---------------------------------------------------------------------------
 // Mode toggle (AND/OR)
 // ---------------------------------------------------------------------------
+
+describe("FilterField — clauses the page ignores", () => {
+  function fieldSelect(): HTMLSelectElement {
+    return screen.getByLabelText("Field") as HTMLSelectElement;
+  }
+  function selectedText(select: HTMLSelectElement): string | undefined {
+    return select.selectedOptions[0]?.textContent ?? undefined;
+  }
+
+  it("shows a removed field as 'removed field (ignored)' instead of the first field", () => {
+    const filter: Filter = {
+      all: [{ field: "f_gone", op: "equals", value: { kind: "literal", value: "Paris" } }],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={SOURCE_DEF} />);
+
+    expect(fieldSelect().value).toBe("f_gone");
+    expect(selectedText(fieldSelect())).toBe("removed field (ignored)");
+    expect(screen.getByText(/so the page ignores this clause/)).toBeTruthy();
+  });
+
+  it("says the whole filter is ignored in an `any` group", () => {
+    const filter: Filter = {
+      any: [
+        { field: "f_gone", op: "isEmpty" },
+        { field: "f_city", op: "equals", value: { kind: "literal", value: "Paris" } },
+      ],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={SOURCE_DEF} />);
+
+    expect(screen.getByText(/so the page ignores this whole filter/)).toBeTruthy();
+    // Only the clause on the removed field carries the note.
+    expect(screen.getAllByText(/was removed/)).toHaveLength(1);
+  });
+
+  it("shows the re-added same-name field a default block's declared id now reads", () => {
+    const reAdded: CollectionDef = {
+      ...SOURCE_DEF,
+      fields: [...SOURCE_DEF.fields, { id: "fld_new_venue", key: "venue", type: "text", required: false }],
+    };
+    const filter: Filter = {
+      all: [
+        {
+          field: TOUR_DATES_FIELD_IDS.venue,
+          op: "equals",
+          value: { kind: "literal", value: "Lido" },
+        },
+      ],
+    };
+    render(<FilterField value={filter} onChange={vi.fn()} sourceDef={reAdded} />);
+
+    expect(fieldSelect().value).toBe("fld_new_venue");
+    expect(screen.queryByText("removed field (ignored)")).toBeNull();
+    expect(screen.queryByText(/was removed/)).toBeNull();
+  });
+
+  it("picking a field replaces the removed one, and the option goes away", async () => {
+    const filter: Filter = {
+      all: [{ field: "f_gone", op: "isNotEmpty" }],
+    };
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FilterField value={filter} onChange={onChange} sourceDef={SOURCE_DEF} />,
+    );
+
+    await userEvent.selectOptions(fieldSelect(), "f_city");
+    const next = { all: [{ field: "f_city", op: "isNotEmpty" }] } satisfies Filter;
+    expect(onChange).toHaveBeenCalledWith(next);
+
+    rerender(<FilterField value={next} onChange={onChange} sourceDef={SOURCE_DEF} />);
+    expect(screen.queryByText("removed field (ignored)")).toBeNull();
+    expect(screen.queryByText(/was removed/)).toBeNull();
+  });
+
+  it("marks a current-item field the surrounding collection no longer has", () => {
+    const filter: Filter = {
+      all: [
+        {
+          field: "f_city",
+          op: "equals",
+          value: { kind: "currentItemField", fieldId: "p_gone" },
+        },
+      ],
+    };
+    render(
+      <FilterField
+        value={filter}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={CURRENT_ITEM_DEF}
+      />,
+    );
+
+    const select = screen.getByLabelText("Current item field") as HTMLSelectElement;
+    expect(select.value).toBe("p_gone");
+    expect(selectedText(select)).toBe("removed field (ignored)");
+    expect(fieldSelect().value).toBe("f_city");
+    expect(screen.getByText(/so the page ignores this clause/)).toBeTruthy();
+  });
+});
 
 describe("FilterField — mode toggle", () => {
   it("switching from AND to OR rewrites the filter shape", async () => {

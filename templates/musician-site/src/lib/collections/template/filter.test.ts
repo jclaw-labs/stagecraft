@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { applyFilter, mapFilterFields, withoutClausesOnMissingFields } from "./filter";
-import type { Filter, Item } from "../schema";
+import {
+  applyFilter,
+  clauseWithoutMissingFields,
+  mapFilterFields,
+  withoutClausesOnMissingFields,
+} from "./filter";
+import type { Filter, FilterClause, Item } from "../schema";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
 /** Make a tour-date-shaped item with the fields the tests want. */
@@ -511,11 +516,120 @@ describe("withoutClausesOnMissingFields", () => {
     expect(withoutClausesOnMissingFields(filter, hasField)).toEqual(filter);
   });
 
+  describe("a currentItemField value on a field the surrounding item lacks", () => {
+    const currentHas = new Set(["f_city"]);
+    const hasCurrentItemField = (id: string) => currentHas.has(id);
+    const gone = { kind: "currentItemField", fieldId: "f_gone" } as const;
+    const city = { kind: "currentItemField", fieldId: "f_city" } as const;
+
+    it("drops a single-value clause comparing against it", () => {
+      const filter: Filter = {
+        all: [
+          { field: "f_venue", op: "equals", value: gone },
+          { field: "f_venue", op: "equals", value: city },
+        ],
+      };
+      expect(withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField)).toEqual({
+        all: [{ field: "f_venue", op: "equals", value: city }],
+      });
+    });
+
+    it("drops a whole `any` group with such a clause", () => {
+      const filter: Filter = {
+        any: [
+          { field: "f_venue", op: "equals", value: gone },
+          { field: "f_venue", op: "equals", value: { kind: "literal", value: "Lido" } },
+        ],
+      };
+      expect(withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField)).toBeNull();
+    });
+
+    it("keeps such a clause when no current-item check is passed", () => {
+      const filter: Filter = { all: [{ field: "f_venue", op: "equals", value: gone }] };
+      expect(withoutClausesOnMissingFields(filter, hasField)).toEqual(filter);
+    });
+
+    it("drops only that value from an `in` list, since it never matches anything", () => {
+      const filter: Filter = {
+        all: [
+          { field: "f_venue", op: "in", values: [gone, { kind: "literal", value: "Lido" }] },
+        ],
+      };
+      const pruned = withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField);
+      expect(pruned).toEqual({
+        all: [{ field: "f_venue", op: "in", values: [{ kind: "literal", value: "Lido" }] }],
+      });
+      // Same items either way: the dead value was already a no-op.
+      expect(applyFilter(ITEMS, pruned, CURRENT)).toEqual(applyFilter(ITEMS, filter, CURRENT));
+    });
+
+    it("drops an `in` / `notIn` clause once none of its values are left", () => {
+      const filter: Filter = {
+        all: [
+          { field: "f_venue", op: "in", values: [gone] },
+          { field: "f_venue", op: "notIn", values: [gone, gone] },
+          { field: "f_date", op: "gte", value: { kind: "today" } },
+        ],
+      };
+      expect(withoutClausesOnMissingFields(filter, hasField, hasCurrentItemField)).toEqual({
+        all: [{ field: "f_date", op: "gte", value: { kind: "today" } }],
+      });
+    });
+  });
+
   it("returns null when no clause is left, so an `any` doesn't turn into match-nothing", () => {
     const anyGone: Filter = { any: [{ field: "f_gone", op: "isNotEmpty" }] };
     const allGone: Filter = { all: [{ field: "f_gone", op: "isEmpty" }] };
     expect(withoutClausesOnMissingFields(anyGone, hasField)).toBeNull();
     expect(withoutClausesOnMissingFields(allGone, hasField)).toBeNull();
     expect(withoutClausesOnMissingFields({ all: [] }, hasField)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clauseWithoutMissingFields
+// ---------------------------------------------------------------------------
+
+describe("clauseWithoutMissingFields", () => {
+  const hasField = (id: string) => id === "f_venue";
+  const hasCurrentItemField = (id: string) => id === "f_city";
+
+  it("returns a clause with nothing missing as is", () => {
+    const clause: FilterClause = {
+      field: "f_venue",
+      op: "in",
+      values: [{ kind: "currentItemField", fieldId: "f_city" }, { kind: "literal", value: "x" }],
+    };
+    expect(clauseWithoutMissingFields(clause, hasField, hasCurrentItemField)).toBe(clause);
+  });
+
+  it("returns null for a clause on a missing field, whatever its op", () => {
+    expect(clauseWithoutMissingFields({ field: "f_gone", op: "isEmpty" }, hasField)).toBeNull();
+    expect(
+      clauseWithoutMissingFields(
+        { field: "f_gone", op: "equals", value: { kind: "literal", value: 1 } },
+        hasField,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for a single value naming a missing current-item field", () => {
+    expect(
+      clauseWithoutMissingFields(
+        { field: "f_venue", op: "gte", value: { kind: "currentItemField", fieldId: "f_gone" } },
+        hasField,
+        hasCurrentItemField,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps excludeCurrentItem and value-less clauses on present fields", () => {
+    expect(clauseWithoutMissingFields({ excludeCurrentItem: true }, hasField)).toEqual({
+      excludeCurrentItem: true,
+    });
+    expect(clauseWithoutMissingFields({ field: "f_venue", op: "isNotEmpty" }, hasField)).toEqual({
+      field: "f_venue",
+      op: "isNotEmpty",
+    });
   });
 });

@@ -15,7 +15,9 @@ import type {
   FilterClause,
   FilterValue,
 } from "@/lib/collections/filter-schema";
-import type { FieldDef, FieldType } from "@/lib/collections";
+import type { CollectionDef, FieldDef, FieldType } from "@/lib/collections";
+import { clauseWithoutMissingFields, mapClauseFields } from "@/lib/collections/template/filter";
+import { viewFieldIdFor } from "@/lib/collections/template/view-requirements";
 
 /**
  * Op token shown in the operator picker. Adds an `excludeCurrentItem`
@@ -254,4 +256,56 @@ export function setClauseValues(clause: FilterClause, values: FilterValue[]): Fi
   if ("excludeCurrentItem" in clause) return clause;
   if ("values" in clause) return { ...clause, values };
   return clause;
+}
+
+// ---------------------------------------------------------------------------
+// Clauses the page ignores
+// ---------------------------------------------------------------------------
+
+/** The fields a field picker reads from: `slug` for `viewFieldIdFor`, plus the field list. */
+export type FieldPickerDef = Pick<CollectionDef, "slug" | "fields">;
+
+/**
+ * Which option a field picker shows for a saved field id. The id first
+ * goes through `viewFieldIdFor`, so a default block's declared id that a
+ * re-added same-name field took over shows that field, the one the page
+ * reads. An id the def lacks even then is `"removed"`: the page ignores
+ * the clause, and the picker says so instead of showing its first field.
+ * An empty id isn't a removed field (a collection with no filterable
+ * fields saves one), so it comes back as is.
+ */
+export type FieldPick = { kind: "field"; fieldId: string } | { kind: "removed" };
+
+export function fieldPickFor(def: FieldPickerDef, savedId: string): FieldPick {
+  if (savedId === "") return { kind: "field", fieldId: savedId };
+  const fieldId = viewFieldIdFor(def, savedId);
+  return def.fields.some((f) => f.id === fieldId) ? { kind: "field", fieldId } : { kind: "removed" };
+}
+
+/**
+ * Whether the page ignores `clause`, for a block iterating `sourceDef`
+ * inside a template for `currentItemDef`. Runs the same mapping and the
+ * same check the Collection block's resolver does
+ * (`resolveCollectionBlockProps`), so the inspector marks what the page
+ * skips. Without `currentItemDef`, `currentItemField` values count as
+ * present, as they do on the page.
+ */
+export function isClauseIgnored(
+  clause: FilterClause,
+  sourceDef: FieldPickerDef,
+  currentItemDef?: FieldPickerDef,
+): boolean {
+  const mapped = mapClauseFields(
+    clause,
+    (fieldId) => viewFieldIdFor(sourceDef, fieldId),
+    currentItemDef ? (fieldId) => viewFieldIdFor(currentItemDef, fieldId) : undefined,
+  );
+  const has = (def: FieldPickerDef) => (fieldId: string) => def.fields.some((f) => f.id === fieldId);
+  return (
+    clauseWithoutMissingFields(
+      mapped,
+      has(sourceDef),
+      currentItemDef ? has(currentItemDef) : undefined,
+    ) === null
+  );
 }

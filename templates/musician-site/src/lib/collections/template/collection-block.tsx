@@ -121,12 +121,18 @@ export function resolveCollectionBlockProps(
   // A clause still naming a field the collection no longer has (deleted
   // with no stand-in, or a role like tour-date `status` that never takes
   // one) would hide every item for good; it's dropped, so that filter
-  // stops filtering instead.
+  // stops filtering instead. The same goes for a `currentItemField` value
+  // naming a field the surrounding item's def no longer has, when that
+  // def is known.
   const sourceFieldIds = new Set(loaded.def.fields.map((f) => f.id));
+  const currentItemFieldIds = currentItemDef
+    ? new Set(currentItemDef.fields.map((f) => f.id))
+    : null;
   const filter = raw.filter
     ? withoutClausesOnMissingFields(
         mapFilterFields(raw.filter, fieldIdFor, currentItemFieldIdFor),
         (fieldId) => sourceFieldIds.has(fieldId),
+        (fieldId) => currentItemFieldIds?.has(fieldId) ?? true,
       )
     : null;
   let filtered = applyFilter(loaded.items, filter, ctx.currentItem);

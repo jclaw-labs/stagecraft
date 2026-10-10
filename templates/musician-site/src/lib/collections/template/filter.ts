@@ -71,43 +71,96 @@ export function applyFilter(
 export function mapFilterFields(
   filter: Filter,
   fieldIdFor: (fieldId: string) => string,
-  currentItemFieldIdFor: (fieldId: string) => string = (fieldId) => fieldId,
+  currentItemFieldIdFor?: (fieldId: string) => string,
 ): Filter {
+  const mapClause = (clause: FilterClause) =>
+    mapClauseFields(clause, fieldIdFor, currentItemFieldIdFor);
+  return "all" in filter ? { all: filter.all.map(mapClause) } : { any: filter.any.map(mapClause) };
+}
+
+/** One clause of `mapFilterFields`. */
+export function mapClauseFields(
+  clause: FilterClause,
+  fieldIdFor: (fieldId: string) => string,
+  currentItemFieldIdFor: (fieldId: string) => string = (fieldId) => fieldId,
+): FilterClause {
   const mapValue = (value: FilterValue): FilterValue =>
     value.kind === "currentItemField"
       ? { ...value, fieldId: currentItemFieldIdFor(value.fieldId) }
       : value;
-  const mapClause = (clause: FilterClause): FilterClause => {
-    if (!("field" in clause)) return clause;
-    const field = fieldIdFor(clause.field);
-    if ("values" in clause) return { ...clause, field, values: clause.values.map(mapValue) };
-    if ("value" in clause) return { ...clause, field, value: mapValue(clause.value) };
-    return { ...clause, field };
-  };
-  return "all" in filter ? { all: filter.all.map(mapClause) } : { any: filter.any.map(mapClause) };
+  if (!("field" in clause)) return clause;
+  const field = fieldIdFor(clause.field);
+  if ("values" in clause) return { ...clause, field, values: clause.values.map(mapValue) };
+  if ("value" in clause) return { ...clause, field, value: mapValue(clause.value) };
+  return { ...clause, field };
 }
 
 /**
- * `filter` with every clause whose `field` fails `hasField` treated as
- * matching every item. In an `all` group that clause is dropped, and
- * `null` (no filter) comes back when none is left. In an `any` group one
- * such clause already matches every item, so the whole filter becomes
- * `null`, `excludeCurrentItem` clauses included. In an `all` group,
+ * `filter` with every clause that names a missing field treated as
+ * matching every item. A clause names a missing field when its `field`
+ * fails `hasField`, or when the value it compares against is a
+ * `currentItemField` whose field id fails `hasCurrentItemField`.
+ *
+ * In an `all` group such a clause is dropped, and `null` (no filter)
+ * comes back when none is left. In an `any` group one such clause
+ * already matches every item, so the whole filter becomes `null`,
+ * `excludeCurrentItem` clauses included. In an `all` group,
  * `excludeCurrentItem` clauses name no field and stay.
+ *
+ * An `in` / `notIn` clause loses only the values on missing fields,
+ * since such a value never matches anything. It's ignored as a whole
+ * once none of its values are left.
  *
  * A Collection block saves field ids. A clause on a field the artist has
  * since deleted would otherwise hide every item (a missing value never
  * matches), with nothing in the product to bring them back; this way the
- * filter on the removed field just stops filtering.
+ * filter on the removed field just stops filtering. `hasCurrentItemField`
+ * defaults to accepting every id, for callers that don't know the
+ * surrounding item's def.
  */
 export function withoutClausesOnMissingFields(
   filter: Filter,
   hasField: (fieldId: string) => boolean,
+  hasCurrentItemField: (fieldId: string) => boolean = () => true,
 ): Filter | null {
-  const keep = (clause: FilterClause): boolean => !("field" in clause) || hasField(clause.field);
-  if ("any" in filter) return filter.any.every(keep) ? filter : null;
-  const clauses = filter.all.filter(keep);
+  const check = (clause: FilterClause) =>
+    clauseWithoutMissingFields(clause, hasField, hasCurrentItemField);
+  if ("any" in filter) {
+    const clauses = filter.any.map(check).filter(isClause);
+    if (clauses.length < filter.any.length) return null;
+    return clauses.every((c, i) => c === filter.any[i]) ? filter : { any: clauses };
+  }
+  const clauses = filter.all.map(check).filter(isClause);
   return clauses.length === 0 ? null : { all: clauses };
+}
+
+function isClause(clause: FilterClause | null): clause is FilterClause {
+  return clause !== null;
+}
+
+/**
+ * One clause of `withoutClausesOnMissingFields`: `null` when the clause
+ * names a missing field and so matches every item, otherwise the clause
+ * with any `in` / `notIn` values on missing fields removed. The filter
+ * inspector calls it too, so what it marks as ignored is what the page
+ * ignores.
+ */
+export function clauseWithoutMissingFields(
+  clause: FilterClause,
+  hasField: (fieldId: string) => boolean,
+  hasCurrentItemField: (fieldId: string) => boolean = () => true,
+): FilterClause | null {
+  if (!("field" in clause)) return clause;
+  if (!hasField(clause.field)) return null;
+  const valueOk = (value: FilterValue): boolean =>
+    value.kind !== "currentItemField" || hasCurrentItemField(value.fieldId);
+  if ("value" in clause) return valueOk(clause.value) ? clause : null;
+  if ("values" in clause) {
+    if (clause.values.every(valueOk)) return clause;
+    const values = clause.values.filter(valueOk);
+    return values.length === 0 ? null : { ...clause, values };
+  }
+  return clause;
 }
 
 function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {

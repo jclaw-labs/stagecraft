@@ -17,9 +17,11 @@ import {
   clauseValueShape,
   defaultClause,
   defaultFilterValue,
+  fieldPickFor,
   filterableFields,
   firstFilterValue,
   isArrayValueClause,
+  isClauseIgnored,
   isFieldBearingClause,
   isSingleValueClause,
   morphClauseToOp,
@@ -29,7 +31,8 @@ import {
   setClauseValues,
   type ClauseOp,
 } from "./filter-field-state";
-import type { FieldDef } from "@/lib/collections";
+import type { CollectionDef, FieldDef } from "@/lib/collections";
+import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 import type { Filter, FilterClause } from "@/lib/collections/filter-schema";
 
 const FIELDS: FieldDef[] = [
@@ -543,5 +546,89 @@ describe("firstFilterValue", () => {
     expect(
       firstFilterValue({ field: "f_status", op: "in", values: [v0, v1] }),
     ).toEqual(v0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Clauses the page ignores
+// ---------------------------------------------------------------------------
+
+describe("fieldPickFor / isClauseIgnored", () => {
+  // A tour-dates def where the artist deleted the seed's `city` and added
+  // a new "city", and deleted `status` and `venue` outright.
+  const TOUR_DATES: Pick<CollectionDef, "slug" | "fields"> = {
+    slug: "tour-dates",
+    fields: [
+      { id: TOUR_DATES_FIELD_IDS.date, key: "date", type: "date", required: true },
+      { id: "fld_new_city", key: "city", type: "text", required: false },
+    ],
+  };
+  const POSTS: Pick<CollectionDef, "slug" | "fields"> = {
+    slug: "posts",
+    fields: [{ id: "p_title", key: "title", type: "text", required: true }],
+  };
+
+  it("picks a field the def has", () => {
+    expect(fieldPickFor(TOUR_DATES, TOUR_DATES_FIELD_IDS.date)).toEqual({
+      kind: "field",
+      fieldId: TOUR_DATES_FIELD_IDS.date,
+    });
+  });
+
+  it("picks the re-added same-name field for a declared id, since the page reads it", () => {
+    expect(fieldPickFor(TOUR_DATES, TOUR_DATES_FIELD_IDS.city)).toEqual({
+      kind: "field",
+      fieldId: "fld_new_city",
+    });
+  });
+
+  it("marks a declared id with no stand-in as removed", () => {
+    expect(fieldPickFor(TOUR_DATES, TOUR_DATES_FIELD_IDS.venue)).toEqual({ kind: "removed" });
+    expect(fieldPickFor(TOUR_DATES, TOUR_DATES_FIELD_IDS.status)).toEqual({ kind: "removed" });
+  });
+
+  it("marks any other missing id as removed, and leaves an empty id alone", () => {
+    expect(fieldPickFor(POSTS, "p_gone")).toEqual({ kind: "removed" });
+    expect(fieldPickFor(POSTS, "")).toEqual({ kind: "field", fieldId: "" });
+  });
+
+  const literal = { kind: "literal", value: "x" } as const;
+
+  it("ignores a clause on a removed field, not one a re-added field took over", () => {
+    expect(
+      isClauseIgnored({ field: TOUR_DATES_FIELD_IDS.status, op: "isNotEmpty" }, TOUR_DATES),
+    ).toBe(true);
+    expect(
+      isClauseIgnored({ field: TOUR_DATES_FIELD_IDS.city, op: "equals", value: literal }, TOUR_DATES),
+    ).toBe(false);
+    expect(isClauseIgnored({ excludeCurrentItem: true }, TOUR_DATES)).toBe(false);
+  });
+
+  it("ignores a clause whose currentItemField value the surrounding def lacks even after mapping", () => {
+    const clause = (fieldId: string): FilterClause => ({
+      field: TOUR_DATES_FIELD_IDS.date,
+      op: "equals",
+      value: { kind: "currentItemField", fieldId },
+    });
+    expect(isClauseIgnored(clause("p_gone"), TOUR_DATES, POSTS)).toBe(true);
+    expect(isClauseIgnored(clause("p_title"), TOUR_DATES, POSTS)).toBe(false);
+    // Same collection: the saved city id maps to the re-added city.
+    expect(isClauseIgnored(clause(TOUR_DATES_FIELD_IDS.city), TOUR_DATES, TOUR_DATES)).toBe(false);
+    // Without the surrounding def there's nothing to check against.
+    expect(isClauseIgnored(clause("p_gone"), TOUR_DATES)).toBe(false);
+  });
+
+  it("ignores an `in` clause only once none of its values are left", () => {
+    const gone = { kind: "currentItemField", fieldId: "p_gone" } as const;
+    expect(
+      isClauseIgnored(
+        { field: TOUR_DATES_FIELD_IDS.date, op: "in", values: [gone, literal] },
+        TOUR_DATES,
+        POSTS,
+      ),
+    ).toBe(false);
+    expect(
+      isClauseIgnored({ field: TOUR_DATES_FIELD_IDS.date, op: "notIn", values: [gone] }, TOUR_DATES, POSTS),
+    ).toBe(true);
   });
 });

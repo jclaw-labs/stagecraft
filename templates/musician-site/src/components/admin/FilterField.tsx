@@ -39,8 +39,10 @@ import {
   clauseValueShape,
   defaultClause,
   defaultFilterValue,
+  fieldPickFor,
   filterableFields,
   isArrayValueClause,
+  isClauseIgnored,
   isFieldBearingClause,
   isSingleValueClause,
   morphClauseToOp,
@@ -49,6 +51,7 @@ import {
   setClauseValue,
   setClauseValues,
   type ClauseOp,
+  type FieldPickerDef,
 } from "./filter-field-state";
 
 export type FilterFieldProps = {
@@ -68,6 +71,9 @@ export type FilterFieldProps = {
    */
   currentItemDef?: CollectionDef;
 };
+
+/** Option shown for a saved field id the collection no longer has. */
+const REMOVED_FIELD_LABEL = "removed field (ignored)";
 
 function stringifyFilter(value: Filter | null): string {
   return value ? JSON.stringify(value, null, 2) : "";
@@ -230,7 +236,10 @@ export function FilterField({
               clause={clause}
               onChange={(next) => handleChangeClause(i, next)}
               onRemove={() => handleRemoveClause(i)}
+              mode={mode}
+              sourceDef={sourceDef}
               sourceFields={sourceFields}
+              currentItemDef={currentItemDef}
               currentItemFields={currentItemFields}
             />
           ))}
@@ -279,21 +288,35 @@ function ClauseRow({
   clause,
   onChange,
   onRemove,
+  mode,
+  sourceDef,
   sourceFields,
+  currentItemDef,
   currentItemFields,
 }: {
   clause: FilterClause;
   onChange: (next: FilterClause) => void;
   onRemove: () => void;
+  mode: "all" | "any";
+  sourceDef: FieldPickerDef;
   sourceFields: ReadonlyArray<FieldDef>;
+  currentItemDef: FieldPickerDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
 }) {
   const op = clauseToOp(clause);
   const shape = clauseValueShape(op);
 
-  const field = isFieldBearingClause(clause)
-    ? sourceFields.find((f) => f.id === clause.field)
-    : undefined;
+  // The saved id goes through `viewFieldIdFor` first, so a re-added
+  // same-name field that the page reads shows as picked. An id the
+  // collection lacks even then gets its own option, so the picker
+  // doesn't show its first field for a clause the page ignores.
+  const pick = isFieldBearingClause(clause) ? fieldPickFor(sourceDef, clause.field) : null;
+  const field =
+    pick?.kind === "field" ? sourceFields.find((f) => f.id === pick.fieldId) : undefined;
+  const ignored =
+    isFieldBearingClause(clause) &&
+    clause.field !== "" &&
+    isClauseIgnored(clause, sourceDef, currentItemDef);
 
   function handleOpChange(newOp: ClauseOp) {
     onChange(morphClauseToOp(clause, newOp, sourceFields));
@@ -304,11 +327,14 @@ function ClauseRow({
       <div style={rowControlsStyle}>
         {isFieldBearingClause(clause) ? (
           <select
-            value={clause.field}
+            value={pick?.kind === "field" ? pick.fieldId : clause.field}
             onChange={(e) => onChange(setClauseField(clause, e.target.value))}
             style={{ ...selectStyle, flex: 1 }}
             aria-label="Field"
           >
+            {pick?.kind === "removed" ? (
+              <option value={clause.field}>{REMOVED_FIELD_LABEL}</option>
+            ) : null}
             {sourceFields.length === 0 ? (
               <option value="">(no filterable fields)</option>
             ) : null}
@@ -350,6 +376,7 @@ function ClauseRow({
           value={clause.value}
           onChange={(next) => onChange(setClauseValue(clause, next))}
           field={field}
+          currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
         />
       ) : null}
@@ -359,8 +386,17 @@ function ClauseRow({
           values={clause.values}
           onChange={(next) => onChange(setClauseValues(clause, next))}
           field={field}
+          currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
         />
+      ) : null}
+
+      {ignored ? (
+        <p style={hintStyle}>
+          {mode === "any"
+            ? "A field this clause uses was removed, so the page ignores this whole filter."
+            : "A field this clause uses was removed, so the page ignores this clause."}
+        </p>
       ) : null}
 
       {shape === "excludeCurrent" ? (
@@ -381,12 +417,14 @@ function FilterValueEditor({
   value,
   onChange,
   field,
+  currentItemDef,
   currentItemFields,
 }: {
   value: FilterValue;
   onChange: (next: FilterValue) => void;
   /** The source-collection field this value compares against. Undefined when the clause's field has been removed from the schema. */
   field: FieldDef | undefined;
+  currentItemDef: FieldPickerDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
@@ -430,23 +468,51 @@ function FilterValueEditor({
       ) : null}
 
       {value.kind === "currentItemField" ? (
-        <select
-          value={value.fieldId}
-          onChange={(e) => onChange({ kind: "currentItemField", fieldId: e.target.value })}
-          style={{ ...selectStyle, flex: 1 }}
-          aria-label="Current item field"
-        >
-          {currentItemFields.length === 0 ? (
-            <option value="">(no current item fields available)</option>
-          ) : null}
-          {currentItemFields.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.key} ({f.type})
-            </option>
-          ))}
-        </select>
+        <CurrentItemFieldSelect
+          fieldId={value.fieldId}
+          onChange={(fieldId) => onChange({ kind: "currentItemField", fieldId })}
+          currentItemDef={currentItemDef}
+          currentItemFields={currentItemFields}
+        />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The `currentItemField` value's field picker. Resolves the saved id the
+ * same way the clause's field picker does, against the surrounding
+ * item's def.
+ */
+function CurrentItemFieldSelect({
+  fieldId,
+  onChange,
+  currentItemDef,
+  currentItemFields,
+}: {
+  fieldId: string;
+  onChange: (fieldId: string) => void;
+  currentItemDef: FieldPickerDef | undefined;
+  currentItemFields: ReadonlyArray<FieldDef>;
+}) {
+  const pick = currentItemDef ? fieldPickFor(currentItemDef, fieldId) : null;
+  return (
+    <select
+      value={pick?.kind === "field" ? pick.fieldId : fieldId}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ ...selectStyle, flex: 1 }}
+      aria-label="Current item field"
+    >
+      {pick?.kind === "removed" ? <option value={fieldId}>{REMOVED_FIELD_LABEL}</option> : null}
+      {currentItemFields.length === 0 ? (
+        <option value="">(no current item fields available)</option>
+      ) : null}
+      {currentItemFields.map((f) => (
+        <option key={f.id} value={f.id}>
+          {f.key} ({f.type})
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -454,11 +520,13 @@ function ArrayValueEditor({
   values,
   onChange,
   field,
+  currentItemDef,
   currentItemFields,
 }: {
   values: FilterValue[];
   onChange: (next: FilterValue[]) => void;
   field: FieldDef | undefined;
+  currentItemDef: FieldPickerDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
 }) {
   return (
@@ -470,6 +538,7 @@ function ArrayValueEditor({
               value={v}
               onChange={(next) => onChange(values.map((existing, j) => (j === i ? next : existing)))}
               field={field}
+              currentItemDef={currentItemDef}
               currentItemFields={currentItemFields}
             />
           </div>
