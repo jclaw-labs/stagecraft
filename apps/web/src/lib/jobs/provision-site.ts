@@ -117,7 +117,8 @@ function hostProjectName(slug: string): string {
 function repoNameTakenMessage(owner: string, repoName: string): string {
   return (
     `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
-    `probably from a site you deleted. Delete or rename it on GitHub, or choose a different site name.`
+    `probably from a site you deleted. Delete or rename it on GitHub, then retry setup. ` +
+    `Or delete this site and create one with a different name.`
   );
 }
 

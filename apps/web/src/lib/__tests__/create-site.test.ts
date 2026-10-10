@@ -218,7 +218,8 @@ describe("handleCreateSite — common preconditions", () => {
     expect(result.success).toBe(false);
     expect(result.message).toBe(
       "A repository named jclaw/stagecraft-site-sarah-chen-music already exists on your GitHub account, " +
-        "probably from a site you deleted. Delete or rename it on GitHub, or choose a different site name.",
+        "probably from a site you deleted. Delete or rename it on GitHub, then retry setup. " +
+        "Or delete this site and create one with a different name.",
     );
     expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-sarah-chen-music");
     // A first attempt never adopts: the repo isn't this job's.
@@ -675,6 +676,19 @@ describe("handleCreateSite — resumable steps", () => {
     expect(result.success).toBe(false);
     expect(result.message).toContain("A repository named jclaw/stagecraft-site-sarah-chen-music already exists");
     expect(mockPushFiles).not.toHaveBeenCalled();
+  });
+
+  it("throws for a retry, rather than failing for good, when an interrupted createRepo's repo lookup fails", async () => {
+    // An earlier attempt may have made the repo, so a transient lookup
+    // failure must not turn an adoptable repo into a permanent failure.
+    seedSteps({ createRepo: { state: "started", attempts: 1, startedAt: STEP_STARTED_AT } });
+    mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
+    mockGetOwnRepo.mockRejectedValueOnce(new GitHubApiError(502, "bad gateway"));
+
+    await expect(handleCreateSite(makeContext({ retryAttempts: 1 }))).rejects.toThrow("GitHub API error (502)");
+    expect(mockSiteUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "error" } }));
+    expect(mockPushFiles).not.toHaveBeenCalled();
+    expect(storedSteps().createRepo).toMatchObject({ state: "started", attempts: 2 });
   });
 
   it("adopts the Vercel project an interrupted createHostProject already made", async () => {
