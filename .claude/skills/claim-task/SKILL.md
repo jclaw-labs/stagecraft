@@ -199,8 +199,10 @@ Under GitHub, one command does that whole fetch for `Ready` selection:
 
 It lists the issues through `issue-fields`, maps every open PR and its files to an owner issue,
 replays each `Ready`, `In progress`, `Needs review` and `Under review` issue through
-`claim-replay github`, and runs `task-queue next`. It prints one line naming the next issue that
-is both eligible and claimable, and the path of a JSON file holding the normalized input, the
+`claim-replay github`, and runs `task-queue next`. When strict replay fails for any reason, such
+as an edited protocol comment or a duplicate activation, it retries once with `--recover-root`
+and keeps claim-replay's `recovery` when an activated root fenced the earlier history. It prints
+one line naming the next issue that is both eligible and claimable, and the path of a JSON file holding the normalized input, the
 replays, the PRs, and the full `next` verdict; open the file only for a reason or a warning. It
 applies the Cursor Cloud credential contract itself. A record whose replay fails carries that
 failure as its `normalization_error`. It does not build review selection's `stack_ancestors`,
@@ -321,8 +323,9 @@ re-entry stays unsupported until a steward repairs it while it is unheld by appe
 writing the current unheld Queue value, and activating the intent. Racing repairs converge on the
 earliest activation. A generation with any scoped Claim set or clear is already visited, so moving
 from `Waiting for input` back to `Ready`, or re-exposing `Needs review`, cannot silently reuse it.
-Legacy or corrupt history uses activated `root` repair candidates. A malformed pre-root prefix may
-be fenced only by `claim-replay github --recover-root`; malformed selected-root or post-root
+Legacy or corrupt history uses activated `root` repair candidates. A malformed pre-root prefix, or
+any other strict failure before an activated root, may be fenced only by
+`claim-replay github --recover-root`; malformed selected-root or post-root
 history stays fatal until a newer valid root repair creates a boundary. Never append a repair
 directly inside `In progress` or `Under review`: reconstruct held work through its unheld precursor,
 `Ready` or `Needs review`, and then run the ordinary claim protocol.
@@ -448,7 +451,8 @@ held generation. Clear its scoped Claim and reconstruct through an unheld precur
 - without implementation evidence, append and activate a fresh `Ready` generation.
 
 An issue-owned PR, corroborated branch or worktree, or associated local diff is implementation
-evidence. Every recovery uses intent, Queue write, activation, complete reread, and strict replay.
+evidence. Every recovery uses intent, Queue write, activation, complete reread, and strict replay, or
+`--recover-root` replay on history a root repair already fenced.
 The next worker or reviewer then claims normally and `task-queue settle` arbitrates its generation.
 Settlement does not establish inactivity.
 

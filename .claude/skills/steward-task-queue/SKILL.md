@@ -203,10 +203,15 @@ validation or discard the rest of a complete snapshot.
 Repair every parser error or incomplete visit in `Ready`, `Needs review`, `In progress`, or
 `Under review` before using the item as supply:
 
-1. Run strict replay first. For a parser failure, explicitly run the backend recovery:
-   `claim-replay github --recover-root` for GitHub or
+1. Run strict replay first. On GitHub, `task-queue` already retries any strict failure once with
+   `claim-replay github --recover-root`, so a replay error it reports means recovery failed too,
+   except `cannot read the comments of #<n>`, a read failure to retry rather than repair. When you
+   ran `claim-replay github` yourself, rerun it with `--recover-root` after a strict failure.
+   On Linear, run the backend recovery yourself after a parser failure:
    `linear-adapter comments --recover-root` for Linear. Only the executable may fence a malformed
-   pre-root prefix.
+   pre-root prefix. A recovery that succeeds with `transition.status` `ready` or `held` is the
+   issue's verified repair: count it as supply and skip steps 2-5. Any other status, such as
+   `incomplete`, still needs the repair from step 2 on, replayed with `--recover-root`.
 2. If replay establishes a trusted activated predecessor, append a successor intent, write its
    unheld Queue state, append activation, and replay. The earliest activated sibling wins.
 3. If no predecessor is trustworthy, append and activate a root repair. A selected-root or
@@ -215,7 +220,8 @@ Repair every parser error or incomplete visit in `Ready`, `Needs review`, `In pr
    fresh `Needs review` visit for `Under review`. Never fabricate a held generation. If the
    activity policy preserves the holder, use the ordinary marker, held Queue write, settlement,
    and winner projection from that verified unheld visit.
-5. End with a complete reread and strict replay. Require Queue, transition, Claim projection, and
+5. End with a complete reread and strict replay, or the root recovery step 1 accepts when the
+   repair fences earlier history. Require Queue, transition, Claim projection, and
    sibling fields to match the winner. Keep locks and report the fatal defect if repair cannot be
    verified.
 
@@ -268,8 +274,13 @@ For a GitHub profile, `<claim-skill-dir>/task-queue snapshot --profile "$profile
 GitHub half of section 3 and this normalization for `Ready` selection, under the Cursor Cloud
 credential contract, and runs `next`. Its JSON file carries each replay's `transition` for the
 Effective Ready count, every open PR with its owners and changed files, and each failed replay
-as that record's `normalization_error`. It repairs nothing and does not fetch merged changes,
-CI, or review-selection fields, so those audits still read the tracker directly.
+as that record's `normalization_error`. A replay that succeeded only through root recovery
+carries `recovery` (fenced comment IDs, root generation and activation). When its `transition`
+is `ready` or `held`, count it as supply, since the root is already its verified repair, and
+report it as an audit note once, when it first appears or its root changes, rather than
+repairing it again; any other transition still needs step 1's repair. It repairs nothing and
+does not fetch merged changes, CI, or review-selection fields, so those audits still read the
+tracker directly.
 
 Treat warnings as audit findings. Do not read past malformed snapshot data or mutate an issue
 whose record-local normalization failed.
@@ -540,7 +551,8 @@ replacement of unspecified values. Clear only one configured field with `DELETE`
 `/repos/{owner}/{repo}/issues/{number}/issue-field-values/{field_id}`. Never clear the
 collection or an unconfigured field. After either write, re-read and verify the intended field
 changed while sibling fields stayed intact; this is the single-field clear or additive-set
-readback. Then reread comments and require strict replay. A protocol write is an exact marker-only
+readback. Then reread comments and require strict replay, or on fenced history a `--recover-root` replay that
+succeeds. A protocol write is an exact marker-only
 comment containing only `$comment_prefix` and the generated marker or event envelope. Put any
 explanation in a separate attributed comment. If a concurrent repair produced an earlier
 activated sibling, accept that winner, converge projections, and do not extend the losing branch.

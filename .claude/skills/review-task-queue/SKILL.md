@@ -385,7 +385,8 @@ worker needs a subagent tool of its own. Choose the path from the tools this ses
 - **A subagent tool whose subagents cannot dispatch** (Claude Code subagents cannot): run
   `deep-review-orchestrate` in this session with every addressing pass delegated, as its step 3
   allows, so each review round and each addressing pass runs in a fresh subagent and this session
-  holds only their indexes. Apply the context-limited rule below before every claim.
+  holds only their indexes, plus round 1's two full reviews, which it folds. Apply the
+  context-limited rule below before every claim.
 - **No subagent tool:** `deep-review-orchestrate` stops before round 1 without one, so claim
   nothing and report it. Run the role from a schedule that starts a fresh agent per tick, such as a
   Cursor Automation, only where those scheduled agents have a subagent tool. Each one validates its
