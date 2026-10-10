@@ -15,10 +15,13 @@ import {
   checkFieldRequirement,
   describeViewFieldImpact,
   describeViewFieldProblem,
+  findViewField,
   isSpecialisedViewSlug,
+  normaliseFieldKey,
   resolveViewFields,
   SPECIALISED_VIEW_SLUGS,
   VIEW_REQUIREMENTS,
+  viewFieldIdFor,
   viewFieldImpact,
   viewFieldProblems,
 } from "./view-requirements";
@@ -523,9 +526,21 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
       "The venue field is now URL, so the public tour dates list falls back to the plain " +
         "default card (its layout needs the venue as Short text or Long text).",
     );
-    const [removed] = viewFieldProblems(tourDatesWith(TICKETS.fieldId, null));
+    // Without a saved def to compare against, the copy can't claim the
+    // field was removed; it says what's missing and which name fills it.
+    const [absent] = viewFieldProblems(tourDatesWith(TICKETS.fieldId, null));
+    expect(describeViewFieldProblem(tourDatesCollectionDef, absent!)).toBe(
+      "There's no ticket link field, so the ticket link doesn't show on the public tour dates " +
+        'list. Name a field "ticketUrl" to bring it back.',
+    );
+  });
+
+  it("says a field removed in the draft was removed, and which name brings it back", () => {
+    const [removed] = viewFieldProblems(tourDatesWith(TICKETS.fieldId, null), tourDatesCollectionDef);
+    expect(removed?.missingCause).toEqual({ kind: "removed" });
     expect(describeViewFieldProblem(tourDatesCollectionDef, removed!)).toBe(
-      "The ticket link field was removed, so the ticket link doesn't show on the public tour dates list.",
+      "The ticket link field was removed, so the ticket link doesn't show on the public tour " +
+        'dates list. Name a field "ticketUrl" to bring it back.',
     );
   });
 
@@ -549,5 +564,255 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
       "The video source field is now Multi-choice, so videos on the public video grid show as " +
         "links instead of embedded players.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #436 follow-ups: name matching, renames, waiting fields, saved ids
+// ---------------------------------------------------------------------------
+
+/** A plain field for the tests below. */
+function field(id: string, key: string, type: "text" | "url" | "date" = "text"): FieldDef {
+  return { id, key, type, required: false } as FieldDef;
+}
+
+/** The tour-dates seed with `fieldId` removed and `extra` appended. */
+function tourDatesSwapping(fieldId: string, ...extra: FieldDef[]): CollectionDef {
+  const base = tourDatesWith(fieldId, null);
+  return { ...base, fields: [...base.fields, ...extra] };
+}
+
+describe("normaliseFieldKey / name matching", () => {
+  it("drops case, spaces and punctuation", () => {
+    expect(normaliseFieldKey("Ticket URL")).toBe("ticketurl");
+    expect(normaliseFieldKey(" ticket_url ")).toBe("ticketurl");
+    expect(normaliseFieldKey("ticket-Url")).toBe("ticketurl");
+    expect(normaliseFieldKey("ticketUrl")).toBe("ticketurl");
+  });
+
+  it("keeps letters and digits outside ASCII", () => {
+    expect(normaliseFieldKey("Città 2")).toBe("città2");
+  });
+
+  it.each(["Ticket URL", "ticket url", "ticket_url", "ticket-url", "TICKETURL"])(
+    "lets a re-added %j stand in for ticketUrl",
+    (key) => {
+      const def = tourDatesSwapping(TICKETS.fieldId, field("fld_new", key, "url"));
+      expect(checkFieldRequirement(def.fields, "ticketUrl", TICKETS)).toBe("ok");
+    },
+  );
+
+  it("still needs every letter of the role's name", () => {
+    const def = tourDatesSwapping(TICKETS.fieldId, field("fld_new", "tickets", "url"));
+    expect(checkFieldRequirement(def.fields, "ticketUrl", TICKETS)).toBe("missing");
+  });
+
+  it("gives every role a distinct normalised name, so no field can match two roles", () => {
+    for (const spec of Object.values(VIEW_REQUIREMENTS)) {
+      const roles = Object.keys(spec.fields).map(normaliseFieldKey);
+      expect(new Set(roles).size).toBe(roles.length);
+    }
+  });
+});
+
+describe("findViewField — several same-name fields", () => {
+  it("prefers the exact key over an earlier normalised match", () => {
+    const def = tourDatesSwapping(CITY.fieldId, field("fld_a", "City"), field("fld_b", "city"));
+    expect(findViewField(def.fields, "city", CITY)?.id).toBe("fld_b");
+  });
+
+  it("prefers the exact key even when its type is one the role can't render", () => {
+    const def = tourDatesSwapping(CITY.fieldId, field("fld_a", "City"), field("fld_b", "city", "url"));
+    expect(findViewField(def.fields, "city", CITY)?.id).toBe("fld_b");
+    expect(checkFieldRequirement(def.fields, "city", CITY)).toBe("wrong-type");
+  });
+
+  it("prefers an accepted type over field order among inexact matches", () => {
+    const def = tourDatesSwapping(
+      CITY.fieldId,
+      field("fld_a", "City", "url"),
+      field("fld_b", "CITY"),
+    );
+    expect(findViewField(def.fields, "city", CITY)?.id).toBe("fld_b");
+    expect(checkFieldRequirement(def.fields, "city", CITY)).toBe("ok");
+  });
+
+  it("falls back to field order when nothing else separates them", () => {
+    const def = tourDatesSwapping(CITY.fieldId, field("fld_a", "City"), field("fld_b", "CITY"));
+    expect(findViewField(def.fields, "city", CITY)?.id).toBe("fld_a");
+  });
+
+  it("always takes the declared id over any name match", () => {
+    const def = { ...tourDatesCollectionDef, fields: [...tourDatesCollectionDef.fields, field("x", "city")] };
+    expect(findViewField(def.fields, "city", CITY)?.id).toBe(CITY.fieldId);
+  });
+});
+
+describe("viewFieldIdFor", () => {
+  it("keeps a declared id that's still in the def", () => {
+    expect(viewFieldIdFor(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.date)).toBe(
+      TOUR_DATES_FIELD_IDS.date,
+    );
+  });
+
+  it("resolves a deleted declared id to its same-name stand-in", () => {
+    const def = tourDatesSwapping(TOUR_DATES_FIELD_IDS.date, field("fld_new_date", "Date", "date"));
+    expect(viewFieldIdFor(def, TOUR_DATES_FIELD_IDS.date)).toBe("fld_new_date");
+  });
+
+  it("keeps the deleted id when the stand-in's type is one the role refuses", () => {
+    // The card won't read a Short text "Release date", so the default
+    // block's sort doesn't either.
+    const releases = {
+      ...releasesCollectionDef,
+      fields: [
+        ...releasesCollectionDef.fields.filter((f) => f.key !== "releaseDate"),
+        field("fld_text_rel", "Release date", "text"),
+      ],
+    };
+    const declared = VIEW_REQUIREMENTS.releases.fields.releaseDate.fieldId;
+    expect(viewFieldIdFor(releases, declared)).toBe(declared);
+  });
+
+  it("keeps the deleted id when nothing stands in", () => {
+    const def = tourDatesWith(TOUR_DATES_FIELD_IDS.date, null);
+    expect(viewFieldIdFor(def, TOUR_DATES_FIELD_IDS.date)).toBe(TOUR_DATES_FIELD_IDS.date);
+  });
+
+  it("keeps the deleted status id: status doesn't match by name", () => {
+    const def = tourDatesSwapping(STATUS.fieldId, field("fld_new_status", "status"));
+    expect(viewFieldIdFor(def, STATUS.fieldId)).toBe(STATUS.fieldId);
+  });
+
+  it("leaves ids no view declares, and collections without a view, alone", () => {
+    expect(viewFieldIdFor(tourDatesCollectionDef, "fld_whatever")).toBe("fld_whatever");
+    expect(
+      viewFieldIdFor({ slug: "store-items", fields: [field("x", "date", "date")] }, TOUR_DATES_FIELD_IDS.date),
+    ).toBe(TOUR_DATES_FIELD_IDS.date);
+  });
+
+  it("resolves the posts and releases sort fields too", () => {
+    const posts = {
+      ...postsCollectionDef,
+      fields: [
+        ...postsCollectionDef.fields.filter((f) => f.key !== "publishedAt"),
+        field("fld_new_pub", "published at", "date"),
+      ],
+    };
+    const declared = VIEW_REQUIREMENTS.posts.fields.publishedAt.fieldId;
+    expect(viewFieldIdFor(posts, declared)).toBe("fld_new_pub");
+    const releases = {
+      ...releasesCollectionDef,
+      fields: [
+        ...releasesCollectionDef.fields.filter((f) => f.key !== "releaseDate"),
+        field("fld_new_rel", "Release Date", "date"),
+      ],
+    };
+    expect(viewFieldIdFor(releases, VIEW_REQUIREMENTS.releases.fields.releaseDate.fieldId)).toBe(
+      "fld_new_rel",
+    );
+  });
+});
+
+describe("renaming a same-name stand-in", () => {
+  // Saved: city deleted and re-added as "city" under a new id. Draft:
+  // that field renamed to "town".
+  const SAVED = tourDatesSwapping(CITY.fieldId, field("fld_readded", "city"));
+  const RENAMED = tourDatesSwapping(CITY.fieldId, field("fld_readded", "town"));
+
+  it("reports the role missing because of the rename", () => {
+    const [problem] = viewFieldProblems(RENAMED, SAVED);
+    expect(problem?.status).toBe("missing");
+    expect(problem?.missingCause).toEqual({
+      kind: "renamed",
+      field: field("fld_readded", "town"),
+      savedKey: "city",
+    });
+  });
+
+  it("says it was renamed, not removed, and how to undo it", () => {
+    const [problem] = viewFieldProblems(RENAMED, SAVED);
+    expect(describeViewFieldProblem(RENAMED, problem!)).toBe(
+      'The city field was renamed to "town", so the city doesn\'t show on the public tour dates ' +
+        'list. Name it "city" again to undo this.',
+    );
+  });
+
+  it("names the saved key as typed, trimmed", () => {
+    const saved = tourDatesSwapping(CITY.fieldId, field("fld_readded", " City "));
+    const [problem] = viewFieldProblems(RENAMED, saved);
+    expect(describeViewFieldProblem(RENAMED, problem!)).toMatch(/Name it "City" again to undo this\.$/);
+  });
+
+  it("says the field has no name while the artist has cleared it", () => {
+    const cleared = tourDatesSwapping(CITY.fieldId, field("fld_readded", "  "));
+    const [problem] = viewFieldProblems(cleared, SAVED);
+    expect(describeViewFieldProblem(cleared, problem!)).toBe(
+      "The city field has no name, so the city doesn't show on the public tour dates list. " +
+        'Name it "city" again to undo this.',
+    );
+  });
+
+  it("doesn't flag a rename that still matches the role", () => {
+    const renamed = tourDatesSwapping(CITY.fieldId, field("fld_readded", "City"));
+    expect(viewFieldProblems(renamed, SAVED)).toEqual([]);
+  });
+
+  it("doesn't flag renaming a declared field: it resolves by id", () => {
+    const renamed = tourDatesWith(CITY.fieldId, field(CITY.fieldId, "town"));
+    expect(viewFieldProblems(renamed, tourDatesCollectionDef)).toEqual([]);
+  });
+
+  it("keeps the no-way-back copy for status, whatever happened to it", () => {
+    const [problem] = viewFieldProblems(tourDatesWith(STATUS.fieldId, null), tourDatesCollectionDef);
+    expect(describeViewFieldProblem(tourDatesCollectionDef, problem!)).toBe(
+      "The status field was removed, so tour dates lists that hide cancelled shows (the " +
+        "default) hide every show.",
+    );
+  });
+});
+
+describe("viewFieldImpact — a same-name field waiting to take over", () => {
+  // Declared ticketUrl renamed to "tickets" (it still holds the role by
+  // id), and a new field named "ticketUrl" added.
+  const DRAFT = {
+    ...tourDatesCollectionDef,
+    fields: [
+      ...tourDatesCollectionDef.fields.map((f) => (f.id === TICKETS.fieldId ? { ...f, key: "tickets" } : f)),
+      field("fld_new_tickets", "ticketUrl", "url"),
+    ],
+  };
+
+  it("doesn't flag removing the declared field: the new one takes the role", () => {
+    expect(viewFieldImpact(DRAFT, TICKETS.fieldId, { kind: "remove" })).toBeNull();
+    const after = { ...DRAFT, fields: DRAFT.fields.filter((f) => f.id !== TICKETS.fieldId) };
+    expect(findViewField(after.fields, "ticketUrl", TICKETS)?.id).toBe("fld_new_tickets");
+  });
+
+  it("doesn't flag a retype the waiting field covers", () => {
+    // Two inexact stand-ins: retyping the first to URL hands the role to
+    // the second, which the card can render.
+    const standIns = tourDatesSwapping(
+      CITY.fieldId,
+      field("fld_a", "City"),
+      field("fld_b", "CITY"),
+    );
+    expect(
+      viewFieldImpact(standIns, "fld_a", { kind: "retype", from: "text", to: "url" }),
+    ).toBeNull();
+  });
+
+  it("still flags removing the only field for the role", () => {
+    expect(viewFieldImpact(tourDatesCollectionDef, TICKETS.fieldId, { kind: "remove" })).not.toBeNull();
+  });
+
+  it("flags a waiting field the role can't render", () => {
+    const draft = {
+      ...DRAFT,
+      fields: DRAFT.fields.map((f) =>
+        f.id === "fld_new_tickets" ? ({ ...f, type: "date" } as FieldDef) : f,
+      ),
+    };
+    expect(viewFieldImpact(draft, TICKETS.fieldId, { kind: "remove" })).not.toBeNull();
   });
 });

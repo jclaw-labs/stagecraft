@@ -21,10 +21,18 @@
  * name a field the card doesn't read but the view still depends on: the
  * tour-dates `status`, which the default Collection block filters on.
  *
- * Views find a role's field by its stable id first, so renames are
- * always safe. When that id is gone, a field whose name matches the role
- * (`city`, `ticketUrl`, …) stands in, so an artist who deletes a field
- * and adds it back gets the card back (#408).
+ * Views find a role's field by its stable id first, so renaming a
+ * declared field is safe. When that id is gone, a field whose name
+ * matches the role (`city`, `ticketUrl`, `Ticket URL`, …; see
+ * `findViewField`) stands in, so an artist who deletes a field and adds
+ * it back gets the card back (#408). A stand-in holds the role only by
+ * its name, so renaming *it* drops the role again; the heads-up says it
+ * was renamed and which name restores it.
+ *
+ * Code that saved a declared id outside the schema (the default
+ * Collection block's sort and filter, the detail page's "Tickets"
+ * label) resolves it through `viewFieldIdFor`, so the same stand-in
+ * takes over there too (#436).
  *
  * Client-safe: type-only imports from `../schema` plus the node-free
  * `../field-ids` / `../field-classification`, so the `"use client"`
@@ -72,10 +80,12 @@ export type ViewFieldRequirement = {
    */
   effect?: { will: string; now: string };
   /**
-   * False when the dependency is on the field id itself rather than on
-   * the card reading the field: tour-date `status` is filtered by id in
-   * the Collection block's saved props, so a new field with the same
-   * name doesn't bring the filter back. Defaults to true.
+   * False when a new field with the role's name mustn't take the role
+   * over. Tour-date `status`: the default block hides shows whose status
+   * is `cancelled`, and a filter clause on a missing value fails, so a
+   * fresh status field (no show has a value yet) would hide every show
+   * while the editor reported all clear. Left on the deleted id, the
+   * heads-up keeps saying what's wrong. Defaults to true.
    */
   matchesByKey?: boolean;
 };
@@ -206,10 +216,24 @@ const DECLARED_FIELD_IDS: ReadonlySet<FieldId> = new Set(
 );
 
 /**
+ * A field name reduced to what name matching compares: lower case,
+ * letters and digits only, so `Ticket URL`, `ticket_url` and `ticketUrl`
+ * all read as `ticketurl`. Every role is a distinct camelCase word, so
+ * dropping spaces and punctuation can't make two roles collide.
+ */
+export function normaliseFieldKey(key: string): string {
+  return key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+/**
  * The field `role` reads in `fields`: the declared id when it's there,
  * otherwise (unless the role opts out) a field the artist named after
- * the role, compared case-insensitively. A declared field the artist
+ * the role, compared by `normaliseFieldKey`. A declared field the artist
  * renamed never stands in for a different role.
+ *
+ * Keys are unique only as typed, so `City` (URL) and `city` (Short text)
+ * can both match. The pick is the exact key first (`city` for the `city`
+ * role), then a field whose type the role accepts, then field order.
  */
 export function findViewField(
   fields: ReadonlyArray<FieldDef>,
@@ -218,8 +242,46 @@ export function findViewField(
 ): FieldDef | undefined {
   const byId = fields.find((f) => f.id === requirement.fieldId);
   if (byId || requirement.matchesByKey === false) return byId;
-  const key = role.toLowerCase();
-  return fields.find((f) => f.key.trim().toLowerCase() === key && !DECLARED_FIELD_IDS.has(f.id));
+  const key = normaliseFieldKey(role);
+  const rank = (f: FieldDef): number =>
+    (f.key.trim() === role ? 2 : 0) + (requirement.accepts.includes(f.type) ? 1 : 0);
+  let best: FieldDef | undefined;
+  for (const f of fields) {
+    if (DECLARED_FIELD_IDS.has(f.id) || normaliseFieldKey(f.key) !== key) continue;
+    if (!best || rank(f) > rank(best)) best = f;
+  }
+  return best;
+}
+
+/**
+ * The id of the field that now plays the role `fieldId` was declared
+ * for in `def`'s view: `fieldId` itself while it exists, else the
+ * same-name stand-in `findViewField` picks, when its type is one the
+ * role accepts (the card refuses any other, so the block does too).
+ * Anything else (an id no view declares, a collection without a view, a
+ * role with no usable stand-in) comes back unchanged.
+ *
+ * For ids saved outside the schema: the default Collection block's sort
+ * and filter (`collection-view-props.ts`, resolved in
+ * `collection-block.tsx`) and the detail page's "Tickets" label
+ * (`item-detail.tsx`). Without it, a re-added `releaseDate` brought the
+ * releases card back while the default block still sorted by the
+ * deleted id. System-locked fields (tour-dates `date`, posts
+ * `publishedAt`) can't be deleted, so they only take this path in
+ * content edited outside the admin.
+ */
+export function viewFieldIdFor(
+  def: Pick<CollectionDef, "slug" | "fields">,
+  fieldId: FieldId,
+): FieldId {
+  if (!isSpecialisedViewSlug(def.slug) || def.fields.some((f) => f.id === fieldId)) return fieldId;
+  for (const [role, requirement] of Object.entries(viewSpec(def.slug).fields)) {
+    if (requirement.fieldId === fieldId) {
+      const standIn = findViewField(def.fields, role, requirement);
+      return standIn && requirement.accepts.includes(standIn.type) ? standIn.id : fieldId;
+    }
+  }
+  return fieldId;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +311,37 @@ export type ViewFieldProblem = {
   actualType: FieldType | null;
   /** That field's type as last saved; null for a field added in this draft. */
   savedType: FieldType | null;
+  /** Why the role has no field; null unless `status === "missing"`. */
+  missingCause: ViewFieldMissingCause | null;
 };
+
+/**
+ * Why a role has no field, judged against the saved def:
+ *
+ *   - `removed`: the saved def had a field for it; the draft deleted it.
+ *   - `renamed`: the saved def's field was a same-name stand-in and the
+ *     draft renamed it (now `field.key`), so it no longer matches. A
+ *     declared field resolves by id, so renaming one never lands here.
+ *   - `absent`: the saved def had no field for it either.
+ */
+export type ViewFieldMissingCause =
+  | { kind: "removed" }
+  | { kind: "renamed"; field: FieldDef; savedKey: string }
+  | { kind: "absent" };
+
+function missingCause(
+  def: Pick<CollectionDef, "fields">,
+  savedDef: Pick<CollectionDef, "fields">,
+  role: string,
+  requirement: ViewFieldRequirement,
+): ViewFieldMissingCause {
+  const savedField = findViewField(savedDef.fields, role, requirement);
+  if (!savedField) return { kind: "absent" };
+  const draftField = def.fields.find((f) => f.id === savedField.id);
+  return draftField
+    ? { kind: "renamed", field: draftField, savedKey: savedField.key.trim() }
+    : { kind: "removed" };
+}
 
 /**
  * Every unmet requirement of `def`'s specialised view (empty when the
@@ -274,7 +366,15 @@ export function viewFieldProblems(
     if (actualType !== null && savedType !== null && !canTransition(savedType, actualType)) {
       continue;
     }
-    problems.push({ role, requirement, status, field, actualType, savedType });
+    problems.push({
+      role,
+      requirement,
+      status,
+      field,
+      actualType,
+      savedType,
+      missingCause: status === "missing" ? missingCause(def, savedDef, role, requirement) : null,
+    });
   }
   return problems;
 }
@@ -355,7 +455,8 @@ export type ViewFieldImpact = {
 /**
  * What a remove / retype of `fieldId` would do to `def`'s specialised
  * view. Null when the field isn't one the view reads, when the change
- * keeps it working (a retype to another accepted type), when the
+ * keeps the role working (a retype to another accepted type, or another
+ * field with the role's name waiting to take over), when the
  * retype is one the save API blocks (`canTransition`), since that can
  * never reach the public site, or when the draft already breaks that
  * role: the heads-up already says what happens, and a further change
@@ -375,10 +476,16 @@ export function viewFieldImpact(
   if (!match) return null;
   const [role, requirement] = match;
   if (viewFieldProblems(def, savedDef).some((p) => p.role === role)) return null;
-  if (change.kind === "retype") {
-    if (requirement.accepts.includes(change.to)) return null;
-    if (!canTransition(change.from, change.to)) return null;
-  }
+  if (change.kind === "retype" && !canTransition(change.from, change.to)) return null;
+  // Judge the role on the fields as they'd be after the change: a retype
+  // to an accepted type keeps it, and so does a waiting same-name field
+  // (declared `ticketUrl` renamed to `tickets` and a new `ticketUrl`
+  // added: removing `tickets` hands the role to the new field).
+  const after =
+    change.kind === "remove"
+      ? def.fields.filter((f) => f.id !== fieldId)
+      : def.fields.map((f) => (f.id === fieldId ? ({ ...f, type: change.to } as FieldDef) : f));
+  if (checkFieldRequirement(after, role, requirement) === "ok") return null;
   return { viewLabel: spec.viewLabel, requirement, change };
 }
 
@@ -446,21 +553,49 @@ export function describeViewFieldImpact(impact: ViewFieldImpact, fieldKey: strin
   );
 }
 
-/** Persistent heads-up copy for a problem already present in the def. */
+/**
+ * Persistent heads-up copy for a problem already present in the def. A
+ * missing role that a same-name field can fill names the field name
+ * that does it; an unsaved rename of a stand-in reads as a rename, not
+ * a removal.
+ */
 export function describeViewFieldProblem(
   def: Pick<CollectionDef, "slug">,
   problem: ViewFieldProblem,
 ): string {
   const viewLabel = isSpecialisedViewSlug(def.slug) ? viewSpec(def.slug).viewLabel : def.slug;
-  const { field, actualType, savedType } = problem;
-  const what =
-    problem.status === "missing" || actualType === null
-      ? `The ${problem.requirement.label} field was removed`
-      : `The ${problem.requirement.label} field is now ${fieldTypeLabel(actualType)}`;
-  // An unsaved retype that existing values can still block.
-  const caveat =
-    field && actualType !== null && savedType !== null && savedType !== actualType
-      ? retypeCaveat(field.key, savedType, actualType)
-      : "";
-  return `${what}, so ${consequence(viewLabel, problem.requirement, "now")}.${caveat}`;
+  const { role, requirement, field, actualType, savedType } = problem;
+  const now = consequence(viewLabel, requirement, "now");
+  if (problem.status === "wrong-type" && field && actualType !== null) {
+    // An unsaved retype that existing values can still block.
+    const caveat =
+      savedType !== null && savedType !== actualType
+        ? retypeCaveat(field.key, savedType, actualType)
+        : "";
+    return `The ${requirement.label} field is now ${fieldTypeLabel(actualType)}, so ${now}.${caveat}`;
+  }
+  // A role that doesn't match by name has no way back to suggest.
+  if (requirement.matchesByKey === false) {
+    return `The ${requirement.label} field was removed, so ${now}.`;
+  }
+  const cause = problem.missingCause ?? { kind: "absent" };
+  const restore = `Name a field "${role}" to bring it back.`;
+  switch (cause.kind) {
+    case "renamed":
+      // Mid-edit: the artist cleared the name before typing a new one.
+      if (!cause.field.key.trim()) {
+        return (
+          `The ${requirement.label} field has no name, so ${now}. ` +
+          `Name it "${cause.savedKey}" again to undo this.`
+        );
+      }
+      return (
+        `The ${requirement.label} field was renamed to "${cause.field.key}", so ${now}. ` +
+        `Name it "${cause.savedKey}" again to undo this.`
+      );
+    case "removed":
+      return `The ${requirement.label} field was removed, so ${now}. ${restore}`;
+    case "absent":
+      return `There's no ${requirement.label} field, so ${now}. ${restore}`;
+  }
 }

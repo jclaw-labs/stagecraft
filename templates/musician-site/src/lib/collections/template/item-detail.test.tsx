@@ -219,6 +219,39 @@ describe("DefaultItemDetail — tour dates", () => {
     expect(html).toContain("Doors at 7.");
   });
 
+  it("labels a re-added same-name ticket field Tickets too", () => {
+    // ticketUrl deleted, then added back as "Ticket URL" under a new id.
+    const def: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: [
+        ...tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.ticketUrl),
+        { id: "fld_new_tickets", key: "Ticket URL", type: "url", required: false },
+      ],
+    };
+    const item: Item = {
+      ...SHOW,
+      values: { ...SHOW.values, fld_new_tickets: { type: "url", value: "https://tix.example/new" } },
+    };
+    expect(itemDetailSections(def, item).links).toEqual([
+      { fieldId: "fld_new_tickets", href: "https://tix.example/new", label: "Tickets" },
+    ]);
+  });
+
+  it("labels an unrelated link field by its hostname", () => {
+    const def: CollectionDef = {
+      ...tourDatesCollectionDef,
+      fields: [
+        ...tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.ticketUrl),
+        { id: "fld_press", key: "press", type: "url", required: false },
+      ],
+    };
+    const item: Item = {
+      ...SHOW,
+      values: { ...SHOW.values, fld_press: { type: "url", value: "https://www.press.example/x" } },
+    };
+    expect(itemDetailSections(def, item).links.map((l) => l.label)).toEqual(["press.example"]);
+  });
+
   it("shows a naked local datetime as written, without a time-zone shift", () => {
     const item: Item = {
       ...SHOW,

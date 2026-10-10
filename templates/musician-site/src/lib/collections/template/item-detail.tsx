@@ -36,6 +36,7 @@ import type { CollectionDef, FieldDef, FieldId, Item, TiptapJSON } from "../sche
 import { resolveTemplate } from "./renderer";
 import { renderTiptap } from "./tiptap-render";
 import type { Template } from "./types";
+import { viewFieldIdFor } from "./view-requirements";
 
 // ---------------------------------------------------------------------------
 // Field → section classification (pure; exported for tests)
@@ -60,11 +61,23 @@ export type ItemDetailSections = {
 
 /**
  * Link text for built-in URL fields whose hostname would read worse than
- * a call to action. Other URL fields show their hostname.
+ * a call to action, keyed by declared field id. Other URL fields show
+ * their hostname.
  */
 const LINK_LABELS: Readonly<Record<FieldId, string>> = {
   [TOUR_DATES_FIELD_IDS.ticketUrl]: "Tickets",
 };
+
+/**
+ * `LINK_LABELS` keyed by the field that holds each role in `def`: a
+ * re-added same-name field (`ticketUrl` deleted, then added back) keeps
+ * the "Tickets" label, the same way it keeps the tour-dates card.
+ */
+function linkLabelsFor(def: CollectionDef): ReadonlyMap<FieldId, string> {
+  return new Map(
+    Object.entries(LINK_LABELS).map(([fieldId, label]) => [viewFieldIdFor(def, fieldId), label]),
+  );
+}
 
 /**
  * Split an item's values into the detail layout's sections. Fields are
@@ -90,6 +103,7 @@ export function itemDetailSections(def: CollectionDef, item: Item): ItemDetailSe
     extraImages: [],
   };
   const subtitleParts: string[] = [];
+  const linkLabels = linkLabelsFor(def);
 
   for (const field of def.fields) {
     if (field.id === titleFieldId) continue;
@@ -127,7 +141,7 @@ export function itemDetailSections(def: CollectionDef, item: Item): ItemDetailSe
           sections.links.push({
             fieldId: field.id,
             href: value.value,
-            label: LINK_LABELS[field.id] ?? hostnameOf(value.value),
+            label: linkLabels.get(field.id) ?? hostnameOf(value.value),
           });
         }
         break;

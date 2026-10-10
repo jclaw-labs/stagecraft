@@ -32,6 +32,14 @@ export function defaultCollectionViewLimit(slug: string): number {
  *   - `tour-dates` → upcoming (date ≥ today) + not-cancelled, soonest-first;
  *   - `releases` / `posts` → newest-first.
  *
+ * The sort and filter name the seed field ids. When the artist deletes one
+ * of those fields that isn't system-locked (releases `releaseDate`) and
+ * adds a same-name field back, the Collection block resolves the saved id
+ * to the new field at render time (`viewFieldIdFor` in
+ * `template/view-requirements.ts`), so the saved props never need
+ * rewriting. Tour-date `status` opts out of that match (see its
+ * `matchesByKey`).
+ *
  * Any other collection gets just `{ sourceCollection, limit }` — no opinionated
  * ordering, since its own `itemTemplate` (or the default card) decides
  * presentation.
