@@ -15,7 +15,7 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 vi.mock("@/lib/jobs/worker", () => ({ drainAfterResponse: drainAfterResponseMock }));
 
-import { POST } from "../route";
+import { GET, POST } from "../route";
 
 function buildRequest(body: unknown): NextRequest {
   return new NextRequest("http://platform.test/api/sites", {
@@ -171,5 +171,32 @@ describe("POST /api/sites", () => {
     expect((await res.json()) as { error: string }).toMatchObject({ error: expect.stringContaining("try again") });
     expect(prismaMock.site.delete).toHaveBeenCalledWith({ where: { id: "site-1" } });
     expect(drainAfterResponseMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/sites", () => {
+  it("401 when not signed in", async () => {
+    authMock.mockResolvedValue(null);
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(prismaMock.site.findMany).not.toHaveBeenCalled();
+  });
+
+  it("narrows each site's latest job, including rows left over from the retired AI-edit flow", async () => {
+    prismaMock.site.findMany.mockResolvedValue([
+      {
+        id: "site-1",
+        jobs: [{ id: "job-1", type: "edit_site", status: "awaiting_review", failureCategory: "ai_error" }],
+      },
+      {
+        id: "site-2",
+        jobs: [{ id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" }],
+      },
+    ]);
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.sites[0].jobs[0]).toEqual({ id: "job-1", type: null, status: null, failureCategory: "unknown" });
+    expect(body.sites[1].jobs[0]).toEqual({ id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" });
   });
 });

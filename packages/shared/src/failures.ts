@@ -31,9 +31,9 @@ const summaries: Record<FailureCategory, FailureSummary> = {
   validation_error: {
     title: "Content validation failed",
     description:
-      "The changes produced content that doesn't match the expected format. This can happen when an edit creates conflicting or incomplete data.",
+      "The site content that was generated doesn't match the expected format.",
     suggestedAction:
-      "Retry to let the system attempt an automatic fix. If it keeps failing, try rephrasing your request with more specific instructions.",
+      "Retry to let the system attempt an automatic fix. If it keeps failing, contact support.",
   },
   timeout: {
     title: "Request timed out",

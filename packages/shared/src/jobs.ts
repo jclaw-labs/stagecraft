@@ -32,7 +32,7 @@ export interface KnownJobFields {
  * `edit_site` jobs, with `awaiting_review` statuses or `ai_error` failure
  * categories. An unrecognised type or status becomes null, which matches
  * none of the comparisons readers make. An unrecognised failure category
- * becomes `"unknown"`, so its summary is the generic one.
+ * becomes `"unknown"`, the category's own catch-all value.
  */
 export function narrowJobFields<T extends StoredJobFields>(
   row: T,

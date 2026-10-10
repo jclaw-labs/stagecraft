@@ -4,7 +4,7 @@ import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
 import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
-import { connectedProviders, siteSetupIntegrationError } from "@stagecraft/shared";
+import { connectedProviders, narrowJobFields, siteSetupIntegrationError } from "@stagecraft/shared";
 
 // Site.blueprintType is a required column, but every site gets the same blueprint.
 const DEFAULT_BLUEPRINT = "solo-artist";
@@ -109,5 +109,8 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json({ sites });
+  // Old rows can hold a retired job type, status or failure category (#447).
+  return NextResponse.json({
+    sites: sites.map((site) => ({ ...site, jobs: site.jobs.map(narrowJobFields) })),
+  });
 }
