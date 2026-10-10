@@ -80,7 +80,7 @@ export const PAGE_CONTENT_ITEM_DETAIL =
   "Limited content was extracted. Review and expand this page in your site's admin.";
 
 export const DESIGN_ITEM_DETAIL =
-  "Colors, fonts, and layout are set to the template defaults. Customise them in your site's admin: colors and fonts under Appearance, layout in each page's editor.";
+  "Colors, fonts, and layout are set to the template defaults. Customise them in your site's admin under Appearance, which has sections for colors, typography, and layout.";
 
 export function unmappedPageItemLabel(titleOrUrl: string): string {
   return `Unmapped page: ${titleOrUrl}`;

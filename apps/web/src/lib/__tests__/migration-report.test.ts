@@ -110,7 +110,7 @@ describe("buildMigrationReport — site admin instead of the edit request flow (
 
   it("points the design item at the site admin", () => {
     const item = report.manualReviewItems.find((i) => i.label === "Design & theme");
-    expect(item?.detail).toMatch(/in your site's admin: colors and fonts under Appearance/);
+    expect(item?.detail).toMatch(/in your site's admin under Appearance/);
     expect(item?.action).toBe("open_site_admin");
   });
 

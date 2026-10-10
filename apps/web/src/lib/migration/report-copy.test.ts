@@ -209,6 +209,15 @@ describe("upgradeStoredReport — edit request flow copy (#455)", () => {
         const odd: MigrationReportItem = { label: c.label, status: c.status, detail: "Some other wording." };
         expect(upgradeStoredReport(reportWithItem(c.list, odd))[c.list]).toEqual([odd]);
       });
+
+      it("leaves the old wording alone when other text surrounds it", () => {
+        const surrounded: MigrationReportItem = {
+          label: c.label,
+          status: c.status,
+          detail: `Note: ${c.old} Thanks.`,
+        };
+        expect(upgradeStoredReport(reportWithItem(c.list, surrounded))[c.list]).toEqual([surrounded]);
+      });
     });
   }
 
@@ -247,7 +256,11 @@ describe("upgradeStoredReport — edit request flow copy (#455)", () => {
   });
 
   it("leaves the current and unknown embeds summary lines alone", () => {
-    const lines = [embedsSummaryLine(2), "Found 2 media embeds — add them somehow"];
+    const lines = [
+      embedsSummaryLine(2),
+      "Found 2 media embeds — add them somehow",
+      "Note: Found 2 media embeds (YouTube, Spotify, etc.) — add via edit request, later",
+    ];
     expect(upgradeStoredReport(makeReport(lines, [])).summary).toEqual(lines);
   });
 

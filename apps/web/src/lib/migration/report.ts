@@ -5,7 +5,7 @@
  * results. The report is stored in SiteJob.resultPayload and surfaced in the UI.
  */
 
-import { capitalise } from "@stagecraft/shared";
+import { capitalise, pluralise } from "@stagecraft/shared";
 import type { ExtractedSite } from "./crawler";
 import { PAGE_ITEM_PREFIX, type MappedContent, type MappedFile } from "./musician-site-mapper";
 import {
@@ -176,7 +176,7 @@ function buildSummary(
   const socialCount = extracted.socialLinks.filter((l) => !l.href.startsWith("mailto:")).length;
 
   lines.push(`Migrated "${artistName}" from ${extracted.rootUrl}`);
-  lines.push(`Crawled ${extracted.pages.length} page${extracted.pages.length === 1 ? "" : "s"}, mapped ${pageCount} to template`);
+  lines.push(`Crawled ${pluralise(extracted.pages.length, "page")}, mapped ${pageCount} to template`);
 
   if (imageCount > 0) {
     lines.push(imagesSummaryLine(imageCount));
@@ -185,7 +185,7 @@ function buildSummary(
     lines.push(embedsSummaryLine(embedCount));
   }
   if (socialCount > 0) {
-    lines.push(`Detected ${socialCount} social link${socialCount === 1 ? "" : "s"} and imported into site config`);
+    lines.push(`Detected ${pluralise(socialCount, "social link")} and imported into site config`);
   }
 
   return lines;

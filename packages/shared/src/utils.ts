@@ -8,7 +8,7 @@ export function capitalise(s: string): string {
 /**
  * A count with its noun, pluralised with a trailing "s" unless the count is
  * exactly 1: `pluralise(1, "image")` is "1 image", `pluralise(0, "image")`
- * is "0 images".
+ * is "0 images". Only for nouns whose plural adds a plain "s".
  */
 export function pluralise(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
