@@ -782,6 +782,109 @@ describe("FilterField — clauses on unfilterable fields", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Values from current-item fields the page can't read (#466)
+// ---------------------------------------------------------------------------
+
+describe("FilterField — current-item values the page can't read", () => {
+  const WITH_COVER: CollectionDef = {
+    ...CURRENT_ITEM_DEF,
+    fields: [...CURRENT_ITEM_DEF.fields, { id: "p_cover", key: "cover", type: "image", required: false }],
+  };
+  const cover = { kind: "currentItemField", fieldId: "p_cover" } as const;
+
+  function renderFilter(filter: Filter) {
+    return render(
+      <FilterField value={filter} onChange={vi.fn()} sourceDef={SOURCE_DEF} currentItemDef={WITH_COVER} />,
+    );
+  }
+  function noteFor(select: HTMLElement): string | null | undefined {
+    const noteId = select.getAttribute("aria-describedby");
+    return noteId ? document.getElementById(noteId)?.textContent : null;
+  }
+
+  it("says an `equals` clause hides every item, pointing the current-item picker at the note", () => {
+    renderFilter({ all: [{ field: "f_city", op: "equals", value: cover }] });
+
+    expect(noteFor(screen.getByLabelText("Current item field"))).toBe(
+      "The page can't read the current item's image field “cover”, so this clause hides every item. Pick another current item field.",
+    );
+    // The note is about the value, so the Field and Operator pickers don't point at it.
+    expect(screen.getByLabelText("Field").hasAttribute("aria-describedby")).toBe(false);
+    expect(screen.getByLabelText("Operator").hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("says the clause matches no item in an `any` group", () => {
+    renderFilter({ any: [{ field: "f_city", op: "in", values: [cover] }] });
+
+    expect(noteFor(screen.getByLabelText("Current item field"))).toMatch(/so this clause matches no item\./);
+  });
+
+  it("says a `does not equal` clause matches every item with a value for the field", () => {
+    renderFilter({ all: [{ field: "f_city", op: "notEquals", value: cover }] });
+
+    expect(noteFor(screen.getByLabelText("Current item field"))).toMatch(
+      /so this clause matches every item that has a “city” value\. Pick another current item field\./,
+    );
+  });
+
+  it("follows the operator when the artist changes it", async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FilterField
+        value={{ all: [{ field: "f_city", op: "equals", value: cover }] }}
+        onChange={onChange}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={WITH_COVER}
+      />,
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Operator"), "gte");
+    const next = onChange.mock.calls.at(-1)?.[0] as Filter;
+    expect(next).toEqual({ all: [{ field: "f_city", op: "gte", value: cover }] });
+    rerender(<FilterField value={next} onChange={onChange} sourceDef={SOURCE_DEF} currentItemDef={WITH_COVER} />);
+
+    expect(screen.queryByText(/hides every item/)).toBeNull();
+    expect(screen.getByText(/matches every item that has a “city” value/)).toBeTruthy();
+  });
+
+  it("says only that value is skipped in a list that holds another value", () => {
+    renderFilter({ all: [{ field: "f_city", op: "in", values: [cover, { kind: "literal", value: "Lyon" }] }] });
+
+    const [coverSelect] = screen.getAllByLabelText("Current item field");
+    expect(noteFor(coverSelect!)).toBe("The page can't read the current item's image field “cover”, so it skips that value.");
+  });
+
+  it("points only the unreadable values' pickers at the note, naming every skipped field", () => {
+    const withPdf: CollectionDef = {
+      ...WITH_COVER,
+      fields: [...WITH_COVER.fields, { id: "p_pdf", key: "pdf", type: "file", required: false }],
+    };
+    const title = { kind: "currentItemField", fieldId: "p_title" } as const;
+    const pdf = { kind: "currentItemField", fieldId: "p_pdf" } as const;
+    render(
+      <FilterField
+        value={{ all: [{ field: "f_city", op: "in", values: [cover, title, pdf] }] }}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={withPdf}
+      />,
+    );
+
+    const [coverSelect, titleSelect, pdfSelect] = screen.getAllByLabelText("Current item field");
+    const note = "The page can't read the current item's fields “cover” and “pdf”, so it skips those values.";
+    expect(noteFor(coverSelect!)).toBe(note);
+    expect(noteFor(pdfSelect!)).toBe(note);
+    expect(titleSelect!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("shows no note for a field the page can read", () => {
+    renderFilter({ all: [{ field: "f_city", op: "equals", value: { kind: "currentItemField", fieldId: "p_title" } }] });
+
+    expect(screen.queryByText(/can't read/)).toBeNull();
+    expect(screen.getByLabelText("Current item field").hasAttribute("aria-describedby")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Mode toggle (AND/OR)
 // ---------------------------------------------------------------------------
 

@@ -320,3 +320,66 @@ export function isClauseIgnored(
   // leaves nothing, so the result is `null`.
   return filterForDefs({ all: [clause] }, sourceDef, currentItemDef) === null;
 }
+
+/** Current-item fields a clause's values name that the page can't read, and what the clause then does. */
+export type UnfilterableCurrentItemValue = {
+  fields: FieldDef[];
+  outcome: "matchesNone" | "matchesEveryWithValue" | "valueSkipped";
+};
+
+const MATCHES_EVERY_ITEM_WITH_A_VALUE: ReadonlySet<ClauseOp> = new Set<ClauseOp>([
+  "notEquals",
+  "notIn",
+  "gte",
+  "lte",
+]);
+
+/**
+ * What the page does with a clause whose value is a current-item field
+ * it can't read (image, file, richText, puckContent; see
+ * `fieldPickFor`), for a template whose item comes from
+ * `currentItemDef`. The page reads no value from such a field, so the
+ * clause compares each item against nothing:
+ *
+ *   - `equals`, `contains`, `in`, `>` and `<` match no item
+ *     (`"matchesNone"`).
+ *   - `does not equal`, `is not one of`, `≥` and `≤` match every item
+ *     that has a value for the clause's field
+ *     (`"matchesEveryWithValue"`): `compareScalars` counts values it
+ *     can't order as equal.
+ *   - In an `is one of` / `is not one of` list that also holds a value
+ *     the page can read, the page only skips that value
+ *     (`"valueSkipped"`).
+ *
+ * `fields` lists each such field once, in value order. `null` when no
+ * value names one, and without `currentItemDef`, since there's nothing
+ * to check against.
+ */
+export function unfilterableCurrentItemValue(
+  clause: FilterClause,
+  currentItemDef?: FilterFieldsDef,
+): UnfilterableCurrentItemValue | null {
+  if (!currentItemDef) return null;
+  const values = isSingleValueClause(clause)
+    ? [clause.value]
+    : isArrayValueClause(clause)
+      ? clause.values
+      : [];
+  // `null` for a value that isn't a current-item field (a literal, the
+  // current item's id, today), which the page always reads.
+  const picks = values.map((value) =>
+    value.kind === "currentItemField" ? fieldPickFor(currentItemDef, value.fieldId) : null,
+  );
+  const fields: FieldDef[] = [];
+  for (const pick of picks) {
+    if (pick?.kind === "unfilterable" && !fields.some((f) => f.id === pick.field.id)) fields.push(pick.field);
+  }
+  if (fields.length === 0) return null;
+  const readable = picks.some((pick) => pick === null || pick.kind === "field");
+  const outcome = readable
+    ? "valueSkipped"
+    : MATCHES_EVERY_ITEM_WITH_A_VALUE.has(clauseToOp(clause))
+      ? "matchesEveryWithValue"
+      : "matchesNone";
+  return { fields, outcome };
+}
