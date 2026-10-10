@@ -11,10 +11,18 @@ vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 import { upsertGithubIntegration, withEncryptedAccountTokens } from "../auth-credentials";
 import {
   CREDENTIALS_KEY_ENV,
+  CREDENTIALS_REQUIRED_ENV,
   decryptCredential,
+  integrationCredentialField,
   isEncryptedCredential,
   resetCredentialCryptoForTests,
+  type AccountCredentialField,
+  type AccountTokenColumn,
 } from "../credential-crypto";
+
+function accountField(column: AccountTokenColumn, providerAccountId = "123"): AccountCredentialField {
+  return { table: "Account", provider: "github", providerAccountId, column };
+}
 
 const ACCOUNT: AdapterAccount = {
   userId: "user-1",
@@ -51,9 +59,16 @@ describe("withEncryptedAccountTokens", () => {
     for (const field of ["access_token", "refresh_token", "id_token"] as const) {
       expect(isEncryptedCredential(stored[field]!)).toBe(true);
     }
-    expect(await decryptCredential(stored.access_token!)).toBe("gho_access");
-    expect(await decryptCredential(stored.refresh_token!)).toBe("ghr_refresh");
-    expect(await decryptCredential(stored.id_token!)).toBe("idt");
+    expect(await decryptCredential(stored.access_token!, accountField("access_token"))).toBe("gho_access");
+    expect(await decryptCredential(stored.refresh_token!, accountField("refresh_token"))).toBe("ghr_refresh");
+    expect(await decryptCredential(stored.id_token!, accountField("id_token"))).toBe("idt");
+    // Each value is bound to its own column and row.
+    await expect(decryptCredential(stored.access_token!, accountField("refresh_token"))).rejects.toThrow(
+      /failed to decrypt/,
+    );
+    await expect(
+      decryptCredential(stored.access_token!, accountField("access_token", "999")),
+    ).rejects.toThrow(/failed to decrypt/);
     // Everything else passes through untouched.
     expect(stored).toMatchObject({ userId: "user-1", provider: "github", scope: "repo" });
   });
@@ -93,7 +108,9 @@ describe("upsertGithubIntegration", () => {
     expect(args.where).toEqual({ userId_provider: { userId: "user-1", provider: "github" } });
     expect(isEncryptedCredential(args.create.accessToken)).toBe(true);
     expect(args.update.accessToken).toBe(args.create.accessToken);
-    expect(await decryptCredential(args.create.accessToken)).toBe("gho_access");
+    expect(
+      await decryptCredential(args.create.accessToken, integrationCredentialField("user-1", "github")),
+    ).toBe("gho_access");
     expect(args.create).toMatchObject({
       provider: "github",
       providerAccountId: "42",
@@ -114,5 +131,19 @@ describe("upsertGithubIntegration", () => {
 
     expect(prismaMock.integrationAccount.upsert.mock.calls[0][0].create.accessToken).toBe("gho_access");
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to store plaintext when credentials are required and no key is set", async () => {
+    vi.stubEnv(CREDENTIALS_KEY_ENV, "");
+    vi.stubEnv(CREDENTIALS_REQUIRED_ENV, "true");
+
+    await expect(
+      upsertGithubIntegration({
+        userId: "user-1",
+        accessToken: "gho_access",
+        githubUser: { id: 42, login: "jclaw" },
+      }),
+    ).rejects.toThrow(CREDENTIALS_KEY_ENV);
+    expect(prismaMock.integrationAccount.upsert).not.toHaveBeenCalled();
   });
 });

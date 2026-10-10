@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { encryptCredential } from "@/lib/credential-crypto";
+import { encryptCredential, integrationCredentialField } from "@/lib/credential-crypto";
 import { exchangeNetlifyCode } from "@/lib/integrations/oauth";
 import { prisma } from "@stagecraft/db";
 import { cookies } from "next/headers";
@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
       headers: { Authorization: `Bearer ${accessToken}` },
     }).then((r) => r.json() as Promise<{ id: string; email: string; full_name: string }>);
 
-    const storedToken = await encryptCredential(accessToken);
+    const storedToken = await encryptCredential(
+      accessToken,
+      integrationCredentialField(session.user.id, "netlify", "accessToken"),
+    );
     await prisma.integrationAccount.upsert({
       where: {
         userId_provider: {

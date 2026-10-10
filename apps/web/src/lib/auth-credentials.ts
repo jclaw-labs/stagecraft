@@ -1,6 +1,12 @@
 import type { Adapter, AdapterAccount } from "next-auth/adapters";
 import { prisma } from "@stagecraft/db";
-import { encryptCredential, encryptOptionalCredential } from "./credential-crypto";
+import {
+  encryptCredential,
+  encryptOptionalCredential,
+  integrationCredentialField,
+  type AccountCredentialField,
+  type AccountTokenColumn,
+} from "./credential-crypto";
 
 /**
  * Wrap the NextAuth adapter so the OAuth tokens it stores on `Account`
@@ -17,11 +23,18 @@ export function withEncryptedAccountTokens(adapter: Adapter): Adapter {
     ...adapter,
     // NextAuth ignores linkAccount's result, so this returns nothing.
     async linkAccount(account: AdapterAccount): Promise<void> {
+      // Bound to the row's unique key, (provider, providerAccountId).
+      const field = (column: AccountTokenColumn): AccountCredentialField => ({
+        table: "Account",
+        provider: account.provider,
+        providerAccountId: account.providerAccountId,
+        column,
+      });
       await linkAccount({
         ...account,
-        access_token: await encryptOptionalCredential(account.access_token),
-        refresh_token: await encryptOptionalCredential(account.refresh_token),
-        id_token: await encryptOptionalCredential(account.id_token),
+        access_token: await encryptOptionalCredential(account.access_token, field("access_token")),
+        refresh_token: await encryptOptionalCredential(account.refresh_token, field("refresh_token")),
+        id_token: await encryptOptionalCredential(account.id_token, field("id_token")),
       });
     },
   };
@@ -37,7 +50,10 @@ export async function upsertGithubIntegration(args: {
   accessToken: string;
   githubUser: { id: number; login: string };
 }): Promise<void> {
-  const accessToken = await encryptCredential(args.accessToken);
+  const accessToken = await encryptCredential(
+    args.accessToken,
+    integrationCredentialField(args.userId, "github", "accessToken"),
+  );
   await prisma.integrationAccount.upsert({
     where: {
       userId_provider: { userId: args.userId, provider: "github" },

@@ -21,6 +21,7 @@ import { POST, DELETE } from "../route";
 import {
   CREDENTIALS_KEY_ENV,
   decryptCredential,
+  integrationCredentialField,
   isEncryptedCredential,
   resetCredentialCryptoForTests,
 } from "@/lib/credential-crypto";
@@ -122,7 +123,9 @@ describe("POST /api/integrations/vercel/connect", () => {
       const { update, create } = prismaMock.integrationAccount.upsert.mock.calls[0][0];
       expect(isEncryptedCredential(create.accessToken)).toBe(true);
       expect(update.accessToken).toBe(create.accessToken);
-      expect(await decryptCredential(create.accessToken)).toBe("vercel_secret");
+      expect(
+        await decryptCredential(create.accessToken, integrationCredentialField("user-1", "vercel")),
+      ).toBe("vercel_secret");
       // Validation still sees the plaintext.
       expect(validateMock).toHaveBeenCalledWith("vercel_secret");
     } finally {

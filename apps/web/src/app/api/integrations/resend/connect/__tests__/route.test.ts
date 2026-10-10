@@ -26,6 +26,7 @@ import { randomBytes } from "node:crypto";
 import {
   CREDENTIALS_KEY_ENV,
   decryptCredential,
+  integrationCredentialField,
   isEncryptedCredential,
   resetCredentialCryptoForTests,
 } from "@/lib/credential-crypto";
@@ -170,7 +171,9 @@ describe("POST /api/integrations/resend/connect", () => {
     const { update, create } = prismaMock.integrationAccount.upsert.mock.calls[0][0];
     expect(isEncryptedCredential(create.accessToken)).toBe(true);
     expect(update.accessToken).toBe(create.accessToken);
-    expect(await decryptCredential(create.accessToken)).toBe("re_secret");
+    expect(
+      await decryptCredential(create.accessToken, integrationCredentialField("user-1", "resend")),
+    ).toBe("re_secret");
     expect(validateMock).toHaveBeenCalledWith("re_secret");
   });
 });

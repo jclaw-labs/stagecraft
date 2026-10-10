@@ -18,11 +18,13 @@ import { GET } from "../route";
 import {
   CREDENTIALS_KEY_ENV,
   decryptCredential,
+  integrationCredentialField,
   isEncryptedCredential,
   resetCredentialCryptoForTests,
 } from "@/lib/credential-crypto";
 
 const ORIGINAL_FETCH = globalThis.fetch;
+const NETLIFY_FIELD = integrationCredentialField("user-1", "netlify");
 
 function callback(query: string): NextRequest {
   return new NextRequest(`http://platform.test/api/integrations/netlify/callback?${query}`);
@@ -59,7 +61,11 @@ describe("GET /api/integrations/netlify/callback", () => {
     const { update, create } = prismaMock.integrationAccount.upsert.mock.calls[0][0];
     expect(isEncryptedCredential(create.accessToken)).toBe(true);
     expect(update.accessToken).toBe(create.accessToken);
-    expect(await decryptCredential(create.accessToken)).toBe("netlify_secret");
+    expect(await decryptCredential(create.accessToken, NETLIFY_FIELD)).toBe("netlify_secret");
+    // Bound to user-1's Netlify row: it won't decrypt as another user's.
+    await expect(
+      decryptCredential(create.accessToken, integrationCredentialField("user-2", "netlify")),
+    ).rejects.toThrow(/failed to decrypt/);
     expect(create).toMatchObject({ provider: "netlify", providerAccountId: "nl-1" });
   });
 
