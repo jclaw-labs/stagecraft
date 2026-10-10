@@ -184,7 +184,7 @@ Suggested platform entities:
 - name
 - slug
 - status
-- blueprintType (vestigial: always `solo-artist`, now filled by a DB default and no longer written by the app; to be dropped, see #445. There are no blueprints, see product spec §14)
+- blueprintType (vestigial: always `solo-artist`. App code no longer sets it, but the Prisma client still sends the schema `@default` on every insert; the DB default exists for the next step, marking the field `@ignore`, before the column is dropped. See #445. There are no blueprints, see product spec §14)
 - githubRepoOwner
 - githubRepoName
 - githubDefaultBranch

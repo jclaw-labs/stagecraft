@@ -187,6 +187,8 @@ describe("POST /api/migrations", () => {
     const body = await res.json() as { site: unknown; jobId: string };
     expect(body.jobId).toBe("job-1");
     expect(body.site).toBeDefined();
+    // Exact data: the route leaves Site.blueprintType out (#445). The Prisma
+    // client still sends its schema @default("solo-artist") in the INSERT.
     expect(mockCreateSite).toHaveBeenCalledWith({
       data: {
         userId: "user-1",
@@ -195,8 +197,6 @@ describe("POST /api/migrations", () => {
         status: "creating",
       },
     });
-    // Site.blueprintType is filled by its DB default; the route no longer writes it (#445).
-    expect(mockCreateSite.mock.calls[0][0].data).not.toHaveProperty("blueprintType");
     expect(mockCreateJob).toHaveBeenCalledWith({
       data: {
         siteId: "site-1",
