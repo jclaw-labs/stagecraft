@@ -89,9 +89,22 @@ export type CredentialField = AccountCredentialField | IntegrationCredentialFiel
 /** The storage format of a credential column's value. */
 export type CredentialFormat = "plaintext" | "v1" | "v2";
 
+/** The formats that carry an `enc:` prefix. */
+export type EncryptedCredentialFormat = Exclude<CredentialFormat, "plaintext">;
+
 const ENCRYPTED_PREFIX = "enc:";
 const V1_PREFIX = "enc:v1:";
 const V2_PREFIX = "enc:v2:";
+
+/**
+ * The prefix each encrypted format starts with: `credentialFormat` detects
+ * a format by it, and a value is parsed by slicing off its own format's
+ * prefix, so formats needn't share a prefix length.
+ */
+export const CREDENTIAL_FORMAT_PREFIXES: Readonly<Record<EncryptedCredentialFormat, string>> = {
+  v1: V1_PREFIX,
+  v2: V2_PREFIX,
+};
 const KEY_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 /** Standard base64 of exactly 32 bytes: 43 characters and one `=` of padding. */
 const KEY_MATERIAL_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
@@ -257,9 +270,22 @@ export function isEncryptedCredential(value: string): boolean {
  */
 export function credentialFormat(stored: string): CredentialFormat {
   if (!isEncryptedCredential(stored)) return "plaintext";
-  if (stored.startsWith(V1_PREFIX)) return "v1";
-  if (stored.startsWith(V2_PREFIX)) return "v2";
+  // Detection and parsing (`encryptedSegments`) share the one prefix map.
+  for (const [format, prefix] of Object.entries(CREDENTIAL_FORMAT_PREFIXES) as [
+    EncryptedCredentialFormat,
+    string,
+  ][]) {
+    if (stored.startsWith(prefix)) return format;
+  }
   throw new Error("Stored credential has an unsupported format version");
+}
+
+/**
+ * The `:`-separated segments after an encrypted value's own format prefix:
+ * `[keyId, iv, tag, ciphertext]` when well formed.
+ */
+function encryptedSegments(stored: string, format: EncryptedCredentialFormat): string[] {
+  return stored.slice(CREDENTIAL_FORMAT_PREFIXES[format].length).split(":");
 }
 
 /**
@@ -331,7 +357,7 @@ export async function decryptCredential(stored: string, field: CredentialField):
         `${CREDENTIALS_ACCEPT_V1_ENV}=false refuses it. Have the user reconnect (docs/runbook.md §9).`,
     );
   }
-  const parts = stored.slice(V1_PREFIX.length).split(":");
+  const parts = encryptedSegments(stored, format);
   if (parts.length !== 4) {
     throw new Error("Stored credential is malformed");
   }
@@ -381,8 +407,9 @@ export async function currentCredentialKeyId(): Promise<string | null> {
 
 /** Id of the key an encrypted value was written with; null for plaintext. */
 export function credentialKeyId(stored: string): string | null {
-  if (credentialFormat(stored) === "plaintext") return null;
-  return stored.slice(V1_PREFIX.length).split(":")[0] ?? null;
+  const format = credentialFormat(stored);
+  if (format === "plaintext") return null;
+  return encryptedSegments(stored, format)[0] ?? null;
 }
 
 /** `encryptCredential` that passes `null` / `undefined` through. */

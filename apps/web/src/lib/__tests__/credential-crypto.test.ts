@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CREDENTIAL_FORMAT_PREFIXES,
   CREDENTIALS_ACCEPT_V1_ENV,
   CREDENTIALS_KEY_ENV,
   CREDENTIALS_OLD_KEYS_ENV,
@@ -411,6 +412,29 @@ describe("key ids", () => {
     expect(credentialKeyId(await encryptCredential("x", GITHUB))).toBe("a");
     expect(credentialKeyId(encryptV1ForTests("x", KEY_B))).toBe("b");
     expect(credentialKeyId("plain")).toBeNull();
+  });
+
+  it("reads the key id after each format's own prefix", () => {
+    for (const [format, prefix] of Object.entries(CREDENTIAL_FORMAT_PREFIXES)) {
+      const stored = `${prefix}kid-${format}:AAAA:AAAA:AAAA`;
+      expect(credentialFormat(stored)).toBe(format);
+      expect(credentialKeyId(stored)).toBe(`kid-${format}`);
+    }
+  });
+
+  it("throws on an unknown format version instead of guessing a key id", () => {
+    expect(() => credentialKeyId("enc:v9:a:AAAA:AAAA:AAAA")).toThrow(/unsupported format/);
+  });
+
+  it("decrypts v1 and v2 values under the key their own key id names", async () => {
+    const v1 = encryptV1ForTests("one", KEY_B);
+    vi.stubEnv(CREDENTIALS_KEY_ENV, KEY_B);
+    vi.stubEnv(CREDENTIALS_OLD_KEYS_ENV, KEY_A);
+    const v2 = await encryptCredential("two", GITHUB);
+    expect(credentialKeyId(v1)).toBe("b");
+    expect(credentialKeyId(v2)).toBe("b");
+    expect(await decryptCredential(v1, GITHUB)).toBe("one");
+    expect(await decryptCredential(v2, GITHUB)).toBe("two");
   });
 });
 
