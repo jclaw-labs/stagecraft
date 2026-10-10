@@ -20,6 +20,7 @@ import path from "node:path";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
+import { captureLaunchOptions } from "../../capture/chromium";
 import { E2E_CONTENT_DIR } from "../../playwright.config";
 
 const STORAGE_STATE_PATH = path.join(
@@ -42,7 +43,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     );
   }
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(captureLaunchOptions());
   try {
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();

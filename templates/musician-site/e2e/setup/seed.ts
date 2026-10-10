@@ -141,3 +141,16 @@ export async function seedCompletedSite(
     "utf-8",
   );
 }
+
+/**
+ * Replace the content dir with the template's checked-in demo site
+ * (`src/content/`), so public-page specs render the same pages a fresh
+ * artist site ships with.
+ */
+export async function seedDemoContent(
+  contentDir: string = E2E_CONTENT_DIR,
+): Promise<void> {
+  const source = path.join(process.cwd(), "src", "content");
+  await fs.rm(contentDir, { recursive: true, force: true });
+  await fs.cp(source, contentDir, { recursive: true });
+}
