@@ -508,6 +508,19 @@ describe(`encryptStoredCredentials with ${CREDENTIALS_ACCEPT_V1_ENV}=false`, () 
     );
     expect(integrationAccount.store[0].accessToken).toBe(v1);
   });
+
+  it.each([
+    ["a --rotate run", { rotate: true }],
+    ["a plain run", {}],
+  ])("fails up front on a value other than true or false in %s too, before any row is touched", async (_, options) => {
+    vi.stubEnv(CREDENTIALS_ACCEPT_V1_ENV, "flase");
+    const { db, integrationAccount } = makeDb([], [integrationRow("int1", { accessToken: "plain" })]);
+
+    await expect(encryptStoredCredentials(db, options)).rejects.toThrow(
+      `${CREDENTIALS_ACCEPT_V1_ENV} must be "true" or "false"`,
+    );
+    expect(integrationAccount.store[0].accessToken).toBe("plain");
+  });
 });
 
 describe("assertAllDecryptable", () => {
