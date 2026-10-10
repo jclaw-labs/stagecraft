@@ -110,7 +110,11 @@ export async function GET() {
   });
 
   // Old rows can hold a retired job type, status or failure category (#447).
+  // The broker secret hash never leaves the server, as in the detail route.
   return NextResponse.json({
-    sites: sites.map((site) => ({ ...site, jobs: site.jobs.map(narrowJobFields) })),
+    sites: sites.map(({ brokerSecretHash, ...site }) => {
+      void brokerSecretHash;
+      return { ...site, jobs: site.jobs.map(narrowJobFields) };
+    }),
   });
 }

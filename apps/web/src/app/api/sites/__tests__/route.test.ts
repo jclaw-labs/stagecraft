@@ -186,6 +186,7 @@ describe("GET /api/sites", () => {
     prismaMock.site.findMany.mockResolvedValue([
       {
         id: "site-1",
+        brokerSecretHash: "hash-1",
         jobs: [{ id: "job-1", type: "edit_site", status: "awaiting_review", failureCategory: "ai_error" }],
       },
       {
@@ -198,6 +199,7 @@ describe("GET /api/sites", () => {
     const body = await res.json();
     expect(body.sites[0]).toMatchObject({ id: "site-1" });
     expect(body.sites[1]).toMatchObject({ id: "site-2" });
+    expect(body.sites[0]).not.toHaveProperty("brokerSecretHash");
     expect(body.sites[0].jobs[0]).toEqual({ id: "job-1", type: null, status: null, failureCategory: "unknown" });
     expect(body.sites[1].jobs[0]).toEqual({ id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" });
   });

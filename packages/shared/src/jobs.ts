@@ -29,9 +29,10 @@ export interface KnownJobFields {
  *
  * The database doesn't constrain these columns, so rows written before a
  * value was retired keep that value, such as April's `edit_site` type,
- * `awaiting_review` status or `ai_error` failure category. An unrecognised type or status becomes null, which matches
- * none of the comparisons readers make. An unrecognised failure category
- * becomes `"unknown"`, the category's own catch-all value.
+ * `awaiting_review` status or `ai_error` failure category. An unrecognised
+ * type or status becomes null, which matches none of the comparisons readers
+ * make. An unrecognised failure category becomes `"unknown"`, the category's
+ * own catch-all value.
  */
 export function narrowJobFields<T extends StoredJobFields>(
   row: T,
