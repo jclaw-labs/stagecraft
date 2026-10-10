@@ -323,6 +323,8 @@ curl -s -H "Authorization: Bearer <access_token>" \
 
 The token must have `repo` scope (for creating repos and pushing files). The `scopes` column in `IntegrationAccount` should include `repo`.
 
+Sign-in requests `read:user user:email repo workflow` (`apps/web/src/lib/github-oauth-scope.ts`). It no longer requests `delete_repo` (issue #398): deleting a site keeps its GitHub repo, and the artist deletes the repo from its GitHub settings page if they want it gone. Tokens granted before that change may still list `delete_repo`; nothing uses it. New artist repos are created private; repos created earlier keep their visibility.
+
 ---
 
 ## 7. Verifying Netlify Integration

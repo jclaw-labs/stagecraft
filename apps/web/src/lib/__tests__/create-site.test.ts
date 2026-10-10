@@ -23,7 +23,6 @@ vi.mock("@stagecraft/db", () => ({
 }));
 
 const mockCreateRepo = vi.fn();
-const mockDeleteRepo = vi.fn();
 const mockPushFiles = vi.fn();
 const mockFindGithubAppInstallation = vi.fn();
 const mockGetOwnRepo = vi.fn();
@@ -32,7 +31,6 @@ vi.mock("@/lib/integrations/github", async (importOriginal) => {
   return {
     GitHubApiError: actual.GitHubApiError,
     createRepo: mockCreateRepo,
-    deleteRepo: mockDeleteRepo,
     getOwnRepo: mockGetOwnRepo,
     pushFiles: mockPushFiles,
     findGithubAppInstallation: mockFindGithubAppInstallation,
@@ -499,8 +497,7 @@ describe("handleCreateSite — Vercel GitHub App not installed", () => {
       },
     });
     expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
-    // The repo stays so a retry can pick up at createHostProject.
-    expect(mockDeleteRepo).not.toHaveBeenCalled();
+    // The site and its repo stay so a retry can pick up at createHostProject.
     expect(mockSiteDelete).not.toHaveBeenCalled();
   });
 
@@ -549,6 +546,14 @@ describe("handleCreateSite — resumable steps", () => {
       defaultBranch: "main",
     });
     expect((result.data as { steps: StepRecords }).steps).toEqual(storedSteps());
+  });
+
+  it("creates the artist's repo as private", async () => {
+    await handleCreateSite(makeContext());
+
+    expect(mockCreateRepo).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: expect.any(String), isPrivate: true }),
+    );
   });
 
   it("never stores the broker secret's plaintext", async () => {

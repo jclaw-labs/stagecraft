@@ -306,6 +306,8 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const githubUrl = site.githubRepoOwner && site.githubRepoName
     ? `https://github.com/${site.githubRepoOwner}/${site.githubRepoName}`
     : null;
+  // Deleting a site keeps its repo (issue #398); the artist deletes it on GitHub.
+  const githubSettingsUrl = githubUrl ? `${githubUrl}/settings` : null;
   const needsRepoLink = site.status === "active" && site.netlifyAdminUrl && !site.productionUrl;
   const netlifyLinkRepoUrl = site.netlifyAdminUrl
     ? `${site.netlifyAdminUrl}/configuration/deploys#content`
@@ -603,8 +605,25 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
           <div className={styles.panelHead}><h2>Danger zone</h2></div>
           <div className={styles.panelBody}>
             <p className={styles.dangerText}>
-              Permanently delete this site, its GitHub repository, and its {site.deployTarget === "vercel" ? "Vercel" : "Netlify"} {site.deployTarget === "vercel" ? "project" : "deployment"}. This cannot be undone.
+              Permanently delete this site and its {site.deployTarget === "vercel" ? "Vercel" : "Netlify"} {site.deployTarget === "vercel" ? "project" : "deployment"}. This cannot be undone.
             </p>
+            {githubSettingsUrl && (
+              <div className={styles.dangerRepoNote}>
+                <p className={styles.dangerText}>
+                  Your GitHub repository <strong>{site.githubRepoOwner}/{site.githubRepoName}</strong> is
+                  kept. To delete it as well, use the Danger Zone in its GitHub settings.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  href={githubSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open repository settings on GitHub
+                </Button>
+              </div>
+            )}
             <div className={styles.dangerConfirm}>
               <Input
                 id="delete-confirm"

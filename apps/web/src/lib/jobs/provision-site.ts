@@ -386,7 +386,12 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
   const repo = await runner.run<RepoStepResult>("createRepo", async ({ interrupted, firstStartedAt }) => {
     let created;
     try {
-      created = await createRepo({ userId, name: repoName, description: args.repoDescription });
+      created = await createRepo({
+        userId,
+        name: repoName,
+        description: args.repoDescription,
+        isPrivate: true,
+      });
     } catch (cause) {
       const nameTaken = cause instanceof GitHubApiError && cause.status === 422;
       const existing = nameTaken && interrupted ? await getOwnRepo(userId, repoName) : null;

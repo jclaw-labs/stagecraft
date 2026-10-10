@@ -6,6 +6,7 @@ interface CreateRepoOptions {
   userId: string;
   name: string;
   description?: string;
+  /** Defaults to true: artist repos are private (issue #398). */
   isPrivate?: boolean;
 }
 
@@ -102,7 +103,7 @@ export async function createRepo(options: CreateRepoOptions): Promise<CreateRepo
     body: JSON.stringify({
       name: options.name,
       description: options.description ?? "",
-      private: options.isPrivate ?? false,
+      private: options.isPrivate ?? true,
       auto_init: true,
     }),
   });
@@ -409,24 +410,6 @@ export async function closePullRequest(
     method: "PATCH",
     body: JSON.stringify({ state: "closed" }),
   });
-}
-
-export async function deleteRepo(userId: string, owner: string, repo: string): Promise<void> {
-  const token = await getGitHubToken(userId);
-
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-    },
-  });
-
-  // 404 is fine — repo may already be deleted
-  if (!res.ok && res.status !== 404) {
-    const body = await res.text();
-    throw new Error(`Failed to delete GitHub repo (${res.status}): ${body}`);
-  }
 }
 
 interface GithubInstallation {
