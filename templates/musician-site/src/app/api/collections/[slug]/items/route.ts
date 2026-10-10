@@ -15,7 +15,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   buildItemFileSchema,
   generateItemId,
@@ -23,12 +23,12 @@ import {
   ItemExistsError,
   itemCommitSubject,
   slugSchema,
-} from "@/lib/collections";
-import { pageSlugShadowError } from "@/lib/collections/page-slug-shadow";
-import { PublishError } from "@/lib/publish";
-import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { pageSlugShadowError } from "#lib/collections/page-slug-shadow.js";
+import { PublishError } from "#lib/publish.js";
+import { planItemWrite, saveContent, saveFailureResponse } from "#lib/save-content.js";
 
-import { zodIssuesToStructured } from "./[itemSlug]/issue-format";
+import { zodIssuesToStructured } from "./[itemSlug]/issue-format.js";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });

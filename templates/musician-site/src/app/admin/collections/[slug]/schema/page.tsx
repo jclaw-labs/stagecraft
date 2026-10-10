@@ -9,11 +9,11 @@
 
 import { notFound } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore, slugSchema } from "@/lib/collections";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore, slugSchema } from "#lib/collections/index.js";
 
-import { SchemaEditorClient } from "./SchemaEditorClient";
+import { SchemaEditorClient } from "./SchemaEditorClient.js";
 
 type Params = { slug: string };
 

@@ -9,7 +9,7 @@ import {
   pinchScale,
   touchDistance,
   ZOOM_RESET,
-} from "./lightbox-zoom";
+} from "./lightbox-zoom.js";
 
 describe("clampZoomScale", () => {
   it("keeps in-range scales unchanged", () => {

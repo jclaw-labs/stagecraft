@@ -8,8 +8,8 @@ import {
   listPublicRouteSegments,
   resolveCollectionItemUrl,
   validateCollectionRouting,
-} from "./routing";
-import type { CollectionDef } from "./schema";
+} from "./routing.js";
+import type { CollectionDef } from "./schema.js";
 
 function def(
   slug: string,

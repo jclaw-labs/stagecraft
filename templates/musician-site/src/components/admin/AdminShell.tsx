@@ -2,21 +2,21 @@ import Link from "next/link";
 import { cache } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
-import { AdminAccountButton } from "./AdminAccountButton";
+import { AdminAccountButton } from "./AdminAccountButton.js";
 import {
   CUSTOM_ADMIN_SURFACES,
   CUSTOM_PANEL_COLLECTION_SLUGS,
-} from "./admin-surfaces";
-import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink";
-import { GitHubUnavailableBanner } from "./GitHubUnavailableBanner";
-import { PendingChangesIndicator } from "./PendingChangesIndicator";
-import { PublishPendingChangesButton } from "./PublishPendingChangesButton";
+} from "./admin-surfaces.js";
+import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink.js";
+import { GitHubUnavailableBanner } from "./GitHubUnavailableBanner.js";
+import { PendingChangesIndicator } from "./PendingChangesIndicator.js";
+import { PublishPendingChangesButton } from "./PublishPendingChangesButton.js";
 import {
   getRequestReadStore,
   listCollectionSlugs,
   readCollectionDef,
   type CollectionDef,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
 
 /**

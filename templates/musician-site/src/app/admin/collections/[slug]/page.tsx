@@ -21,17 +21,17 @@ const chromeButtonStyle: React.CSSProperties = {
   border: "1px solid var(--color-border)",
 };
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { findCustomSurface } from "@/components/admin/admin-surfaces";
-import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
-import { getSession } from "@/lib/auth";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { findCustomSurface } from "#components/admin/admin-surfaces.js";
+import { UnpublishedBadge } from "#components/admin/UnpublishedBadge.js";
+import { getSession } from "#lib/auth.js";
 import {
   getRequestReadStore,
   itemDisplayLabel,
   SINGLETON_ITEM_SLUG,
   slugSchema,
-} from "@/lib/collections";
-import { getPendingItemSlugs } from "@/lib/draft-changes";
+} from "#lib/collections/index.js";
+import { getPendingItemSlugs } from "#lib/draft-changes.js";
 
 type Params = { slug: string };
 

@@ -10,12 +10,12 @@
 
 import type { Metadata } from "next";
 
-import { largestVariantUrl } from "@/lib/image-urls";
-import { IMAGE_VARIANT_WIDTHS, isVectorExt } from "@/lib/image-types";
-import type { SiteConfig } from "@/lib/site-config-types";
+import { largestVariantUrl } from "#lib/image-urls.js";
+import { IMAGE_VARIANT_WIDTHS, isVectorExt } from "#lib/image-types.js";
+import type { SiteConfig } from "#lib/site-config-types.js";
 
-import type { CollectionDef, Item } from "../schema";
-import { itemDetailSections } from "./item-detail";
+import type { CollectionDef, Item } from "../schema.js";
+import { itemDetailSections } from "./item-detail.js";
 
 /**
  * Field keys whose value reads as a one-paragraph summary of the item,

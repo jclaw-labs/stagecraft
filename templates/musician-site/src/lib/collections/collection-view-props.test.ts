@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   collectionViewProps,
   defaultCollectionViewLimit,
-} from "./collection-view-props";
-import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
+} from "./collection-view-props.js";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids.js";
 
 describe("collectionViewProps", () => {
   it("gives tour-dates the upcoming + not-cancelled filter, soonest-first", () => {

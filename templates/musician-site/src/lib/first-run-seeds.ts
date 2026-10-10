@@ -30,9 +30,9 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import { collectionViewProps } from "./collections/collection-view-props";
-import { PAGES_FIELD_IDS } from "./collections/field-ids";
-import type { FieldValue } from "./collections/schema";
+import { collectionViewProps } from "./collections/collection-view-props.js";
+import { PAGES_FIELD_IDS } from "./collections/field-ids.js";
+import type { FieldValue } from "./collections/schema.js";
 
 export type ItemValuesMap = Record<string, FieldValue>;
 

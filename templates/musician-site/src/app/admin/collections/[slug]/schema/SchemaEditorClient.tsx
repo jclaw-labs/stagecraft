@@ -15,10 +15,10 @@ import {
   SchemaEditor,
   type SchemaEditorIssue,
   type SchemaEditorWarning,
-} from "@/components/admin/SchemaEditor";
-import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
+} from "#components/admin/SchemaEditor.js";
+import { SaveBar, type SaveStatus } from "#components/admin/SaveBar.js";
 
-import type { CollectionDef } from "@/lib/collections";
+import type { CollectionDef } from "#lib/collections/index.js";
 
 export function SchemaEditorClient({
   collectionSlug,

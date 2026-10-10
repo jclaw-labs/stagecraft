@@ -16,28 +16,28 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveAndPublish: publishMock };
 });
 
-import { POST } from "./route";
-import { getRequestReadStore, readSingleton, writeCollectionDef } from "@/lib/collections";
+import { POST } from "./route.js";
+import { getRequestReadStore, readSingleton, writeCollectionDef } from "#lib/collections/index.js";
 import {
   appearanceCollectionDef,
   headerCollectionDef,
   PREBAKED_COLLECTIONS,
   siteCollectionDef,
-} from "@/lib/collections/seeds";
+} from "#lib/collections/seeds.js";
 import {
   appearanceFromItem,
   headerConfigFromItem,
   siteConfigFromItem,
-} from "@/lib/collections/migrate-from-legacy-values";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+} from "#lib/collections/migrate-from-legacy-values.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 
 let TMP_CONTENT_DIR: string;
 
@@ -229,7 +229,7 @@ describe("POST /api/welcome/complete — platform configured (issue #345)", () =
   });
 
   it("returns 502 (never ok: true) when the draft commit fails", async () => {
-    const { PublishError } = await import("@/lib/publish");
+    const { PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(new PublishError("github-failed", "commit to draft: boom"));
 
     const res = await POST(jsonReq(VALID_BODY));
@@ -240,7 +240,7 @@ describe("POST /api/welcome/complete — platform configured (issue #345)", () =
   });
 
   it("draft saved but publish to main failed: ok with publishWarning, not 'Save failed'", async () => {
-    const { DraftSavedPublishError, PublishError } = await import("@/lib/publish");
+    const { DraftSavedPublishError, PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(
       new DraftSavedPublishError(
         "draft-sha",

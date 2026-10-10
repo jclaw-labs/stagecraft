@@ -3,11 +3,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import type { Item } from "@/lib/collections/schema";
+import type { Item } from "#lib/collections/schema.js";
 
 // Stub the field editor: the save handler is what's under test. The
 // stub's button makes one edit so the save bar's button enables.
-vi.mock("@/components/admin/ItemEditor", () => ({
+vi.mock("#components/admin/ItemEditor.js", () => ({
   ItemEditor: ({ item, onChange }: { item: Item; onChange: (next: Item) => void }) => (
     <button
       type="button"
@@ -20,9 +20,9 @@ vi.mock("@/components/admin/ItemEditor", () => ({
   ),
 }));
 
-import { tourDateItem, tourDatesDef } from "@/lib/collections/test-fixtures";
+import { tourDateItem, tourDatesDef } from "#lib/collections/test-fixtures.js";
 
-import { ItemEditorClient } from "./ItemEditorClient";
+import { ItemEditorClient } from "./ItemEditorClient.js";
 
 function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };

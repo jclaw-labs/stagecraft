@@ -5,16 +5,16 @@ const { getSessionMock, fetchDeployStatusMock } = vi.hoisted(() => ({
   fetchDeployStatusMock: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
-vi.mock("@/lib/deploy-status", async () => {
-  const actual = await vi.importActual<typeof import("../../../lib/deploy-status")>(
-    "@/lib/deploy-status",
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/deploy-status.js", async () => {
+  const actual = await vi.importActual<typeof import("../../../lib/deploy-status.js")>(
+    "#lib/deploy-status.js",
   );
   return { ...actual, fetchDeployStatus: fetchDeployStatusMock };
 });
 
-import { GET } from "./route";
-import { DeployStatusError } from "@/lib/deploy-status";
+import { GET } from "./route.js";
+import { DeployStatusError } from "#lib/deploy-status.js";
 
 beforeEach(() => {
   getSessionMock.mockReset();

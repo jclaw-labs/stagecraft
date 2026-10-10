@@ -24,13 +24,13 @@ import {
   appearanceCollectionDef,
   PREBAKED_COLLECTIONS,
   PAGES_FIELD_IDS,
-} from "./collections/seeds";
+} from "./collections/seeds.js";
 import {
   appearanceFromItem,
   headerConfigFromItem,
   pageDataFromItem,
   siteConfigFromItem,
-} from "./collections/migrate-from-legacy";
+} from "./collections/migrate-from-legacy.js";
 import {
   collectionDefRepoPath,
   itemRepoPath,
@@ -39,8 +39,8 @@ import {
   SINGLETON_ITEM_SLUG,
   writeCollectionDef,
   type ReadStore,
-} from "./collections";
-import { imageMetadataSchema, type ImageMetadata } from "./image-types";
+} from "./collections/index.js";
+import { imageMetadataSchema, type ImageMetadata } from "./image-types.js";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
@@ -52,9 +52,9 @@ import {
   type PageRootProps,
   type PageSummary,
   type SiteConfig,
-} from "./site-config-types";
-import { contentDir, purgeOrphanTmps } from "./fs-helpers";
-import type { PageData } from "./page-data";
+} from "./site-config-types.js";
+import { contentDir, purgeOrphanTmps } from "./fs-helpers.js";
+import type { PageData } from "./page-data.js";
 
 // ---------------------------------------------------------------------------
 // Repo paths used by the publish layer (relative to repo root)
@@ -131,7 +131,7 @@ export function __resetBootstrapCacheForTests(): void {
 
 async function ensureCollectionDef(
   slug: string,
-  def: import("./collections/schema").CollectionDef,
+  def: import("./collections/schema.js").CollectionDef,
 ): Promise<void> {
   const existing = await readCollectionDef(slug);
   if (existing) return;

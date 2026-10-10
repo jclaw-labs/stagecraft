@@ -29,7 +29,7 @@
 import type { Data as PuckData } from "@puckeditor/core";
 import { z, type ZodTypeAny } from "zod";
 
-import { imageMetadataSchema } from "../image-types";
+import { imageMetadataSchema } from "../image-types.js";
 
 // ---------------------------------------------------------------------------
 // 1. Identifiers, constants, slug schema
@@ -57,7 +57,7 @@ export type ItemId = string;
  * node-only dependency into this module; keeping them out is what makes
  * this file node-free and therefore client-importable (admin forms run
  * the same Zod schemas the server uses). Server callers reach the
- * generators via the barrel `@/lib/collections`; sibling submodules
+ * generators via the barrel `#lib/collections`; sibling submodules
  * import `./id-gen` directly.
  */
 
@@ -568,7 +568,7 @@ export const CURRENT_COLLECTION_SCHEMA_VERSION = 1;
 // still the home for these sets.) Imported here so the validator below
 // can consult them, and re-exported for source-compat with callers that
 // consumed them from the schema module before the split.
-import { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES } from "./field-classification";
+import { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES } from "./field-classification.js";
 
 export { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES };
 
@@ -833,15 +833,15 @@ export type Bindable<T> = T | BindableRef<T>;
 // 7. Collection-block filters (ADR-009 §5.1)
 //
 // Declared in `./filter-schema.ts` and re-exported here for the curated
-// `@/lib/collections` surface. (Historically the split kept the filter
+// `#lib/collections` surface. (Historically the split kept the filter
 // Zod defs out of client bundles back when this file imported
 // `node:crypto` via `generateFieldId`; that generator now lives in
 // `./id-gen.ts` and schema.ts is node-free, but the dedicated module
 // remains the home for the filter schema.)
 // ---------------------------------------------------------------------------
 
-export { filterSchema } from "./filter-schema";
-export type { Filter, FilterClause, FilterValue } from "./filter-schema";
+export { filterSchema } from "./filter-schema.js";
+export type { Filter, FilterClause, FilterValue } from "./filter-schema.js";
 
 /**
  * (Older docstring preserved for context — see `./filter-schema.ts`

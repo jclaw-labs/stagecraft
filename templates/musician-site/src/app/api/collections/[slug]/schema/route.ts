@@ -24,7 +24,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   collectionDefRepoPath,
   collectionDefSchema,
@@ -35,10 +35,10 @@ import {
   slugSchema,
   validateSchemaChange,
   type Item,
-} from "@/lib/collections";
-import { localPathForRepoPath, writeJsonBatchAtomic } from "@/lib/fs-helpers";
-import { PublishError, type PublishTarget } from "@/lib/publish";
-import { saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { localPathForRepoPath, writeJsonBatchAtomic } from "#lib/fs-helpers.js";
+import { PublishError, type PublishTarget } from "#lib/publish.js";
+import { saveContent, saveFailureResponse } from "#lib/save-content.js";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });

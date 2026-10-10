@@ -15,10 +15,10 @@
  * bootstrap hasn't written every prebaked def yet.
  */
 
-import type { ReadStore } from "./read-store";
-import { findShadowingPrefix } from "./routing";
-import type { CollectionDef } from "./schema";
-import { PREBAKED_COLLECTIONS } from "./seeds";
+import type { ReadStore } from "./read-store.js";
+import { findShadowingPrefix } from "./routing.js";
+import type { CollectionDef } from "./schema.js";
+import { PREBAKED_COLLECTIONS } from "./seeds.js";
 
 /**
  * Union of every collection def we know about: on-disk defs first

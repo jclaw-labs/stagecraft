@@ -1,12 +1,12 @@
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { readSiteConfig } from "@/lib/content";
-import { getHasPendingSingletonChange } from "@/lib/draft-changes";
-import { isResendSandboxSender } from "@/lib/email";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { readSiteConfig } from "#lib/content.js";
+import { getHasPendingSingletonChange } from "#lib/draft-changes.js";
+import { isResendSandboxSender } from "#lib/email.js";
 
-import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminShell } from "#components/admin/AdminShell.js";
 
-import { SiteSettingsForm } from "./SiteSettingsForm";
+import { SiteSettingsForm } from "./SiteSettingsForm.js";
 
 export default async function AdminSettingsPage() {
   const [session, config, hasPendingChanges] = await Promise.all([

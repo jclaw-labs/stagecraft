@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { seedCompletedSite, wipeContentDir } from "./setup/seed";
+import { seedCompletedSite, wipeContentDir } from "./setup/seed.js";
 
 /**
  * End-to-end coverage for the first-run welcome wizard.

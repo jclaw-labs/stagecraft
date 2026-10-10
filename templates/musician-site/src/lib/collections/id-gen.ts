@@ -6,12 +6,12 @@
  * so the schema core stays node-free / client-importable — admin forms
  * can run the same Zod schemas the server uses without dragging
  * `node:crypto` into the browser bundle. Server callers reach these via
- * the barrel `@/lib/collections`; sibling submodules import `./id-gen`.
+ * the barrel `#lib/collections`; sibling submodules import `./id-gen`.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type { FieldId, ItemId } from "./schema";
+import type { FieldId, ItemId } from "./schema.js";
 
 /**
  * ID generation helpers. Every consumer that creates a new field or

@@ -14,27 +14,27 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveToDraft: publishMock };
 });
 
-import { GET, POST } from "./route";
+import { GET, POST } from "./route.js";
 import {
   DELETE as DELETE_ITEM,
   GET as GET_ITEM,
   PATCH as PATCH_ITEM,
   PUT as PUT_ITEM,
-} from "./[itemSlug]/route";
+} from "./[itemSlug]/route.js";
 import {
   PAGES_FIELD_IDS,
   PREBAKED_COLLECTIONS,
-} from "@/lib/collections/seeds";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
-import { writeCollectionDef } from "@/lib/collections";
+} from "#lib/collections/seeds.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
+import { writeCollectionDef } from "#lib/collections/index.js";
 
 let TMP_CONTENT_DIR: string;
 
@@ -542,8 +542,8 @@ describe("pages via the generic item routes", () => {
 
   it("POST returns a 502 failure (never ok: true) when the commit fails", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
-    const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(
-      "@/lib/publish",
+    const { PublishError } = await vi.importActual<typeof import("#lib/publish.js")>(
+      "#lib/publish.js",
     );
     publishMock.mockRejectedValue(new PublishError("github-failed", "boom"));
     const res = await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
@@ -590,8 +590,8 @@ describe("pages via the generic item routes", () => {
   ] as const)("PUT maps a %s commit failure to %i", async (code, status) => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
     await POST(jsonReq("POST", { slug: TEST_SLUG, values: VALID_VALUES }), ctx("pages"));
-    const { PublishError } = await vi.importActual<typeof import("@/lib/publish")>(
-      "@/lib/publish",
+    const { PublishError } = await vi.importActual<typeof import("#lib/publish.js")>(
+      "#lib/publish.js",
     );
     publishMock.mockRejectedValue(new PublishError(code, "nope"));
     const res = await PUT_ITEM(jsonReq("PUT", { values: VALID_VALUES }), ctx("pages", TEST_SLUG));

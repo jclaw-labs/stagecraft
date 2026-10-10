@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { AdminPanel } from "./AdminPanel";
+import { AdminPanel } from "./AdminPanel.js";
 
 describe("<AdminPanel> pending badge", () => {
   it("badges the title when hasPendingChanges is true", () => {

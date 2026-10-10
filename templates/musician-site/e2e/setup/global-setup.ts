@@ -20,8 +20,8 @@ import path from "node:path";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
-import { captureLaunchOptions } from "../../capture/chromium";
-import { E2E_CONTENT_DIR } from "../../playwright.config";
+import { captureLaunchOptions } from "../../capture/chromium.js";
+import { E2E_CONTENT_DIR } from "../../playwright.config.js";
 
 const STORAGE_STATE_PATH = path.join(
   process.cwd(),

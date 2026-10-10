@@ -1,4 +1,4 @@
-import { isPlatformConfigured, readEnv, type Env } from "./publish";
+import { isPlatformConfigured, readEnv, type Env } from "./publish.js";
 
 /**
  * Coalesced deploy state used by the editor's publish-status pill.

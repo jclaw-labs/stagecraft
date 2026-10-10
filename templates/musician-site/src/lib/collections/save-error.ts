@@ -14,7 +14,7 @@
  * collection's fields.
  */
 
-import type { FieldDef } from "./schema";
+import type { FieldDef } from "./schema.js";
 
 export type ItemRouteIssue = {
   /** Dot-separated Zod path inside the item file. */

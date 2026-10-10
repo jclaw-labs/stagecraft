@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DeployStatusError, fetchDeployStatus } from "./deploy-status";
+import { DeployStatusError, fetchDeployStatus } from "./deploy-status.js";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_ENV = { ...process.env };

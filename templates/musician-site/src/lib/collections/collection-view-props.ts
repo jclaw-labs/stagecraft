@@ -14,7 +14,7 @@
  * callers that need one spread it in.
  */
 
-import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "./field-ids.js";
 
 /** Default "max items" for the prebaked demo collections; others default to 6. */
 const DEFAULT_VIEW_LIMITS: Readonly<Record<string, number>> = {

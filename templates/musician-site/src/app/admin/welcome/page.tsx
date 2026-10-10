@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { readAppearance, readSiteConfig } from "@/lib/content";
-import { checkIsFirstRun } from "@/lib/first-run";
-import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { readAppearance, readSiteConfig } from "#lib/content.js";
+import { checkIsFirstRun } from "#lib/first-run.js";
+import { DEFAULT_SITE_CONFIG } from "#lib/site-config-types.js";
 
-import { WelcomeWizard } from "./WelcomeWizard";
+import { WelcomeWizard } from "./WelcomeWizard.js";
 
 /**
  * Gate on the first-run flag per request. When the build-time content

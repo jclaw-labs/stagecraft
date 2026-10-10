@@ -8,9 +8,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { FilterField } from "./FilterField";
-import type { Filter } from "@/lib/collections/filter-schema";
-import type { CollectionDef } from "@/lib/collections";
+import { FilterField } from "./FilterField.js";
+import type { Filter } from "#lib/collections/filter-schema.js";
+import type { CollectionDef } from "#lib/collections/index.js";
 
 const SOURCE_DEF: CollectionDef = {
   schemaVersion: 1,

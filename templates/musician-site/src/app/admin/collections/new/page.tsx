@@ -12,10 +12,10 @@
 
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { getSession } from "@/lib/auth";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { getSession } from "#lib/auth.js";
 
-import { NewCollectionForm } from "./NewCollectionForm";
+import { NewCollectionForm } from "./NewCollectionForm.js";
 
 export default async function NewCollectionPage() {
   const session = await getSession();

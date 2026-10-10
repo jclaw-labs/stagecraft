@@ -29,26 +29,26 @@
 
 import type { ComponentConfig, Field } from "@puckeditor/core";
 
-import { BindableImagePicker, BindableStringPicker } from "@/components/admin/BindablePicker";
-import { buildCollectionBlockComponentConfig } from "@/components/admin/buildCollectionBlockComponentConfig";
+import { BindableImagePicker, BindableStringPicker } from "#components/admin/BindablePicker.js";
+import { buildCollectionBlockComponentConfig } from "#components/admin/buildCollectionBlockComponentConfig.js";
 import {
   BINDABLE_SLOTS,
   bindableFieldsByKind,
   type BindableSlotKind,
-} from "@/lib/collections/template/bindable-slots";
-import { isBindableRef, toBindableRef } from "@/lib/collections/template/binding";
-import { blockNameForCollection } from "@/lib/collections/template/collection-block";
-import type { Bindable, CollectionDef, FieldDef } from "@/lib/collections/schema";
-import type { ImageMetadata } from "@/lib/image-types";
+} from "#lib/collections/template/bindable-slots.js";
+import { isBindableRef, toBindableRef } from "#lib/collections/template/binding.js";
+import { blockNameForCollection } from "#lib/collections/template/collection-block.js";
+import type { Bindable, CollectionDef, FieldDef } from "#lib/collections/schema.js";
+import type { ImageMetadata } from "#lib/image-types.js";
 
-import { buildCollectionViewComponentConfig, type EmbeddableCollection } from "./collection-view-editor";
+import { buildCollectionViewComponentConfig, type EmbeddableCollection } from "./collection-view-editor.js";
 import {
   BLOCK_CATEGORIES,
   BLOCKS,
   PAGE_ROOT,
   type BlockLibraryConfig,
   type BlockName,
-} from "./config";
+} from "./config.js";
 
 export type BuildPuckConfigOptions =
   | {

@@ -15,10 +15,10 @@
 import {
   listItemsInOrder,
   readCollectionDef,
-} from "../store";
-import { findCollectionBlockSources } from "./collection-block";
-import type { LoadedCollections } from "./renderer";
-import type { Template } from "./types";
+} from "../store.js";
+import { findCollectionBlockSources } from "./collection-block.js";
+import type { LoadedCollections } from "./renderer.js";
+import type { Template } from "./types.js";
 
 /**
  * Pre-walk the template for Collection block sources, load each in

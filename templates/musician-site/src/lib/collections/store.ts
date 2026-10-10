@@ -26,7 +26,7 @@ import {
   readJson,
   unlinkIfExists,
   writeJsonAtomic,
-} from "../fs-helpers";
+} from "../fs-helpers.js";
 
 import {
   buildItemFileSchema,
@@ -39,8 +39,8 @@ import {
   type CollectionDef,
   type Item,
   type ItemFile,
-} from "./schema";
-import { sortByField, sortByManualOrder } from "./sort-key";
+} from "./schema.js";
+import { sortByField, sortByManualOrder } from "./sort-key.js";
 
 // ---------------------------------------------------------------------------
 // Paths

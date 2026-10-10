@@ -7,8 +7,8 @@
  * here to reshuffle the flow.
  */
 
-import type { ImageMetadata } from "@/lib/image-types";
-import { DEFAULT_THEME_ID, THEME_IDS, type ThemeId } from "@/lib/theme-presets";
+import type { ImageMetadata } from "#lib/image-types.js";
+import { DEFAULT_THEME_ID, THEME_IDS, type ThemeId } from "#lib/theme-presets.js";
 
 export const WELCOME_STEPS = ["name", "start", "wordmark", "firstPage"] as const;
 export type WelcomeStep = (typeof WELCOME_STEPS)[number];

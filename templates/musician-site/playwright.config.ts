@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 import os from "node:os";
 import path from "node:path";
 
-import { captureLaunchOptions } from "./capture/chromium";
+import { captureLaunchOptions } from "./capture/chromium.js";
 
 /**
  * Playwright config for the musician-site admin e2e suite.

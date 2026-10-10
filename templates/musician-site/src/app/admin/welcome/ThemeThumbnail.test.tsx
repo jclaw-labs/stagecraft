@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ThemeThumbnail } from "./ThemeThumbnail";
-import { THEME_PRESETS } from "@/lib/theme-presets";
+import { ThemeThumbnail } from "./ThemeThumbnail.js";
+import { THEME_PRESETS } from "#lib/theme-presets.js";
 
 describe("<ThemeThumbnail>", () => {
   it("renders the preset palette in a sample layout", () => {

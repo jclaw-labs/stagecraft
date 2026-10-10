@@ -10,12 +10,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { ItemEditor, type ReferenceOptions } from "@/components/admin/ItemEditor";
-import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
-import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
+import { ItemEditor, type ReferenceOptions } from "#components/admin/ItemEditor.js";
+import { SaveBar, type SaveStatus } from "#components/admin/SaveBar.js";
+import { useBeforeUnloadIfDirty } from "#components/admin/useBeforeUnloadIfDirty.js";
 
-import type { CollectionDef, Item } from "@/lib/collections";
-import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
+import type { CollectionDef, Item } from "#lib/collections/index.js";
+import { type ItemRouteFailureBody, saveErrorMessage } from "#lib/collections/save-error.js";
 
 export function ItemEditorClient({
   def,

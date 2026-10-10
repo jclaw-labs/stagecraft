@@ -17,7 +17,7 @@ import {
   touchDistance,
   ZOOM_RESET,
   type ZoomState,
-} from "@/lib/lightbox-zoom";
+} from "#lib/lightbox-zoom.js";
 
 /**
  * Minimum horizontal pixel delta for a touch gesture to count as a

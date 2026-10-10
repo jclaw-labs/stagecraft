@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import * as adminRoot from "./page";
-import * as welcome from "./welcome/page";
+import * as adminRoot from "./page.js";
+import * as welcome from "./welcome/page.js";
 
 describe("admin route config", () => {
   it.each([

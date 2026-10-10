@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { readAppearance, readPageOrNull } from "@/lib/content";
-import { pageSlugSchema } from "@/lib/site-config-types";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { readAppearance, readPageOrNull } from "#lib/content.js";
+import { pageSlugSchema } from "#lib/site-config-types.js";
 
-import { Editor } from "./Editor";
+import { Editor } from "./Editor.js";
 
 type Props = {
   params: Promise<{ slug: string }>;

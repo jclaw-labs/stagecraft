@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DefaultItemFieldsList } from "./collection-block";
-import type { CollectionDef, Item } from "../schema";
-import { asImageId } from "@/lib/image-types";
+import { DefaultItemFieldsList } from "./collection-block.js";
+import type { CollectionDef, Item } from "../schema.js";
+import { asImageId } from "#lib/image-types.js";
 
 const IMAGE_FIXTURE = {
   id: asImageId("abc1234567890def"),

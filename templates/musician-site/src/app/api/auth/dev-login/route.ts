@@ -5,7 +5,7 @@ import {
   SESSION_COOKIE_OPTIONS,
   createSessionToken,
   getAllowedEditorEmails,
-} from "@/lib/auth";
+} from "#lib/auth.js";
 
 /**
  * Dev-only escape hatch: POST email, get a session cookie back

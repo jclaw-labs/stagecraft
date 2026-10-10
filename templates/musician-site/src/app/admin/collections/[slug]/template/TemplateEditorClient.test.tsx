@@ -22,16 +22,16 @@ vi.mock("@puckeditor/core", () => ({
 
 // Spy on resolveTemplate so we can assert it received the right item.
 const resolveTemplateMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/collections/template/renderer", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/collections/template/renderer")>(
-    "@/lib/collections/template/renderer",
+vi.mock("#lib/collections/template/renderer.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/collections/template/renderer.js")>(
+    "#lib/collections/template/renderer.js",
   );
   return { ...actual, resolveTemplate: resolveTemplateMock };
 });
 
-import { TemplateEditorClient } from "./TemplateEditorClient";
-import { FIXTURE_TIMESTAMP, tourDatesDef } from "@/lib/collections/test-fixtures";
-import type { Item } from "@/lib/collections";
+import { TemplateEditorClient } from "./TemplateEditorClient.js";
+import { FIXTURE_TIMESTAMP, tourDatesDef } from "#lib/collections/test-fixtures.js";
+import type { Item } from "#lib/collections/index.js";
 
 // Values keyed by the ids on `tourDatesDef` — no phantom fields.
 function parisItem(): Item {

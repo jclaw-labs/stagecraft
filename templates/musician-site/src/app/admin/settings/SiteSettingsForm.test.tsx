@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ContactEmailDescription } from "./SiteSettingsForm";
+import { ContactEmailDescription } from "./SiteSettingsForm.js";
 
 function render(props: {
   adminEmail: string;

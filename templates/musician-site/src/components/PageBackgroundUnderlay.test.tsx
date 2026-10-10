@@ -9,8 +9,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { PageBackgroundUnderlay } from "./PageBackgroundUnderlay";
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { PageBackgroundUnderlay } from "./PageBackgroundUnderlay.js";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
 function image(overrides: Partial<ImageMetadata> = {}): ImageMetadata {
   return {

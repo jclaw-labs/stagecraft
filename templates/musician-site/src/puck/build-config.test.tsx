@@ -2,10 +2,10 @@ import type { ComponentConfig } from "@puckeditor/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { CollectionDef } from "@/lib/collections";
+import type { CollectionDef } from "#lib/collections/index.js";
 
-import { buildPuckConfig } from "./build-config";
-import { BLOCK_CATEGORIES, BLOCKS, PAGE_ROOT } from "./config";
+import { buildPuckConfig } from "./build-config.js";
+import { BLOCK_CATEGORIES, BLOCKS, PAGE_ROOT } from "./config.js";
 
 type AnyBlock = ComponentConfig<Record<string, unknown>>;
 

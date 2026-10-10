@@ -16,7 +16,7 @@
  * hand-maintained sets is what prompted the consolidation.
  */
 
-import type { FieldType } from "./schema";
+import type { FieldType } from "./schema.js";
 
 /**
  * Field types whose value can be safely slugified by the new-item

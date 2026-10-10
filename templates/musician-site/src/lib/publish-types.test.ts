@@ -12,7 +12,7 @@ import {
   PUBLISH_WARNING_MESSAGES,
   publishErrorHttpStatus,
   publishWarningSchema,
-} from "./publish-types";
+} from "./publish-types.js";
 
 describe("publishErrorHttpStatus", () => {
   it("maps concurrent-edit to 409 (recoverable client-side)", () => {

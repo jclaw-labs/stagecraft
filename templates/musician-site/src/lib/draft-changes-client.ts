@@ -28,7 +28,7 @@
  * without a try/catch of their own.
  */
 
-import { type DraftChange } from "./draft-changes";
+import { type DraftChange } from "./draft-changes.js";
 
 export type DraftChangesSnapshot = {
   count: number;

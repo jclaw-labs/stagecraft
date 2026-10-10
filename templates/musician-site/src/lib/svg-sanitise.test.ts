@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sanitiseSvg } from "./svg-sanitise";
+import { sanitiseSvg } from "./svg-sanitise.js";
 
 function sanitise(svg: string): string {
   return sanitiseSvg(Buffer.from(svg, "utf-8")).buffer.toString("utf-8");

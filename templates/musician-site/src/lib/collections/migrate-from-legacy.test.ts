@@ -17,14 +17,14 @@ import {
   pageDataToItemValues,
   siteConfigFromItem,
   siteConfigToItemValues,
-} from "./migrate-from-legacy";
-import { PAGES_FIELD_IDS, SITE_FIELD_IDS } from "./seeds";
-import { FIXTURE_TIMESTAMP } from "./test-fixtures";
+} from "./migrate-from-legacy.js";
+import { PAGES_FIELD_IDS, SITE_FIELD_IDS } from "./seeds.js";
+import { FIXTURE_TIMESTAMP } from "./test-fixtures.js";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
-} from "../site-config-types";
+} from "../site-config-types.js";
 
 describe("pages: data ↔ item round-trip", () => {
   it("preserves title, isSplashPage, isFooterHidden, and content blocks", () => {
@@ -124,7 +124,7 @@ describe("site: config ↔ item round-trip", () => {
   });
 
   it("round-trips favicon + pageBackground when set, omits the values when null", async () => {
-    const { asImageId } = await import("@/lib/image-types");
+    const { asImageId } = await import("#lib/image-types.js");
     const fixtureImage = {
       id: asImageId("abc1234567890def"),
       alt: "Logo",

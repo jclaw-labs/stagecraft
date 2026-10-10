@@ -7,7 +7,7 @@
  * `render`); `buildPuckConfig` (`./build-config.tsx`) assembles the editor
  * and render configs from it.
  *
- * Props listed in `BINDABLE_SLOTS` (`@/lib/collections/template/
+ * Props listed in `BINDABLE_SLOTS` (`#lib/collections/template/
  * bindable-slots`) are `Bindable<T>`: a page stores a plain literal, a
  * template may store a binding to a field of the item being rendered. The
  * walker resolves bindings before `render` runs, so every `render` below
@@ -16,15 +16,15 @@
 import type { Config, Slot } from "@puckeditor/core";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 
-import { ContactForm } from "@/components/ContactForm";
-import { ImageCarousel } from "@/components/ImageCarousel";
+import { ContactForm } from "#components/ContactForm.js";
+import { ImageCarousel } from "#components/ImageCarousel.js";
 import {
   CAROUSEL_ASPECT_RATIOS,
   CAROUSEL_ASPECT_RATIO_LABELS,
   type CarouselAspectRatio,
-} from "@/components/image-carousel-types";
-import { Image as PublicImage } from "@/components/Image";
-import { NewsletterSignup } from "@/components/NewsletterSignup";
+} from "#components/image-carousel-types.js";
+import { Image as PublicImage } from "#components/Image.js";
+import { NewsletterSignup } from "#components/NewsletterSignup.js";
 import {
   collidingAdditionalFieldNames,
   NEWSLETTER_ADDITIONAL_FIELDS_LABEL,
@@ -37,25 +37,25 @@ import {
   validateNewsletterActionUrl,
   type NewsletterAdditionalField,
   type NewsletterService,
-} from "@/components/newsletter-types";
+} from "#components/newsletter-types.js";
 import {
   BUTTON_BASE,
   BUTTON_VARIANT_STYLE as BUTTON_STYLE,
   BUTTON_VARIANTS,
   type ButtonVariant,
-} from "@/lib/button-style";
+} from "#lib/button-style.js";
 import {
   cardMediaFilename,
   inferCardMediaKind,
   type CardMediaKind,
-} from "@/lib/card-media";
-import { renderTiptap } from "@/lib/collections/template/tiptap-render";
-import type { TiptapJSON } from "@/lib/collections/schema";
-import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "@/lib/iframe-utils";
-import type { ImageMetadata } from "@/lib/image-types";
+} from "#lib/card-media.js";
+import { renderTiptap } from "#lib/collections/template/tiptap-render.js";
+import type { TiptapJSON } from "#lib/collections/schema.js";
+import { extractIframeIntrinsicDimensions, stripIframeDimensions } from "#lib/iframe-utils.js";
+import type { ImageMetadata } from "#lib/image-types.js";
 
-import { ImagePickerField } from "./ImagePickerField";
-import { PageOverlayField } from "./PageOverlayField";
+import { ImagePickerField } from "./ImagePickerField.js";
+import { PageOverlayField } from "./PageOverlayField.js";
 
 export const HEADING_LEVELS = ["h1", "h2", "h3"] as const;
 export type HeadingLevel = (typeof HEADING_LEVELS)[number];

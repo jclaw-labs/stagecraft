@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox";
+import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox.js";
 
 /**
  * Page-level bootstrap for the photo lightbox. Sits at the public

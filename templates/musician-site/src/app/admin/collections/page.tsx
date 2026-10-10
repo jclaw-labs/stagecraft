@@ -8,9 +8,9 @@
 
 import Link from "next/link";
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
 
 export default async function CollectionsIndex() {
   const storePromise = getRequestReadStore();

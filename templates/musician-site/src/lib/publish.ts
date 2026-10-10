@@ -10,13 +10,13 @@ import {
   orderRepoPath,
   slugSchema,
   type CollectionDef,
-} from "./collections";
+} from "./collections/index.js";
 import {
   localPathForRepoPath,
   stringifyContent,
   unlinkIfExists,
   writeText,
-} from "./fs-helpers";
+} from "./fs-helpers.js";
 import {
   adoptSquashInto,
   commitFiles,
@@ -28,9 +28,9 @@ import {
   squashBranchInto,
   type FileToCommit,
   type SquashBranchIntoResult,
-} from "./git-commit";
-import { publishTokenResponseSchema, type PublishWarning } from "./publish-types";
-import { DRAFT_BRANCH, resolveDraftBranch } from "./draft-branch";
+} from "./git-commit.js";
+import { publishTokenResponseSchema, type PublishWarning } from "./publish-types.js";
+import { DRAFT_BRANCH, resolveDraftBranch } from "./draft-branch.js";
 
 // The DRAFT_BRANCH constant and the per-editor resolver now live in
 // ./draft-branch (ADR-011). Re-exported here for back-compat with

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateFieldId, generateItemId } from "./id-gen";
+import { generateFieldId, generateItemId } from "./id-gen.js";
 import {
   buildFieldValueZodSchema,
   buildItemFileSchema,
@@ -22,8 +22,8 @@ import {
   slugSchema,
   type FieldDef,
   type FieldValue,
-} from "./schema";
-import { FIXTURE_TIMESTAMP, tourDatesDef } from "./test-fixtures";
+} from "./schema.js";
+import { FIXTURE_TIMESTAMP, tourDatesDef } from "./test-fixtures.js";
 
 /** Spread into in-line item-file literals so tests don't repeat them. */
 const TS = { createdAt: FIXTURE_TIMESTAMP, updatedAt: FIXTURE_TIMESTAMP };

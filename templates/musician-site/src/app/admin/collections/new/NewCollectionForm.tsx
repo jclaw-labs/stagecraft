@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { AdminPanel } from "@/components/admin/AdminPanel";
-import { CheckboxField, TextField } from "@/components/admin/form";
-// Imported from the schema *core* (not the `@/lib/collections` barrel,
+import { AdminPanel } from "#components/admin/AdminPanel.js";
+import { CheckboxField, TextField } from "#components/admin/form.js";
+// Imported from the schema *core* (not the `#lib/collections` barrel,
 // which transitively reaches `node:crypto` / `node:fs` / `next/headers`).
 // schema.ts is node-free, so a `"use client"` file can run the same Zod
 // schemas + slug helper the server uses — client-side validation with no
@@ -14,7 +14,7 @@ import {
   collectionNameSchema,
   slugSchema,
   slugifyToCollectionSlug,
-} from "@/lib/collections/schema";
+} from "#lib/collections/schema.js";
 
 /**
  * Create-a-collection form.

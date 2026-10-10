@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { FontPickerField } from "./FontPickerField";
+import { FontPickerField } from "./FontPickerField.js";
 
 describe("<FontPickerField>", () => {
   it("derives the category from a curated family and selects it in the family list", () => {

@@ -24,10 +24,10 @@ import {
   writeItem,
   writeOrder,
   writeSingleton,
-} from "./index";
-import type { CollectionDef, Item } from "./index";
-import { CURRENT_COLLECTION_SCHEMA_VERSION } from "./schema";
-import { FIXTURE_TIMESTAMP, tourDateItem, tourDatesDef } from "./test-fixtures";
+} from "./index.js";
+import type { CollectionDef, Item } from "./index.js";
+import { CURRENT_COLLECTION_SCHEMA_VERSION } from "./schema.js";
+import { FIXTURE_TIMESTAMP, tourDateItem, tourDatesDef } from "./test-fixtures.js";
 
 let TMP_CONTENT_DIR: string;
 

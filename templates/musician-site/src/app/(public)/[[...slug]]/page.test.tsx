@@ -13,16 +13,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dynamicParams, generateMetadata, generateStaticParams } from "./page";
-import { writeCollectionDef, writeItem, type CollectionDef } from "@/lib/collections";
-import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { POSTS_FIELD_IDS } from "@/lib/collections/field-ids";
-import { pagesCollectionDef, postsCollectionDef } from "@/lib/collections/seeds";
-import { tourDateItem, tourDatesDef } from "@/lib/collections/test-fixtures";
-import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
-import { asImageId } from "@/lib/image-types";
-import { emptyPageData } from "@/lib/page-data";
+import { dynamicParams, generateMetadata, generateStaticParams } from "./page.js";
+import { writeCollectionDef, writeItem, type CollectionDef } from "#lib/collections/index.js";
+import { pageDataToItem } from "#lib/collections/migrate-from-legacy.js";
+import { POSTS_FIELD_IDS } from "#lib/collections/field-ids.js";
+import { pagesCollectionDef, postsCollectionDef } from "#lib/collections/seeds.js";
+import { tourDateItem, tourDatesDef } from "#lib/collections/test-fixtures.js";
+import { DEFAULT_SITE_CONFIG } from "#lib/site-config-types.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
+import { asImageId } from "#lib/image-types.js";
+import { emptyPageData } from "#lib/page-data.js";
 
 let TMP_CONTENT_DIR: string;
 

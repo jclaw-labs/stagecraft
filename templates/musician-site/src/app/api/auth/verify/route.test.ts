@@ -4,9 +4,9 @@ import {
   SESSION_COOKIE,
   createMagicLinkToken,
   createSessionToken,
-} from "@/lib/auth";
+} from "#lib/auth.js";
 
-import { GET } from "./route";
+import { GET } from "./route.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

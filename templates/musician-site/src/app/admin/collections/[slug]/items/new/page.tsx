@@ -11,18 +11,18 @@
 
 import { notFound, redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { findCustomSurface } from "@/components/admin/admin-surfaces";
-import { defaultItemValues } from "@/components/admin/ItemEditor";
-import { getSession } from "@/lib/auth";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { findCustomSurface } from "#components/admin/admin-surfaces.js";
+import { defaultItemValues } from "#components/admin/ItemEditor.js";
+import { getSession } from "#lib/auth.js";
 import {
   generateItemId,
   getRequestReadStore,
   slugSchema,
   type Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
-import { NewItemClient } from "./NewItemClient";
+import { NewItemClient } from "./NewItemClient.js";
 
 type Params = { slug: string };
 

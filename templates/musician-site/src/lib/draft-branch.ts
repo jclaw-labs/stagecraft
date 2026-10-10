@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { getAllowedEditorEmails, getSession } from "./auth";
+import { getAllowedEditorEmails, getSession } from "./auth.js";
 
 /**
  * Persistent companion branch for ADR-010's two-branch publish model.

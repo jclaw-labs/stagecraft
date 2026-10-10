@@ -151,11 +151,13 @@ const MODULE_EXTENSIONS = [".ts", ".tsx", "/index.ts", "/index.tsx"];
 /** The local source file a specifier resolves to, or null for a package. */
 function resolveLocal(specifier: string, fromFile: string): string | null {
   let base: string;
-  if (specifier.startsWith("@/")) base = path.join(SRC, specifier.slice(2));
+  // `#lib/…`, `#components/…` and `#puck/…` are package.json subpath
+  // imports onto `src/`.
+  if (specifier.startsWith("#")) base = path.join(SRC, specifier.slice(1));
   else if (specifier.startsWith(".")) base = path.resolve(path.dirname(fromFile), specifier);
   else return null;
   if (/\.(ts|tsx)$/.test(base) && fs.existsSync(base)) return base;
-  // `./helper.js` names `helper.ts` under bundler resolution.
+  // `./helper.js` names `helper.ts`.
   base = base.replace(/\.jsx?$/, "");
   for (const extension of MODULE_EXTENSIONS) {
     if (fs.existsSync(base + extension)) return base + extension;
@@ -215,7 +217,7 @@ describe("@puckeditor/core value-import boundary", () => {
       "template",
       "TemplateEditorClient.tsx",
     );
-    expect(resolveLocal("@/puck/render-config", templateEditor)).toBe(
+    expect(resolveLocal("#puck/render-config.js", templateEditor)).toBe(
       path.join(SRC, "puck", "render-config.tsx"),
     );
     expect(pathToPuckMainEntry(path.join(SRC, "puck", "render-config.tsx"))).toEqual([

@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { collectTemplateFiles, generateTemplateBundle } from "./generate-template-bundle.mjs";
+import { collectTemplateFiles, generateTemplateBundle, sitePackageJson } from "./generate-template-bundle.mjs";
 
 let root: string;
 
@@ -30,7 +30,7 @@ describe("collectTemplateFiles", () => {
     await write("src/app/a.tsx", "a");
 
     expect(await collectTemplateFiles(root)).toEqual([
-      { path: "package.json", content: "{}" },
+      { path: "package.json", content: sitePackageJson("{}") },
       { path: "src/app/a.tsx", content: "a" },
       { path: "src/b.ts", content: "b" },
     ]);
@@ -48,7 +48,7 @@ describe("collectTemplateFiles", () => {
 
   it("skips excluded files by name, including in subdirectories", async () => {
     await write("keep.ts");
-    for (const file of ["package-lock.json", "playwright.config.ts", "CLAUDE.md", "EDITING.md"]) {
+    for (const file of ["package-lock.json", "playwright.config.ts", "CLAUDE.md", "EDITING.md", "tsconfig.build.json"]) {
       await write(file);
       await write(`docs/${file}`);
     }
@@ -70,6 +70,56 @@ describe("collectTemplateFiles", () => {
   });
 });
 
+describe("sitePackageJson", () => {
+  const PACKAGE = {
+    name: "@jclaw-labs/musician-site",
+    version: "1.0.0",
+    description: "The package",
+    type: "module",
+    repository: { type: "git", url: "git+https://example.com/x.git" },
+    imports: { "#lib/*": { source: "./src/lib/*", default: "./dist/lib/*" } },
+    exports: { "./*": "./dist/*.js" },
+    files: ["dist"],
+    bin: { "stagecraft-site": "./dist/cli/stagecraft-site.js" },
+    scripts: { build: "next build", "build:package": "node scripts/build-package.mjs" },
+    peerDependencies: { next: ">=15.5.27 <16", react: "^19.0.0" },
+    dependencies: { zod: "4.4.2", "@jclaw-labs/content-upgraders": "file:../../packages/content-upgraders" },
+    devDependencies: { next: "^15.5.27", vitest: "^4.0.0" },
+  };
+
+  const site = JSON.parse(sitePackageJson(JSON.stringify(PACKAGE)));
+
+  it("makes a private app named musician-site", () => {
+    expect(site.name).toBe("musician-site");
+    expect(site.private).toBe(true);
+    expect(Object.keys(site).slice(0, 2)).toEqual(["name", "private"]);
+  });
+
+  it("drops the publish-only fields and scripts, keeping imports and the build", () => {
+    for (const field of ["exports", "files", "bin", "repository", "description", "peerDependencies"]) {
+      expect(site).not.toHaveProperty(field);
+    }
+    expect(site.imports).toEqual(PACKAGE.imports);
+    expect(site.scripts).toEqual({ build: "next build" });
+  });
+
+  it("moves peers into dependencies, preferring the dev range, and drops file: deps", () => {
+    expect(site.dependencies).toEqual({ next: "^15.5.27", react: "^19.0.0", zod: "4.4.2" });
+    expect(site.devDependencies).toEqual({ vitest: "^4.0.0" });
+  });
+
+  it("ends with a newline", () => {
+    expect(sitePackageJson("{}").endsWith("}\n")).toBe(true);
+  });
+
+  it("reads the real template as an app that installs outside the monorepo", async () => {
+    const files = await collectTemplateFiles(path.resolve(__dirname, "../../../templates/musician-site"));
+    const pkg = JSON.parse(files.find((f) => f.path === "package.json")!.content);
+    expect(pkg.dependencies.next).toBeDefined();
+    expect(Object.values(pkg.dependencies).some((spec) => String(spec).startsWith("file:"))).toBe(false);
+  });
+});
+
 describe("generateTemplateBundle", () => {
   it("writes the collected files as JSON and reports sizes", async () => {
     await write("template/package.json", '{"name":"t"}');
@@ -80,7 +130,7 @@ describe("generateTemplateBundle", () => {
 
     const written = await fs.readFile(outFile, "utf-8");
     expect(JSON.parse(written)).toEqual([
-      { path: "package.json", content: '{"name":"t"}' },
+      { path: "package.json", content: sitePackageJson('{"name":"t"}') },
       { path: "src/page.tsx", content: "export default 1;" },
     ]);
     expect(result).toEqual({
@@ -100,7 +150,7 @@ describe("generateTemplateBundle", () => {
 
     expect((await fs.stat(outFile)).ino).not.toBe(staleInode);
     expect(JSON.parse(await fs.readFile(outFile, "utf-8"))).toEqual([
-      { path: "package.json", content: '{"name":"t"}' },
+      { path: "package.json", content: sitePackageJson('{"name":"t"}') },
     ]);
     expect(await fs.readdir(path.dirname(outFile))).toEqual(["bundle.json"]);
   });

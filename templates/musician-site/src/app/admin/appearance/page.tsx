@@ -1,11 +1,11 @@
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { readAppearance } from "@/lib/content";
-import { getHasPendingSingletonChange } from "@/lib/draft-changes";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { readAppearance } from "#lib/content.js";
+import { getHasPendingSingletonChange } from "#lib/draft-changes.js";
 
-import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminShell } from "#components/admin/AdminShell.js";
 
-import { AppearanceForm } from "./AppearanceForm";
+import { AppearanceForm } from "./AppearanceForm.js";
 
 export default async function AdminAppearancePage() {
   const [session, config, hasPendingChanges] = await Promise.all([

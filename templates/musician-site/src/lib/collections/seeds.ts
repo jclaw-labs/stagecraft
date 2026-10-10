@@ -18,7 +18,7 @@ import {
   CURRENT_COLLECTION_SCHEMA_VERSION,
   type CollectionDef,
   type SelectOption,
-} from "./schema";
+} from "./schema.js";
 
 // Field-id constants live in `./field-ids.ts` (client-bundle-safe);
 // re-exported here for source-compat with existing imports.
@@ -34,7 +34,7 @@ import {
   STORE_ITEMS_FIELD_IDS,
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
-} from "./field-ids";
+} from "./field-ids.js";
 export {
   APPEARANCE_FIELD_IDS,
   HEADER_FIELD_IDS,
@@ -63,7 +63,7 @@ import {
   HEADING_MODES,
   HEADING_MODE_LABELS,
   SOCIAL_PLATFORMS,
-} from "../site-config-types";
+} from "../site-config-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -12,15 +12,15 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import { generateItemId } from "./id-gen";
-import type { Item } from "./schema";
+import { generateItemId } from "./id-gen.js";
+import type { Item } from "./schema.js";
 
 // Re-export everything from the client-safe values module so existing
 // callers (content.ts, /api/save-config-or-equivalent, the migration
 // script, tests) keep working.
-export * from "./migrate-from-legacy-values";
+export * from "./migrate-from-legacy-values.js";
 
-import { pageDataToItemValues } from "./migrate-from-legacy-values";
+import { pageDataToItemValues } from "./migrate-from-legacy-values.js";
 
 /** Build a brand-new pages item from legacy page data. */
 export function pageDataToItem(

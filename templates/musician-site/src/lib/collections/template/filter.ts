@@ -45,9 +45,9 @@
  *     `today` value expresses an "upcoming" window; `lt today` a "past" one.
  */
 
-import type { CollectionDef, Filter, FilterClause, FilterValue, Item } from "../schema";
+import type { CollectionDef, Filter, FilterClause, FilterValue, Item } from "../schema.js";
 
-import { viewFieldIdFor } from "./view-requirements";
+import { viewFieldIdFor } from "./view-requirements.js";
 
 export function applyFilter(
   items: ReadonlyArray<Item>,

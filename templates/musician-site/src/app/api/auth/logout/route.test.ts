@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { POST } from "./route";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { POST } from "./route.js";
+import { SESSION_COOKIE } from "#lib/auth.js";
 
 function postReq() {
   return new Request("https://example.com/api/auth/logout", { method: "POST" });

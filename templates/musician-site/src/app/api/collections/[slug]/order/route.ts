@@ -17,14 +17,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   getRequestReadStore,
   slugSchema,
   writeOrder,
-} from "@/lib/collections";
-import { PublishError } from "@/lib/publish";
-import { saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { PublishError } from "#lib/publish.js";
+import { saveContent, saveFailureResponse } from "#lib/save-content.js";
 
 const requestSchema = z.object({
   order: z.array(z.string().min(1)),

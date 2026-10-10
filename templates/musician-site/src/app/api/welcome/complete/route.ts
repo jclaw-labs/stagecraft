@@ -30,13 +30,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   appearanceCollectionDef,
   headerCollectionDef,
   pagesCollectionDef,
   siteCollectionDef,
-} from "@/lib/collections/seeds";
+} from "#lib/collections/seeds.js";
 import {
   buildItemFileSchema,
   generateItemId,
@@ -44,7 +44,7 @@ import {
   SINGLETON_ITEM_SLUG,
   writeOrder,
   type Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 import {
   appearanceFromItem,
   appearanceToItemValues,
@@ -52,17 +52,17 @@ import {
   headerConfigToItemValues,
   siteConfigFromItem,
   siteConfigToItemValues,
-} from "@/lib/collections/migrate-from-legacy-values";
-import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { imageMetadataSchema } from "@/lib/image-types";
-import { buildFirstRunSeed } from "@/lib/first-run-seeds";
-import { emptyPageData } from "@/lib/page-data";
-import { PublishError, type PublishTarget } from "@/lib/publish";
-import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
-import { resolveTheme, THEME_IDS } from "@/lib/theme-presets";
-import type { Appearance, HeaderConfig } from "@/lib/site-config-types";
+} from "#lib/collections/migrate-from-legacy-values.js";
+import { pageDataToItem } from "#lib/collections/migrate-from-legacy.js";
+import { imageMetadataSchema } from "#lib/image-types.js";
+import { buildFirstRunSeed } from "#lib/first-run-seeds.js";
+import { emptyPageData } from "#lib/page-data.js";
+import { PublishError, type PublishTarget } from "#lib/publish.js";
+import { planItemWrite, saveContent, saveFailureResponse } from "#lib/save-content.js";
+import { resolveTheme, THEME_IDS } from "#lib/theme-presets.js";
+import type { Appearance, HeaderConfig } from "#lib/site-config-types.js";
 
-import { upsertSingletonItem } from "../_shared";
+import { upsertSingletonItem } from "../_shared.js";
 
 const TOUR_DATES_SLUG = "tour-dates";
 

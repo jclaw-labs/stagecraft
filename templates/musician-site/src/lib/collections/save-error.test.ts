@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { PAGES_FIELD_IDS } from "./field-ids";
-import { type ItemRouteFailureBody, saveErrorMessage } from "./save-error";
+import { PAGES_FIELD_IDS } from "./field-ids.js";
+import { type ItemRouteFailureBody, saveErrorMessage } from "./save-error.js";
 
 const FIELDS = [
   { id: PAGES_FIELD_IDS.title, key: "title" },

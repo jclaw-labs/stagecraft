@@ -9,7 +9,7 @@ import {
   NumberField,
   SelectField,
   TextField,
-} from "./form";
+} from "./form.js";
 
 /**
  * These tests render the form primitives through SSR (`renderToStaticMarkup`)

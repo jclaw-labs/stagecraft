@@ -9,18 +9,18 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveToDraft: publishMock };
 });
 
-import { PUT } from "./route";
-import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
-import { readCollectionDef, writeCollectionDef } from "@/lib/collections";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+import { PUT } from "./route.js";
+import { PREBAKED_COLLECTIONS } from "#lib/collections/seeds.js";
+import { readCollectionDef, writeCollectionDef } from "#lib/collections/index.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 
 let TMP_CONTENT_DIR: string;
 

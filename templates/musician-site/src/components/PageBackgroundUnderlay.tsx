@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
-import { isVectorExt, type ImageMetadata } from "@/lib/image-types";
-import { largestVariantUrl, originalImageUrl } from "@/lib/image-urls";
+import { isVectorExt, type ImageMetadata } from "#lib/image-types.js";
+import { largestVariantUrl, originalImageUrl } from "#lib/image-urls.js";
 
 /**
  * Fixed-positioned background layer painted behind page content.

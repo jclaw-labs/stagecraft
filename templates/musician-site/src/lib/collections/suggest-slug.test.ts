@@ -9,14 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { suggestSlug } from "./suggest-slug";
-import { PHOTOS_FIELD_IDS } from "./field-ids";
+import { suggestSlug } from "./suggest-slug.js";
+import { PHOTOS_FIELD_IDS } from "./field-ids.js";
 import {
   CURRENT_COLLECTION_SCHEMA_VERSION,
   type CollectionDef,
   type Item,
-} from "./schema";
-import { asImageId } from "../image-types";
+} from "./schema.js";
+import { asImageId } from "../image-types.js";
 
 const TS = "2026-05-20T00:00:00.000Z";
 

@@ -8,11 +8,11 @@ const { getSessionMock, commitUploadedImageMock } = vi.hoisted(() => ({
   commitUploadedImageMock: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
-vi.mock("@/lib/commit-image", () => ({ commitUploadedImage: commitUploadedImageMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/commit-image.js", () => ({ commitUploadedImage: commitUploadedImageMock }));
 
-import { POST } from "./route";
-import { uploadErrorSchema, uploadResponseSchema } from "@/lib/image-types";
+import { POST } from "./route.js";
+import { uploadErrorSchema, uploadResponseSchema } from "#lib/image-types.js";
 
 const TEST_SLUG = "route-test";
 const TEST_PUBLIC = path.join(process.cwd(), "public/images", TEST_SLUG);
@@ -288,7 +288,7 @@ describe("POST /api/upload-image", () => {
     });
 
     it("maps broker-rejected errors to 502", async () => {
-      const { PublishError } = await import("@/lib/publish");
+      const { PublishError } = await import("#lib/publish.js");
       commitUploadedImageMock.mockRejectedValue(new PublishError("broker-rejected", "401"));
 
       const fd = new FormData();
@@ -301,7 +301,7 @@ describe("POST /api/upload-image", () => {
     });
 
     it("maps github-failed errors to 500", async () => {
-      const { PublishError } = await import("@/lib/publish");
+      const { PublishError } = await import("#lib/publish.js");
       commitUploadedImageMock.mockRejectedValue(new PublishError("github-failed", "boom"));
 
       const fd = new FormData();

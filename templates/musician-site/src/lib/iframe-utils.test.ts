@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractIframeIntrinsicDimensions,
   stripIframeDimensions,
-} from "./iframe-utils";
+} from "./iframe-utils.js";
 
 describe("extractIframeIntrinsicDimensions", () => {
   it("reads width / height attributes (Bandcamp shape)", () => {

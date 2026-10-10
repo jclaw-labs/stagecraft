@@ -6,17 +6,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetBootstrapCacheForTests,
   readSiteConfig,
-} from "./content";
+} from "./content.js";
 import {
   SITE_FIELD_IDS,
   siteCollectionDef,
-} from "./collections/seeds";
+} from "./collections/seeds.js";
 import {
   generateItemId,
   getFsReadStore,
   SINGLETON_ITEM_SLUG,
   writeSingleton,
-} from "./collections";
+} from "./collections/index.js";
 
 const store = getFsReadStore();
 
@@ -135,7 +135,7 @@ describe("checkIsFirstRun (via readSiteConfig.hasCompletedFirstRun)", () => {
     // Independent of disk: ensures the migration helpers preserve
     // the flag both directions.
     const { siteConfigFromItem, siteConfigToItemValues } = await import(
-      "./collections/migrate-from-legacy-values"
+      "./collections/migrate-from-legacy-values.js"
     );
     const item = {
       id: "item_test",

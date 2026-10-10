@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
 import {
   BLOCK_DESCRIPTIONS,
@@ -16,7 +16,7 @@ import {
   SPACER_SIZES,
   COLUMN_COUNTS,
   TEXT_ALIGNMENTS,
-} from "./config";
+} from "./config.js";
 
 function render<K extends keyof typeof BLOCKS>(
   name: K,

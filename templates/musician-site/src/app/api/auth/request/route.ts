@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { createMagicLinkToken, getAllowedEditorEmails } from "@/lib/auth";
-import { sendMagicLink } from "@/lib/email";
+import { createMagicLinkToken, getAllowedEditorEmails } from "#lib/auth.js";
+import { sendMagicLink } from "#lib/email.js";
 
 const isDev = process.env.NODE_ENV !== "production";
 

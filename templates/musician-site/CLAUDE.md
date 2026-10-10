@@ -9,6 +9,33 @@ Conventions for the musician-site template per ADR-007.
 - Puck (`@puckeditor/core`) — visual block editor at `/admin`
 - Files only; no database. Content lives in `src/content/`.
 
+## Imports and the npm package
+
+This directory is also the source of the `@jclaw-labs/musician-site` npm
+package (ADR-016). `npm run build:package` compiles `src/` with `tsc` into
+`dist/`, one ESM file per source file, so each module keeps its
+`"use client"` directive. Code that runs from `dist/` resolves no path
+alias and no extensionless relative import, so:
+
+- Import across `src/` with the subpath imports declared in
+  `package.json`: `#lib/…`, `#components/…` and `#puck/…`, never `@/`.
+- Every relative and `#` import names the compiled file:
+  `./helper.js`, `#lib/auth.js`, `#lib/collections/index.js`
+  (`helper.ts`, `auth.ts` and `collections/index.ts` in the source).
+- The `source` condition maps the `#` imports to `src/`. Vitest
+  (`vitest.config.ts`), `tsc` (`customConditions`) and Next.js
+  (the `webpack` hook in `next.config.ts`) all use it, so tests, dev and
+  the site build run from source.
+- `src/cli/` is the `stagecraft-site` bin and runs under plain Node: keep
+  its imports to `node:` builtins and relative `.js` files, with no CSS
+  and no `next/*`.
+
+`next`, `react` and `react-dom` are peer dependencies, and every other
+runtime dependency is pinned exact. Until sites move onto the package,
+provisioning still copies this directory into the site repo, and
+`apps/web/scripts/generate-template-bundle.mjs` turns its `package.json`
+back into an app's (`sitePackageJson`).
+
 ## Editor philosophy
 
 Set up Puck on its happy path. Block configs are written natively as
@@ -273,7 +300,7 @@ canonical because of its drag-and-drop / nav-toggle UX.
 of ADR-011 the barrel also transitively reaches `next/headers`
 (server-only): `read-store.ts` → `publish.ts` → `draft-branch.ts` →
 `auth.ts` (which imports `cookies`). Same hazard as the node imports — a
-*value* import of `@/lib/collections` from a `"use client"` file drags
+*value* import of `#lib/collections` from a `"use client"` file drags
 these into the client bundle and fails the build.
 Client components that need types or runtime helpers from those files
 import via sibling submodules that have no node imports:
@@ -331,6 +358,7 @@ npm run lint
 npm run test       # vitest unit + component tests
 npm run test:e2e   # Playwright admin e2e (needs `npx playwright install chromium` first)
 npm run build
+npm run build:package  # the npm package's dist/ (the pack-and-build check is `npm run check:musician-site-package` at the repo root)
 ```
 
 Run before committing.
@@ -381,7 +409,7 @@ One or more allowed editor emails per site (the editor allowlist), gated by midd
 
 Middleware (`src/middleware.ts`) gates `/admin/*`, `/api/publish-status` and `/api/upload-image`; `/admin/login` is allowlisted. API routes return 401; pages redirect. Every other admin API route (collections, drafts, publish, welcome) checks `getSession()` itself, so a new admin route must too.
 
-**Server-side session access:** `getSession()` from `@/lib/auth` reads the cookie and verifies it. Use it in Server Components and route handlers.
+**Server-side session access:** `getSession()` from `#lib/auth` reads the cookie and verifies it. Use it in Server Components and route handlers.
 
 **Local setup (zero-config):** `npm run dev`, visit `/admin/login`, click **Sign in as dev admin (skip magic link)**. The button only renders when `NODE_ENV !== "production"` and POSTs to `/api/auth/dev-login`, which returns 404 in production. The auth library also falls back to a hardcoded dev secret when both `MAGIC_LINK_SIGNING_SECRET` and `STAGECRAFT_BROKER_SECRET` are unset (dev only), so no env vars are needed to sign in.
 
@@ -407,7 +435,7 @@ public/images/<content-slug>/<image-id>/
   {400,800,1600}.{webp,avif}
 ```
 
-**Rendering.** `<Image>` from `@/components/Image` consumes `ImageMetadata` and emits a `<picture>` with avif → webp `<source>` tags, lazy loading, async decoding, explicit width/height (CLS-safe), and the LQIP as `background-image` for instant paint. The component is intentionally a thin renderer — alt comes from the metadata, not a separate prop. ESLint's `jsx-a11y/alt-text` rule is overridden to allow this for our `Image` component (see `eslint.config.mjs`).
+**Rendering.** `<Image>` from `#components/Image` consumes `ImageMetadata` and emits a `<picture>` with avif → webp `<source>` tags, lazy loading, async decoding, explicit width/height (CLS-safe), and the LQIP as `background-image` for instant paint. The component is intentionally a thin renderer — alt comes from the metadata, not a separate prop. ESLint's `jsx-a11y/alt-text` rule is overridden to allow this for our `Image` component (see `eslint.config.mjs`).
 
 **Migration.** Variant scheme changes are out of band — a one-shot script that walks `public/images/`, reads each `original.<ext>`, and writes new variants. Not part of the live publish path.
 

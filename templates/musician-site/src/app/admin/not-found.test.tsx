@@ -6,7 +6,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import AdminNotFound from "./not-found";
+import AdminNotFound from "./not-found.js";
 
 describe("admin not-found", () => {
   it("renders the admin 404 outside the public theme", () => {

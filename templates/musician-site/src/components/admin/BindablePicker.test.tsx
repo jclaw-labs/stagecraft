@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { BindableStringPicker, BindableImagePicker } from "./BindablePicker";
+import { BindableStringPicker, BindableImagePicker } from "./BindablePicker.js";
 
-import type { FieldDef } from "@/lib/collections";
+import type { FieldDef } from "#lib/collections/index.js";
 
 const STRING_FIELDS: FieldDef[] = [
   { id: "f_title", key: "title", type: "text", required: true },

@@ -32,15 +32,15 @@
 
 import { notFound } from "next/navigation";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   getRequestReadStore,
   slugSchema,
   type CollectionDef,
-} from "@/lib/collections";
-import type { LoadedCollections } from "@/lib/collections/template/renderer";
+} from "#lib/collections/index.js";
+import type { LoadedCollections } from "#lib/collections/template/renderer.js";
 
-import { TemplateEditorClient } from "../TemplateEditorClient";
+import { TemplateEditorClient } from "../TemplateEditorClient.js";
 
 type Params = { slug: string };
 

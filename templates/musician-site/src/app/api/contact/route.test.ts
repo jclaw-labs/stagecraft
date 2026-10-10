@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { sendContactEmailMock } = vi.hoisted(() => ({ sendContactEmailMock: vi.fn() }));
-vi.mock("@/lib/email", () => ({ sendContactEmail: sendContactEmailMock }));
+vi.mock("#lib/email.js", () => ({ sendContactEmail: sendContactEmailMock }));
 
 const { readSiteConfigMock } = vi.hoisted(() => ({ readSiteConfigMock: vi.fn() }));
-vi.mock("@/lib/content", () => ({ readSiteConfig: readSiteConfigMock }));
+vi.mock("#lib/content.js", () => ({ readSiteConfig: readSiteConfigMock }));
 
-import { POST } from "./route";
-import { __resetRateLimiterForTests } from "./rate-limit";
-import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
+import { POST } from "./route.js";
+import { __resetRateLimiterForTests } from "./rate-limit.js";
+import { DEFAULT_SITE_CONFIG } from "#lib/site-config-types.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

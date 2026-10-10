@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import AdminUnknownRoute from "./page";
+import AdminUnknownRoute from "./page.js";
 
 describe("admin unknown-route catch-all", () => {
   it("throws Next's 404 signal", () => {

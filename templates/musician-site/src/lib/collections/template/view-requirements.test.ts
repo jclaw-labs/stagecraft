@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
-import { PHOTOS_FIELD_IDS, TOUR_DATES_FIELD_IDS, VIDEOS_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, FieldDef, Item } from "../schema";
+import { PHOTOS_FIELD_IDS, TOUR_DATES_FIELD_IDS, VIDEOS_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, FieldDef, Item } from "../schema.js";
 import {
   photosCollectionDef,
   postsCollectionDef,
   releasesCollectionDef,
   tourDatesCollectionDef,
   videosCollectionDef,
-} from "../seeds";
+} from "../seeds.js";
 import {
   checkFieldRequirement,
   describeViewFieldImpact,
@@ -24,7 +24,7 @@ import {
   viewFieldIdFor,
   viewFieldImpact,
   viewFieldProblems,
-} from "./view-requirements";
+} from "./view-requirements.js";
 
 const TS = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
 

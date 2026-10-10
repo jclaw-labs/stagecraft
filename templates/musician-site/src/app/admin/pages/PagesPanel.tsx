@@ -4,19 +4,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { TextField } from "@/components/admin/form";
-import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
-import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
-import { pendingItemSlugs } from "@/lib/draft-changes-filter";
-import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
-import { pageDataToItemValues } from "@/lib/collections/migrate-from-legacy-values";
-import { emptyPageData } from "@/lib/page-data";
+import { TextField } from "#components/admin/form.js";
+import { UnpublishedBadge } from "#components/admin/UnpublishedBadge.js";
+import { fetchDraftChangesShared } from "#lib/draft-changes-client.js";
+import { pendingItemSlugs } from "#lib/draft-changes-filter.js";
+import { PAGES_FIELD_IDS } from "#lib/collections/field-ids.js";
+import { pageDataToItemValues } from "#lib/collections/migrate-from-legacy-values.js";
+import { emptyPageData } from "#lib/page-data.js";
 import {
   PAGE_SLUG_PATTERN,
   reorderPagesBefore,
   slugifyTitle,
   type PageSummary,
-} from "@/lib/site-config-types";
+} from "#lib/site-config-types.js";
 
 type Props = {
   initialPages: PageSummary[];

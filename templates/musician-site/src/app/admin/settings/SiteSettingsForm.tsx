@@ -1,25 +1,25 @@
 "use client";
 
-import { AdminPanel } from "@/components/admin/AdminPanel";
+import { AdminPanel } from "#components/admin/AdminPanel.js";
 import {
   CheckboxField,
   Field,
   FieldGroup,
   NumberField,
   TextField,
-} from "@/components/admin/form";
-import { SaveBar } from "@/components/admin/SaveBar";
-import { useSettingsForm } from "@/components/admin/useSettingsForm";
-import { siteConfigToItemValues } from "@/lib/collections/migrate-from-legacy-values";
+} from "#components/admin/form.js";
+import { SaveBar } from "#components/admin/SaveBar.js";
+import { useSettingsForm } from "#components/admin/useSettingsForm.js";
+import { siteConfigToItemValues } from "#lib/collections/migrate-from-legacy-values.js";
 import {
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABELS,
   type SiteConfig,
   type SocialPlatform,
-} from "@/lib/site-config-types";
-import { ImagePickerField } from "@/puck/ImagePickerField";
+} from "#lib/site-config-types.js";
+import { ImagePickerField } from "#puck/ImagePickerField.js";
 
-import { DangerZone } from "./DangerZone";
+import { DangerZone } from "./DangerZone.js";
 
 type Props = {
   initial: SiteConfig;

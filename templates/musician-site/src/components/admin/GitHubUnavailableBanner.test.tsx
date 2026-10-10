@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { GitHubUnavailableBanner } from "./GitHubUnavailableBanner";
+import { GitHubUnavailableBanner } from "./GitHubUnavailableBanner.js";
 
 describe("<GitHubUnavailableBanner>", () => {
   it("renders a status role with the unavailable + read-only messaging", () => {

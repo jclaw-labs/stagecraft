@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { largestVariantUrl, originalImageUrl } from "./image-urls";
-import { asImageId, type ImageMetadata } from "./image-types";
+import { largestVariantUrl, originalImageUrl } from "./image-urls.js";
+import { asImageId, type ImageMetadata } from "./image-types.js";
 
 function image(overrides: Partial<ImageMetadata> = {}): ImageMetadata {
   return {

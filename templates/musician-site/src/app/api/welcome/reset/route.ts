@@ -24,32 +24,32 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   appearanceCollectionDef,
   headerCollectionDef,
   siteCollectionDef,
-} from "@/lib/collections/seeds";
+} from "#lib/collections/seeds.js";
 import {
   deleteItem,
   getRequestReadStore,
   SINGLETON_ITEM_SLUG,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 import {
   appearanceToItemValues,
   headerConfigToItemValues,
   siteConfigFromItem,
   siteConfigToItemValues,
-} from "@/lib/collections/migrate-from-legacy-values";
+} from "#lib/collections/migrate-from-legacy-values.js";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
-} from "@/lib/site-config-types";
-import { PublishError, type PublishTarget } from "@/lib/publish";
-import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/site-config-types.js";
+import { PublishError, type PublishTarget } from "#lib/publish.js";
+import { planItemWrite, saveContent, saveFailureResponse } from "#lib/save-content.js";
 
-import { upsertSingletonItem } from "../_shared";
+import { upsertSingletonItem } from "../_shared.js";
 
 const requestSchema = z.object({
   confirmArtistName: z.string().min(1),

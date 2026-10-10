@@ -2,8 +2,8 @@
 
 import type { CSSProperties } from "react";
 
-import { buildFontStack } from "@/lib/google-fonts";
-import type { ThemePreset } from "@/lib/theme-presets";
+import { buildFontStack } from "#lib/google-fonts.js";
+import type { ThemePreset } from "#lib/theme-presets.js";
 
 /**
  * Miniature mock of a theme preset for the welcome picker: the preset's real

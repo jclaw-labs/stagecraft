@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { DraftChangesError, enrichItemLabels, getDraftChanges } from "@/lib/draft-changes";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { DraftChangesError, enrichItemLabels, getDraftChanges } from "#lib/draft-changes.js";
 
 /**
  * GET /api/draft-changes — "what's pending on draft?"

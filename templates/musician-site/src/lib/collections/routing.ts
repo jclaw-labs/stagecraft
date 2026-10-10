@@ -35,7 +35,7 @@
  * and a conflict fails `next build` instead of the live site.
  */
 
-import type { CollectionDef } from "./schema";
+import type { CollectionDef } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // URL → (collection, itemSlug) resolution

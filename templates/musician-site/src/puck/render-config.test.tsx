@@ -1,8 +1,8 @@
 import type { ComponentConfig } from "@puckeditor/core";
 import { describe, expect, it } from "vitest";
 
-import { BLOCKS } from "./config";
-import { buildRenderConfig, CollectionBlockRender } from "./render-config";
+import { BLOCKS } from "./config.js";
+import { buildRenderConfig, CollectionBlockRender } from "./render-config.js";
 
 type AnyBlock = ComponentConfig<Record<string, unknown>>;
 

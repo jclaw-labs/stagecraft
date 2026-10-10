@@ -15,12 +15,12 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ImageCarousel } from "./ImageCarousel";
+import { ImageCarousel } from "./ImageCarousel.js";
 import {
   CAROUSEL_ASPECT_RATIOS,
   type ImageCarouselSlide,
-} from "./image-carousel-types";
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+} from "./image-carousel-types.js";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
 const IMAGE_FIXTURE: ImageMetadata = {
   id: asImageId("abc1234567890def"),

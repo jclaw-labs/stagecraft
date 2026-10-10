@@ -18,8 +18,8 @@
 
 import { cache } from "react";
 
-import { getRequestReadStore } from "./collections";
-import { SITE_FIELD_IDS, siteCollectionDef } from "./collections/seeds";
+import { getRequestReadStore } from "./collections/index.js";
+import { SITE_FIELD_IDS, siteCollectionDef } from "./collections/seeds.js";
 
 /**
  * Returns true when the welcome wizard has not yet been completed

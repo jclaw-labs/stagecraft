@@ -14,23 +14,23 @@ import {
   useState,
 } from "react";
 
-import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
-import { AppearanceStyles } from "@/components/AppearanceStyles";
-import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
-import { buildPuckConfig } from "@/puck/build-config";
-import type { EmbeddableCollection } from "@/puck/collection-view-editor";
-import { BLOCK_DESCRIPTIONS, type BlockLibraryConfig } from "@/puck/config";
-import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
-import type { CollectionDef, Item } from "@/lib/collections/schema";
-import { pageValuesForSave, type PageData } from "@/lib/page-data";
-import type { Appearance } from "@/lib/site-config-types";
+import { AdminAccountButton } from "#components/admin/AdminAccountButton.js";
+import { AppearanceStyles } from "#components/AppearanceStyles.js";
+import { useBeforeUnloadIfDirty } from "#components/admin/useBeforeUnloadIfDirty.js";
+import { buildPuckConfig } from "#puck/build-config.js";
+import type { EmbeddableCollection } from "#puck/collection-view-editor.js";
+import { BLOCK_DESCRIPTIONS, type BlockLibraryConfig } from "#puck/config.js";
+import { DrawerItemPreview } from "#puck/DrawerItemPreview.js";
+import type { CollectionDef, Item } from "#lib/collections/schema.js";
+import { pageValuesForSave, type PageData } from "#lib/page-data.js";
+import type { Appearance } from "#lib/site-config-types.js";
 
 import {
   type CategoryConfig,
   computeCategoryVisibility,
   isVisibilityDispatchTrivial,
-} from "./drawer-visibility";
-import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
+} from "./drawer-visibility.js";
+import { type ItemRouteFailureBody, saveErrorMessage } from "#lib/collections/save-error.js";
 
 // Selector-based access to Puck's state: a component re-renders only when
 // the slice it selects changes. (Bare `usePuck()` subscribes to the whole

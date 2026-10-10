@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { SESSION_COOKIE, verifySessionToken } from "#lib/auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -37,7 +37,7 @@ describe("POST /api/auth/dev-login", () => {
   it("returns 404 in production", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest("anything@example.com"));
     expect(res.status).toBe(404);
   });
@@ -45,7 +45,7 @@ describe("POST /api/auth/dev-login", () => {
   it("sets a session cookie and redirects to /admin in dev", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest("anyone@example.com"));
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toContain("/admin");
@@ -60,7 +60,7 @@ describe("POST /api/auth/dev-login", () => {
     vi.stubEnv("NODE_ENV", "development");
     process.env.ADMIN_EMAIL = "Locked@Example.com";
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest("other@example.com"));
 
     const token = getSessionCookie(res);
@@ -71,7 +71,7 @@ describe("POST /api/auth/dev-login", () => {
   it("falls back to dev@localhost when nothing is submitted and ADMIN_EMAIL is unset", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest(null));
 
     const token = getSessionCookie(res);
@@ -83,7 +83,7 @@ describe("POST /api/auth/dev-login", () => {
     vi.stubEnv("NODE_ENV", "development");
     process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest("manager@example.com"));
 
     const token = getSessionCookie(res);
@@ -95,7 +95,7 @@ describe("POST /api/auth/dev-login", () => {
     vi.stubEnv("NODE_ENV", "development");
     process.env.ADMIN_EMAILS = "artist@example.com, manager@example.com";
     vi.resetModules();
-    const { POST } = await import("./route");
+    const { POST } = await import("./route.js");
     const res = await POST(buildRequest("stranger@example.com"));
 
     const token = getSessionCookie(res);

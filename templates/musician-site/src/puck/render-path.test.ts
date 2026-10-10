@@ -19,10 +19,14 @@ const STATIC_IMPORT = /^\s*(?:import|export)\s+(?!type\b)(?:[^'"]*?\sfrom\s+)?["
 
 function resolveImport(specifier: string, fromFile: string): string | null {
   let base: string;
-  if (specifier.startsWith("@/")) base = path.join(SRC, specifier.slice(2));
+  // `#lib/…`, `#components/…` and `#puck/…` are package.json subpath
+  // imports onto `src/`.
+  if (specifier.startsWith("#")) base = path.join(SRC, specifier.slice(1));
   else if (specifier.startsWith(".")) base = path.resolve(path.dirname(fromFile), specifier);
   else return null; // a package
   if (fs.existsSync(base) && fs.statSync(base).isFile()) return base;
+  // `./helper.js` names `helper.ts`.
+  base = base.replace(/\.js$/, "");
   for (const ext of EXTENSIONS) {
     if (fs.existsSync(base + ext)) return base + ext;
   }

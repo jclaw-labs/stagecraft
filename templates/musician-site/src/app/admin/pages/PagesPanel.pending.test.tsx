@@ -7,10 +7,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-import { type PageSummary } from "@/lib/site-config-types";
-import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
+import { type PageSummary } from "#lib/site-config-types.js";
+import { __resetDraftChangesClientForTests } from "#lib/draft-changes-client.js";
 
-import { PagesPanel } from "./PagesPanel";
+import { PagesPanel } from "./PagesPanel.js";
 
 const SUMMARIES: PageSummary[] = [
   { slug: "home", title: "Home", isSplashPage: false, isHiddenFromNav: false },

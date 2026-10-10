@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCollectionViewComponentConfig } from "./collection-view-editor";
+import { buildCollectionViewComponentConfig } from "./collection-view-editor.js";
 
 describe("buildCollectionViewComponentConfig", () => {
   it("exposes a limit control + a read-only source note + a placeholder render", () => {

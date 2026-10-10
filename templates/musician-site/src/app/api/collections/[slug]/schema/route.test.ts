@@ -8,20 +8,20 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveToDraft: publishMock };
 });
 
 const { writeJsonBatchAtomicMock } = vi.hoisted(() => ({
   writeJsonBatchAtomicMock: vi.fn(),
 }));
-vi.mock("@/lib/fs-helpers", async () => {
+vi.mock("#lib/fs-helpers.js", async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/fs-helpers")>("@/lib/fs-helpers");
+    await vi.importActual<typeof import("#lib/fs-helpers.js")>("#lib/fs-helpers.js");
   // Default to the real implementation; tests override via
   // `mockImplementationOnce` when they want to simulate a failure.
   writeJsonBatchAtomicMock.mockImplementation(actual.writeJsonBatchAtomic);
@@ -34,18 +34,18 @@ vi.mock("@/lib/fs-helpers", async () => {
 // cleared by `mockReset`, so beforeEach has to wire it back.
 const realWriteJsonBatchAtomic = await (async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/fs-helpers")>("@/lib/fs-helpers");
+    await vi.importActual<typeof import("#lib/fs-helpers.js")>("#lib/fs-helpers.js");
   return actual.writeJsonBatchAtomic;
 })();
 
-import { PUT } from "./route";
-import { POST as POST_ITEM } from "../items/route";
+import { PUT } from "./route.js";
+import { POST as POST_ITEM } from "../items/route.js";
 import {
   PAGES_FIELD_IDS,
   PREBAKED_COLLECTIONS,
-} from "@/lib/collections/seeds";
-import { readCollectionDef, readItem, writeCollectionDef } from "@/lib/collections";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+} from "#lib/collections/seeds.js";
+import { readCollectionDef, readItem, writeCollectionDef } from "#lib/collections/index.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 
 let TMP_CONTENT_DIR: string;
 

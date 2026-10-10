@@ -1,11 +1,11 @@
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { readHeaderConfig } from "@/lib/content";
-import { getHasPendingSingletonChange } from "@/lib/draft-changes";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { readHeaderConfig } from "#lib/content.js";
+import { getHasPendingSingletonChange } from "#lib/draft-changes.js";
 
-import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminShell } from "#components/admin/AdminShell.js";
 
-import { NavigationForm } from "./NavigationForm";
+import { NavigationForm } from "./NavigationForm.js";
 
 export default async function AdminNavigationPage() {
   const [session, config, hasPendingChanges] = await Promise.all([

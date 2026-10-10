@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getFsReadStore } from "@/lib/collections";
-import { readSiteConfig } from "@/lib/content";
-import { sendContactEmail } from "@/lib/email";
+import { getFsReadStore } from "#lib/collections/index.js";
+import { readSiteConfig } from "#lib/content.js";
+import { sendContactEmail } from "#lib/email.js";
 
-import { clientIp, isRateLimited } from "./rate-limit";
+import { clientIp, isRateLimited } from "./rate-limit.js";
 
 /**
  * Public contact-form endpoint — port of the legacy template's

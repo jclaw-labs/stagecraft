@@ -23,11 +23,11 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import { Image } from "@/components/Image";
-import { largestVariantUrl } from "@/lib/image-urls";
-import type { ImageMetadata } from "@/lib/image-types";
-import { itemDetailUrl } from "../routing";
-import type { CollectionDef, Item } from "../schema";
+import { Image } from "#components/Image.js";
+import { largestVariantUrl } from "#lib/image-urls.js";
+import type { ImageMetadata } from "#lib/image-types.js";
+import { itemDetailUrl } from "../routing.js";
+import type { CollectionDef, Item } from "../schema.js";
 // Field access goes through the per-view requirement declarations
 // (#352): each tile reads its fields by role, gated by the live schema,
 // so an artist's delete / retype hides an optional piece or — for a
@@ -37,7 +37,7 @@ import {
   isSpecialisedViewSlug,
   resolveViewFields,
   type SpecialisedViewSlug,
-} from "./view-requirements";
+} from "./view-requirements.js";
 
 // ---------------------------------------------------------------------------
 // Photo tile — Image + optional caption

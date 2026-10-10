@@ -33,10 +33,10 @@ import {
   type PublishError as PublishErrorPayload,
   publishWarningSchema,
   type PublishWarning,
-} from "@/lib/publish-types";
+} from "#lib/publish-types.js";
 
-import { PublishConfirmModal, type PublishSelection } from "./PublishConfirmModal";
-import { useDeployStatus } from "./useDeployStatus";
+import { PublishConfirmModal, type PublishSelection } from "./PublishConfirmModal.js";
+import { useDeployStatus } from "./useDeployStatus.js";
 
 type Status =
   | { kind: "idle" }

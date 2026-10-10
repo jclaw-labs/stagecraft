@@ -14,7 +14,7 @@ import {
   PublishPendingChangesButton,
   __StatusLine as StatusLine,
   __statusForFetchResponse as statusForFetchResponse,
-} from "./PublishPendingChangesButton";
+} from "./PublishPendingChangesButton.js";
 
 /** Stand-in for `Response` — only `ok` and `status` are read. */
 function fakeRes(ok: boolean, status: number): Response {

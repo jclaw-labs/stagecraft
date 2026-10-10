@@ -7,7 +7,7 @@ import {
   focalPointSchema,
   imageMetadataSchema,
   type ImageMetadata,
-} from "./image-types";
+} from "./image-types.js";
 
 const BASE_META: ImageMetadata = {
   id: asImageId("abc1234567890def"),

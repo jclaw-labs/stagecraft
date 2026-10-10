@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
-import { BLOCKS } from "@/puck/config";
-import { extractPageRootProps } from "@/lib/content";
+import { BLOCKS } from "#puck/config.js";
+import { extractPageRootProps } from "#lib/content.js";
 
 function renderBlock(name: keyof typeof BLOCKS, props: unknown): string {
   const component = BLOCKS[name];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { itemCommitSubject, renameCommitSubject } from "./commit-subject";
+import { itemCommitSubject, renameCommitSubject } from "./commit-subject.js";
 
 describe("itemCommitSubject", () => {
   it.each([

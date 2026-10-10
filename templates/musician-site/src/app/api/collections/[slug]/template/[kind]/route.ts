@@ -18,7 +18,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   collectionDefSchema,
   describeIssue,
@@ -27,9 +27,9 @@ import {
   slugSchema,
   validateSchemaChange,
   writeCollectionDef,
-} from "@/lib/collections";
-import { PublishError } from "@/lib/publish";
-import { saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { PublishError } from "#lib/publish.js";
+import { saveContent, saveFailureResponse } from "#lib/save-content.js";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });

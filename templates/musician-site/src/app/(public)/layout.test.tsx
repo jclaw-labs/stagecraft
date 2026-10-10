@@ -15,10 +15,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import PublicLayout, { generateMetadata } from "./layout";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+import PublicLayout, { generateMetadata } from "./layout.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SITE_FIELD_IDS } from "@/lib/collections/seeds";
+import { SITE_FIELD_IDS } from "#lib/collections/seeds.js";
 
 let TMP_CONTENT_DIR: string;
 let SITE_ITEM_PATH: string;

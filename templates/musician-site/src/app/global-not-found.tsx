@@ -1,5 +1,5 @@
-import PublicLayout from "./(public)/layout";
-import PublicNotFound from "./(public)/not-found";
+import PublicLayout from "./(public)/layout.js";
+import PublicNotFound from "./(public)/not-found.js";
 
 import "./globals.css";
 
@@ -30,4 +30,4 @@ export default function GlobalNotFound() {
 }
 
 /** Same tab title and favicon as the `(public)` group's 404. */
-export { generateMetadata } from "./(public)/not-found";
+export { generateMetadata } from "./(public)/not-found.js";

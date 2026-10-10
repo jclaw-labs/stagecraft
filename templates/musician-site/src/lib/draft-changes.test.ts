@@ -13,8 +13,8 @@ vi.mock("@octokit/rest", () => ({
 const { fetchPublishTokenMock } = vi.hoisted(() => ({
   fetchPublishTokenMock: vi.fn(),
 }));
-vi.mock("./publish", async () => {
-  const actual = await vi.importActual<typeof import("./publish")>("./publish");
+vi.mock("./publish.js", async () => {
+  const actual = await vi.importActual<typeof import("./publish.js")>("./publish.js");
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
@@ -27,9 +27,9 @@ import {
   parseChanges,
   resolveSelectedChangePaths,
   type DraftChange,
-} from "./draft-changes";
-import { type CollectionDef, type Item, type ReadStore } from "./collections";
-import { PublishError } from "./publish";
+} from "./draft-changes.js";
+import { type CollectionDef, type Item, type ReadStore } from "./collections/index.js";
+import { PublishError } from "./publish.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

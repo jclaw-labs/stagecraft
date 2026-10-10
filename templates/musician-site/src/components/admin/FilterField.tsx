@@ -29,9 +29,9 @@ import {
   type Filter,
   type FilterClause,
   type FilterValue,
-} from "@/lib/collections/filter-schema";
-import type { CollectionDef, FieldDef } from "@/lib/collections";
-import type { FilterFieldsDef } from "@/lib/collections/template/filter";
+} from "#lib/collections/filter-schema.js";
+import type { CollectionDef, FieldDef } from "#lib/collections/index.js";
+import type { FilterFieldsDef } from "#lib/collections/template/filter.js";
 
 import {
   CLAUSE_OPS,
@@ -55,7 +55,7 @@ import {
   setClauseValues,
   type ClauseOp,
   unfilterableCurrentItemValue,
-} from "./filter-field-state";
+} from "./filter-field-state.js";
 
 export type FilterFieldProps = {
   /** Filter currently stored on the block (or null when unset). */

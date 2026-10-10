@@ -38,8 +38,8 @@
 
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
-import type { BlockProps } from "./config";
-import { BLOCKS } from "./config";
+import type { BlockProps } from "./config.js";
+import { BLOCKS } from "./config.js";
 
 /**
  * Component names that are unsuitable for a thumbnail-scale live

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
 
-import { FieldGroup, TextField } from "@/components/admin/form";
+import { FieldGroup, TextField } from "#components/admin/form.js";
 
 type Props = {
   artistName: string;

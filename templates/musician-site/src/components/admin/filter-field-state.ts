@@ -14,10 +14,10 @@ import type {
   Filter,
   FilterClause,
   FilterValue,
-} from "@/lib/collections/filter-schema";
-import type { FieldDef, FieldType } from "@/lib/collections";
-import { filterForDefs, type FilterFieldsDef } from "@/lib/collections/template/filter";
-import { viewFieldIdFor } from "@/lib/collections/template/view-requirements";
+} from "#lib/collections/filter-schema.js";
+import type { FieldDef, FieldType } from "#lib/collections/index.js";
+import { filterForDefs, type FilterFieldsDef } from "#lib/collections/template/filter.js";
+import { viewFieldIdFor } from "#lib/collections/template/view-requirements.js";
 
 /**
  * Op token shown in the operator picker. Adds an `excludeCurrentItem`

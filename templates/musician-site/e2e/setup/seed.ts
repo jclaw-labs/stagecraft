@@ -23,10 +23,10 @@ import {
   STORE_ITEMS_FIELD_IDS,
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
-} from "../../src/lib/collections/field-ids";
-import type { FieldValue } from "../../src/lib/collections/schema";
-import { asImageId, type ImageMetadata } from "../../src/lib/image-types";
-import { E2E_CONTENT_DIR } from "../../playwright.config";
+} from "../../src/lib/collections/field-ids.js";
+import type { FieldValue } from "../../src/lib/collections/schema.js";
+import { asImageId, type ImageMetadata } from "../../src/lib/image-types.js";
+import { E2E_CONTENT_DIR } from "../../playwright.config.js";
 
 /**
  * The e2e suite seeds the shared `E2E_CONTENT_DIR`; the screenshot-

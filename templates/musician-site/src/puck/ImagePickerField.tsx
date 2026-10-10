@@ -14,11 +14,11 @@ import {
   type FocalPoint,
   type ImageMetadata,
   type SanitisedInfoWire,
-} from "@/lib/image-types";
+} from "#lib/image-types.js";
 import {
   type UploadImageError,
   uploadImageFromClient,
-} from "@/lib/upload-image-client";
+} from "#lib/upload-image-client.js";
 
 type Props = {
   value: ImageMetadata | null;

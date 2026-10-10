@@ -7,13 +7,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
-import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "@/lib/theme-presets";
-import { StepContent, WelcomeWizard } from "./WelcomeWizard";
+import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "#lib/theme-presets.js";
+import { StepContent, WelcomeWizard } from "./WelcomeWizard.js";
 import {
   WELCOME_STEPS,
   type WelcomeFormValues,
   type WelcomeStep,
-} from "./welcome-steps";
+} from "./welcome-steps.js";
 
 // A named preset that isn't the default, for the "a theme is selected"
 // cases — stays valid as the preset library changes.

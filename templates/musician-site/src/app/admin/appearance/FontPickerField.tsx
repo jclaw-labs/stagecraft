@@ -2,14 +2,14 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 
-import { Field, inputStyle } from "@/components/admin/form";
+import { Field, inputStyle } from "#components/admin/form.js";
 import {
   FONT_CATEGORIES,
   FONT_CATEGORY_LABELS,
   GOOGLE_FONTS,
   fontCategoryForFamily,
   type FontCategory,
-} from "@/lib/google-fonts";
+} from "#lib/google-fonts.js";
 
 const INHERIT = "__inherit__";
 type PickerCategory = FontCategory | typeof INHERIT;

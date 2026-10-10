@@ -11,9 +11,9 @@ import {
   resolveStringBindable,
   toBindableRef,
   STRING_VALUED_FIELD_TYPES,
-} from "./binding";
-import { FIXTURE_TIMESTAMP } from "../test-fixtures";
-import type { CollectionDef, Item } from "../schema";
+} from "./binding.js";
+import { FIXTURE_TIMESTAMP } from "../test-fixtures.js";
+import type { CollectionDef, Item } from "../schema.js";
 import { z } from "zod";
 
 function makeItem(values: Item["values"]): Item {

@@ -14,7 +14,7 @@
  * The route mirrors `[slug]/schema/route.ts`: `getSession()` auth,
  * JSON-body parse, then `saveContent` with the `collection-def` target
  * (a local write in dev only; in production a failed commit is a
- * failed save — see `@/lib/save-content`).
+ * failed save — see `#lib/save-content`).
  *
  * The slug is derived from `pluralName`, validated with `slugSchema`,
  * then guarded two ways: a static check against `PREBAKED_COLLECTIONS`
@@ -32,7 +32,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   collectionDefRepoPath,
   collectionDefSchema,
@@ -43,11 +43,11 @@ import {
   slugifyToCollectionSlug,
   slugSchema,
   type CollectionDef,
-} from "@/lib/collections";
-import { PREBAKED_COLLECTIONS } from "@/lib/collections/seeds";
-import { localPathForRepoPath, writeJsonAtomic } from "@/lib/fs-helpers";
-import { PublishError } from "@/lib/publish";
-import { saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { PREBAKED_COLLECTIONS } from "#lib/collections/seeds.js";
+import { localPathForRepoPath, writeJsonAtomic } from "#lib/fs-helpers.js";
+import { PublishError } from "#lib/publish.js";
+import { saveContent, saveFailureResponse } from "#lib/save-content.js";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });

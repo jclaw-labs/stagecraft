@@ -5,16 +5,16 @@ const { publishDraftToMainMock, getSessionMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
 }));
 
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("./../../../lib/publish")>(
-    "@/lib/publish",
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("./../../../lib/publish.js")>(
+    "#lib/publish.js",
   );
   return { ...actual, publishDraftToMain: publishDraftToMainMock };
 });
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
-import { POST } from "./route";
-import { PublishError } from "@/lib/publish";
+import { POST } from "./route.js";
+import { PublishError } from "#lib/publish.js";
 
 beforeEach(() => {
   publishDraftToMainMock.mockReset();

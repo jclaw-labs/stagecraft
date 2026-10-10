@@ -4,8 +4,8 @@ import {
   buildFirstRunSeed,
   homePageItemValues,
   slugifyForSeed,
-} from "./first-run-seeds";
-import { PAGES_FIELD_IDS } from "./collections/field-ids";
+} from "./first-run-seeds.js";
+import { PAGES_FIELD_IDS } from "./collections/field-ids.js";
 
 describe("slugifyForSeed", () => {
   it("lowercases, swaps spaces for dashes, strips punctuation", () => {

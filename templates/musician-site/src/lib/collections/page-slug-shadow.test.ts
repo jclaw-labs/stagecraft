@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { pageSlugShadowError } from "./page-slug-shadow";
-import type { ReadStore } from "./read-store";
-import type { CollectionDef } from "./schema";
-import { PREBAKED_COLLECTIONS } from "./seeds";
+import { pageSlugShadowError } from "./page-slug-shadow.js";
+import type { ReadStore } from "./read-store.js";
+import type { CollectionDef } from "./schema.js";
+import { PREBAKED_COLLECTIONS } from "./seeds.js";
 
 const PODCASTS_DEF: CollectionDef = {
   schemaVersion: 1,

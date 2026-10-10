@@ -8,20 +8,20 @@ const { publishSelectedToMainMock, resolveSelectedChangePathsMock, getSessionMoc
   }),
 );
 
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("./../../../lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("./../../../lib/publish.js")>("#lib/publish.js");
   return { ...actual, publishSelectedToMain: publishSelectedToMainMock };
 });
-vi.mock("@/lib/draft-changes", async () => {
+vi.mock("#lib/draft-changes.js", async () => {
   const actual =
-    await vi.importActual<typeof import("./../../../lib/draft-changes")>("@/lib/draft-changes");
+    await vi.importActual<typeof import("./../../../lib/draft-changes.js")>("#lib/draft-changes.js");
   return { ...actual, resolveSelectedChangePaths: resolveSelectedChangePathsMock };
 });
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
-import { POST } from "./route";
-import { PublishError } from "@/lib/publish";
-import { DraftChangesError } from "@/lib/draft-changes";
+import { POST } from "./route.js";
+import { PublishError } from "#lib/publish.js";
+import { DraftChangesError } from "#lib/draft-changes.js";
 
 beforeEach(() => {
   publishSelectedToMainMock.mockReset();

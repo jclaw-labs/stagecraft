@@ -13,14 +13,14 @@
  * Custom-panel collections (Site Settings, Header & Navigation,
  * Appearance, Pages) bounce to their registered route — same
  * pattern as `/admin/pages` is canonical for the pages collection.
- * Registry in `@/components/admin/admin-surfaces`.
+ * Registry in `#components/admin/admin-surfaces`.
  */
 
 import { notFound, redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/AdminShell";
-import { findCustomSurface } from "@/components/admin/admin-surfaces";
-import { getSession } from "@/lib/auth";
+import { AdminShell } from "#components/admin/AdminShell.js";
+import { findCustomSurface } from "#components/admin/admin-surfaces.js";
+import { getSession } from "#lib/auth.js";
 import {
   getRequestReadStore,
   itemSlugSchema,
@@ -28,9 +28,9 @@ import {
   SINGLETON_ITEM_SLUG,
   slugSchema,
   type Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
-import { ItemEditorClient } from "./ItemEditorClient";
+import { ItemEditorClient } from "./ItemEditorClient.js";
 
 type Params = { slug: string; itemSlug: string };
 
