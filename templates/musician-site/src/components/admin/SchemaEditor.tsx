@@ -41,9 +41,18 @@ import type {
 // so this client component doesn't drag schema.ts's node:crypto into
 // the browser bundle.
 import {
+  FIELD_TYPE_OPTIONS,
   SLUG_SOURCE_COMPATIBLE_TYPES,
   SORTABLE_FIELD_TYPES,
 } from "@/lib/collections/field-classification";
+// Node-import-free like field-classification: declares which fields the
+// public specialised card views (tour dates, releases, …) depend on.
+import {
+  describeViewFieldImpact,
+  describeViewFieldProblem,
+  viewFieldImpact,
+  viewFieldProblems,
+} from "@/lib/collections/template/view-requirements";
 
 /**
  * Client-side field-id generator. Mirrors `generateFieldId` from
@@ -55,41 +64,10 @@ function newFieldId(): string {
   return `fld_${crypto.randomUUID()}`;
 }
 
-// ---------------------------------------------------------------------------
-// Field-type metadata
-// ---------------------------------------------------------------------------
-
-/**
- * Display order + labels for the "Add field" type picker. Matches the
- * palette from ADR §6 in a sensible authoring order (most-used types
- * first).
- */
-const FIELD_TYPE_OPTIONS: ReadonlyArray<{ value: FieldType; label: string }> = [
-  { value: "text", label: "Short text" },
-  { value: "longText", label: "Long text" },
-  { value: "richText", label: "Rich text" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Yes / no" },
-  { value: "select", label: "Single-choice" },
-  { value: "multiSelect", label: "Multi-choice" },
-  { value: "date", label: "Date" },
-  { value: "url", label: "URL" },
-  { value: "email", label: "Email" },
-  { value: "color", label: "Color" },
-  { value: "image", label: "Image" },
-  { value: "file", label: "File" },
-  { value: "collectionRef", label: "Reference (one)" },
-  { value: "multiCollectionRef", label: "References (many)" },
-  { value: "puckContent", label: "Page content (Puck)" },
-];
-
-/**
- * Slug-source-compatible types come from the schema module so this
- * dropdown can't drift from `collectionDefSchema`'s superRefine
- * check. Before consolidation the editor's local list omitted
- * `date` and `number`, which the Zod accepts — the dropdown silently
- * hid valid options.
- */
+// Field-type labels (`FIELD_TYPE_OPTIONS`) and the slug-source /
+// sortable sets all come from `field-classification` so the editor's
+// dropdowns can't drift from `collectionDefSchema`'s superRefine check
+// or from the specialised-view warnings' copy.
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -144,6 +122,16 @@ export function SchemaEditor({
     onChange({ ...def, fields: [...def.fields, newField] });
   };
 
+  // Fields the collection's public card view (tour dates, releases, …)
+  // depends on but that the current draft removed or retyped. Shown as
+  // a standing heads-up so the consequence stays visible after the
+  // confirm prompt is dismissed.
+  const viewProblems: SchemaEditorWarning[] = viewFieldProblems(def).map((problem) => ({
+    kind: "specialised-view-field",
+    fieldId: problem.requirement.fieldId,
+    message: describeViewFieldProblem(def, problem),
+  }));
+
   const slugSourceOptions = [
     { label: "(none — items use a slug they pick themselves)", value: "" },
     ...def.fields
@@ -177,9 +165,13 @@ export function SchemaEditor({
         {warnings.length > 0 ? (
           <IssueList kind="warning" entries={warnings} />
         ) : null}
+        {viewProblems.length > 0 ? (
+          <IssueList kind="warning" entries={viewProblems} />
+        ) : null}
         {def.fields.map((field) => (
           <FieldEditor
             key={field.id}
+            def={def}
             field={field}
             isInUse={def.slugSourceFieldId === field.id}
             onChange={(next) => updateField(field.id, next)}
@@ -216,10 +208,13 @@ export function SchemaEditor({
 // ---------------------------------------------------------------------------
 
 function FieldEditor({
+  def,
   field,
   isInUse,
   onChange,
 }: {
+  /** The collection being edited — its slug picks the public card view to warn about. */
+  def: CollectionDef;
   field: FieldDef;
   /** True when the def uses this field as `slugSourceFieldId`. */
   isInUse: boolean;
@@ -262,13 +257,7 @@ function FieldEditor({
           <button
             type="button"
             onClick={() => {
-              if (
-                isInUse
-                  ? confirm(
-                      `"${field.key}" is currently used as the slug source. Remove anyway?`,
-                    )
-                  : confirm(`Remove field "${field.key}"?`)
-              ) {
+              if (confirm(removeFieldPrompt(def, field, isInUse))) {
                 onChange(null);
               }
             }}
@@ -297,7 +286,14 @@ function FieldEditor({
 
       <TypeSelector
         field={field}
-        onChange={(next) => onChange(next)}
+        onChange={(next) => {
+          // Retyping a field the public card view reads to a type it
+          // can't render: confirm first. Cancelling leaves the
+          // (controlled) select on the old type.
+          const impact = viewFieldImpact(def, field.id, { kind: "retype", to: next.type });
+          if (impact && !confirm(describeViewFieldImpact(impact, field.key))) return;
+          onChange(next);
+        }}
       />
 
       <RequiredToggle field={field} onChange={onChange} />
@@ -305,6 +301,25 @@ function FieldEditor({
       <PerTypeConfig field={field} onChange={onChange} />
     </div>
   );
+}
+
+/**
+ * Confirm-dialog copy for removing `field`. Mentions the slug-source use
+ * and, when the collection's public card view reads the field, what the
+ * removal does to it (falls back to the default card / hides a piece).
+ */
+export function removeFieldPrompt(
+  def: Pick<CollectionDef, "slug">,
+  field: Pick<FieldDef, "id" | "key">,
+  isSlugSource: boolean,
+): string {
+  const impact = viewFieldImpact(def, field.id, { kind: "remove" });
+  const slugNote = `"${field.key}" is currently used as the slug source.`;
+  if (impact) {
+    const viewNote = describeViewFieldImpact(impact, field.key);
+    return isSlugSource ? `${slugNote} ${viewNote}` : viewNote;
+  }
+  return isSlugSource ? `${slugNote} Remove anyway?` : `Remove field "${field.key}"?`;
 }
 
 // ---------------------------------------------------------------------------
