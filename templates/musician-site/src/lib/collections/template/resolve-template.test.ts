@@ -12,7 +12,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { binding, literal } from "./binding";
 import { resolveTemplate } from "./renderer";
 import type { Template } from "./types";
-import type { Item } from "../schema";
+import { TOUR_DATES_FIELD_IDS } from "../field-ids";
+import type { CollectionDef, Item } from "../schema";
+import { tourDatesCollectionDef } from "../seeds";
 import { FIXTURE_TIMESTAMP } from "../test-fixtures";
 
 function makeItem(values: Item["values"]): Item {
@@ -149,6 +151,72 @@ describe("resolveTemplate", () => {
     };
     const out = resolveTemplate(template, makeItem({}));
     expect(out.content[0]).toEqual({ type: "Section", props: {} });
+  });
+});
+
+// A tour-dates detail template hosting a tour-dates Collection block whose
+// filter reads the surrounding show's city, after city was deleted and
+// re-added under a new id (#441).
+describe("resolveTemplate — currentItemField on a re-added field", () => {
+  const def: CollectionDef = {
+    ...tourDatesCollectionDef,
+    fields: [
+      ...tourDatesCollectionDef.fields.filter((f) => f.id !== TOUR_DATES_FIELD_IDS.city),
+      { id: "fld_new_city", key: "city", type: "text", required: false },
+    ],
+  };
+  function show(slug: string, city: string): Item {
+    return { ...makeItem({ fld_new_city: { type: "text", value: city } }), id: `item_${slug}`, slug };
+  }
+  const current = show("here", "Paris");
+  const template: Template = {
+    content: [
+      {
+        type: "TourDatesView",
+        props: {
+          sourceCollection: "tour-dates",
+          filter: {
+            all: [
+              {
+                field: TOUR_DATES_FIELD_IDS.city,
+                op: "equals",
+                value: { kind: "currentItemField", fieldId: TOUR_DATES_FIELD_IDS.city },
+              },
+              { excludeCurrentItem: true },
+            ],
+          },
+        },
+      },
+    ],
+    root: { props: {} },
+  };
+  const loadedCollections = {
+    "tour-dates": { def, items: [current, show("same", "Paris"), show("other", "Lyon")] },
+  };
+
+  function slugsFor(options: Parameters<typeof resolveTemplate>[2]): string[] {
+    const out = resolveTemplate(template, current, {
+      collectionSlugs: ["tour-dates"],
+      loadedCollections,
+      ...options,
+    });
+    return (out.content[0]!.props as { items: Item[] }).items.map((i) => i.slug);
+  }
+
+  it("resolves the value against itemDef when the item is the current item", () => {
+    expect(slugsFor({ currentItem: current, itemDef: def })).toEqual(["same"]);
+    expect(slugsFor({ itemDef: def })).toEqual(["same"]);
+  });
+
+  it("doesn't take itemDef for a different current item's def", () => {
+    const outer = show("outer", "Paris");
+    // `outer` stands in for an item of an unknown collection: no def, so
+    // the saved id is read as-is and finds nothing.
+    expect(slugsFor({ currentItem: outer, itemDef: def })).toEqual([]);
+    expect(slugsFor({ currentItem: outer, itemDef: def, currentItemDef: def })).toEqual([
+      "here",
+      "same",
+    ]);
   });
 });
 

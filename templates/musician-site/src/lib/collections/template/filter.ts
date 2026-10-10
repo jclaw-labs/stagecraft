@@ -20,7 +20,10 @@
  *   - A clause's `field` is matched against `item.values[fieldId]`.
  *     If the field doesn't exist (deleted from the schema, missing
  *     on this item), the comparison returns false. The block hides
- *     the item; it doesn't error.
+ *     the item; it doesn't error. The Collection block first drops
+ *     clauses on fields its collection no longer has
+ *     (`withoutClausesOnMissingFields`), so in practice this hides an
+ *     item with no value for a field that still exists.
  *
  *   - `FilterValue` resolves to a scalar comparable: literals are
  *     compared by value, `currentItemId` resolves to
@@ -55,17 +58,53 @@ export function applyFilter(
 }
 
 /**
- * `filter` with every clause's `field` passed through `fieldIdFor`.
- * Only the filtered collection's field ids change: a `currentItemField`
- * value names a field of the surrounding item and is left alone. That
- * item is usually from another collection; when it's from the same one
- * (a tour-dates detail template listing other tour dates), a value
- * naming a deleted-and-re-added field still reads the old id.
+ * `filter` with every clause's `field` passed through `fieldIdFor`, and
+ * every `currentItemField` value's field id through
+ * `currentItemFieldIdFor`. They're separate mappings because a
+ * `currentItemField` value names a field of the *surrounding* item,
+ * which is usually from another collection. When it's from the same one
+ * (a tour-dates detail template listing other tour dates), the caller
+ * resolves it against the surrounding item's def, so a value naming a
+ * deleted-and-re-added field reads the new one. Omitted, those ids are
+ * left alone.
  */
-export function mapFilterFields(filter: Filter, fieldIdFor: (fieldId: string) => string): Filter {
-  const mapClause = (clause: FilterClause): FilterClause =>
-    "field" in clause ? { ...clause, field: fieldIdFor(clause.field) } : clause;
+export function mapFilterFields(
+  filter: Filter,
+  fieldIdFor: (fieldId: string) => string,
+  currentItemFieldIdFor: (fieldId: string) => string = (fieldId) => fieldId,
+): Filter {
+  const mapValue = (value: FilterValue): FilterValue =>
+    value.kind === "currentItemField"
+      ? { ...value, fieldId: currentItemFieldIdFor(value.fieldId) }
+      : value;
+  const mapClause = (clause: FilterClause): FilterClause => {
+    if (!("field" in clause)) return clause;
+    const field = fieldIdFor(clause.field);
+    if ("values" in clause) return { ...clause, field, values: clause.values.map(mapValue) };
+    if ("value" in clause) return { ...clause, field, value: mapValue(clause.value) };
+    return { ...clause, field };
+  };
   return "all" in filter ? { all: filter.all.map(mapClause) } : { any: filter.any.map(mapClause) };
+}
+
+/**
+ * `filter` without the clauses whose `field` fails `hasField`, or `null`
+ * when no clause is left (no filter, rather than an empty `any` that
+ * matches nothing). `excludeCurrentItem` clauses name no field and stay.
+ *
+ * A Collection block saves field ids. A clause on a field the artist has
+ * since deleted would otherwise hide every item (a missing value never
+ * matches), with nothing in the product to bring them back; dropped, the
+ * filter on the removed field just stops filtering.
+ */
+export function withoutClausesOnMissingFields(
+  filter: Filter,
+  hasField: (fieldId: string) => boolean,
+): Filter | null {
+  const keep = (clause: FilterClause): boolean => !("field" in clause) || hasField(clause.field);
+  const clauses = "all" in filter ? filter.all.filter(keep) : filter.any.filter(keep);
+  if (clauses.length === 0) return null;
+  return "all" in filter ? { all: clauses } : { any: clauses };
 }
 
 function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {

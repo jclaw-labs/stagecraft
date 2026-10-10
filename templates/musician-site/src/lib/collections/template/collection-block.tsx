@@ -33,7 +33,7 @@ import type { ReactNode } from "react";
 
 import { Image } from "@/components/Image";
 
-import { applyFilter, mapFilterFields } from "./filter";
+import { applyFilter, mapFilterFields, withoutClausesOnMissingFields } from "./filter";
 import type { ResolveContext, Template } from "./types";
 import { viewFieldIdFor } from "./view-requirements";
 import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
@@ -110,9 +110,25 @@ export function resolveCollectionBlockProps(
   // The default blocks save a specialised view's declared field ids
   // (`collection-view-props.ts`). Once the artist deletes one of those
   // fields and adds a same-name one back, the sort and filter follow the
-  // new field, the same way the card does (`viewFieldIdFor`).
+  // new field, the same way the card does (`viewFieldIdFor`). A
+  // `currentItemField` value names a field of the surrounding item, so it
+  // resolves against that item's def.
   const fieldIdFor = (fieldId: FieldId): FieldId => viewFieldIdFor(loaded.def, fieldId);
-  const filter = raw.filter ? mapFilterFields(raw.filter, fieldIdFor) : null;
+  const { currentItemDef } = ctx;
+  const currentItemFieldIdFor = currentItemDef
+    ? (fieldId: FieldId): FieldId => viewFieldIdFor(currentItemDef, fieldId)
+    : undefined;
+  // A clause still naming a field the collection no longer has (deleted
+  // with no stand-in, or a role like tour-date `status` that never takes
+  // one) would hide every item for good; it's dropped, so that filter
+  // stops filtering instead.
+  const sourceFieldIds = new Set(loaded.def.fields.map((f) => f.id));
+  const filter = raw.filter
+    ? withoutClausesOnMissingFields(
+        mapFilterFields(raw.filter, fieldIdFor, currentItemFieldIdFor),
+        (fieldId) => sourceFieldIds.has(fieldId),
+      )
+    : null;
   let filtered = applyFilter(loaded.items, filter, ctx.currentItem);
 
   if (raw.sort) {

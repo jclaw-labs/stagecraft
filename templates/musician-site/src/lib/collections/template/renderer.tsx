@@ -57,6 +57,11 @@ export type ResolveTemplateOptions = {
    */
   itemDef?: CollectionDef;
   /**
+   * The def of `currentItem`. Defaults to `itemDef` when `currentItem`
+   * is `item` (or omitted), since they're then the same item.
+   */
+  currentItemDef?: CollectionDef;
+  /**
    * Items + defs Collection blocks may iterate, keyed by collection slug.
    * Missing means those blocks find no source and render nothing.
    */
@@ -74,10 +79,12 @@ export function resolveTemplate(
   options: ResolveTemplateOptions = {},
 ): Template {
   const collectionBlocks = new Set((options.collectionSlugs ?? []).map(blockNameForCollection));
+  const currentItem = options.currentItem ?? item;
   const ctx: ResolveContext = {
     item,
-    currentItem: options.currentItem ?? item,
+    currentItem,
     itemDef: options.itemDef,
+    currentItemDef: options.currentItemDef ?? (currentItem === item ? options.itemDef : undefined),
     loadedCollections: options.loadedCollections ?? {},
   };
   return {
