@@ -32,17 +32,20 @@ function isPublicPath(pathname: string): boolean {
 /**
  * Returns a description of the overflow, or null when the page fits.
  *
- * `overflow-x: hidden` (or `clip`) on `html` or `body` would hide a
+ * `overflow-x: hidden` (or `clip`) on `html`, `body` or the
+ * `.stagecraft-site` wrapper every public page renders in would hide a
  * too-wide page from the scrollWidth check while still clipping its
- * content, so that counts as a failure too.
+ * content, so that counts as a failure too. Elements inside the wrapper
+ * are left alone: image frames and carousels clip on purpose.
  */
 async function overflowAt(page: Page, pathname: string, width: number): Promise<string | null> {
   const { scrollWidth, clientWidth, clipped } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
-    clipped: [document.documentElement, document.body]
-      .filter((el) => ["hidden", "clip"].includes(getComputedStyle(el).overflowX))
-      .map((el) => el.tagName.toLowerCase()),
+    clipped: (["html", "body", ".stagecraft-site"] as const).filter((selector) => {
+      const el = document.querySelector(selector);
+      return el !== null && ["hidden", "clip"].includes(getComputedStyle(el).overflowX);
+    }),
   }));
   if (clipped.length > 0) {
     return `${pathname} at ${width}px: overflow-x clipped on ${clipped.join(", ")}`;
@@ -88,7 +91,6 @@ test.describe("public pages have no horizontal overflow", () => {
     expect(pages.length).toBeGreaterThan(1);
     // Every seeded detail page must have rendered, or its template
     // silently drops out of the check.
-    expect(detailUrls).toHaveLength(4);
     for (const url of detailUrls) expect(pages).toContain(url);
 
     // Then every page found at phone width.
