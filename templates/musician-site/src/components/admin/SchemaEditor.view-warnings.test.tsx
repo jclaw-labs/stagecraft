@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { removeFieldPrompt, SchemaEditor } from "./SchemaEditor";
-import type { CollectionDef } from "@/lib/collections";
+import type { CollectionDef, FieldDef } from "@/lib/collections";
 import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
 import { tourDatesCollectionDef } from "@/lib/collections/seeds";
 
@@ -47,10 +47,23 @@ describe("removeFieldPrompt", () => {
   });
 });
 
-function renderEditor(def: CollectionDef = tourDatesCollectionDef) {
+function renderEditor(
+  def: CollectionDef = tourDatesCollectionDef,
+  savedDef: CollectionDef = tourDatesCollectionDef,
+) {
   const onChange = vi.fn();
-  render(<SchemaEditor def={def} onChange={onChange} />);
+  render(<SchemaEditor def={def} savedDef={savedDef} onChange={onChange} />);
   return onChange;
+}
+
+/** The tour-dates seed with one field's type changed in the (unsaved) draft. */
+function draftWithType(fieldId: string, type: "number" | "text"): CollectionDef {
+  return {
+    ...tourDatesCollectionDef,
+    fields: tourDatesCollectionDef.fields.map((f) =>
+      f.id === fieldId ? ({ id: f.id, key: f.key, type, required: false } as FieldDef) : f,
+    ),
+  };
 }
 
 /** The field card whose heading is `key` (the `<strong>` name label). */
@@ -98,6 +111,27 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     });
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(onChange).toHaveBeenCalledTimes(1);
+    cleanup();
+    renderEditor(onChange.mock.calls[0]![0] as CollectionDef);
+    expect(screen.queryByText("Heads-up")).toBeNull();
+  });
+
+  it("judges a two-step retype against the saved type", () => {
+    // city saved as Short text, already Number in the draft: picking URL
+    // next saves (text → URL), so the artist is asked.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderEditor(draftWithType(TOUR_DATES_FIELD_IDS.city, "number"));
+    fireEvent.change(fieldCard("city").querySelector("select")!, { target: { value: "url" } });
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/^Changing "city" to URL means/));
+    cleanup();
+    confirmSpy.mockClear();
+    // ticketUrl saved as URL, already Short text in the draft: Email next
+    // is blocked on save (URL → Email), so no prompt and no heads-up.
+    const onChange = renderEditor(draftWithType(TOUR_DATES_FIELD_IDS.ticketUrl, "text"));
+    fireEvent.change(fieldCard("ticketUrl").querySelector("select")!, {
+      target: { value: "email" },
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
     cleanup();
     renderEditor(onChange.mock.calls[0]![0] as CollectionDef);
     expect(screen.queryByText("Heads-up")).toBeNull();

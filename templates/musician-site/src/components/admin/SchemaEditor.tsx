@@ -94,6 +94,11 @@ export type SchemaEditorProps = {
   issues?: SchemaEditorIssue[];
   /** Server-reported non-blocking warnings from the last save attempt. */
   warnings?: SchemaEditorWarning[];
+  /**
+   * The schema as last saved. The save API checks type changes against
+   * it, so the view warnings do too. Defaults to `def` (no unsaved edits).
+   */
+  savedDef?: CollectionDef;
 };
 
 // ---------------------------------------------------------------------------
@@ -105,6 +110,7 @@ export function SchemaEditor({
   onChange,
   issues = [],
   warnings = [],
+  savedDef = def,
 }: SchemaEditorProps) {
   const updateField = (fieldId: string, next: FieldDef | null) => {
     if (next === null) {
@@ -126,7 +132,7 @@ export function SchemaEditor({
   // depends on but that the current draft removed or retyped. Shown as
   // a standing heads-up so the consequence stays visible after the
   // confirm prompt is dismissed.
-  const viewProblems: SchemaEditorWarning[] = viewFieldProblems(def).map((problem) => ({
+  const viewProblems: SchemaEditorWarning[] = viewFieldProblems(def, savedDef).map((problem) => ({
     kind: "specialised-view-field",
     fieldId: problem.requirement.fieldId,
     message: describeViewFieldProblem(def, problem),
@@ -172,6 +178,7 @@ export function SchemaEditor({
           <FieldEditor
             key={field.id}
             def={def}
+            savedField={savedDef.fields.find((f) => f.id === field.id)}
             field={field}
             isInUse={def.slugSourceFieldId === field.id}
             onChange={(next) => updateField(field.id, next)}
@@ -209,12 +216,15 @@ export function SchemaEditor({
 
 function FieldEditor({
   def,
+  savedField,
   field,
   isInUse,
   onChange,
 }: {
   /** The collection being edited — its slug picks the public card view to warn about. */
   def: CollectionDef;
+  /** This field as last saved; undefined for a field added in this draft. */
+  savedField: FieldDef | undefined;
   field: FieldDef;
   /** True when the def uses this field as `slugSourceFieldId`. */
   isInUse: boolean;
@@ -293,7 +303,9 @@ function FieldEditor({
           // blocks gets no prompt; its save error explains it.
           const impact = viewFieldImpact(def, field.id, {
             kind: "retype",
-            from: field.type,
+            // A field added in this draft has no saved type to convert
+            // from, so any type saves.
+            from: savedField?.type ?? next.type,
             to: next.type,
           });
           if (impact && !confirm(describeViewFieldImpact(impact, field.key))) return;

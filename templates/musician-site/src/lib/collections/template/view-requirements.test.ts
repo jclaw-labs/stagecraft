@@ -238,14 +238,37 @@ describe("viewFieldProblems", () => {
     ]);
   });
 
-  it("skips a retype the save API blocks — that draft never reaches the view", () => {
+  it("skips a retype the save API blocks from the saved type — that draft never reaches the view", () => {
     const def = tourDatesWith(CITY.fieldId, {
       id: CITY.fieldId,
       key: "city",
       type: "number",
       required: true,
     });
-    expect(viewFieldProblems(def)).toEqual([]);
+    expect(viewFieldProblems(def, tourDatesCollectionDef)).toEqual([]);
+    // Without a saved def there's nothing to check against, so it's listed.
+    expect(viewFieldProblems(def).map((p) => p.role)).toEqual(["city"]);
+  });
+
+  it("judges a two-step retype against the saved type, not the draft's", () => {
+    // ticketUrl saved as URL, retyped to Short text then Email in the
+    // draft: URL → Email is blocked on save, so no heads-up.
+    const twoStep = tourDatesWith(TICKETS.fieldId, {
+      id: TICKETS.fieldId,
+      key: "ticketUrl",
+      type: "email",
+      required: false,
+    });
+    expect(viewFieldProblems(twoStep, tourDatesCollectionDef)).toEqual([]);
+    // city saved as Short text, draft Number then URL: Short text → URL
+    // saves, so it's listed.
+    const cityUrl = tourDatesWith(CITY.fieldId, {
+      id: CITY.fieldId,
+      key: "city",
+      type: "url",
+      required: true,
+    });
+    expect(viewFieldProblems(cityUrl, tourDatesCollectionDef).map((p) => p.role)).toEqual(["city"]);
   });
 });
 

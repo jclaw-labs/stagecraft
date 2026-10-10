@@ -210,19 +210,24 @@ export type ViewFieldProblem = {
 
 /**
  * Every unmet requirement of `def`'s specialised view (empty when the
- * slug has no view, or when everything checks out).
+ * slug has no view, or when everything checks out). `savedDef` is the
+ * schema as last saved, when `def` is an unsaved draft of it.
  */
-export function viewFieldProblems(def: Pick<CollectionDef, "slug" | "fields">): ViewFieldProblem[] {
+export function viewFieldProblems(
+  def: Pick<CollectionDef, "slug" | "fields">,
+  savedDef: Pick<CollectionDef, "fields"> = def,
+): ViewFieldProblem[] {
   if (!isSpecialisedViewSlug(def.slug)) return [];
   const problems: ViewFieldProblem[] = [];
   for (const [role, requirement] of Object.entries(viewSpec(def.slug).fields)) {
     const status = checkFieldRequirement(def.fields, requirement);
     if (status === "ok") continue;
     const actualType = def.fields.find((f) => f.id === requirement.fieldId)?.type ?? null;
-    // A type no accepted type converts to losslessly is a draft the save
-    // API rejects (`type-transition-blocked`); the view never sees it, so
-    // its save error is the only message the artist needs.
-    if (actualType !== null && !requirement.accepts.some((t) => canTransition(t, actualType))) {
+    // A retype from the saved type the save API rejects
+    // (`type-transition-blocked`) never reaches the view, so its save
+    // error is the only message the artist needs.
+    const savedType = savedDef.fields.find((f) => f.id === requirement.fieldId)?.type;
+    if (actualType !== null && savedType !== undefined && !canTransition(savedType, actualType)) {
       continue;
     }
     problems.push({ role, requirement, status, actualType });
@@ -289,6 +294,10 @@ export function resolveViewFields<S extends SpecialisedViewSlug>(
 // Schema-editor impact
 // ---------------------------------------------------------------------------
 
+/**
+ * `from` is the field's *saved* type: the save API checks transitions
+ * against it, not against an earlier unsaved retype.
+ */
 export type ViewFieldChange = { kind: "remove" } | { kind: "retype"; from: FieldType; to: FieldType };
 
 export type ViewFieldImpact = {
