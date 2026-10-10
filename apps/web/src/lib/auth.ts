@@ -27,11 +27,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/login",
   },
   callbacks: {
+    // With database sessions Auth.js passes the adapter's Session row merged
+    // with the user, and sends what this returns as the body of
+    // /api/auth/session. Return only what the app reads, so the raw session
+    // token (the HttpOnly cookie's value) and userId stay off that endpoint.
     session({ session, user }) {
-      if (session.user) {
-        session.user.id = user.id;
-      }
-      return session;
+      return {
+        user: session.user ? { ...session.user, id: user.id } : session.user,
+        expires: session.expires,
+      };
     },
   },
   events: {

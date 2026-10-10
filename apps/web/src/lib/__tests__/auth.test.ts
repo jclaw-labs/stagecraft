@@ -40,4 +40,51 @@ describe("auth", () => {
     const [config] = nextAuthMock.mock.calls[0] as unknown as [{ adapter: unknown }];
     expect(config.adapter).toEqual({ hashed: { encrypted: {} } });
   });
+
+  describe("session callback", () => {
+    type SessionCallback = (params: {
+      session: Record<string, unknown> & { user?: Record<string, unknown>; expires: unknown };
+      user: { id: string };
+    }) => Record<string, unknown>;
+    const sessionCallback = () => {
+      const [config] = nextAuthMock.mock.calls[0] as unknown as [
+        { callbacks: { session: SessionCallback } },
+      ];
+      return config.callbacks.session;
+    };
+    const expires = new Date("2026-11-09T00:00:00Z");
+
+    it("drops the session token and userId from the database session", () => {
+      const result = sessionCallback()({
+        session: {
+          sessionToken: "raw-cookie-value",
+          userId: "user-1",
+          id: "session-row-1",
+          expires,
+          user: { id: "user-1", name: "Ada", email: "ada@example.com", image: null },
+        },
+        user: { id: "user-1" },
+      });
+      expect(result).toEqual({
+        user: { id: "user-1", name: "Ada", email: "ada@example.com", image: null },
+        expires,
+      });
+      expect(result).not.toHaveProperty("sessionToken");
+      expect(result).not.toHaveProperty("userId");
+      expect(result).not.toHaveProperty("id");
+    });
+
+    it("sets user.id from the adapter user", () => {
+      const result = sessionCallback()({
+        session: { expires, user: { name: "Ada" } },
+        user: { id: "user-2" },
+      });
+      expect(result.user).toEqual({ name: "Ada", id: "user-2" });
+    });
+
+    it("leaves a missing user missing", () => {
+      const result = sessionCallback()({ session: { expires }, user: { id: "user-3" } });
+      expect(result).toEqual({ user: undefined, expires });
+    });
+  });
 });
