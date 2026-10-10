@@ -196,7 +196,7 @@ describe("createWorker", () => {
   });
 
   it("fails job with unknown category for no registered handler", async () => {
-    mockFindFirst.mockResolvedValueOnce(makeJob({ type: "deploy_config" }));
+    mockFindFirst.mockResolvedValueOnce(makeJob({ type: "unknown_type" }));
 
     const worker = createWorker({ handlers: {} });
 
@@ -208,7 +208,7 @@ describe("createWorker", () => {
       where: { id: "job-1" },
       data: expect.objectContaining({
         status: "failed",
-        errorMessage: "No handler registered for job type: deploy_config",
+        errorMessage: "No handler registered for job type: unknown_type",
         failureCategory: "unknown",
       }),
     });

@@ -266,33 +266,6 @@ export async function pushFiles(
   return { commitSha: commit.sha as string, changed: true };
 }
 
-/**
- * Grant a GitHub App installation (e.g. Netlify) access to a specific repo.
- * Finds the installation by app slug, then adds the repo to it.
- */
-export async function grantAppAccess(
-  userId: string,
-  repoId: number,
-  appSlug: string
-): Promise<void> {
-  const token = await getGitHubToken(userId);
-
-  // List all GitHub App installations on the user's account
-  const data = await githubApi(token, "/user/installations");
-  const installation = data.installations?.find(
-    (inst: { app_slug: string }) => inst.app_slug === appSlug
-  );
-
-  if (!installation) {
-    throw new Error(`GitHub App "${appSlug}" is not installed. Install it from the app's GitHub page.`);
-  }
-
-  // Add the repo to the installation's accessible repos
-  await githubApi(token, `/user/installations/${installation.id}/repositories/${repoId}`, {
-    method: "PUT",
-  });
-}
-
 export async function setRepoArchived(
   userId: string,
   owner: string,
@@ -323,27 +296,6 @@ export async function createBranch(
     method: "POST",
     body: JSON.stringify({ ref: `refs/heads/${newBranch}`, sha }),
   });
-}
-
-export async function getFileContent(
-  userId: string,
-  owner: string,
-  repo: string,
-  filePath: string,
-  branch: string
-): Promise<string> {
-  const token = await getGitHubToken(userId);
-
-  const data = await githubApi(
-    token,
-    `/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`
-  );
-
-  if (!data.content) {
-    throw new Error(`No content returned for ${filePath}`);
-  }
-
-  return Buffer.from((data.content as string).replace(/\n/g, ""), "base64").toString("utf-8");
 }
 
 interface CreatePullRequestOptions {
@@ -382,34 +334,6 @@ export async function createPullRequest(
     htmlUrl: data.html_url as string,
     state: data.state as string,
   };
-}
-
-export async function mergePullRequest(
-  userId: string,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  const token = await getGitHubToken(userId);
-
-  await githubApi(token, `/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
-    method: "PUT",
-    body: JSON.stringify({ merge_method: "squash" }),
-  });
-}
-
-export async function closePullRequest(
-  userId: string,
-  owner: string,
-  repo: string,
-  prNumber: number
-): Promise<void> {
-  const token = await getGitHubToken(userId);
-
-  await githubApi(token, `/repos/${owner}/${repo}/pulls/${prNumber}`, {
-    method: "PATCH",
-    body: JSON.stringify({ state: "closed" }),
-  });
 }
 
 interface GithubInstallation {

@@ -66,8 +66,6 @@ model User {
   integrationAccounts IntegrationAccount[]
   sites               Site[]
   siteJobs            SiteJob[]
-  changeRequests      ChangeRequest[]
-  auditEvents         AuditEvent[]
 }
 
 model IntegrationAccount {
@@ -95,7 +93,7 @@ model Site {
   name                String
   slug                String   @unique
   status              String   @default("creating") // creating | active | error | archived
-  blueprintType       String   // solo-artist | band | composer-educator | epk-focused | tour-focused
+  blueprintType       String   // always "solo-artist"
   githubRepoOwner       String?
   githubRepoName        String?
   githubDefaultBranch   String   @default("main")
@@ -125,34 +123,17 @@ model Site {
   updatedAt           DateTime @updatedAt
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  environments   SiteEnvironment[]
   jobs           SiteJob[]
-  changeRequests ChangeRequest[]
-  auditEvents    AuditEvent[]
 
   @@index([userId])
   @@index([slug])
-}
-
-model SiteEnvironment {
-  id        String   @id @default(cuid())
-  siteId    String
-  key       String
-  value     String   @db.Text
-  scope     String   @default("all") // preview | production | all
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
-
-  @@unique([siteId, key, scope])
 }
 
 model SiteJob {
   id             String    @id @default(cuid())
   siteId         String
   userId         String
-  type           String    // create_site | edit_site | migrate_site | repair_site | deploy_config
+  type           String    // create_site | migrate_site
   status         String    @default("queued") // queued | running | completed | failed | awaiting_review | canceled
   requestPayload Json?
   resultPayload  Json?
@@ -173,52 +154,10 @@ model SiteJob {
 
   site           Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
   user           User           @relation(fields: [userId], references: [id])
-  changeRequests ChangeRequest[]
 
   @@index([siteId])
   @@index([status])
   @@index([type, status])
-}
-
-model ChangeRequest {
-  id             String   @id @default(cuid())
-  siteId         String
-  userId         String
-  jobId          String?
-  requestText    String   @db.Text
-  classifiedMode String?  // content_edit | asset_update | page_add | page_remove | nav_change | style_update | widget_update | repair
-  branchName     String?
-  prNumber       Int?
-  previewUrl     String?
-  summary        String?  @db.Text
-  status          String   @default("pending") // pending | in_progress | ready_for_review | approved | rejected | discarded
-  failureCategory String?  // github_api_error | netlify_deploy_error | validation_error | ai_error | timeout | unknown
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  site Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  user User    @relation(fields: [userId], references: [id])
-  job  SiteJob? @relation(fields: [jobId], references: [id])
-
-  @@index([siteId])
-  @@index([status])
-}
-
-model AuditEvent {
-  id        String   @id @default(cuid())
-  userId    String?
-  siteId    String?
-  actorType String   // user | system | ai
-  eventType String
-  payload   Json?
-  createdAt DateTime @default(now())
-
-  user User? @relation(fields: [userId], references: [id])
-  site Site? @relation(fields: [siteId], references: [id])
-
-  @@index([siteId])
-  @@index([eventType])
-  @@index([createdAt])
 }
 
 model WebhookDelivery {

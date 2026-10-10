@@ -86,7 +86,6 @@ const MIGRATE_PAYLOAD = {
   url: "https://old-band-site.example.com",
   name: "Old Band",
   slug: "old-band",
-  blueprintType: "solo-artist",
 };
 
 function makeContext(overrides: Partial<JobContext["job"]> = {}): JobContext {
@@ -299,7 +298,7 @@ describe("handleMigrateSite — shares create_site's provisioning", () => {
       vi.useRealTimers();
     });
     await handleCreateSite(
-      makeContext({ type: "create_site", requestPayload: { name: "Old Band", slug: "old-band", blueprintType: "solo-artist" } }),
+      makeContext({ type: "create_site", requestPayload: { name: "Old Band", slug: "old-band" } }),
     );
     const createPush = mockPushFiles.mock.calls[0][4] as Array<{ path: string; content: string }>;
     const createHostCall = mockCreateNetlifySite.mock.calls[0][0];

@@ -43,13 +43,13 @@ describe("enqueue", () => {
     await enqueue({
       siteId: "site-1",
       userId: "user-1",
-      type: "edit_site",
-      payload: { changeRequestId: "cr-1" },
+      type: "migrate_site",
+      payload: { url: "https://example.com" },
     });
 
     expect(mockCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        requestPayload: { changeRequestId: "cr-1" },
+        requestPayload: { url: "https://example.com" },
       }),
     });
   });

@@ -197,7 +197,6 @@ describe("POST /api/migrations", () => {
           url: "https://sarahchenmusic.com",
           name: "Sarah Chen Music",
           slug: "sarah-chen-music",
-          blueprintType: "solo-artist",
         },
       },
     });

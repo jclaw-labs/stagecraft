@@ -1,6 +1,5 @@
 import type { Prisma } from "@stagecraft/db";
 import type { JobContext, JobResult } from "@stagecraft/queue";
-import type { BlueprintType } from "@stagecraft/shared";
 
 import { crawlSite } from "@/lib/migration/crawler";
 import { mapToMusicianSite } from "@/lib/migration/musician-site-mapper";
@@ -18,7 +17,6 @@ interface MigrateSitePayload {
   url: string;
   name: string;
   slug: string;
-  blueprintType: BlueprintType;
 }
 
 /**

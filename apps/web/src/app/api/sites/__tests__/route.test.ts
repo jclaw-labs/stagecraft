@@ -143,7 +143,7 @@ describe("POST /api/sites", () => {
         userId: "user-1",
         type: "create_site",
         status: "queued",
-        requestPayload: { name: "Sarah Chen", slug: "sarah-chen", blueprintType: "solo-artist" },
+        requestPayload: { name: "Sarah Chen", slug: "sarah-chen" },
       },
     });
     // Provisioning runs in the queue, never inside this request.

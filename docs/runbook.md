@@ -50,9 +50,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 | `User` | Platform user account (linked to GitHub via NextAuth) |
 | `IntegrationAccount` | Stored OAuth tokens for GitHub and Netlify |
 | `Site` | A generated musician website |
-| `SiteJob` | Async background job (create_site, edit_site, etc.) |
-| `ChangeRequest` | An edit request tied to a job and GitHub PR |
-| `AuditEvent` | Immutable event log |
+| `SiteJob` | Async background job (create_site, migrate_site) |
 
 ### Job Lifecycle
 
