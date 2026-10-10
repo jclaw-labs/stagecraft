@@ -859,6 +859,20 @@ describe("drain", () => {
     }
   });
 
+  it("runs the queued job itself when the poller's run found nothing", async () => {
+    mockFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(makeJob({ id: "job-1" })).mockResolvedValue(null);
+    const handler = vi.fn().mockResolvedValue({ success: true });
+    const worker = createWorker({ handlers: { create_site: handler }, pollIntervalMs: 60_000 });
+
+    worker.start();
+    try {
+      await expect(worker.drain({ maxJobs: 1 })).resolves.toBe(1);
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      worker.stop();
+    }
+  });
+
   it("keeps draining after waiting out the poller's run", async () => {
     mockFindFirst
       .mockResolvedValueOnce(makeJob({ id: "job-1" }))

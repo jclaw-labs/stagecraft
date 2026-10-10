@@ -374,7 +374,9 @@ export function createWorker(options: WorkerOptions) {
      * If the interval poller already has a run in flight (a cold start runs
      * `start()` just before the cron request drains), the drain waits for it
      * and counts it when it processed a job, rather than returning 0 while
-     * that job is still running in an invocation the host may freeze.
+     * that job is still running in an invocation the host may freeze. So the
+     * count, and `maxJobs`, include runs this drain waited on but didn't
+     * start: two drains overlapping on one job both count it.
      */
     async drain({ maxJobs = 10, timeBudgetMs = 50_000 }: DrainOptions = {}): Promise<number> {
       const startedAt = Date.now();
