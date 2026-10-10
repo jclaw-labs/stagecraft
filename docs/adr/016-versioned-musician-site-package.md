@@ -20,8 +20,8 @@ What a site copy holds today, excluding tests:
 
 | Path | Files | What it is |
 | --- | --- | --- |
-| `src/lib/` (incl. `collections/`) | ~90 | Content store, schemas, draft branches, publish, auth, image processing |
-| `src/components/` (incl. `admin/`) | ~45 | Public blocks and CMS UI |
+| `src/lib/` (incl. `collections/`) | 67 | Content store, schemas, draft branches, publish, auth, image processing |
+| `src/components/` (incl. `admin/`) | 36 | Public blocks and CMS UI |
 | `src/app/admin/` | 18 pages | The CMS |
 | `src/app/api/` | 19 routes | Auth, save/publish, collections, uploads, contact, welcome |
 | `src/app/(public)/`, `layout.tsx`, `global-not-found.tsx`, `src/middleware.ts` | 6 | Public catch-all, root layout, 404, `/admin` gate |
@@ -88,8 +88,11 @@ their repo; anything we'd want to fix later goes in the package.**
   scheme.
 - Content schemas, starter seeds, theme presets and the content upgraders
   (§3).
-- The `next.config` settings (SVG/ICO headers, `globalNotFound`), exported
-  as a `withStagecraft()` wrapper.
+- The `next.config` settings (SVG/ICO headers, `globalNotFound`, and the
+  monorepo `outputFileTracingRoot` detection), exported as a
+  `withStagecraft()` wrapper. The detection reads the app root from
+  `process.cwd()`: inside the package, the config's own directory is under
+  `node_modules`, not the app.
 - A small CLI, `stagecraft-site`, with `migrate-content` (§3) and
   `regenerate-images` (the out-of-band variant script from ADR-007 §6).
 
@@ -98,16 +101,20 @@ their repo; anything we'd want to fix later goes in the package.**
 - `src/content/`, `public/images/` and anything else under `public/`.
 - `package.json`, which depends on `next`, `react`, `react-dom` and
   `@stagecraft/musician-site` (pinned exact).
-- The shell, about eight files that each re-export from the package:
+- The shell, about ten files that each re-export from the package:
   - `next.config.ts`: `export default withStagecraft({})`
   - `src/middleware.ts`: re-exports `middleware`, plus a literal
     `config.matcher` of `/admin/:path*` and `/api/:path*`
   - `src/app/layout.tsx` and `src/app/global-not-found.tsx`
+  - `src/app/(public)/layout.tsx` (the artist's theme on every public
+    page) and `src/app/(public)/not-found.tsx` (the themed public 404)
   - `src/app/(public)/[[...slug]]/page.tsx`: `default`,
     `generateMetadata`, `generateStaticParams`, and a literal
     `dynamicParams = false`
   - `src/app/admin/[[...path]]/page.tsx`: the admin router, with a
     literal `dynamic = "force-dynamic"`
+  - `src/app/admin/not-found.tsx`: what the admin router's `notFound()`
+    renders
   - `src/app/api/[...path]/route.ts`: `GET`, `POST`, `PUT`, `PATCH` and
     `DELETE` from the API router
 - `tsconfig.json`, `.gitignore`, `.env.example`, the platform-managed
@@ -119,8 +126,11 @@ route, every new admin page or endpoint would change the shell, and
 anything that changes the shell is a major (§3). Route segment config
 (`dynamic`, `dynamicParams`, the middleware `matcher`) has to be a literal
 in the route file because Next.js reads it statically, which is why those
-values sit in the shell. The middleware matcher widens to all of
-`/admin` and `/api`, and the package decides which paths are public, so
+values sit in the shell. Layouts and `not-found` files are Next.js file
+conventions, so they have to exist under `src/app` too, and any `loading`
+or `error` boundary added later is a shell file. The middleware matcher
+widens to all of `/admin` and `/api`, and the package decides which paths
+are public, so
 a new protected endpoint doesn't need a shell change either. The Puck
 editor stylesheet stays confined to the admin segment (#348).
 
@@ -133,6 +143,12 @@ Packaging mechanics:
 - Compile with `tsc` to ESM in `dist/`, one output file per source file,
   with no bundler. That keeps each module's `"use client"` directive, and
   it ships `.d.ts` files so the site's typecheck never compiles our source.
+- Relative imports carry `.js` extensions (`moduleResolution: nodenext`),
+  and the `imports` targets point at `dist/`, with a `source` condition
+  that maps them to `src/` for the monorepo's tests and `next dev`. The
+  `stagecraft-site` CLI runs under plain Node, which resolves neither
+  extensionless specifiers nor the `@/` alias, so its import graph also
+  stays clear of CSS and `next/*`.
 - `next`, `react` and `react-dom` are peer dependencies (`next` at
   `>=15.5.27 <16`). Next.js needs `next` in the app's own `package.json`
   to build, and Netlify and Vercel detect the framework from it. All
@@ -161,8 +177,14 @@ artist's host later wouldn't need another repo-layout change.
 Publish `@stagecraft/musician-site` as a **public npm package**. Public
 packages on npm are free. Releases go out from a GitHub Actions workflow
 in `jclaw-labs/stagecraft` using npm trusted publishing (OIDC), so there's
-no long-lived npm token, with provenance attached while the repo is
-public.
+no long-lived npm token. Trusted publishing attaches provenance on its own
+while the repo is public. The workflow doesn't pass `--provenance`, because
+an explicit flag fails the publish from a private repo.
+
+npm configures a trusted publisher in an existing package's settings, so
+the very first release can't go out that way. The owner publishes
+`1.0.0-rc.0` once by hand with 2FA, then configures the trusted publisher
+and disallows token publishing on the package (follow-up 5).
 
 Installing from a git tag of `jclaw-labs/stagecraft` loses on every count
 that matters:
@@ -204,8 +226,11 @@ on `main` publishes the release. CI checks that any PR touching package
 source adds a `CHANGELOG.md` entry marked patch, minor or major. Before
 publishing, CI runs `npm pack`, installs the tarball into a fresh copy of
 the shell **without a lockfile**, and runs `next build`, which is what
-Netlify and Vercel will do. Release candidates go to the `next` dist-tag,
-which Dependabot ignores, so a test site can opt in by hand.
+Netlify and Vercel will do. Release candidates go to an `rc` dist-tag
+(not `next`, which reads as the framework), so a test site can opt in by
+hand. Generated shells only ever pin a release from `latest`: Dependabot
+offers prerelease updates to a dependency already pinned to a prerelease,
+so a shell pinned to an RC would keep getting RCs.
 
 ### 3. Upgrades and semver
 
@@ -216,7 +241,12 @@ changes to the generated `dependabot.yml`:
 - Exclude `@stagecraft/musician-site` from the 7-day cooldown. The
   cooldown guards against freshly compromised third-party releases, and
   for our own package it would only hold back our security fixes by a
-  week. Trusted publishing covers that risk for us.
+  week. Trusted publishing removes the stolen-token risk. It doesn't
+  cover a bad merge to `main` or a compromised release workflow, so
+  `templates/musician-site/**` and the release workflow need required
+  review (follow-up 5). We accept that a bad release would reach
+  auto-merging sites within a week, because a cooldown would hold back
+  every security fix by the same week.
 - Ignore `semver-major` updates for `@stagecraft/musician-site`, `next`,
   `react` and `react-dom`. Those come as a platform PR (below), so the
   artist never sees a Dependabot PR that can't build.
@@ -261,9 +291,8 @@ branches. An eager migration commit on `main` would conflict with every
 `draft/*` branch holding older-format edits. A lazy reader handles
 `main` and the drafts the same way, so it never has to rebase or rewrite
 them. Shipping a new upgrader is therefore a minor. Dropping an old one is
-a major, and that major's upgrade PR first runs
-`stagecraft-site migrate-content` to rewrite the files eagerly, in the
-same PR.
+a major, and that major's upgrade PR rewrites the content files eagerly,
+in the same PR (§4 says how).
 
 `schemaVersion` lives on `_collection.json` only. Item files and Puck page
 data stay unversioned, so changes to them must be read-compatible within
@@ -291,7 +320,7 @@ What the PR does:
 - rewrites `package.json` and deletes any committed `package-lock.json`,
   so every site matches what generated sites look like and builds the
   same way
-- leaves `src/content/` and `public/images/` untouched, then runs any
+- leaves `src/content/` and `public/images/` untouched, apart from any
   content migration the target major needs
 - writes `.stagecraft-template.json` with `shellVersion` and the package
   version, and rewrites the Dependabot config and auto-merge workflow
@@ -305,15 +334,43 @@ How it runs:
   this isn't a reason to widen it. If the token is stale, the job fails
   and asks the artist to sign in again.
 - **Customized sites.** The artist owns their files and may have edited
-  our code. Before writing anything, the job compares every non-content
-  path at `HEAD` against the repo's first commit (the provisioning push).
-  If any of our files changed, it opens no PR and records which files
-  changed, so the site is handled by hand.
+  our code. Before writing anything, the job compares our code paths
+  against a baseline. Before migration those are `src/lib/`,
+  `src/components/`, `src/puck/`, `src/app/`, `src/middleware.ts` and
+  `next.config.ts`; after it, the shell files. The baseline is a manifest
+  of those paths and their blob SHAs that provisioning and every
+  `upgrade_site` PR record in `.stagecraft-template.json`, so later majors
+  compare against the shell the last upgrade wrote. Sites provisioned
+  before the manifest have none, and for them the baseline is the template
+  push: the `commitSha` that the provisioning job's `pushTemplate` step
+  records in `resultPayload.steps`. The repo's first commit can't be the
+  baseline, because repos are created with `auto_init` and that commit is
+  GitHub's README. `package.json` counts as customized only if something
+  other than dependency versions changed, since merged Dependabot PRs
+  edit it. `.github/`, the stamp and lockfiles never count. If any of our
+  files changed, it opens no PR and records which files changed, so the
+  site is handled by hand.
+- **Content migration.** The platform worker can't install packages, so
+  it can't run the `stagecraft-site` CLI. The package exports its upgrader
+  chain as a separate entry point,
+  `@stagecraft/musician-site/content-upgraders`: pure functions over
+  parsed JSON, with no filesystem, git or Next.js imports. `apps/web`
+  depends on the published package at the version `upgrade_site`
+  targets, reads `src/content/` through the GitHub API, runs the chain and
+  writes the upgraded files into the PR's commit. The chain only grows
+  until a major drops a step, so the target release can upgrade content
+  from any version that release still reads. The entry point counts
+  against the Worker size gate (`apps/web/scripts/worker-size-gate.mjs`).
+  `stagecraft-site migrate-content` runs the same chain from a local
+  checkout, for sites handled by hand.
 - **Idempotent.** It reuses one branch, `stagecraft/upgrade`, and one open
   PR, so re-running it updates the PR rather than opening a new one.
 - **Review.** The host's deploy preview builds the PR. Nothing
   auto-merges. Draft branches hold content only, so they rebase cleanly
-  after the merge.
+  after the merge. Publishing merges `main` into the draft before it
+  squashes the draft's tree onto `main` (`ensureDraftAndRebase` in
+  `publish.ts`), so a draft started before the upgrade picks the upgrade
+  up instead of restoring the old code.
 
 Rollout: run it on the owner's test sites first (the
 `stagecraft-site-jackson-clawson-*` repos from #314), then on every site
@@ -367,7 +424,7 @@ by hand.
 - **Fixes reach sites.** A package patch or minor lands on every site with
   the auto-merge workflow within about a week (Dependabot runs weekly) and
   without the cooldown. Sites without the workflow get an open PR.
-- **Artist repos shrink to content plus about eight shell files.** The
+- **Artist repos shrink to content plus about ten shell files.** The
   history of `src/content/` and `public/images/` is untouched.
 - **We now run a release process.** That means a changelog, semver
   discipline and a pack-and-build CI check. The shell version check and
@@ -382,11 +439,20 @@ by hand.
 - **`upgrade_site` writes to artist repos** with the owner's OAuth token.
   It only ever opens a PR, and never pushes to the default branch.
 - **The stamp becomes load-bearing.** `.stagecraft-template.json` gains
-  `shellVersion` and `packageVersion`, and the platform can read it to
-  show which version a site is on.
+  `shellVersion`, `packageVersion` and the code-path manifest (§4), and
+  the platform can read it to show which version a site is on.
+- **`next` floats within 15.x.** The shell's `next` is `^15.5.27` and
+  sites have no lockfile, so a new Next minor reaches every site on its
+  next host build without passing the Dependabot build gate. We accept
+  that: pinning `next` exact would hold every Next security patch behind
+  Dependabot's weekly run, and Next minors within a major are meant to be
+  compatible. The template's one experimental flag, `globalNotFound`, is
+  the most likely thing a minor breaks.
 
 ## Relates to / amends
 
+- **ADR-003 (repo layout).** Its tree gains
+  `templates/musician-site-shell/` when the shell lands.
 - **ADR-007 (musician-site template).** Amends the "one-time copy"
   delivery model. The runtime decisions (Next.js, Puck, file content,
   magic-link auth, `sharp` variants in `public/images/`) all stand, and
@@ -399,6 +465,11 @@ by hand.
 - **ADR-010 / ADR-011 (draft branches).** Their content-only invariant is
   what lets lazy content upgrades and shell-only upgrade PRs coexist with
   open drafts.
+- **ADR-013 (themes and starter content).** The theme presets and
+  starter seeds move into the package. The starter `src/content/` moves
+  into the shell.
+- **ADR-015 (unified page and template rendering).** The template walker
+  and block library move into the package unchanged.
 - **ADR-014 (retire the legacy template).** Amends its consequence that
   deployed sites "keep building from their own checked-in copy": after
   migration they build from the package.
@@ -406,18 +477,21 @@ by hand.
 ## Follow-up issues
 
 In build order. Each item is a draft issue title and body. Issues 2 and 3
-can be built in parallel, and 6 can start any time after 2.
+can be built in parallel, and 6 can start any time after 2. New sites keep
+getting the full template until 5 has published the first release and
+switched provisioning to the shell.
 
-### 1. Claim the npm scope and set up trusted publishing for `@stagecraft/musician-site`
+### 1. Claim the npm scope for `@stagecraft/musician-site`
 
 Owner action. Nothing else can ship to npm until the name is ours (ADR-016 §2).
 
 - [ ] Create the free npm org `stagecraft`, or record the fallback
       `@jclaw-labs` if it's taken
 - [ ] Enable 2FA on the org and add a second maintainer
-- [ ] Configure a trusted publisher for `jclaw-labs/stagecraft`, workflow
-      `release-musician-site.yml`
-- [ ] Note the org, its owners and the publisher setup in `docs/runbook.md`
+- [ ] Note the org and its owners in `docs/runbook.md`
+
+The trusted publisher is set up in 5, after the first publish, because npm
+only configures one on a package that exists.
 
 ### 2. Make the musician-site template build as an npm package
 
@@ -425,7 +499,11 @@ Turn `templates/musician-site/` into `@stagecraft/musician-site` without
 changing behavior (ADR-016 §1).
 
 - [ ] Replace `@/…` aliases with subpath imports (`#lib/…`,
-      `#components/…`) declared in `package.json` `imports`
+      `#components/…`) declared in `package.json` `imports`, pointing at
+      `dist/`, with a `source` condition for the monorepo's tests and
+      `next dev`
+- [ ] Add `.js` extensions to relative imports (`moduleResolution:
+      nodenext`)
 - [ ] Add a `tsc` build to `dist/` (per-file ESM plus `.d.ts`), with
       `globals.css` copied over
 - [ ] Set `name`, drop `private`, add `exports`, `files` and `bin`
@@ -433,6 +511,10 @@ changing behavior (ADR-016 §1).
 - [ ] Move `next`, `react` and `react-dom` to `peerDependencies`
       (`next >=15.5.27 <16`) and pin the other runtime deps exact
 - [ ] Test that every source file with `"use client"` keeps it in `dist/`
+- [ ] Exit check: `npm pack`, install the tarball into a minimal Next app
+      with no lockfile and run `next build` (global CSS imported from
+      `node_modules`, `"use client"` boundaries), and run
+      `stagecraft-site --help` from the tarball under plain `node`
 - [ ] Existing unit and e2e suites stay green
 
 ### 3. Route admin pages and API routes through package routers
@@ -447,45 +529,56 @@ artist-repo shell never changes when we add a page or endpoint (ADR-016 §1).
 - [ ] Middleware matches all of `/admin/:path*` and `/api/:path*`, and the
       public-path list moves into the package (login, auth, contact,
       public reads)
-- [ ] `withStagecraft()` wraps `next.config` (headers, `globalNotFound`)
+- [ ] `withStagecraft()` wraps `next.config` (headers, `globalNotFound`,
+      and `outputFileTracingRoot` detection from `process.cwd()`)
 - [ ] Keep the editor-CSS boundary test (#348) passing
 - [ ] Tests: each router's success, 404 and 405 paths, and the
       middleware's public versus gated paths
 
-### 4. Add the artist-repo shell and scaffold new sites from it
+### 4. Add the artist-repo shell
 
-Create `templates/musician-site-shell/` and point provisioning at it
-(ADR-016 §1, §3).
+Create `templates/musician-site-shell/` (ADR-016 §1, §3). Provisioning
+keeps using the full template until 5 has published a release.
 
 - [ ] Shell files: `next.config.ts`, `src/middleware.ts`, the root
-      layout, the global 404, the public catch-all, the admin catch-all,
-      the API catch-all, `tsconfig.json`, `.gitignore`, `.env.example`
+      layout, the global 404, the `(public)` layout and `not-found`, the
+      public catch-all, the admin `not-found`, the admin catch-all, the
+      API catch-all, `tsconfig.json`, `.gitignore`, `.env.example`
 - [ ] Move the starter `src/content/` into the shell and depend on the
       package through `file:../musician-site`
-- [ ] The bundle generator reads the shell and rewrites the `file:` dep to
-      the exact published version
-- [ ] The stamp records `shellVersion` and `packageVersion`.
-      `withStagecraft()` fails the build when the shell is too old
-- [ ] `dependabot.yml`: exclude the package from the cooldown, and ignore
-      `semver-major` for the package, `next`, `react` and `react-dom`
+- [ ] `withStagecraft()` fails the build when the shell's `shellVersion`
+      is older than the package requires
 - [ ] Run e2e and screenshot capture against the shell
 - [ ] Update `CLAUDE.md`'s repo structure, ADR-003's tree and
       `templates/musician-site/CLAUDE.md`
-- [ ] Tests for `site-scaffold.ts` and the bundle generator changes
 
-### 5. Release workflow for `@stagecraft/musician-site`
+### 5. Release workflow, first publish, and new sites on the shell
 
-Publish on a version bump, gated on a build that matches the hosts
-(ADR-016 §2).
+Publish on a version bump, gated on a build that matches the hosts, then
+scaffold new sites from the shell (ADR-016 §1, §2, §3).
 
 - [ ] `release-musician-site.yml`: on `main`, when the version isn't on
-      npm yet, publish with provenance and tag `musician-site@x.y.z`
+      npm yet, publish and tag `musician-site@x.y.z`. Don't pass
+      `--provenance`: trusted publishing adds it while the repo is public
+- [ ] First publish (owner): publish `1.0.0-rc.0` by hand with 2FA,
+      configure the trusted publisher for `jclaw-labs/stagecraft` and
+      `release-musician-site.yml`, then disallow token publishing, and
+      note the setup in `docs/runbook.md`
+- [ ] Require review on `main` for `templates/musician-site/**` and the
+      release workflow
 - [ ] Pre-publish check: `npm pack`, install the tarball into a clean copy
       of the shell with no lockfile, then run `next build`
 - [ ] PR check: a change under `templates/musician-site/src` needs a
       `CHANGELOG.md` entry marked patch, minor or major
-- [ ] Release candidates publish to the `next` dist-tag
+- [ ] Release candidates publish to the `rc` dist-tag
 - [ ] Document the semver rules from ADR-016 §3 in the package README
+- [ ] Once a release is on `latest`: the bundle generator reads the shell
+      and rewrites the `file:` dep to that exact version
+- [ ] The stamp records `shellVersion`, `packageVersion` and the
+      code-path manifest (§4)
+- [ ] `dependabot.yml`: exclude the package from the cooldown, and ignore
+      `semver-major` for the package, `next`, `react` and `react-dom`
+- [ ] Tests for `site-scaffold.ts` and the bundle generator changes
 
 ### 6. Versioned content reads and `stagecraft-site migrate-content`
 
@@ -497,8 +590,11 @@ Let the reader accept every supported `schemaVersion` and upgrade on read
 - [ ] Fail closed on versions newer than the reader knows, with an error
       naming the package version needed
 - [ ] Saves write at the current version
-- [ ] `stagecraft-site migrate-content` rewrites all files eagerly, for
-      use in major-upgrade PRs
+- [ ] Export the chain as `@stagecraft/musician-site/content-upgraders`:
+      pure functions over parsed JSON, with no filesystem, git or Next.js
+      imports, so `upgrade_site` can run it in the Worker
+- [ ] `stagecraft-site migrate-content` runs the same chain over a local
+      checkout, for sites handled by hand
 - [ ] Golden fixtures per past version, plus tests for each upgrader,
       future-version rejection, and write-back
 
@@ -506,20 +602,31 @@ Let the reader accept every supported `schemaVersion` and upgrade on read
 
 A reusable job for the one-time migration and for later majors (ADR-016 §4).
 
-- [ ] Add `upgrade_site` to `JobType` in `packages/shared`
-- [ ] Use the owner's OAuth token. On a stale token, fail with a sign-in
-      prompt
-- [ ] Compare non-content paths at `HEAD` against the repo's first commit,
-      and on a customized site stop and report the changed files
+- [ ] Add `upgrade_site` to `JobType` in `packages/shared`, and register
+      its handler in `apps/web/src/lib/jobs/worker.ts` with the same
+      step runner `provision-site.ts` uses
+- [ ] Keep `createBranch` and `createPullRequest` in
+      `apps/web/src/lib/integrations/github.ts`: #399 lists them as
+      helpers with no callers to delete
+- [ ] Use the owner's OAuth token. On a stale token, or one without the
+      `workflow` scope, fail with a sign-in prompt
+- [ ] Compare our code paths against the stamp's manifest, or the
+      `pushTemplate` commit for sites without one (ADR-016 §4), ignoring
+      dependency-version changes in `package.json`, `.github/`, the stamp
+      and lockfiles. On a customized site, stop and report the changed
+      files
 - [ ] Build the PR on the `stagecraft/upgrade` branch: delete our code,
       write the shell and `package.json`, delete `package-lock.json`,
-      rewrite the stamp, `dependabot.yml` and the auto-merge workflow, and
-      run the content migration if the target needs one
+      rewrite the stamp (with the new manifest), `dependabot.yml` and the
+      auto-merge workflow, and run the content upgraders if the target
+      needs them
 - [ ] Re-running updates the existing PR instead of opening another
 - [ ] Platform: an "Upgrade site" action on the site page, and a bulk run
       for platform admins
-- [ ] Tests: clean site, customized site, re-run, stale token, a repo
-      missing the workflow, and a repo with a lockfile
+- [ ] Tests: clean site, customized site, a Dependabot-bumped
+      `package.json` (not customized), a site without a manifest, a
+      second run after migration (opens a PR), re-run, stale token, a
+      repo missing the workflow, and a repo with a lockfile
 
 ### 8. Roll the package out to existing sites and close #314
 
