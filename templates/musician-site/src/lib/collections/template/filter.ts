@@ -88,13 +88,15 @@ export function mapFilterFields(
 }
 
 /**
- * `filter` without the clauses whose `field` fails `hasField`, or `null`
- * when no clause is left (no filter, rather than an empty `any` that
- * matches nothing). `excludeCurrentItem` clauses name no field and stay.
+ * `filter` with every clause whose `field` fails `hasField` treated as
+ * matching every item. In an `all` group that clause is dropped, and
+ * `null` (no filter) comes back when none is left. In an `any` group one
+ * such clause already matches every item, so the whole filter becomes
+ * `null`. `excludeCurrentItem` clauses name no field and stay.
  *
  * A Collection block saves field ids. A clause on a field the artist has
  * since deleted would otherwise hide every item (a missing value never
- * matches), with nothing in the product to bring them back; dropped, the
+ * matches), with nothing in the product to bring them back; this way the
  * filter on the removed field just stops filtering.
  */
 export function withoutClausesOnMissingFields(
@@ -102,9 +104,9 @@ export function withoutClausesOnMissingFields(
   hasField: (fieldId: string) => boolean,
 ): Filter | null {
   const keep = (clause: FilterClause): boolean => !("field" in clause) || hasField(clause.field);
-  const clauses = "all" in filter ? filter.all.filter(keep) : filter.any.filter(keep);
-  if (clauses.length === 0) return null;
-  return "all" in filter ? { all: clauses } : { any: clauses };
+  if ("any" in filter) return filter.any.every(keep) ? filter : null;
+  const clauses = filter.all.filter(keep);
+  return clauses.length === 0 ? null : { all: clauses };
 }
 
 function matchesFilter(item: Item, filter: Filter, currentItem: Item, now: Date): boolean {

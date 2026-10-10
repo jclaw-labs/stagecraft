@@ -497,13 +497,13 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
     })!;
     expect(describeViewFieldImpact(impact, "status")).toBe(
       'Removing "status" means tour dates lists that hide cancelled shows (the default) will ' +
-        "ignore that filter and show every upcoming show. " +
+        "ignore that filter, so cancelled shows are listed too. " +
         'Adding a new "status" field later won\'t undo this. Continue?',
     );
     const [problem] = viewFieldProblems(tourDatesWith(TOUR_DATES_FIELD_IDS.status, null));
     expect(describeViewFieldProblem(tourDatesCollectionDef, problem!)).toBe(
       "The status field was removed, so tour dates lists that hide cancelled shows (the " +
-        "default) ignore that filter and show every upcoming show.",
+        "default) ignore that filter, so cancelled shows are listed too.",
     );
     // select → multiSelect keeps the filter working, so it doesn't warn.
     expect(
@@ -768,7 +768,7 @@ describe("renaming a same-name stand-in", () => {
     const [problem] = viewFieldProblems(tourDatesWith(STATUS.fieldId, null), tourDatesCollectionDef);
     expect(describeViewFieldProblem(tourDatesCollectionDef, problem!)).toBe(
       "The status field was removed, so tour dates lists that hide cancelled shows (the " +
-        "default) ignore that filter and show every upcoming show.",
+        "default) ignore that filter, so cancelled shows are listed too.",
     );
   });
 });

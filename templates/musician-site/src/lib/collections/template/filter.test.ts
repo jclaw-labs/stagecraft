@@ -463,13 +463,47 @@ describe("withoutClausesOnMissingFields", () => {
     });
   });
 
-  it("keeps excludeCurrentItem clauses and the `any` grouping", () => {
+  it("keeps excludeCurrentItem clauses in an `all` group", () => {
     const filter: Filter = {
-      any: [{ excludeCurrentItem: true }, { field: "f_gone", op: "isEmpty" }],
+      all: [{ excludeCurrentItem: true }, { field: "f_gone", op: "isNotEmpty" }],
     };
     expect(withoutClausesOnMissingFields(filter, hasField)).toEqual({
-      any: [{ excludeCurrentItem: true }],
+      all: [{ excludeCurrentItem: true }],
     });
+  });
+
+  it("drops a whole `any` group with a clause on a missing field, since that clause matches every item", () => {
+    const filter: Filter = {
+      any: [
+        { field: "f_gone", op: "equals", value: { kind: "literal", value: "x" } },
+        { field: "f_venue", op: "equals", value: { kind: "literal", value: "Lido" } },
+      ],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toBeNull();
+  });
+
+  it("keeps an `any` group whose fields are all present", () => {
+    const filter: Filter = {
+      any: [{ excludeCurrentItem: true }, { field: "f_venue", op: "isNotEmpty" }],
+    };
+    expect(withoutClausesOnMissingFields(filter, hasField)).toBe(filter);
+  });
+
+  it("never narrows what an `any` filter listed, even with `isEmpty` on the missing field", () => {
+    // `isEmpty` on a deleted field matched every item before; dropping
+    // just that disjunct would leave only the Lido show.
+    const filter: Filter = {
+      any: [
+        { field: "f_gone", op: "isEmpty" },
+        { field: "f_venue", op: "equals", value: { kind: "literal", value: "Lido" } },
+      ],
+    };
+    const before = applyFilter(ITEMS, filter, CURRENT).map((i) => i.slug);
+    const after = applyFilter(ITEMS, withoutClausesOnMissingFields(filter, hasField), CURRENT).map(
+      (i) => i.slug,
+    );
+    expect(before).toEqual(["paris", "lyon", "berlin", "madrid"]);
+    expect(after).toEqual(before);
   });
 
   it("returns the filter unchanged when every field is present", () => {

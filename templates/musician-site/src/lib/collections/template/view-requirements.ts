@@ -85,7 +85,7 @@ export type ViewFieldRequirement = {
    * is `cancelled`, and a filter clause on a missing value fails, so a
    * fresh status field (no show has a value yet) would hide every show
    * while the editor reported all clear. Left on the deleted id, the
-   * block drops the clause (every upcoming show shows) and the heads-up
+   * block drops the clause (cancelled shows are listed too) and the heads-up
    * keeps saying the filter is ignored. Defaults to true.
    */
   matchesByKey?: boolean;
@@ -175,11 +175,11 @@ export const VIEW_REQUIREMENTS = {
         matchesByKey: false,
         effect: {
           will:
-            "tour dates lists that hide cancelled shows (the default) will ignore that filter " +
-            "and show every upcoming show",
+            "tour dates lists that hide cancelled shows (the default) will ignore that filter, " +
+            "so cancelled shows are listed too",
           now:
-            "tour dates lists that hide cancelled shows (the default) ignore that filter " +
-            "and show every upcoming show",
+            "tour dates lists that hide cancelled shows (the default) ignore that filter, " +
+            "so cancelled shows are listed too",
         },
       },
     },
