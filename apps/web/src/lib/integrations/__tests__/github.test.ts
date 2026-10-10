@@ -8,7 +8,7 @@ const { prismaMock } = vi.hoisted(() => ({
 
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
 
-import { findGithubAppInstallation } from "../github";
+import { findGithubAppInstallation, setRepoArchived } from "../github";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_ENV = { ...process.env };
@@ -169,5 +169,61 @@ describe("findGithubAppInstallation", () => {
     await expect(
       findGithubAppInstallation("user-1", "netlify", "jclaw"),
     ).rejects.toThrow(/GitHub account not connected/);
+  });
+});
+
+describe("setRepoArchived", () => {
+  function mockRepo(archived: boolean | null, getStatus = 200) {
+    const calls: { method: string; url: string; body?: string }[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      calls.push({ method, url, body: init?.body as string | undefined });
+      const body = method === "GET" ? (getStatus === 200 ? { archived } : { message: "Not Found" }) : {};
+      return new Response(JSON.stringify(body), {
+        status: method === "GET" ? getStatus : 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  it("archives a repo that isn't archived yet", async () => {
+    const calls = mockRepo(false);
+
+    await setRepoArchived("u1", "jclaw", "my-site", true);
+
+    expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"]);
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.github.com/repos/jclaw/my-site",
+      "https://api.github.com/repos/jclaw/my-site",
+    ]);
+    expect(JSON.parse(calls[1].body!)).toEqual({ archived: true });
+  });
+
+  it("leaves a repo that is already archived alone", async () => {
+    const calls = mockRepo(true);
+
+    await setRepoArchived("u1", "jclaw", "my-site", true);
+
+    expect(calls).toEqual([{ method: "GET", url: "https://api.github.com/repos/jclaw/my-site", body: undefined }]);
+  });
+
+  it("unarchives an archived repo", async () => {
+    const calls = mockRepo(true);
+
+    await setRepoArchived("u1", "jclaw", "my-site", false);
+
+    expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"]);
+    expect(JSON.parse(calls[1].body!)).toEqual({ archived: false });
+  });
+
+  it("throws a 404 GitHubApiError when the repo can't be found", async () => {
+    mockRepo(null, 404);
+
+    await expect(setRepoArchived("u1", "jclaw", "my-site", true)).rejects.toMatchObject({
+      name: "GitHubApiError",
+      status: 404,
+    });
   });
 });

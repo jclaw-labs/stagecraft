@@ -380,8 +380,8 @@ describe("handleMigrateSite — preconditions", () => {
     expect(mockSiteUpdate).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "error" } });
   });
   it("fails without retrying, naming the kept repo and saying to migrate again, when a deleted site's repo has the name", async () => {
-    // Deleting a site keeps its repo, so migrating again under the same
-    // name hits GitHub's 422 on the kept repo. Migrations have no "Retry
+    // Deleting a site archives but keeps its repo, so migrating again under
+    // the same name hits GitHub's 422 on the kept repo. Migrations have no "Retry
     // setup", so the message mustn't point at one.
     const { GitHubApiError } = await import("@/lib/integrations/github");
     mockCreateRepo.mockRejectedValueOnce(new GitHubApiError(422, '{"message":"name already exists"}'));
@@ -397,7 +397,8 @@ describe("handleMigrateSite — preconditions", () => {
     expect(result.success).toBe(false);
     expect(result.message).toBe(
       "A repository named jclaw/stagecraft-site-old-band already exists on your GitHub account, " +
-        "probably from a site you deleted. Delete or rename it on GitHub, then delete this site and migrate again. " +
+        "probably from a site you deleted (deleting a site archives its repository but keeps it). " +
+        "Delete it on GitHub, or unarchive and rename it, then delete this site and migrate again. " +
         "Or delete this site and migrate under a different name.",
     );
     expect(mockGetOwnRepo).toHaveBeenCalledWith("user-1", "stagecraft-site-old-band");

@@ -295,7 +295,8 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
   const githubUrl = site.githubRepoOwner && site.githubRepoName
     ? `https://github.com/${site.githubRepoOwner}/${site.githubRepoName}`
     : null;
-  // Deleting a site keeps its repo (issue #398); the artist deletes it on GitHub.
+  // Deleting a site archives its repo but keeps it (issues #398, #429); the
+  // artist unarchives or deletes it on GitHub.
   const githubSettingsUrl = githubUrl ? `${githubUrl}/settings` : null;
   const needsRepoLink = site.status === "active" && site.netlifyAdminUrl && !site.productionUrl;
   const netlifyLinkRepoUrl = site.netlifyAdminUrl
@@ -597,9 +598,10 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
               <div className={styles.dangerRepoNote}>
                 <p className={styles.dangerText}>
                   Your GitHub repository <strong>{site.githubRepoOwner}/{site.githubRepoName}</strong> is
-                  kept. To delete it as well, use the Danger Zone in its GitHub settings. Until it is
-                  archived or deleted, it keeps receiving Dependabot pull requests. Creating a new site
-                  with the same name needs this repository deleted or renamed first.
+                  kept but archived: it becomes read-only, and stops receiving Dependabot pull requests
+                  and running workflows. You can unarchive or delete it from its GitHub settings.
+                  Creating a new site with the same name needs this repository deleted, or unarchived
+                  and renamed, first.
                 </p>
                 <Button
                   variant="secondary"
