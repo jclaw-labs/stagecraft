@@ -3,9 +3,8 @@
  * (`Account.access_token` / `refresh_token` / `id_token` and
  * `IntegrationAccount.accessToken` / `refreshToken`). See ADR-005.
  *
- * AES-256-GCM through WebCrypto (`globalThis.crypto.subtle`), which exists
- * both on Node 20+ (Netlify) and on Cloudflare Workers, so the same code
- * runs on either host.
+ * AES-256-GCM through WebCrypto (`globalThis.crypto.subtle`), which is
+ * built into Node 20+ (Netlify), so no native crypto package is needed.
  *
  * Stored formats (all segments after the key id base64url, no padding):
  *

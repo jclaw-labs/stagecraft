@@ -17,7 +17,7 @@ describe("buildCronRequest", () => {
     expect(request.headers.get("authorization")).toBe("Bearer s3cret");
   });
 
-  it("uses only the site URL's origin", () => {
+  it("ignores any path or query on the site URL (the drain path is absolute)", () => {
     const request = buildCronRequest("s3cret", `${SITE_URL}/some/base/?x=1`);
 
     expect(request.url).toBe(`${SITE_URL}${CRON_JOBS_PATH}`);

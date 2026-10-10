@@ -5,9 +5,12 @@
 
 export const CRON_JOBS_PATH = "/api/cron/jobs";
 
-/** Builds the authenticated drain request on `siteUrl`'s origin. */
+/**
+ * Builds the authenticated drain request on `siteUrl`'s origin. The path is
+ * absolute, so any path or query on `siteUrl` is dropped.
+ */
 export function buildCronRequest(secret: string, siteUrl: string): Request {
-  return new Request(new URL(CRON_JOBS_PATH, new URL(siteUrl).origin), {
+  return new Request(new URL(CRON_JOBS_PATH, siteUrl), {
     method: "POST",
     headers: { authorization: `Bearer ${secret}` },
   });

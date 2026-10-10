@@ -37,6 +37,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const processed = await getWorker().drain();
+  // One job per call, as drainAfterResponse does: the drain checks its time
+  // budget only between jobs, so a second job claimed late in a Netlify
+  // function's short timeout would be cut off and spend a retry. The next
+  // five-minute tick takes the next job.
+  const processed = await getWorker().drain({ maxJobs: 1 });
   return NextResponse.json({ ok: true, processed });
 }

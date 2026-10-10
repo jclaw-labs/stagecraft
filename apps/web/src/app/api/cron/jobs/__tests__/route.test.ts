@@ -31,6 +31,7 @@ describe("POST /api/cron/jobs", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, processed: 2 });
     expect(drainMock).toHaveBeenCalledTimes(1);
+    expect(drainMock).toHaveBeenCalledWith({ maxJobs: 1 });
   });
 
   it("returns 401 without a bearer token", async () => {

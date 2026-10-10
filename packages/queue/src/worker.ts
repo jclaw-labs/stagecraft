@@ -123,13 +123,22 @@ export interface DrainOptions {
 
 export function createWorker(options: WorkerOptions) {
   const { handlers, pollIntervalMs = 5000, onEvent } = options;
-  let running = false;
+  // The run in progress, if any. Kept as the promise so `drain()` can wait
+  // for a run the interval poller started instead of treating "busy" as an
+  // empty queue.
+  let inFlight: Promise<RunNextOutcome> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  async function runNext(): Promise<RunNextOutcome> {
-    if (running) return "busy";
-    running = true;
+  function runNext(): Promise<RunNextOutcome> {
+    if (inFlight) return Promise.resolve("busy");
+    const run = runOnce().finally(() => {
+      inFlight = null;
+    });
+    inFlight = run;
+    return run;
+  }
 
+  async function runOnce(): Promise<RunNextOutcome> {
     try {
       const reaped = await reapExpiredLeases();
       if (reaped.requeued > 0 || reaped.failed > 0) {
@@ -347,8 +356,6 @@ export function createWorker(options: WorkerOptions) {
         JSON.stringify({ event: "worker.poll_error", error: String(error), ts: new Date().toISOString() })
       );
       return "idle";
-    } finally {
-      running = false;
     }
   }
 
@@ -363,12 +370,22 @@ export function createWorker(options: WorkerOptions) {
      * is hit, then return how many were processed. For runtimes with no
      * long-lived process (a cron-triggered route or scheduled function),
      * where `start()`'s interval would never fire.
+     *
+     * If the interval poller already has a run in flight (a cold start runs
+     * `start()` just before the cron request drains), the drain waits for it
+     * and counts it when it processed a job, rather than returning 0 while
+     * that job is still running in an invocation the host may freeze.
      */
     async drain({ maxJobs = 10, timeBudgetMs = 50_000 }: DrainOptions = {}): Promise<number> {
       const startedAt = Date.now();
       let processed = 0;
       while (processed < maxJobs && Date.now() - startedAt < timeBudgetMs) {
         const outcome = await runNext();
+        if (outcome === "busy") {
+          const pending = inFlight;
+          if (pending && (await pending) === "processed") processed++;
+          continue;
+        }
         if (outcome === "lost-claim") continue;
         if (outcome !== "processed") break;
         processed++;

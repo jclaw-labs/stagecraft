@@ -5,8 +5,8 @@
  * `scripts/generate-template-bundle.mjs` (which owns the skip rules for
  * binary files, build artifacts, and files that should not be committed)
  * into `src/generated/template-bundle.json`. Reading from that module rather
- * than the filesystem lets the jobs run where there is no filesystem
- * (Cloudflare Workers) as well as on Netlify.
+ * than the filesystem means the jobs don't depend on the template being
+ * copied into the Netlify function bundle.
  */
 
 export type TemplateFile = { path: string; content: string };

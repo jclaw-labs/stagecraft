@@ -358,13 +358,13 @@ WHERE id = '<site-id>';
 
 ## 8. Scheduled Queue Drain
 
-Routes that enqueue a job run it right after their response (`after()`, see [Job Lifecycle](#job-lifecycle)). A Netlify function can still be cut off part way, and then nothing on Netlify picks the job up again once its lease expires. The scheduled function `apps/web/netlify/functions/drain-jobs.ts` is that safety net: every five minutes it calls `POST /api/cron/jobs` on the site's primary URL (Netlify's `URL` variable) with `Authorization: Bearer $CRON_SECRET`, and the route drains the queue.
+Routes that enqueue a job run it right after their response (`after()`, see [Job Lifecycle](#job-lifecycle)). A Netlify function can still be cut off part way. Once that job's lease expires, only a later enqueue or a warm function would pick it up again, and neither is guaranteed. The scheduled function `apps/web/netlify/functions/drain-jobs.ts` bounds that delay: every five minutes it calls `POST /api/cron/jobs` on the site's primary URL (Netlify's `URL` variable) with `Authorization: Bearer $CRON_SECRET`, and the route runs one job. A cut-off job is resumed within about ten minutes (the five-minute lease plus the five-minute schedule), and a backed-off retry waits for the next tick. If the function's own poller already has a job running (a cold start), the drain waits for that job instead of claiming another.
 
 **Setup:** set `CRON_SECRET` on the Netlify project (Site configuration → Environment variables, Production context) to a random value, e.g. `openssl rand -hex 32`, then redeploy. Until it is set, the route answers 503 and each scheduled run fails with `CRON_SECRET is not set`, visible under Logs → Functions → `drain-jobs`. Leave `STAGECRAFT_INPROCESS_WORKER` unset on Netlify, so enqueueing routes keep running jobs right away.
 
 Scheduled functions run only on the published production deploy, never on Deploy Previews.
 
-The platform used to build a Cloudflare Worker preview as well. That was dropped in #307: with a working Prisma engine the bundle exceeded the Workers Free size limit, and requests used far more than its 10 ms of CPU.
+The platform used to build a Cloudflare Worker preview as well. That was dropped in #464 (issue #467): with a working Prisma engine the bundle exceeded the Workers Free size limit, and requests used far more than its 10 ms of CPU.
 
 ---
 
@@ -428,7 +428,7 @@ KEY_TO_REENCODE="$KEY_TO_REENCODE" node -e 'const s=process.env.KEY_TO_REENCODE.
 unset KEY_TO_REENCODE
 ```
 
-Put the printed value in 1Password and set it on both hosts in place of the old one (with the build that is already deployed, which reads either form). Then re-run the check on the values the hosts now have before deploying this build. To check them without overwriting your shell's variables, do it in a subshell, which reads them at hidden prompts and discards them when it exits:
+Put the printed value in 1Password and set it on Netlify in place of the old one (with the build that is already deployed, which reads either form). Then re-run the check on the values Netlify now has before deploying this build. To check them without overwriting your shell's variables, do it in a subshell, which reads them at hidden prompts and discards them when it exits:
 
 ```bash
 (
@@ -489,11 +489,10 @@ After step 3, don't remove the key or roll the app back to a build from before e
 
 #### Upgrading from v1
 
-If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails on both hosts. Then deploy this build to both hosts (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, passing `--upgrade-v1` to both backfill commands in step 3, and finish with step 5.
+If the v1-only build (issue #354) is already deployed with a key, the key id and bytes stay as they are, but [check its shape](#checking-a-keys-shape) first and re-encode it if the check fails: otherwise this build rejects it and every credential read and write fails. Then deploy this build (new writes become v2 straight away, and v1 values keep reading), run steps 3 and 4 to upgrade the stored v1 values, passing `--upgrade-v1` to both backfill commands in step 3, and finish with step 5.
 
-**Mind the deploy timing across hosts.** A host still running the #354 build doesn't know `enc:v2:`: it takes a v2 value for plaintext and sends the ciphertext to GitHub, Netlify, Vercel or Resend as the bearer token, so that integration call fails. From the moment the first host runs this build, every sign-in and connect writes v2, so every host that reads that database has to be on this build too. Three ways to end up with a #354 build reading v2 values:
+**Mind the deploy timing across hosts.** A host still running the #354 build doesn't know `enc:v2:`: it takes a v2 value for plaintext and sends the ciphertext to GitHub, Netlify, Vercel or Resend as the bearer token, so that integration call fails. From the moment the first host runs this build, every sign-in and connect writes v2, so every host that reads that database has to be on this build too. Two ways to end up with a #354 build reading v2 values:
 
-- **A staggered deploy.** When Netlify and the Worker read the same database, deploy this build to both back to back, and run the backfill only once both are on it. Between the two deploys, tokens the new host writes fail on the old one; the gap closes when the second deploy lands.
 - **A Netlify instant rollback.** Publishing an older deploy from the Deploys list puts that build live without rebuilding it. Once this build has written any v2 value, never roll back to a #354 deploy (or anything older); fix forward instead.
 - **A preview deploy against the production database.** A preview built from an older branch runs that branch's build, so if it gets production's `DATABASE_URL` and key it reads and writes production's credentials with code that may not know v2. Before the first deploy of this build, check it on the production Netlify site: under Site configuration → Environment variables, open `DATABASE_URL` and `STAGECRAFT_CREDENTIALS_KEY` and confirm that each is scoped to the Production deploy context only, with no value for Deploy Previews or Branch deploys. If either has a value for those contexts, change that first. A Netlify Deploy Preview or Branch deploy must never point at the production database.
 

@@ -4,8 +4,8 @@
  *
  * The jobs used to walk `templates/musician-site` with `fs` at runtime,
  * which only worked because next.config.ts copied the template into the
- * Netlify function bundle. Cloudflare Workers have no filesystem, so the
- * template is read here at build time instead and shipped as module data.
+ * Netlify function bundle. The template is read here at build time instead
+ * and shipped as module data, so the jobs don't depend on that copy.
  *
  * Plain .mjs (not .ts) so it runs on any supported Node without a TS
  * loader, before `next build`, `tsc`, and `vitest`.
