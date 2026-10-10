@@ -14,7 +14,7 @@ Use a **PostgreSQL-backed job queue** with an in-process worker for v1, designed
 - A polling worker process picks up queued jobs and executes them
 - Simple, no additional infrastructure beyond the existing Postgres DB
 - Job payloads and results stored as JSON columns
-- Clear status lifecycle: `queued` → `running` → `completed` | `failed` | `awaiting_review` | `canceled`
+- Clear status lifecycle: `queued` → `running` → `completed` | `failed` | `canceled`
 
 ### Migration path
 - The job abstraction layer (`packages/queue`) defines interfaces, not implementations
@@ -42,3 +42,5 @@ Fix: `POST /api/sites` now `await`s `handleCreateSite` directly inside the reque
 `create_site` is removed from the worker's handler map. Other handlers (`migrate_site`) stay on the queue; they're rare enough today that the same Lambda-freeze risk hasn't bitten, and migrating them off would need either a Netlify Scheduled Function or a dedicated worker container.
 
 The migration path in this ADR (Postgres → BullMQ/Redis) still applies for handlers that genuinely need async semantics. The synchronous-in-request pattern is the right choice for a workflow whose result the user needs to see immediately anyway.
+
+**2026-10-10, issue #362 — Body and the PR #88 entry out of date.** AI-driven edits were cut (issue #344), along with the `awaiting_review` status; the queue runs `create_site` and `migrate_site`. The PR #88 entry above no longer holds: `create_site` has been queued again since issue #356.

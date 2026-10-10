@@ -1,12 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, prismaMock } = vi.hoisted(() => ({
+const {
+  authMock,
+  prismaMock,
+  findAppInstallationForOwnerMock,
+  listInstallationReposMock,
+  setNetlifyEnvVarsMock,
+  triggerNetlifyBuildMock,
+} = vi.hoisted(() => ({
   authMock: vi.fn(),
-  prismaMock: { site: { findFirst: vi.fn() } },
+  prismaMock: { site: { findFirst: vi.fn(), update: vi.fn() } },
+  findAppInstallationForOwnerMock: vi.fn(),
+  listInstallationReposMock: vi.fn(),
+  setNetlifyEnvVarsMock: vi.fn(),
+  triggerNetlifyBuildMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: authMock }));
 vi.mock("@stagecraft/db", () => ({ prisma: prismaMock }));
+vi.mock("@/lib/github-app-token", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/github-app-token")>()),
+  findAppInstallationForOwner: findAppInstallationForOwnerMock,
+}));
+vi.mock("@/lib/github-app-install", () => ({
+  listInstallationRepos: listInstallationReposMock,
+}));
+vi.mock("@/lib/integrations/netlify", () => ({
+  setEnvVars: setNetlifyEnvVarsMock,
+  triggerBuild: triggerNetlifyBuildMock,
+}));
 
 import { GET } from "../route";
 import { verifyInstallState } from "@/lib/state-signing";
@@ -16,6 +38,11 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   authMock.mockReset();
   prismaMock.site.findFirst.mockReset();
+  prismaMock.site.update.mockReset().mockResolvedValue({});
+  findAppInstallationForOwnerMock.mockReset();
+  listInstallationReposMock.mockReset();
+  setNetlifyEnvVarsMock.mockReset().mockResolvedValue(undefined);
+  triggerNetlifyBuildMock.mockReset().mockResolvedValue({ buildId: "build-1" });
   process.env = { ...ORIGINAL_ENV };
   process.env.STAGECRAFT_STATE_SIGNING_SECRET = "test-state-secret";
 });
@@ -54,5 +81,36 @@ describe("GET /api/sites/[siteId]/install-url", () => {
     const state = parsed.searchParams.get("state");
     expect(state).toBeTruthy();
     expect(await verifyInstallState(state!)).toEqual({ siteId: "s1", userId: "u1" });
+  });
+
+  it("netlify auto-detect: overwrites the site's existing env vars when re-keying", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue({
+      id: "s1",
+      githubRepoOwner: "artist",
+      githubRepoName: "site",
+      githubInstallationId: null,
+      deployTarget: "netlify",
+      netlifySiteId: "netlify-abc",
+    });
+    findAppInstallationForOwnerMock.mockResolvedValue(42);
+    listInstallationReposMock.mockResolvedValue([{ owner: "artist", name: "site" }]);
+
+    const res = await GET(new Request("http://t/x"), fakeParams("s1"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ connected: true, provisioned: true });
+    // Netlify's bulk POST only creates, so a re-key must replace the keys
+    // the site already has.
+    expect(setNetlifyEnvVarsMock).toHaveBeenCalledWith(
+      "u1",
+      "netlify-abc",
+      expect.objectContaining({
+        STAGECRAFT_SITE_ID: "s1",
+        STAGECRAFT_BROKER_SECRET: expect.stringMatching(/^scbs_[0-9a-f]{64}$/),
+      }),
+      { replace: true },
+    );
+    expect(triggerNetlifyBuildMock).toHaveBeenCalledWith("u1", "netlify-abc");
   });
 });

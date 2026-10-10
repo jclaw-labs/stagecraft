@@ -56,8 +56,9 @@ Some facts that shape the decision:
 - Collection definitions carry `schemaVersion` (currently `1`), but the
   schema accepts only `z.literal(CURRENT_COLLECTION_SCHEMA_VERSION)`.
   Items and Puck page data carry no version.
-- Drafts live on per-editor `draft/*` branches (ADR-010, ADR-011) and
-  hold content only.
+- Drafts live on the shared `draft` branch or, on a multi-editor site, a
+  per-editor `draft-<editorKey>` branch (ADR-010, ADR-011; written
+  `draft*` below). They hold content only.
 
 ## Decision
 Move all of our code into one npm package, **`@stagecraft/musician-site`**,
@@ -302,7 +303,7 @@ needed.
 
 We pick lazy over an eager rewrite of every file because of the draft
 branches. An eager migration commit on `main` would conflict with every
-`draft/*` branch holding older-format edits. A lazy reader handles
+`draft*` branch holding older-format edits. A lazy reader handles
 `main` and the drafts the same way, so it never has to rebase or rewrite
 them. Shipping a new upgrader is therefore a minor. Dropping an old
 version from the site's reader is a major, and that major's upgrade PR
@@ -394,9 +395,9 @@ How it runs:
   `stagecraft-site migrate-content` runs the same chain from a local
   checkout, for sites handled by hand.
 - **Open drafts.** A shell-only upgrade never touches content, so open
-  `draft/*` branches merge it cleanly. An upgrade that rewrites content
+  `draft*` branches merge it cleanly. An upgrade that rewrites content
   would conflict with a draft that changed the same files, so before
-  writing that commit the job checks every `draft/*` branch. If one has
+  writing that commit the job checks every `draft*` branch. If one has
   unpublished changes to a file the migration rewrites, it opens no PR and
   asks the artist to publish or discard those changes first. The PR then
   sits open for review, and a draft can still change an affected file in
@@ -453,7 +454,7 @@ by hand.
   to drop or misplace `"use client"` boundaries in App Router code. A
   per-file `tsc` build has no such risk.
 - **Eager content migrations on `main`.** They would conflict with every
-  `draft/*` branch, see §3.
+  `draft*` branch, see §3.
 - **Commit a lockfile in artist repos.** It would make builds
   reproducible, but the platform worker can't generate one (no
   `npm install` in a Worker), and a stale lockfile is what left #314's

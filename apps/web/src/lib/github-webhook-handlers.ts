@@ -35,7 +35,8 @@ export type HandlerResult = {
  * - `installation.deleted` clears the installation/repo fields but
  *   intentionally retains brokerSecretHash — losing the install does
  *   not invalidate the artist's secret; reinstalling on a new repo can
- *   reuse it. Rotation is a separate explicit action.
+ *   reuse it. Nothing rotates it; there is no rotation endpoint
+ *   (ADR-008).
  */
 export async function handleInstallationEvent(
   action: InstallationAction,

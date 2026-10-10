@@ -39,7 +39,7 @@ function page(title: string, content: string): string {
   // Token definitions mirror apps/web/src/app/globals.css. Inlined here
   // because this route returns raw HTML (not a Next.js page), so the
   // layout's globals.css import doesn't apply. Consumer rules below use
-  // var(--*) only — no raw hex / px. Per CLAUDE.md §7.
+  // var(--*) only — no raw hex / px. Per CLAUDE.md §6.
   return `<html><head><title>${escape(title)}</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 :root {
   --color-text: #111827;
@@ -133,7 +133,11 @@ async function provisionBrokerSecret(args: {
       if (!args.site.netlifySiteId) {
         return { ok: false, reason: "Site has no Netlify site id on file" };
       }
-      await setNetlifyEnvVars(args.userId, args.site.netlifySiteId, envVars);
+      // A reconnect or re-key finds these keys already set, and Netlify's
+      // bulk POST only creates, so overwrite them.
+      await setNetlifyEnvVars(args.userId, args.site.netlifySiteId, envVars, {
+        replace: true,
+      });
       await triggerNetlifyBuild(args.userId, args.site.netlifySiteId);
       return { ok: true };
     }
@@ -186,7 +190,7 @@ export async function GET(request: Request) {
         "Already connected",
         `<h1 class="warn">Already connected</h1>
 <p>Site <code>${escape(site.name)}</code> already has the GitHub App installed and a broker secret provisioned. Refreshing this page does not regenerate the secret.</p>
-<p>If you've lost your broker secret, you'll need to <strong>rotate</strong> it from the dashboard (this updates the hash on the platform; you then update the env var on your deployed site).</p>
+<p>The platform keeps only a hash of the secret, so it can't show it again. If your site can no longer save or publish, contact support.</p>
 <p><a class="button" href="/dashboard">Back to dashboard</a></p>`,
       ),
     );
@@ -284,8 +288,9 @@ export async function GET(request: Request) {
   }
 
   // Auto-provision failed — fall back to showing the manual env-var
-  // block. Keep the broker secret on screen so the artist can recover
-  // without rotating; rotation invalidates the hash we just stored.
+  // block. The platform stores only the hash, so this page is the one
+  // place the plaintext appears. There is no rotation endpoint (ADR-008);
+  // a lost secret needs an operator (runbook §6).
   return htmlResponse(
     200,
     page(
@@ -297,7 +302,7 @@ export async function GET(request: Request) {
 <pre>STAGECRAFT_SITE_ID=${escape(site.id)}
 STAGECRAFT_BROKER_SECRET=${escape(plaintext)}</pre>
 
-<p><strong>Copy the secret now</strong> — it is shown exactly once and never stored on the platform in plaintext. If you lose it, rotate it from the dashboard; the previous one will stop working.</p>
+<p><strong>Copy the secret now</strong> — it is shown exactly once and never stored on the platform in plaintext. If you lose it before setting it, contact support.</p>
 <p><a class="button" href="/dashboard">Continue to dashboard</a></p>`,
     ),
   );

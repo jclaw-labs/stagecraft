@@ -26,8 +26,9 @@ This document is for engineers and support staff operating the Stagecraft platfo
 │   Browser   │ ───────────► │  Next.js App (apps/web)  │
 └─────────────┘              │                          │
                              │  /api/auth/...           │  NextAuth + GitHub OAuth
-                             │  /api/integrations/...   │  Netlify OAuth
+                             │  /api/integrations/...   │  Netlify, Vercel, Resend
                              │  /api/sites/...          │  Site CRUD
+                             │  /api/publish-token      │  Broker (artist sites)
                              │  /api/health             │  Health check
                              └────────────┬─────────────┘
                                           │
@@ -38,7 +39,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
                                           │
                              ┌────────────▼─────────────┐
                              │  @stagecraft/queue        │
-                             │  Polling worker (5 s)     │
+                             │  Polling worker (3 s)     │
                              │  Processes SiteJob rows   │
                              └──────────────────────────┘
 ```
@@ -48,9 +49,10 @@ This document is for engineers and support staff operating the Stagecraft platfo
 | Model | Purpose |
 |---|---|
 | `User` | Platform user account (linked to GitHub via NextAuth) |
-| `IntegrationAccount` | Stored OAuth tokens for GitHub and Netlify |
+| `IntegrationAccount` | Encrypted provider tokens: GitHub, Netlify, Vercel, Resend ([§9](#9-credential-encryption)) |
 | `Site` | A generated musician website |
 | `SiteJob` | Async background job (create_site, migrate_site) |
+| `WebhookDelivery` | GitHub webhook deliveries already handled |
 
 ### Job Lifecycle
 
@@ -60,7 +62,7 @@ queued  ──►  running  ──►  completed
   └──── retry / repair / expired lease ──┘
 ```
 
-The worker polls the `SiteJob` table every 5 seconds for the oldest `queued` job whose `runAt` (retry backoff) has passed and processes it. All state transitions are reflected in the database immediately.
+The in-process worker (`apps/web/src/lib/jobs/worker.ts`, `pollIntervalMs: 3000`) polls the `SiteJob` table every 3 seconds, while its function is warm, for the oldest `queued` job whose `runAt` (retry backoff) has passed and processes it. All state transitions are reflected in the database immediately.
 
 A claimed job carries a lease (`lockedUntil`, 5 minutes) that the worker renews every minute while the handler runs. A handler that throws is retried up to 2 times (`retryAttempts`), 30s then 60s later; the third failure marks the job `failed` with the last error. `create_site` and `migrate_site` share their provisioning steps (`apps/web/src/lib/jobs/provision-site.ts`): a transient error is thrown and retried, and a re-run resumes at the step that failed. A missing precondition (no verified email, deploy target or Resend; a source site with no pages; a repo name already taken) fails the job on the first run. See [4.2](#42-job-stuck-in-running) for what happens when a worker dies mid-job.
 
@@ -235,19 +237,25 @@ WHERE provider = 'github';
 
 ---
 
-### 4.5 Netlify site creation failing
+### 4.5 Site creation failing at the deploy target
 
-**Symptom:** `create_site` jobs fail with Netlify API errors.
+**Symptom:** a site stays `error` after creation, and its `create_site` job is `failed` with a Netlify or Vercel API error.
 
-**Diagnosis:** Check the job's `errorMessage`:
+`POST /api/sites` only creates the `Site` and queues the job ([Job Lifecycle](#job-lifecycle)); the Netlify or Vercel calls run in the job's `createHostProject` and `setEnv` steps. A transient error there is retried automatically (twice), and the site stays `creating` meanwhile.
+
+**Diagnosis:** Check the job's error and which steps finished:
 ```sql
-SELECT "errorMessage" FROM "SiteJob" WHERE id = '<job-id>';
+SELECT "errorMessage", "failureCategory", "retryAttempts", "resultPayload"->'steps' AS steps
+FROM "SiteJob" WHERE id = '<job-id>';
 ```
 
 Common causes:
-- Netlify access token expired → user must reconnect Netlify integration
-- Netlify API rate limit → wait and retry
-- Site name conflict on Netlify → inspect the `name` field in `requestPayload`
+- Netlify or Vercel access token expired or revoked → the user reconnects the integration in Settings, then uses **Retry setup**
+- Provider API rate limit → wait, then **Retry setup**
+- Project name conflict on the host (`stagecraft-site-<slug>`) → a retry adopts a project with that name only if it was created after the step's first attempt; otherwise delete or rename the existing project first
+- `failureCategory = 'vercel_github_app_missing'` → the artist installs Vercel's GitHub App (the site page links to it), then retries
+
+A `setEnv` failure doesn't fail the job: the site goes `active` with an env warning on the job's result, and the environment variables need setting on the host by hand.
 
 ---
 
@@ -270,7 +278,7 @@ WHERE id = '<job-id>';
 
 Resetting `"retryAttempts"` gives the job its automatic retries back; leave it out to allow a single run only.
 
-The worker will pick it up within 5 seconds. To process it right away (or when the in-process poller is off), drain the queue by hand:
+A warm function's poller picks it up within 3 seconds, and the scheduled drain within five minutes ([§8](#8-scheduled-queue-drain)). To process it right away (or when the in-process poller is off), drain the queue by hand:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<your-domain>/api/cron/jobs
@@ -322,6 +330,22 @@ curl -s -H "Authorization: Bearer <access_token>" \
 The token must have `repo` scope (for creating repos and pushing files). The `scopes` column in `IntegrationAccount` should include `repo`.
 
 Sign-in requests `read:user user:email repo workflow` (`apps/web/src/lib/github-oauth-scope.ts`). It no longer requests `delete_repo` (issue #398): deleting a site keeps its GitHub repo but archives it (issue #429; best-effort, so a failed archive is reported but doesn't block the delete), and the artist unarchives or deletes the repo from its GitHub settings page. Tokens granted before that change may still list `delete_repo` until the artist revokes the app at github.com/settings/applications; nothing uses it. Creating a site with a deleted site's name fails with an error naming the kept repo (`<owner>/stagecraft-site-<slug>`) until the artist deletes it, or unarchives and renames it, on GitHub. New artist repos are created private; repos created earlier keep their visibility.
+
+
+### Issuing a new broker secret
+
+There is no rotation endpoint or dashboard action (ADR-008, "Secret rotation"). When an artist site's `STAGECRAFT_BROKER_SECRET` is lost or leaked, issue a new one by hand. The platform stores only its hash, so the old value can't be recovered.
+
+1. Clear the site's installation and hash. From here until step 2 finishes, the site can't save or publish (the broker answers `401 invalid-secret`, since the hash is checked before the installation):
+   ```sql
+   UPDATE "Site"
+   SET "githubInstallationId" = NULL, "brokerSecretHash" = NULL
+   WHERE id = '<site-id>';
+   ```
+2. Have the artist open the site in the dashboard and click **Connect GitHub App**. Either `/api/sites/<id>/install-url` finds the Stagecraft App on the repo owner, or the artist goes through GitHub's install screen to `/api/github/install-callback`. Both mint a new secret, store its hash, set `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` on the Netlify site or Vercel project (`install-url` also sets `STAGECRAFT_PLATFORM_URL` from the platform's `AUTH_URL`), and trigger a rebuild.
+3. Check the push worked: on the Netlify site or Vercel project, `STAGECRAFT_BROKER_SECRET` should show as updated after you ran step 1, and a deploy should have started. Don't rely on the dashboard to tell you: when `install-url` attaches the installation but can't push the variables, it still answers `connected`, and the site page reloads without showing its "couldn't push" message or the secret. If the variable was updated but no deploy started, trigger one by hand on the host; don't repeat step 1. If the variable wasn't updated, fix the cause (usually an expired Netlify or Vercel token: reconnect it in Settings) and start again from step 1. (If the artist went through GitHub's install screen instead and the push failed, the install callback shows the secret once for them to set by hand.)
+
+The old secret stops working as soon as step 1 runs. Unless the site sets `MAGIC_LINK_SIGNING_SECRET`, its editor sessions are signed with a key derived from the broker secret, so they end at the rebuild and editors sign in again.
 
 ---
 

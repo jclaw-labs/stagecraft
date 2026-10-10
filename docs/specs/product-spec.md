@@ -1,5 +1,19 @@
 # AI-Orchestrated Static Website Platform for Musicians
 
+> **Status (2026-10-10): partly superseded.** This is the original product
+> spec. The goals it states still hold: artist-owned repos and hosting,
+> structured content, low cost. Two parts of how it gets there don't:
+>
+> - **AI edits through pull requests** (natural-language change requests,
+>   the request classifier, the AI worker, PR review, §16, §17.2) were cut
+>   in issue #344. Artists edit their site directly in its built-in
+>   editor; saves go to a draft branch and Publish merges them (ADR-010).
+> - **Astro** (§9 and the stack lists) was replaced by Next.js + Puck
+>   (ADR-007, ADR-014).
+>
+> `docs/specs/technical-architecture.md` describes the system as built.
+> §14 (seeded site and themes) is current.
+
 ## 1. Overview
 
 This document specifies a platform for creating, migrating, editing, previewing, and publishing simple musician websites using an AI coding agent (Claude Code) as the primary implementation engine.

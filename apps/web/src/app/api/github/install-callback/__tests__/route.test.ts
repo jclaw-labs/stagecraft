@@ -131,6 +131,11 @@ describe("GET /api/github/install-callback", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("Already connected");
+    // There is no rotation endpoint (ADR-008), so the page must not
+    // send the artist to one.
+    expect(body).not.toMatch(/rotat/i);
+    expect(body).toContain("can't show it again");
+    expect(body).toContain("contact support");
     expect(prismaMock.site.update).not.toHaveBeenCalled();
   });
 
@@ -248,6 +253,7 @@ describe("GET /api/github/install-callback", () => {
         STAGECRAFT_SITE_ID: "site-1",
         STAGECRAFT_BROKER_SECRET: expect.stringMatching(/^scbs_[0-9a-f]{64}$/),
       },
+      { replace: true },
     );
     expect(triggerNetlifyBuildMock).toHaveBeenCalledWith("user-1", "netlify-abc");
     expect(setVercelEnvVarsMock).not.toHaveBeenCalled();
@@ -302,6 +308,9 @@ describe("GET /api/github/install-callback", () => {
     expect(body).toContain("finish setup manually");
     expect(body).toContain("Netlify API error (401): bad token");
     expect(body).toContain("STAGECRAFT_BROKER_SECRET=");
+    // No rotation endpoint exists (ADR-008); the copy must not promise one.
+    expect(body).not.toMatch(/rotat/i);
+    expect(body).toContain("shown exactly once");
     // The manual env-var block doesn't include STAGECRAFT_PLATFORM_URL
     // anymore — the artist template defaults it.
     expect(body).toMatch(/<pre>STAGECRAFT_SITE_ID=[^<]+\nSTAGECRAFT_BROKER_SECRET=[^<]+<\/pre>/);

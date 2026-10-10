@@ -13,8 +13,8 @@ Conventions for the musician-site template per ADR-007.
 
 Set up Puck on its happy path. Block configs are written natively as
 Puck `Config` objects (`fields`, `defaultProps`, `render`). The
-existing legacy template's tags are a reference for *what* artists need,
-not a contract for *how* Puck is configured.
+retired Astro template (ADR-014) was a reference for *what* artists
+need, not a contract for *how* Puck is configured.
 
 The block library at `src/puck/config.tsx` is the source of truth for
 block schemas — one library for pages, collection templates and item
@@ -24,8 +24,7 @@ bodies (#349). Puck `Config` objects are assembled in two places only:
 (`src/puck/render-config.tsx`) for `<Render>`. Nothing on the render path
 imports `build-config.tsx`, so the template pickers and Collection block
 inspectors stay out of the public page's module graph
-(`src/puck/render-path.test.ts` fails if one comes back). Don't auto-generate either from Zod; don't share block
-schemas with the legacy template. ADR-007 explicitly exempts Puck
+(`src/puck/render-path.test.ts` fails if one comes back). Don't auto-generate either from Zod. ADR-007 explicitly exempts Puck
 block configs from the cross-system SSOT rule in the top-level
 `CLAUDE.md` §1.
 
@@ -39,7 +38,11 @@ src/
                             Google Fonts <link>
       [[...slug]]/page.tsx  Catch-all for every public URL:
                               /         → splash page or 'home'
-                              /<slug>   → src/content/pages/<slug>.json
+                              /<slug>   → pages item <slug>
+                              /<prefix>/<slug> → item of the collection
+                                          whose detailUrlPrefix is
+                                          /<prefix> (longest prefix
+                                          wins; prerendered at build)
       not-found.tsx         Themed 404 body
     global-not-found.tsx    404 for unmatched URLs, in the public layout.
                             No root not-found.tsx: Next would put it in
@@ -55,12 +58,22 @@ src/
                             Pages list (drag handle + eye toggle per row).
       appearance/page.tsx   Colors + typography form
     api/
+      auth/                 Magic-link request / verify, logout, dev login
       publish-status/       Vercel/Netlify deploy state proxy
-      upload-image/         sharp-based image processor + dedup
+      upload-image/         sharp-based image processor; commits to draft
+      collections/                          POST: create a collection
       collections/[slug]/items/             generic CRUD for any collection
                                             (pages included)
       collections/[slug]/items/[itemSlug]/  per-item GET / PUT / PATCH / DELETE
       collections/[slug]/order/             PUT: write `_order.json`
+      collections/[slug]/schema/            PUT: schema change + item migrations
+      collections/[slug]/template/[kind]/   PUT: item / detail template
+      draft-changes/        Pending changes on the editor's draft branch
+      publish-draft/        Publish the whole draft to main (ADR-010)
+      publish-selected/     Publish selected items to main (ADR-012)
+      discard-draft/        Drop pending changes
+      welcome/              First-run wizard: complete / reset
+      contact/              Public contact form (Resend)
   components/
     Image.tsx               Public <picture> renderer for ImageMetadata
     Header.tsx              Public site header (artist name + nav)
@@ -146,22 +159,27 @@ src/
                               index.ts    Public API
                               test-fixtures.ts  Shared fixtures
                                           (tourDatesDef, tourDateItem)
-    publish.ts              Multi-target publish flow (page,
-                            site-config, header-config, appearance,
-                            delete-page; plus collection-def,
+    publish.ts              Save and publish over the broker → GitHub
+                            path (saveToDraft, saveAndPublish,
+                            publishDraftToMain, publishSelectedToMain,
+                            discardDraft). Targets: collection-def,
                             collection-item, collection-order,
-                            delete-collection-item) over the broker →
-                            GitHub path with dev-disk fallback
+                            delete-collection-item. Local-disk mode in
+                            dev builds only
+    draft-branch.ts         Which draft branch an editor uses (ADR-011)
     git-commit.ts           Octokit blob/tree/commit/update-ref helper;
                             supports `deletePaths` for page deletion
     auth.ts                 JWT signing/verifying for magic links +
                             sessions (jose, Edge-runtime safe)
     image*.ts               sharp pipeline + ImageMetadata schema
   content/
-    pages/<slug>.json       One Puck JSON file per page
-    config/site.json        Site Settings singleton
-    config/header.json      Header & Navigation singleton
-    config/appearance.json  Appearance (colors + typography) singleton
+    collections/<slug>/     One directory per collection (ADR-009 §7)
+      _collection.json        CollectionDef: fields, templates, routing,
+                              sort
+      items/<itemSlug>.json   One item per file (pages: one per page)
+      items/_singleton.json   The item of a singleton (site, header,
+                              appearance)
+      items/_order.json       Manual order (pages: nav order)
 ```
 
 ## Admin shell
@@ -171,9 +189,9 @@ groups:
 
 1. **Custom admin surfaces** (top, curated UX) — Pages, Site Settings,
    Header & Navigation, Appearance.
-2. **Collections** (under a header) — every other collection
-   registered in `_collections.json`, listed alphabetically by plural
-   name. Each links to the generic
+2. **Collections** (under a header) — every other collection (each
+   directory under `src/content/collections/`), listed alphabetically
+   by plural name. Each links to the generic
    `/admin/collections/<slug>` list view (or
    `/admin/collections/<slug>/items/_singleton` for singletons).
 
@@ -200,9 +218,9 @@ Registering a collection there:
 The four custom surfaces today:
 
 - **Pages** — `/admin/pages` is the landing page. Lists every page on
-  disk; each row carries a drag handle (reorder = nav order +
-  Pages-list order, persisted to `siteConfig.pageOrder`), an eye toggle
-  (`siteConfig.hiddenFromNav`), an Edit button into Puck, and a Delete
+  the draft; each row carries a drag handle (reorder = nav order +
+  Pages-list order, persisted to `collections/pages/items/_order.json`),
+  an eye toggle (the page's `showInNav` field), an Edit button into Puck, and a Delete
   button. Inline "Add page" form (auto-slug from title); after creating
   a page the artist stays on the list — Edit opens the Puck editor at
   `/admin/pages/<slug>` (which fills the viewport).
@@ -354,14 +372,14 @@ One or more allowed editor emails per site (the editor allowlist), gated by midd
 
 | Var | Required | Notes |
 | --- | --- | --- |
-| `MAGIC_LINK_SIGNING_SECRET` | prod | Random string, ≥32 bytes. Used to sign JWTs (HS256). Rotate forces re-login. In dev, falls back to a hardcoded placeholder if unset. |
+| `MAGIC_LINK_SIGNING_SECRET` | no | Random string, ≥32 bytes. Used to sign JWTs (HS256) when set. When unset, the key is derived from `STAGECRAFT_BROKER_SECRET` (what provisioned sites use); if both are unset, dev falls back to a hardcoded placeholder and production throws. Rotating whichever one is in use forces re-login. |
 | `ADMIN_EMAILS` | prod | Editor allowlist — comma/whitespace-separated emails (case-insensitive). Any email off the list gets the same "check your email" response (no enumeration). Re-checked at magic-link verify, so a removed editor's outstanding link can't mint a session (`getAllowedEditorEmails` / `isAllowedEditor` in `auth.ts`). |
 | `ADMIN_EMAIL` | prod | Legacy single-editor var. Still honored and unioned into the allowlist, so sites provisioned before `ADMIN_EMAILS` keep working. In dev, when both are unset, the request handler accepts any submitted email. |
 | `RESEND_API_KEY` + `MAGIC_LINK_FROM` | prod | Provisioned automatically by `/create` from the artist's own Resend account (connected at `/settings` on the platform). Each artist site uses its owner's account end-to-end — the platform never sees recipient addresses. Without these, magic links log to the dev server console. |
 
 **Cookie:** `mc_session`, HttpOnly, SameSite=Lax, 7-day max age. `Secure` flag set in production.
 
-Middleware (`src/middleware.ts`) gates `/admin/*` and `/api/save`. `/admin/login` is allowlisted. API routes return 401; pages redirect.
+Middleware (`src/middleware.ts`) gates `/admin/*`, `/api/publish-status` and `/api/upload-image`; `/admin/login` is allowlisted. API routes return 401; pages redirect. Every other admin API route (collections, drafts, publish, welcome) checks `getSession()` itself, so a new admin route must too.
 
 **Server-side session access:** `getSession()` from `@/lib/auth` reads the cookie and verifies it. Use it in Server Components and route handlers.
 
@@ -395,14 +413,25 @@ public/images/<content-slug>/<image-id>/
 
 **Editor integration.** The `Image` Puck block uses a custom field (`src/puck/ImagePickerField.tsx`) that wraps `/api/upload-image`: the artist picks a file, types alt text, hits Upload — the field stores the returned `ImageMetadata` as the block's value. The public render path passes that metadata straight to the `<Image>` component above. Editor-side state stays in the field component; the field is `"use client"` since Puck calls it inside the editor surface.
 
-**Production vs dev:** when the platform env vars are configured (see Publishing below), the route commits the original + every variant to the artist's repo through the broker (one commit per upload). Without the env vars (local dev), it writes the same files to `public/images/` so the dev server can serve them.
+**Production vs dev:** when the platform env vars are configured (see Publishing below), the route commits the original + every variant to the editor's draft branch through the broker (one commit per upload, `src/lib/commit-image.ts`); they go live with the next Publish. Without the env vars, it writes the same files to `public/images/` so the dev server can serve them. Unlike content saves, it does this in a production build too rather than refusing (`no-platform-configured`), so an unconnected deployed site reports uploads that don't persist.
 
 **TODO (covered by stacked PRs):**
 - GitHub-backed dedup check. Today both code paths recompute variants on every upload; the broker path produces a no-op tree for re-uploads (deterministic blob SHAs) but still creates a commit. A `getContent`-based pre-check would skip the commit entirely.
 
-## Publishing (ADR-007 §5, ADR-008)
+## Saving and publishing (ADR-007 §5, ADR-008, ADR-010–012)
 
-The publish flow is multi-target by design — one round-trip can write a
+Saves and publishes are separate steps. A save commits to the editor's
+draft branch: the shared `draft`, or `draft-<editorKey>` on a site with
+more than one editor (`src/lib/draft-branch.ts`, ADR-011). Draft commits
+go to a non-production branch and carry `[skip ci]`, so they don't
+change the live site. **Publish** merges the draft
+into `main` (`/api/publish-draft`), or only the selected items
+(`/api/publish-selected`, ADR-012); the push to `main` is what the host
+builds. Admin reads come from the draft branch through `getReadStore()`
+(`src/lib/collections/read-store.ts`), so an editor sees their pending
+changes on any serverless instance.
+
+The save flow is multi-target by design — one round-trip can write a
 page, a singleton, multiple files, or a mix. Each `PublishTarget` has
 its known repo path and Zod schema so a bad payload from the API fails
 before the GitHub call.
@@ -466,40 +495,41 @@ complexity for the sub-second write windows we see in practice.
 **Production (platform configured):**
 1. Validate magic-link session.
 2. POST `STAGECRAFT_PLATFORM_URL/api/publish-token` with `{ siteId }` and `Authorization: Bearer STAGECRAFT_BROKER_SECRET`.
-3. Broker mints a short-lived GitHub App installation token + returns `{ owner, repo }`.
-4. Octokit Git Data API: blob → tree → commit → update ref. One commit per save, structured trailer `Stagecraft-Publish-Id: <uuid>`. Author is the artist's email; committer is the App.
+3. Broker mints a short-lived GitHub App installation token scoped to this site's repo + returns `{ owner, repo }`. The site caches it until shortly before it expires.
+4. Octokit Git Data API (`src/lib/git-commit.ts`): rebase the draft onto `main` if needed, then blob → tree → commit → update the draft ref, retrying a bounded number of times on a stale ref (then `concurrent-edit`). Commit messages end with a `Stagecraft-Publish-Id: <uuid>` trailer. Author is the artist's email; committer is the App.
 5. Return `{ ok: true, commitSha }`.
 
-**Dev fallback (platform not configured):** writes JSON directly to
-`src/content/pages/<slug>.json` and `src/content/config/*.json`.
-Detected by missing `STAGECRAFT_SITE_ID` or `STAGECRAFT_BROKER_SECRET`.
+**Dev (platform not configured):** local disk is the content store. Files
+are written under `src/content/collections/` (or `STAGECRAFT_CONTENT_DIR`)
+and `public/images/`, and there is no draft branch or publish step.
+"Platform configured" means both `STAGECRAFT_SITE_ID` and
+`STAGECRAFT_BROKER_SECRET` are set.
 
 **Env vars:**
 
 | Var | Required | Notes |
 | --- | --- | --- |
-| `STAGECRAFT_PLATFORM_URL` | prod | Base URL of the broker. Trailing slash tolerated. |
-| `STAGECRAFT_SITE_ID` | prod | Platform's `Site.id` for this deployment. Namespaced because Netlify reserves `SITE_ID` for its own injected site identifier. |
-| `STAGECRAFT_BROKER_SECRET` | prod | Per-site shared secret with the platform; sent as `Authorization: Bearer`. Generated by platform at install time. |
-| `SITE_GIT_BRANCH` | no | Defaults to `main`. |
+| `STAGECRAFT_PLATFORM_URL` | no | Base URL of the broker. Defaults to `https://stagecraft.website`. Provisioning and the install callback don't set it; the platform's `install-url` route sets it to the platform's `AUTH_URL` (empty, so the default, when that's unset). Trailing slash tolerated. |
+| `STAGECRAFT_SITE_ID` | prod | Platform's `Site.id` for this deployment. Namespaced because Netlify reserves `SITE_ID` for its own injected site identifier. Set by the platform. |
+| `STAGECRAFT_BROKER_SECRET` | prod | Per-site shared secret with the platform; sent as `Authorization: Bearer`. Set by the platform when it provisions the site or connects the GitHub App. Also the root of the derived magic-link signing key. |
+| `SITE_GIT_BRANCH` | no | The live branch Publish merges into. Defaults to `main`. |
 
-**Errors:** structured envelope `{ ok: false, code, error }` with codes `unauthorized`, `validation-failed`, `broker-unreachable`, `broker-rejected`, `github-failed`, `no-platform-configured`. Broker rejection → 502; GitHub failure → 500.
-
-**Auth note (vs ADR-008 wording):** ADR-008 §2 sketches the broker auth as "forwarded magic-link cookie." That's not actually verifiable cross-service (the artist site signs sessions with its own secret, which the platform doesn't hold). Implementation uses a per-site `STAGECRAFT_BROKER_SECRET` provisioned at install. ADR-008 should be amended to reflect this; tracked as a follow-up.
-
-## What's intentionally not here yet
-
-- **Platform-side endpoints** (token broker, install callback, webhook) — separate PR; without them, publish runs in dev fallback.
-
-These ship in stacked PRs.
+**Errors:** structured envelope `{ ok: false, code, error }` with codes `unauthorized`, `validation-failed`, `broker-unreachable`, `broker-rejected`, `github-failed`, `no-platform-configured`, `concurrent-edit` (`src/lib/publish-types.ts`). Content saves map them with `saveFailureStatus` (409 for `concurrent-edit`, 503 for `no-platform-configured`, otherwise 502); publish and image upload use `publishErrorHttpStatus` (502 for `broker-rejected`, 409 for `concurrent-edit`, otherwise 500); discard answers 502 for `broker-rejected` and 500 otherwise.
 
 > **Collection blocks on hand-authored pages (ADR-015, done).** Pages embed a
 > collection via the generic Collection block (`<Slug>View`, e.g.
 > `TourDatesView`): the public catch-all walks the page through the ADR-009
-> template renderer (`resolveTemplate` + `buildPuckConfig`'s render variant),
+> template renderer (`resolveTemplate` + `buildRenderConfig`),
 > resolving each block's `sourceCollection`/`sort`/`filter` against the live
 > collection; the page editor authors them via `buildPuckConfig`'s page
 > surface. This replaced the
 > bespoke `TourDatesView`/`ReleasesView`/`PostsView` page blocks +
 > `resolvePageCollectionBlocks` (deleted). Any collection is embeddable — no
 > per-collection code. Per-slug card layouts live in `specialized-views.tsx`.
+
+## Not built yet
+
+- **Template updates for existing sites.** Each site is a one-time copy
+  of this template; nothing updates it after provisioning. ADR-016
+  (Proposed) plans to ship the template's code as a versioned package.
+- **GitHub-side image de-duplication** (see Images above).

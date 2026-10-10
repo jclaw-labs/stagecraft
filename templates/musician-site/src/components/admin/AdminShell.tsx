@@ -32,8 +32,8 @@ import {
  *   1. **Custom panels** (top, sanctioned UX) — Pages, Site Settings,
  *      Header & Navigation, Appearance. Sourced from `CUSTOM_ADMIN_SURFACES`.
  *   2. **Collections** (below, under a header) — every other collection
- *      registered in `_collections.json`, listed alphabetically by
- *      plural name. Each links to the generic
+ *      (one directory per collection under `src/content/collections/`),
+ *      listed alphabetically by plural name. Each links to the generic
  *      `/admin/collections/<slug>` list view.
  *
  * Custom-panel collections are filtered out of the Collections group so

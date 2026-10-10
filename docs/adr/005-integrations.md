@@ -4,34 +4,34 @@
 Accepted
 
 ## Context
-The platform integrates with GitHub (repos, branches, PRs), Netlify (hosting, previews), Anthropic Claude (AI edits), and Resend (email delivery). Each integration needs auth management and API interaction patterns.
+The platform integrates with GitHub (sign-in, artist repos, commits to those repos), a deploy target per site (Netlify or Vercel), and Resend (email for artist sites). Each integration needs auth management and API interaction patterns.
+
+This section reflects current decisions; the Revision history below records what changed. The original v1 decision also covered an Anthropic API integration for AI edits, which was cut with the rest of the AI-edit roadmap (issue #344).
 
 ## Decision
 
-### GitHub: OAuth App for v1, GitHub App later
-- Start with GitHub OAuth for user authentication and repo access
-- OAuth provides simpler setup for v1 and sufficient permissions for repo creation, branching, PR management
-- Migrate to a GitHub App when fine-grained installation permissions become important
+### GitHub: OAuth for sign-in and provisioning, a GitHub App for commits
+- Artists sign in with GitHub OAuth (ADR-006). The OAuth token (scopes `read:user user:email repo workflow`, `apps/web/src/lib/github-oauth-scope.ts`) is what the platform uses to create the artist's repo, push the template and its workflow, find App installations, and archive the repo when a site is deleted.
+- Commits from an artist's own site go through the Stagecraft GitHub App, not the artist's OAuth token. The platform brokers short-lived installation tokens scoped to the site's repo (ADR-008). This is the "GitHub App later" the original decision anticipated; it landed in PR #72.
 
 ### Netlify: OAuth + API
 - Use Netlify OAuth to connect user accounts
-- Use Netlify API for site creation, deploy status, and environment variable management
-- Deploy previews are automatic via Netlify's GitHub integration once repos are connected
+- Use the Netlify API to create a site linked to the artist's repo, set environment variables, trigger builds and read deploy status
+- The platform finds Netlify's GitHub App installation itself, since Netlify's API doesn't expose it (see the PR #90 revision)
 
-### AI Provider: Direct Anthropic API
-- Platform calls the Anthropic API directly with platform-owned API keys
-- Users do not need their own Claude subscription
-- Structured prompts with repo context, CLAUDE.md instructions, and task classification
+### Vercel: personal access token + API
+- Added as a parallel deploy target in PR #90 and preferred when both are connected (see that revision)
+- Use the Vercel API to create a project linked to the repo, set environment variables, trigger deployments and read deploy status
 
 ### Email: Resend API
-- Generated sites use Netlify Functions to call Resend for contact form delivery
-- Platform manages Resend API key injection into site environment variables
+- Each artist connects their own Resend account; provisioning copies the API key into their site's environment variables
+- The site sends editor magic-link emails and contact-form messages through it, from its own Next.js routes (`/api/auth/request`, `/api/contact`)
 
 ## Consequences
 - Integration tokens are stored in the platform database via `IntegrationAccount` (and NextAuth's `Account`), encrypted at the application layer (see the 2026-10-09 revision below)
-- Each integration has a service module in the platform codebase
-- GitHub and Netlify connections are per-user and validated on each operation
-- AI calls are platform-managed, providing observability and retry control
+- Each integration has a service module in `apps/web/src/lib/integrations/`
+- Connections are per-user; provisioning checks the required ones before it starts (`siteSetupIntegrationError` in `@stagecraft/shared`)
+- Artist sites never hold the GitHub App key or the artist's GitHub, Netlify or Vercel tokens; they hold their own broker secret and the artist's Resend key
 
 ---
 
@@ -63,3 +63,5 @@ Netlify's path also got fixed in the same PR — `findGithubAppInstallation(user
 **2026-10-10, issue #398 — Private artist repos; no `delete_repo` scope.** New artist repos are created private (`createRepo` defaults to `private: true`, and provisioning passes it explicitly). Existing repos keep whatever visibility they have. GitHub sign-in drops `delete_repo` and now requests `read:user user:email repo workflow` (`apps/web/src/lib/github-oauth-scope.ts`), so a token granted from then on can't delete an artist's repos. Tokens granted before keep `delete_repo` until the artist revokes the app at github.com/settings/applications; nothing in the platform uses it. Deleting a site removes its deploy-provider project and DB row but keeps the GitHub repo; the delete confirmation says so and links to the repo's GitHub settings page, where the artist can delete it. Because the repo name comes from the site's slug, recreating a site with the same name fails until that repo is deleted or renamed; provisioning says so in the error. For a created site, "Retry setup" works once the repo is gone; a migration has no retry, so its error says to delete the site and migrate again. A kept repo created more than a couple of minutes (the 2-minute clock-skew allowance) before the new site's first `createRepo` attempt is never adopted; one created inside that window can be, if the artist retries without deleting it. `deleteRepo` is removed. Provisioning failures already left the repo in place for retries, so nothing changes there. Mentions of the `delete_repo` scope above describe tokens granted before this change.
 
 **2026-10-10, issue #429 — Deleting a site archives its kept repo.** A kept repo still got Dependabot pull requests, and still ran the auto-merge workflow (on the artist's Actions minutes for a private repo). `deleteSiteResources` (`apps/web/src/lib/site-cleanup.ts`, shared by `DELETE /api/sites/[siteId]` and the admin bulk delete) now archives the repo with `setRepoArchived`, which needs only the `repo` scope. It is best-effort like the deploy-provider cleanup: a failure is logged and returned in the response's `errors` and the site is deleted anyway. A repo that is already archived is left alone. A 404 counts as done and is only logged: it usually means the artist already deleted the repo, but GitHub also returns it for a private repo the token can't see, which is an accepted gap. Archiving doesn't change access: stagecraft-bot and the Netlify/Vercel Apps keep read access until the artist removes them. A site whose repo link a GitHub App webhook already cleared (the App was uninstalled or the repo removed from it) is deleted without archiving. The repo is still kept, and the artist can unarchive it on GitHub; the danger-zone copy says so. An archived repo still holds its name, so recreating a site with the same name still fails until the repo is deleted, or unarchived and renamed; the provisioning error says so.
+
+**2026-10-10, issue #362 — Body brought up to date.** The Decision still read "OAuth App for v1, GitHub App later" and still listed a direct Anthropic API integration for AI edits. Rewritten to the current split (OAuth for sign-in and provisioning, the GitHub App for artist-site commits per ADR-008), with Vercel listed as a target and the AI provider section removed (issue #344 cut the AI-edit roadmap). Resend is described as it works now: the artist's own key, used by the site's Next.js routes rather than Netlify Functions.
