@@ -3,14 +3,23 @@
 import { createUsePuck, Puck } from "@puckeditor/core";
 import "@puckeditor/core/puck.css";
 import Link from "next/link";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
 import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import { buildPuckConfig } from "@/puck/build-config";
 import type { EmbeddableCollection } from "@/puck/collection-view-editor";
-import { BLOCK_DESCRIPTIONS } from "@/puck/config";
+import { BLOCK_DESCRIPTIONS, type BlockLibraryConfig } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { CollectionDef, Item } from "@/lib/collections/schema";
 import { pageValuesForSave, type PageData } from "@/lib/page-data";
@@ -158,109 +167,170 @@ export function Editor({
     [appearance],
   );
 
-  return (
-    <Puck
-      config={config}
-      data={initialData}
-      onPublish={savePageToDraft}
-      onChange={() => setIsDirty(true)}
-      overrides={{
-        iframe: CanvasFrame,
-        drawer: ({ children }) => {
-          const q = drawerFilter.trim().toLowerCase();
-          const hasMatch =
-            !q ||
-            Object.keys(config.components).some((name) =>
-              name.toLowerCase().includes(q),
-            );
-          return (
-            <>
-              <DrawerCategoryVisibilitySync
-                filter={drawerFilter}
-                categories={config.categories ?? {}}
-              />
-              <DrawerSearchInput
-                value={drawerFilter}
-                onChange={setDrawerFilter}
-              />
-              {q && !hasMatch ? (
-                <p
-                  role="status"
-                  style={{
-                    margin: "0 0 var(--space-3) 0",
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  No matching blocks.
-                </p>
-              ) : null}
-              {children}
-            </>
-          );
-        },
-        drawerItem: ({ name, children }) => {
-          const q = drawerFilter.trim().toLowerCase();
-          if (q && !name.toLowerCase().includes(q)) {
-            // Render but hide so Puck's drag machinery keeps its DOM
-            // references; removing items outright can confuse the
-            // drawer-list virtualisation. `inert` keeps keyboard
-            // focus out of the hidden item (a tabbable drag handle
-            // would otherwise still be reachable).
-            return (
-              <div style={{ display: "none" }} aria-hidden inert>
-                {children}
-              </div>
-            );
-          }
-          return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
-        },
-        fields: ({ children, itemSelector }) => (
-          <>
-            {itemSelector ? <BlockHelp /> : null}
-            {children}
-          </>
-        ),
-        headerActions: ({ children }) => (
-          <>
-            <Link
-              href="/admin/pages"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "var(--space-1)",
-                padding: "var(--space-1) var(--space-3)",
-                fontSize: "var(--font-size-xs)",
-                fontWeight: "var(--font-weight-semibold)" as unknown as number,
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                textDecoration: "none",
-              }}
-              title="Back to pages list"
-            >
-              ← Pages
-            </Link>
-            <span
-              style={{
-                fontSize: "var(--font-size-xs)",
-                color: "var(--color-text-muted)",
-                fontFamily: "var(--font-mono)",
-              }}
-              title="Page slug"
-            >
-              /{pageSlug}
-            </span>
-            <SaveStatusPill state={saveState} />
-            {children}
-            <AdminAccountButton email={email} />
-          </>
-        ),
-      }}
-    />
+  const drawerFilterState = useMemo<DrawerFilterState>(
+    () => ({ filter: drawerFilter, setFilter: setDrawerFilter, config }),
+    [drawerFilter, config],
   );
+  const headerState = useMemo<HeaderState>(
+    () => ({ pageSlug, saveState, email }),
+    [pageSlug, saveState, email],
+  );
+
+  return (
+    <HeaderStateContext.Provider value={headerState}>
+      <DrawerFilterContext.Provider value={drawerFilterState}>
+        <Puck
+          config={config}
+          data={initialData}
+          onPublish={savePageToDraft}
+          onChange={() => setIsDirty(true)}
+          overrides={{
+            iframe: CanvasFrame,
+            drawer: FilteredDrawer,
+            drawerItem: FilteredDrawerItem,
+            fields: FieldsWithHelp,
+            headerActions: EditorHeaderActions,
+          }}
+        />
+      </DrawerFilterContext.Provider>
+    </HeaderStateContext.Provider>
+  );
+}
+
+/*
+ * Puck renders every override below (`iframe`, `drawer`, `drawerItem`,
+ * `fields`, `headerActions`) as a component type, so each one has to
+ * keep its identity across Editor renders. An inline function would
+ * remount that part of the editor whenever the Editor re-renders: on
+ * every edit (`isDirty`), save-state change and drawer keystroke. For
+ * `fields` that drops focus from the inspector input the artist is
+ * typing in. Overrides that need Editor state read it from a context.
+ */
+
+function FieldsWithHelp({
+  children,
+  itemSelector,
+}: {
+  children: ReactNode;
+  itemSelector?: unknown;
+}) {
+  return (
+    <>
+      {itemSelector ? <BlockHelp /> : null}
+      {children}
+    </>
+  );
+}
+
+type HeaderState = { pageSlug: string; saveState: SaveState; email: string };
+
+const HeaderStateContext = createContext<HeaderState | null>(null);
+
+function EditorHeaderActions({ children }: { children: ReactNode }) {
+  const state = useContext(HeaderStateContext);
+  if (!state) throw new Error("EditorHeaderActions: rendered outside the page Editor");
+  const { pageSlug, saveState, email } = state;
+  return (
+    <>
+      <Link
+        href="/admin/pages"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--space-1)",
+          padding: "var(--space-1) var(--space-3)",
+          fontSize: "var(--font-size-xs)",
+          fontWeight: "var(--font-weight-semibold)" as unknown as number,
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--color-border)",
+          background: "var(--color-surface)",
+          color: "var(--color-text)",
+          textDecoration: "none",
+        }}
+        title="Back to pages list"
+      >
+        ← Pages
+      </Link>
+      <span
+        style={{
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-text-muted)",
+          fontFamily: "var(--font-mono)",
+        }}
+        title="Page slug"
+      >
+        /{pageSlug}
+      </span>
+      <SaveStatusPill state={saveState} />
+      {children}
+      <AdminAccountButton email={email} />
+    </>
+  );
+}
+
+/**
+ * The drawer search filter, shared with the `drawer` and `drawerItem`
+ * overrides. As inline functions they remounted the whole drawer on
+ * every keystroke, which dropped the search input's focus after one
+ * character and reset `DrawerCategoryVisibilitySync`, so clearing the
+ * filter never brought hidden categories back.
+ */
+type DrawerFilterState = {
+  filter: string;
+  setFilter: (next: string) => void;
+  config: BlockLibraryConfig;
+};
+
+const DrawerFilterContext = createContext<DrawerFilterState | null>(null);
+
+function useDrawerFilter(): DrawerFilterState {
+  const state = useContext(DrawerFilterContext);
+  if (!state) throw new Error("useDrawerFilter: rendered outside the page Editor");
+  return state;
+}
+
+function FilteredDrawer({ children }: { children: ReactNode }) {
+  const { filter, setFilter, config } = useDrawerFilter();
+  const q = filter.trim().toLowerCase();
+  const hasMatch =
+    !q || Object.keys(config.components).some((name) => name.toLowerCase().includes(q));
+  return (
+    <>
+      <DrawerCategoryVisibilitySync filter={filter} categories={config.categories ?? {}} />
+      <DrawerSearchInput value={filter} onChange={setFilter} />
+      {q && !hasMatch ? (
+        <p
+          role="status"
+          style={{
+            margin: "0 0 var(--space-3) 0",
+            color: "var(--color-text-muted)",
+            fontSize: "var(--font-size-sm)",
+            fontStyle: "italic",
+          }}
+        >
+          No matching blocks.
+        </p>
+      ) : null}
+      {children}
+    </>
+  );
+}
+
+function FilteredDrawerItem({ name, children }: { name: string; children: ReactNode }) {
+  const q = useDrawerFilter().filter.trim().toLowerCase();
+  if (q && !name.toLowerCase().includes(q)) {
+    // Render but hide so Puck's drag machinery keeps its DOM
+    // references; removing items outright can confuse the
+    // drawer-list virtualisation. `inert` keeps keyboard
+    // focus out of the hidden item (a tabbable drag handle
+    // would otherwise still be reachable).
+    return (
+      <div style={{ display: "none" }} aria-hidden inert>
+        {children}
+      </div>
+    );
+  }
+  return <DrawerItemPreview name={name}>{children}</DrawerItemPreview>;
 }
 
 function SaveStatusPill({ state }: { state: SaveState }) {
