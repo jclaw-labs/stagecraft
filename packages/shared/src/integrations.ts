@@ -48,3 +48,11 @@ export function siteSetupIntegrationError(
   }
   return null;
 }
+
+/**
+ * Netlify build settings for an artist site built from the musician-site
+ * template. The template is Next.js (ADR-007) and ships no netlify.toml, so
+ * the publish dir is Next's `.next`. Both the repo-linked and the bare-site
+ * createSite calls use this, so the two can't drift apart again.
+ */
+export const MUSICIAN_SITE_NETLIFY_BUILD = { cmd: "npm run build", dir: ".next" } as const;

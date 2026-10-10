@@ -69,7 +69,7 @@ describe("Netlify integration", () => {
           repo_path: "jclaw/my-site",
           repo_branch: "main",
           cmd: "npm run build",
-          dir: "dist",
+          dir: ".next",
         },
       });
 
@@ -79,7 +79,7 @@ describe("Netlify integration", () => {
         repo_path: "jclaw/my-site",
         repo_branch: "main",
         cmd: "npm run build",
-        dir: "dist",
+        dir: ".next",
       });
       expect(body.build_settings).toBeUndefined();
     });
