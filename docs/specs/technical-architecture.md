@@ -51,7 +51,7 @@ Meaningful changes should go through branch creation, validation, PR creation, a
 AI changes should be guided by:
 
 - repo conventions
-- site blueprints/templates
+- the musician-site template (one seeded site shape, styled by themes)
 - schema-validated structured content files — the primary editing surface
 - validation steps (content schema validation must pass before commit)
 - limited task scopes
@@ -498,8 +498,8 @@ Temporary platform storage can be used before commit into the repo, but the comm
 ### 10.1 Happy-path create-site flow
 
 1. user connects GitHub and Netlify
-2. user chooses blueprint
-3. user enters site name and base content
+2. user enters site name (there is no blueprint to choose; every site gets the same seeded shape — see product spec §14)
+3. user enters base content and picks a starting point (theme, custom colour, or "Start empty") in the site's welcome wizard
 4. user uploads initial images/assets
 5. backend creates `create_site` job
 6. job creates repo from template
@@ -580,7 +580,7 @@ Allow users to migrate an existing simple musician site into the new platform/te
 1. crawl and extract source site
 2. infer information architecture
 3. extract page text and media references
-4. map content into platform blueprint/content schema
+4. map content into the template's pages and content schema
 5. generate migrated site repo
 6. validate and preview
 7. user reviews and adjusts manually/through AI
@@ -621,7 +621,7 @@ The AI worker should run in an isolated execution environment with access to:
 3. checkout default branch
 4. create/edit working branch
 5. hydrate local prompt context from:
-   - site blueprint
+   - site template and content schema
    - repo files
    - CLAUDE.md instructions
    - request classification
@@ -987,7 +987,7 @@ Create the reusable Astro + React + TypeScript musician-site starter that all cu
 - template runs locally
 - template deploys to Netlify
 - template passes validation pipeline
-- template supports at least one polished musician-site blueprint
+- template ships a polished seeded musician site
 
 ### Tickets
 
@@ -1110,7 +1110,7 @@ Allow a user to create a site from the platform and generate a working repo + de
 ### Tickets
 
 #### M3-T1: Build create-site wizard UI
-**Description:** Implement multi-step flow for blueprint selection, content input, and asset upload.
+**Description:** Implement multi-step flow for site naming, content input, and asset upload.
 **Acceptance criteria:** User can submit a valid create-site request through the UI.
 
 #### M3-T2: Implement create-site job orchestration
@@ -1260,7 +1260,7 @@ Support basic migration from existing brochure-style musician websites.
 ### Deliverables
 - migration URL intake UI
 - crawl/extract service
-- schema mapping into blueprint
+- schema mapping into the template's content schema
 - migration summary/confidence report
 - migrated preview
 
@@ -1278,7 +1278,7 @@ Support basic migration from existing brochure-style musician websites.
 **Acceptance criteria:** Extracted content is persisted as structured intermediate data.
 
 #### M7-T3: Implement content mapper
-**Description:** Map extracted content into site blueprint/content schema.
+**Description:** Map extracted content into the template's pages and content schema.
 **Acceptance criteria:** Intermediate data can populate a generated repo structure.
 
 #### M7-T4: Generate migration report

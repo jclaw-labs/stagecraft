@@ -502,29 +502,53 @@ Use the least complex tool that satisfies the request:
 
 Avoid turning the site into a client-heavy SPA unless the user has a very strong reason.
 
-## 14. Site templates / blueprints
+## 14. Seeded site and themes
 
-The platform should start with a small number of constrained site blueprints.
+There are no per-artist-type site blueprints. Every new site is built from the
+one musician-site template and gets the same seeded shape; a theme, not a
+blueprint, sets the look. Artists then add, remove, and edit pages from there.
 
-Suggested initial blueprints:
+The seeded content is written by the template's first-run welcome wizard
+(`templates/musician-site/src/lib/first-run-seeds.ts`). The wording below
+matches the marketing copy in
+`apps/web/src/app/(marketing)/_components/site-sections.ts`; keep the three in
+step.
 
-1. Solo artist
-2. Band / ensemble
-3. Composer / educator
-4. Artist with press kit / EPK emphasis
-5. Tour-focused artist
+### 14.1 What a new site contains
 
-Each blueprint should define:
+- **Home** — a hero with your name, your latest release, upcoming shows, and a
+  photo gallery.
+- **Music** — your releases, listed automatically as you add them.
+- **Tour dates** — add a show once and it appears wherever your site lists
+  dates.
+- **Updates** — news posts for announcements, interviews, and studio notes.
+- **About & Contact** — a bio page, plus a contact form that sends to the email
+  you set.
 
-- page types
-- section inventory
-- design token structure
-- navigation rules
-- image slot definitions
-- optional interactive widgets
-- content schema
+The seed is illustrative starter copy that uses the artist's name, two example
+tour dates, and empty image slots that render a theme-driven placeholder until
+the artist uploads. The artist edits or deletes all of it in place.
 
-The AI should generate within a blueprint rather than inventing an unconstrained site structure from scratch.
+### 14.2 Starting point: theme, custom colour, or "Start empty"
+
+The welcome wizard asks for one starting point:
+
+- **A theme** — pick a ready-made theme preset
+  (`templates/musician-site/src/lib/theme-presets.ts`), which sets colours,
+  fonts, and header in one go. The seeded pages above are added.
+- **Custom colour** — one accent colour on the default palette. The seeded
+  pages above are added.
+- **Start empty** — a blank home page with the default theme and no demo
+  content (no starter pages or tour dates); the artist builds the site
+  themselves.
+
+Whichever start is chosen, fonts and colours can be changed any time from
+Appearance.
+
+### 14.3 Constraint
+
+The AI should edit within the template's page, block, and content schema
+rather than inventing an unconstrained site structure from scratch.
 
 ## 15. User workflows
 
@@ -532,8 +556,10 @@ The AI should generate within a blueprint rather than inventing an unconstrained
 
 1. User signs into the platform.
 2. User links GitHub and Netlify.
-3. User chooses a site blueprint.
-4. User provides key content:
+3. User names the site; the platform creates it from the one musician-site
+   template (there is no blueprint to choose).
+4. In the site's welcome wizard, user provides key content and picks a
+   starting point (a theme, a custom colour, or "Start empty" — see §14):
    - artist name
    - short bio
    - pages desired
@@ -555,7 +581,7 @@ The AI should generate within a blueprint rather than inventing an unconstrained
    - media references
    - embeds
    - navigation
-3. Platform maps extracted content into a chosen blueprint.
+3. Platform maps extracted content into the musician-site template's pages and content schema.
 4. AI generates a migrated site repo.
 5. Platform creates preview.
 6. User reviews and requests fixes.
