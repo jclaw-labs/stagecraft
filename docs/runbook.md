@@ -362,7 +362,7 @@ Routes that enqueue a job run it right after their response (`after()`, see [Job
 
 **Setup:** set `CRON_SECRET` on the Netlify project (Site configuration → Environment variables, Production context) to a random value, e.g. `openssl rand -hex 32`, then redeploy. Until it is set, the route answers 503 and each scheduled run fails with `CRON_SECRET is not set`, visible under Logs → Functions → `drain-jobs`. Leave `STAGECRAFT_INPROCESS_WORKER` unset on Netlify, so enqueueing routes keep running jobs right away.
 
-Scheduled functions run only on the published production deploy, never on Deploy Previews.
+Scheduled functions run only on the published production deploy, never on Deploy Previews. After a production deploy that changes the drain, check the first `drain-jobs` run under Logs → Functions: a run with no error means the route answered 2xx, and a failure logs the thrown error (a missing secret or URL, or the route's status and body).
 
 The platform used to build a Cloudflare Worker preview as well. That was dropped in #464 (issue #467): with a working Prisma engine the bundle exceeded the Workers Free size limit, and requests used far more than its 10 ms of CPU.
 
