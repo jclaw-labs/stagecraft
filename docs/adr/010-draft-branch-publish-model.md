@@ -142,9 +142,11 @@ result, even when the editor saved again during the publish (where a
 three-way merge would conflict on any path both edits touched). A save
 racing that update makes it stale and it retries on the new HEAD. If
 `draft` no longer descends from the squashed commit (it was discarded
-mid-publish), it falls back to merging `main` in. Either way the
-invariant holds and the next edit cycle starts with only the
-mid-publish save pending. If this step fails, the publish still
+mid-publish), it falls back to merging `main` in. Either way `draft`
+contains the squash, and the next edit cycle starts with only the
+mid-publish save pending. A later publish to `main` by another editor
+is pulled in by the next auto-rebase, or by the next publish's
+containment check (ADR-012 "Concurrency"), as before. If this step fails, the publish still
 succeeded and returns the same `warning` as a per-item publish (ADR-012
 "Concurrency & partial failure"); the next save's auto-rebase heals the
 draft.

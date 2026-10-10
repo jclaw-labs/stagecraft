@@ -921,6 +921,15 @@ describe("squashBranchInto", () => {
       expect(isAncestor(refs.get("heads/main")!, head)).toBe(true);
     });
 
+    it("reports not-descendant when the draft was discarded back to the old main", async () => {
+      const { root } = setupDraftAhead();
+      const args = await publish();
+      refs.set("heads/draft", root); // `behind` the squashed commit
+
+      await expect(adoptSquashInto(args)).resolves.toEqual({ kind: "not-descendant" });
+      expect(refs.get("heads/draft")).toBe(root);
+    });
+
     it("reports not-descendant when the draft was reset off the squashed commit", async () => {
       const { root } = setupDraftAhead();
       const args = await publish();
