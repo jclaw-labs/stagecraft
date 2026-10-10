@@ -1,7 +1,7 @@
 # ADR-001: Platform Application Framework
 
 ## Status
-Accepted
+Accepted. 2026-10-10, #362: the generated customer sites no longer use Astro. They are built from the Next.js + Puck template (ADR-007), and the legacy Astro template was removed (ADR-014), so the "Next.js vs Astro" split below is historical.
 
 ## Context
 The Stagecraft platform needs a web application framework for the user-facing dashboard, API endpoints, and backend orchestration. The platform app is separate from the generated customer sites (which use Astro).

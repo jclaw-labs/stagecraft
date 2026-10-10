@@ -49,7 +49,7 @@ artist-site /api/publish
 ### 3. Installation flow
 - Artist signs in to the platform via GitHub OAuth (per ADR-006).
 - **Usually no separate step:** `create_site` (and `migrate_site`) look for the App on the repo owner while provisioning (`findInstallation`). When it's there, they mint the broker secret, store its hash and installation id, and set the secret in the host's env vars with the first deploy. The flow below is the fallback when the App isn't found.
-- Platform dashboard shows a "Connect repo" CTA → links to `GITHUB_APP_INSTALL_URL` with `state=<signed siteId>` (signed using the platform's session secret to prevent CSRF; expires in 10 min).
+- The site page in the platform dashboard shows a "Connect GitHub App" button → links to the App's install URL (`STAGECRAFT_GITHUB_APP_INSTALL_URL` in `apps/web/src/lib/install-url.ts`, a constant built from the App slug; no env var) with `state=<signed siteId>` (signed with `STAGECRAFT_STATE_SIGNING_SECRET` to prevent CSRF; expires in 10 min).
 - Artist selects exactly one repo on GitHub's install screen → GitHub redirects to platform `/api/github/install-callback?state=<signed siteId>&installation_id=<id>&setup_action=install`.
 - Callback validates `state` (signature + expiry), confirms the signed-in user owns the `siteId`, fetches the installation's repo via the App, and persists `githubInstallationId`, `githubRepoOwner`, and `githubRepoName` on the `Site` record.
 - **Generates the broker secret** (`generateBrokerSecret()` from `apps/web/src/lib/broker-secret.ts`), stores `brokerSecretHash`, sets `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` on the site's Vercel project or Netlify site, and triggers a rebuild. Only if that push fails does it render a one-time "reveal" page showing the plaintext with copy-to-env-var instructions. The plaintext is **never persisted** and **never re-displayed**.
@@ -71,14 +71,13 @@ artist-site /api/publish
 | `GITHUB_APP_ID` | App's numeric id, from GitHub App General page |
 | `GITHUB_APP_PRIVATE_KEY` | Contents of the `.pem` private key. Escaped `\n` newlines are normalized at read time |
 | `GITHUB_APP_WEBHOOK_SECRET` | Validates HMAC signatures on incoming webhook events |
-| `GITHUB_APP_INSTALL_URL` | Where "Connect repo" sends the artist (e.g. `https://github.com/apps/<slug>/installations/new`) |
 | `STAGECRAFT_STATE_SIGNING_SECRET` | HS256 secret used to sign the short-lived install-state JWT that round-trips through GitHub's install flow. Generate with `openssl rand -hex 32` |
 
 **Per-artist site (one per `Site`):**
 
 | Var | Purpose |
 |---|---|
-| `STAGECRAFT_PLATFORM_URL` | Base URL of the broker. Optional: the template defaults to the production platform, so provisioning doesn't set it |
+| `STAGECRAFT_PLATFORM_URL` | Base URL of the broker. Optional: the template defaults to the production platform. `create_site` and the install callback don't set it; `/api/sites/[siteId]/install-url` sets it to the platform's `AUTH_URL` (empty when that's unset, which the template treats as the default) |
 | `STAGECRAFT_SITE_ID` | The `Site.id` for this deployment. Namespaced because Netlify reserves `SITE_ID` (injected automatically into Functions) |
 | `STAGECRAFT_BROKER_SECRET` | The per-site secret revealed once at install. Used to authenticate to the broker |
 
@@ -103,7 +102,7 @@ The platform exposes `POST /api/github/webhook` to receive App lifecycle events.
 
 - No automatic re-install attempt; the artist must take explicit action.
 
-**Secret rotation (not built).** The original design called for an explicit rotate action that would replace the hash and push a new secret. It doesn't exist: no route, no dashboard button. Until it does, a lost or leaked secret is replaced by an operator, who clears the site's installation and hash so the artist's next "Connect repo" mints and pushes a fresh one (runbook §6). The artist-facing pages say to contact support rather than promising a rotate action.
+**Secret rotation (not built).** The original design called for an explicit rotate action that would replace the hash and push a new secret. It doesn't exist: no route, no dashboard button. Until it does, a lost or leaked secret is replaced by an operator, who clears the site's installation and hash so the artist's next "Connect GitHub App" mints and pushes a fresh one (runbook §6). The artist-facing pages say to contact support rather than promising a rotate action.
 
 ### 7. Failure modes worth noting
 - **Token broker down** → the save fails with `broker-unreachable` and nothing is saved (since #345 a save is never reported as saved when its commit fails). The editor shows the error, and the artist retries once the platform is back.
@@ -122,9 +121,9 @@ The platform exposes `POST /api/github/webhook` to receive App lifecycle events.
 
 - **New platform endpoints.** `/api/publish-token` (POST, token broker — landed in PR #72), `/api/github/install-callback` (GET, install completion), `/api/github/webhook` (POST, lifecycle events).
 - **`Site` schema gains fields** (landed in PR #72): `githubInstallationId Int?`, `githubAppSuspended Boolean`, `brokerSecretHash String?`. (`githubRepoOwner` and `githubRepoName` already existed.)
-- **Four GitHub App env vars enter the platform's environment:** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL`.
+- **Three GitHub App env vars enter the platform's environment:** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`. The install URL is not configurable: it's the constant `STAGECRAFT_GITHUB_APP_INSTALL_URL` in `apps/web/src/lib/install-url.ts`, built from the App slug.
 - **Octokit becomes a platform dependency.** `@octokit/auth-app` mints installation tokens; `@octokit/rest` issues commits. Artist sites only see `@octokit/rest` configured with the broker-issued token — not the App auth flow.
-- **First-time artist onboarding gains a step:** install GitHub App after platform sign-in. Platform UI needs a "Connect repo" CTA and a one-time "broker secret reveal" view.
+- **First-time artist onboarding gains a step:** install GitHub App after platform sign-in. Platform UI needs a "Connect GitHub App" CTA and a one-time "broker secret reveal" view.
 - **Repo transfers (artist moves the repo to a new owner) require reinstall.** Documented behavior; the platform detects via `installation_repositories.removed` and prompts.
 
 ---

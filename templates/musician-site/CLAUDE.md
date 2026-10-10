@@ -372,7 +372,7 @@ One or more allowed editor emails per site (the editor allowlist), gated by midd
 
 | Var | Required | Notes |
 | --- | --- | --- |
-| `MAGIC_LINK_SIGNING_SECRET` | prod | Random string, ≥32 bytes. Used to sign JWTs (HS256). Rotate forces re-login. In dev, falls back to a hardcoded placeholder if unset. |
+| `MAGIC_LINK_SIGNING_SECRET` | no | Random string, ≥32 bytes. Used to sign JWTs (HS256) when set. When unset, the key is derived from `STAGECRAFT_BROKER_SECRET` (what provisioned sites use); if both are unset, dev falls back to a hardcoded placeholder and production throws. Rotating whichever one is in use forces re-login. |
 | `ADMIN_EMAILS` | prod | Editor allowlist — comma/whitespace-separated emails (case-insensitive). Any email off the list gets the same "check your email" response (no enumeration). Re-checked at magic-link verify, so a removed editor's outstanding link can't mint a session (`getAllowedEditorEmails` / `isAllowedEditor` in `auth.ts`). |
 | `ADMIN_EMAIL` | prod | Legacy single-editor var. Still honored and unioned into the allowlist, so sites provisioned before `ADMIN_EMAILS` keep working. In dev, when both are unset, the request handler accepts any submitted email. |
 | `RESEND_API_KEY` + `MAGIC_LINK_FROM` | prod | Provisioned automatically by `/create` from the artist's own Resend account (connected at `/settings` on the platform). Each artist site uses its owner's account end-to-end — the platform never sees recipient addresses. Without these, magic links log to the dev server console. |
@@ -509,7 +509,7 @@ and `public/images/`, and there is no draft branch or publish step.
 
 | Var | Required | Notes |
 | --- | --- | --- |
-| `STAGECRAFT_PLATFORM_URL` | no | Base URL of the broker. Defaults to `https://stagecraft.website`, so the platform doesn't set it. Trailing slash tolerated. |
+| `STAGECRAFT_PLATFORM_URL` | no | Base URL of the broker. Defaults to `https://stagecraft.website`. Provisioning and the install callback don't set it; the platform's `install-url` route sets it to the platform's `AUTH_URL` (empty, so the default, when that's unset). Trailing slash tolerated. |
 | `STAGECRAFT_SITE_ID` | prod | Platform's `Site.id` for this deployment. Namespaced because Netlify reserves `SITE_ID` for its own injected site identifier. Set by the platform. |
 | `STAGECRAFT_BROKER_SECRET` | prod | Per-site shared secret with the platform; sent as `Authorization: Bearer`. Set by the platform when it provisions the site or connects the GitHub App. Also the root of the derived magic-link signing key. |
 | `SITE_GIT_BRANCH` | no | The live branch Publish merges into. Defaults to `main`. |

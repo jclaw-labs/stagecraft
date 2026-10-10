@@ -336,14 +336,14 @@ Sign-in requests `read:user user:email repo workflow` (`apps/web/src/lib/github-
 
 There is no rotation endpoint or dashboard action (ADR-008, "Secret rotation"). When an artist site's `STAGECRAFT_BROKER_SECRET` is lost or leaked, issue a new one by hand. The platform stores only its hash, so the old value can't be recovered.
 
-1. Clear the site's installation and hash. From here until step 2 finishes, the site can't save or publish (the broker answers `409 app-not-installed`):
+1. Clear the site's installation and hash. From here until step 2 finishes, the site can't save or publish (the broker answers `401 invalid-secret`, since the hash is checked before the installation):
    ```sql
    UPDATE "Site"
    SET "githubInstallationId" = NULL, "brokerSecretHash" = NULL
    WHERE id = '<site-id>';
    ```
-2. Have the artist open the site in the dashboard and click **Connect repo**. Either `/api/sites/<id>/install-url` finds the Stagecraft App on the repo owner, or the artist goes through GitHub's install screen to `/api/github/install-callback`. Both mint a new secret, store its hash, set `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` on the Netlify site or Vercel project, and trigger a rebuild.
-3. If the install callback couldn't push the variables, it shows the secret once for the artist to set by hand. If `install-url` couldn't push them, it doesn't show the secret, so fix the cause (usually an expired Netlify or Vercel token: reconnect it in Settings) and start again from step 1.
+2. Have the artist open the site in the dashboard and click **Connect GitHub App**. Either `/api/sites/<id>/install-url` finds the Stagecraft App on the repo owner, or the artist goes through GitHub's install screen to `/api/github/install-callback`. Both mint a new secret, store its hash, set `STAGECRAFT_SITE_ID` and `STAGECRAFT_BROKER_SECRET` on the Netlify site or Vercel project (`install-url` also sets `STAGECRAFT_PLATFORM_URL` from the platform's `AUTH_URL`), and trigger a rebuild.
+3. Check the push worked: on the Netlify site or Vercel project, `STAGECRAFT_BROKER_SECRET` should show as updated after you ran step 1, and a deploy should have started. Don't rely on the dashboard to tell you: when `install-url` attaches the installation but can't push the variables, it still answers `connected`, and the site page reloads without showing its "couldn't push" message or the secret. If the variable wasn't updated, fix the cause (usually an expired Netlify or Vercel token: reconnect it in Settings) and start again from step 1. (If the artist went through GitHub's install screen instead and the push failed, the install callback shows the secret once for them to set by hand.)
 
 The old secret stops working as soon as step 1 runs. Unless the site sets `MAGIC_LINK_SIGNING_SECRET`, its editor sessions are signed with a key derived from the broker secret, so they end at the rebuild and editors sign in again.
 

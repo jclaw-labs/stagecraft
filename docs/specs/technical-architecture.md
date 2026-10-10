@@ -129,7 +129,7 @@ docs/
 | `/api/sites/[siteId]` | Site detail and delete |
 | `/api/sites/[siteId]/retry` | Re-queue a failed `create_site` job ("Retry setup") |
 | `/api/sites/[siteId]/deploy-status` | Latest deploy on the site's host, for the dashboard |
-| `/api/sites/[siteId]/install-url` | "Connect repo": attach an existing App installation, or return the App install URL |
+| `/api/sites/[siteId]/install-url` | "Connect GitHub App": attach an existing App installation, or return the App install URL |
 | `/api/migrations` | Queue `migrate_site` for an existing site URL |
 | `/api/publish-token` | **Broker.** Mints a repo-scoped GitHub installation token for an artist site |
 | `/api/broker/deploy-status` | **Broker.** Latest deploy state for an artist site's editor |
@@ -258,21 +258,23 @@ src/content/collections/<collection-slug>/
 
 ### 7.4 Platform contract
 
-The site needs three environment variables to save, all set by
-provisioning or by the install callback:
+The site needs two environment variables to save, `STAGECRAFT_SITE_ID`
+and `STAGECRAFT_BROKER_SECRET`, set by provisioning or when the App is
+connected. A third, `STAGECRAFT_PLATFORM_URL`, is optional:
 
 | Var | Purpose |
 | --- | --- |
 | `STAGECRAFT_SITE_ID` | The `Site.id` (not `SITE_ID`, which Netlify reserves) |
 | `STAGECRAFT_BROKER_SECRET` | Per-site secret for the broker routes; also the root the magic-link signing secret is derived from |
-| `STAGECRAFT_PLATFORM_URL` | Broker base URL; defaults to the production platform, so provisioning doesn't set it |
+| `STAGECRAFT_PLATFORM_URL` | Broker base URL; defaults to the production platform. `create_site` and the install callback don't set it; `install-url` sets it to the platform's `AUTH_URL` (empty, so the default, when that's unset) |
 
 Provisioning also sets `ADMIN_EMAIL` and `RESEND_API_KEY`.
 
 ### 7.5 Other template features
 
 - **Images:** `POST /api/upload-image` validates, de-duplicates by content
-  hash, makes AVIF and WebP variants with sharp (raster only; SVGs are
+  hash on the local-disk path only (through the broker a re-upload is
+  committed again; see §14), makes AVIF and WebP variants with sharp (raster only; SVGs are
   sanitised), and commits them to the draft branch.
 - **Contact form:** `POST /api/contact` sends through the artist's Resend
   account, with a honeypot, an in-memory per-IP rate limit and a
@@ -314,12 +316,13 @@ Provisioning also sets `ADMIN_EMAIL` and `RESEND_API_KEY`.
 5. The site goes `active`. The artist opens its `/admin`, and the welcome
    wizard writes the first content.
 
-If the App wasn't found, the site detail page shows **Connect repo**. That
+If the App wasn't found, the site detail page shows **Connect GitHub App**. That
 either attaches an installation the platform can now see
 (`/api/sites/[siteId]/install-url`) or sends the artist through GitHub's
 install screen to `/api/github/install-callback`. Both mint the broker
-secret and push it to the host, falling back to showing it once for
-manual setup if the push fails.
+secret and push it to the host. If the push fails, the install callback
+shows the secret once for manual setup; `install-url` doesn't show it
+(see the runbook's "Issuing a new broker secret").
 
 Transient failures are retried by the queue. Permanent ones (a missing
 precondition, a repo name already taken) mark the site `error`, and the
@@ -439,7 +442,7 @@ Intended, not built:
   template changes after it's created.
 - **Broker secret rotation (ADR-008).** No endpoint or dashboard action
   issues a new secret for a connected site. An operator can clear the
-  site's installation so the next **Connect repo** mints and pushes a fresh
+  site's installation so the next **Connect GitHub App** mints and pushes a fresh
   secret (runbook §6).
 - **Migration retry.** Resume a failed `migrate_site` the way **Retry
   setup** resumes `create_site`.

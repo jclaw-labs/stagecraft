@@ -1,7 +1,7 @@
 # ADR-003: Monorepo Structure
 
 ## Status
-Accepted
+Accepted. 2026-10-10, #362: `templates/musician-site-legacy/` (the Astro template) was removed (ADR-014); `templates/musician-site/`, the Next.js + Puck template (ADR-007), is the only template.
 
 ## Context
 The platform has multiple concerns: web app, database layer, job queue, shared types, and eventually generated site templates. These need to be organized for clear boundaries while keeping development simple.
