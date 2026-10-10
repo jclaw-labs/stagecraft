@@ -194,7 +194,10 @@ describe("setRepoArchived", () => {
     await setRepoArchived("u1", "jclaw", "my-site", true);
 
     expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"]);
-    expect(calls[1].url).toBe("https://api.github.com/repos/jclaw/my-site");
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.github.com/repos/jclaw/my-site",
+      "https://api.github.com/repos/jclaw/my-site",
+    ]);
     expect(JSON.parse(calls[1].body!)).toEqual({ archived: true });
   });
 
@@ -203,7 +206,7 @@ describe("setRepoArchived", () => {
 
     await setRepoArchived("u1", "jclaw", "my-site", true);
 
-    expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    expect(calls).toEqual([{ method: "GET", url: "https://api.github.com/repos/jclaw/my-site", body: undefined }]);
   });
 
   it("unarchives an archived repo", async () => {
