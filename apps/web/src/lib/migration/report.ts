@@ -8,39 +8,19 @@
 import { capitalise } from "@stagecraft/shared";
 import type { ExtractedSite } from "./crawler";
 import { PAGE_ITEM_PREFIX, type MappedContent, type MappedFile } from "./musician-site-mapper";
+import {
+  IMAGES_ITEM_LABEL,
+  imagesItemDetail,
+  imagesSummaryLine,
+  type MigrationReport,
+  type MigrationReportItem,
+} from "./report-copy";
 
 /** A page item file (excludes the pages `_order.json`). */
 const isPageItem = (path: string) => path.startsWith(PAGE_ITEM_PREFIX) && !path.endsWith("_order.json");
 const pageSlug = (path: string) => path.slice(PAGE_ITEM_PREFIX.length).replace(/\.json$/, "");
 
-export interface MigrationReportItem {
-  label: string;
-  status: "imported" | "partial" | "skipped" | "manual_review";
-  detail: string;
-}
-
-export interface MigrationReport {
-  /** Short summary lines shown at the top of the report */
-  summary: string[];
-  /** Overall confidence score 0.0–1.0 */
-  overallConfidence: number;
-  /** Items that were successfully imported */
-  importedItems: MigrationReportItem[];
-  /** Items that need the user to review or complete manually */
-  manualReviewItems: MigrationReportItem[];
-  /** Items that could not be imported at all */
-  skippedItems: MigrationReportItem[];
-  /** Total pages crawled */
-  pagesCrawled: number;
-  /** Total pages mapped to template pages */
-  pagesMapped: number;
-  /** Total images found (references only — actual download not in v1) */
-  imagesFound: number;
-  /** Total embeds found */
-  embedsFound: number;
-  /** Social links detected */
-  socialLinksFound: number;
-}
+export type { MigrationReport, MigrationReportItem } from "./report-copy";
 
 // ─── Confidence helpers ───────────────────────────────────────────────────────
 
@@ -103,9 +83,10 @@ function buildManualReviewItems(
   const totalImages = extracted.pages.reduce((sum, p) => sum + p.images.length, 0);
   if (totalImages > 0) {
     items.push({
-      label: "Images",
+      label: IMAGES_ITEM_LABEL,
       status: "manual_review",
-      detail: `${totalImages} image reference${totalImages === 1 ? "" : "s"} found. Images are not downloaded automatically — add your photos in your site's admin (/admin), using the image fields on each page or item.`,
+      detail: imagesItemDetail(totalImages),
+      action: "open_site_admin",
     });
   }
 
@@ -185,7 +166,7 @@ function buildSummary(
   lines.push(`Crawled ${extracted.pages.length} page${extracted.pages.length === 1 ? "" : "s"}, mapped ${pageCount} to template`);
 
   if (imageCount > 0) {
-    lines.push(`Found ${imageCount} image${imageCount === 1 ? "" : "s"} — add photos in your site's admin (/admin) via the image fields`);
+    lines.push(imagesSummaryLine(imageCount));
   }
   if (embedCount > 0) {
     lines.push(`Found ${embedCount} media embed${embedCount === 1 ? "" : "s"} (YouTube, Spotify, etc.) — add via edit request`);
