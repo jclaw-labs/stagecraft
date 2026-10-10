@@ -89,6 +89,13 @@ function unfilterableFieldLabel(field: FieldDef): string {
   return `${field.key} (${field.type}, unfilterable)`;
 }
 
+/** "image field “cover”", or "fields “cover” and “pdf”" for several. */
+function unreadableFieldsText(fields: ReadonlyArray<FieldDef>): string {
+  if (fields.length === 1) return `${fields[0]!.type} field “${fields[0]!.key}”`;
+  const names = fields.map((f) => `“${f.key}”`);
+  return `fields ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 /** The select value for a pick: the field the page reads, else the saved id. */
 function pickedValue(pick: FieldPick | null, savedId: string): string {
   if (pick?.kind === "field") return pick.fieldId;
@@ -344,22 +351,22 @@ function ClauseRow({
   const unfilterable =
     !ignored && pick?.kind === "unfilterable" && comparesValues(op) ? pick.field : undefined;
   // Likewise a value naming a current-item field the page can't read,
-  // except that what the clause matches depends on the operator. Not
-  // when the clause's own field already decides it (the note above).
-  const unreadableValue =
-    !ignored && !unfilterable && field
-      ? unfilterableCurrentItemValue(clause, currentItemDef)
-      : null;
+  // except that what the clause matches depends on the operator. Only
+  // with a filterable source field (`field`), so neither note above
+  // applies: an ignored clause's values are all missing fields, which
+  // this doesn't count.
+  const unreadableValue = field ? unfilterableCurrentItemValue(clause, currentItemDef) : null;
   // The note explains the "(ignored)" and "unfilterable" options, so the
   // Field picker points at it while it shows. The ignored note is about
   // the whole clause, so the current-item pickers point at it too; the
   // unfilterable one is about the field and suggests another operator, so
   // the Operator picker points at it instead. The unreadable-value note
-  // is about the current-item field, so the current-item pickers point
-  // at it.
+  // is about the current-item fields it names, so only their pickers
+  // point at it.
   const noteId = useId();
   const describedBy = ignored || unfilterable ? noteId : undefined;
-  const valueDescribedBy = ignored || unreadableValue ? noteId : undefined;
+  const valueDescribedBy = ignored ? noteId : undefined;
+  const unreadableDescribedBy = unreadableValue ? noteId : undefined;
   const opDescribedBy = unfilterable ? noteId : undefined;
 
   function handleOpChange(newOp: ClauseOp) {
@@ -431,6 +438,7 @@ function ClauseRow({
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
           describedBy={valueDescribedBy}
+          unreadableDescribedBy={unreadableDescribedBy}
         />
       ) : null}
 
@@ -442,6 +450,7 @@ function ClauseRow({
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
           describedBy={valueDescribedBy}
+          unreadableDescribedBy={unreadableDescribedBy}
         />
       ) : null}
 
@@ -463,9 +472,11 @@ function ClauseRow({
 
       {unreadableValue && field ? (
         <p id={noteId} style={hintStyle}>
-          {`The page can't read the current item's ${unreadableValue.field.type} field “${unreadableValue.field.key}”, so `}
+          {`The page can't read the current item's ${unreadableFieldsText(unreadableValue.fields)}, so `}
           {unreadableValue.outcome === "valueSkipped"
-            ? "it skips that value."
+            ? unreadableValue.fields.length === 1
+              ? "it skips that value."
+              : "it skips those values."
             : unreadableValue.outcome === "matchesEveryWithValue"
               ? `this clause matches every item that has a “${field.key}” value.`
               : mode === "any"
@@ -496,6 +507,7 @@ function FilterValueEditor({
   currentItemDef,
   currentItemFields,
   describedBy,
+  unreadableDescribedBy,
 }: {
   value: FilterValue;
   onChange: (next: FilterValue) => void;
@@ -503,8 +515,10 @@ function FilterValueEditor({
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's ignored or unreadable-value note while it shows, for the current-item field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
+  /** Id of the row's unreadable-value note while it shows, for the picker of a current-item field it names. */
+  unreadableDescribedBy: string | undefined;
 }) {
   function handleKindChange(nextKind: FilterValue["kind"]) {
     if (nextKind === "literal") onChange({ kind: "literal", value: "" });
@@ -553,6 +567,7 @@ function FilterValueEditor({
           currentItemDef={currentItemDef}
           currentItemFields={currentItemFields}
           describedBy={describedBy}
+          unreadableDescribedBy={unreadableDescribedBy}
         />
       ) : null}
     </div>
@@ -570,13 +585,16 @@ function CurrentItemFieldSelect({
   currentItemDef,
   currentItemFields,
   describedBy,
+  unreadableDescribedBy,
 }: {
   fieldId: string;
   onChange: (fieldId: string) => void;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's ignored or unreadable-value note while it shows, for the current-item field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
+  /** Id of the row's unreadable-value note while it shows, for the picker of a current-item field it names. */
+  unreadableDescribedBy: string | undefined;
 }) {
   const pick = currentItemDef ? fieldPickFor(currentItemDef, fieldId) : null;
   return (
@@ -585,7 +603,7 @@ function CurrentItemFieldSelect({
       onChange={(e) => onChange(e.target.value)}
       style={{ ...selectStyle, flex: 1 }}
       aria-label="Current item field"
-      aria-describedby={describedBy}
+      aria-describedby={describedBy ?? (pick?.kind === "unfilterable" ? unreadableDescribedBy : undefined)}
     >
       {pick?.kind === "removed" ? <option value={fieldId}>{REMOVED_FIELD_LABEL}</option> : null}
       {pick?.kind === "unfilterable" ? (
@@ -613,14 +631,17 @@ function ArrayValueEditor({
   currentItemDef,
   currentItemFields,
   describedBy,
+  unreadableDescribedBy,
 }: {
   values: FilterValue[];
   onChange: (next: FilterValue[]) => void;
   field: FieldDef | undefined;
   currentItemDef: FilterFieldsDef | undefined;
   currentItemFields: ReadonlyArray<FieldDef>;
-  /** Id of the row's ignored or unreadable-value note while it shows, for the current-item field picker's `aria-describedby`. */
+  /** Id of the row's ignored note while it shows, for the current-item field picker's `aria-describedby`. */
   describedBy: string | undefined;
+  /** Id of the row's unreadable-value note while it shows, for the picker of a current-item field it names. */
+  unreadableDescribedBy: string | undefined;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
@@ -634,6 +655,7 @@ function ArrayValueEditor({
               currentItemDef={currentItemDef}
               currentItemFields={currentItemFields}
               describedBy={describedBy}
+              unreadableDescribedBy={unreadableDescribedBy}
             />
           </div>
           <button

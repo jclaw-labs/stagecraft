@@ -853,6 +853,29 @@ describe("FilterField — current-item values the page can't read", () => {
     expect(noteFor(coverSelect!)).toBe("The page can't read the current item's image field “cover”, so it skips that value.");
   });
 
+  it("points only the unreadable values' pickers at the note, naming every skipped field", () => {
+    const withPdf: CollectionDef = {
+      ...WITH_COVER,
+      fields: [...WITH_COVER.fields, { id: "p_pdf", key: "pdf", type: "file", required: false }],
+    };
+    const title = { kind: "currentItemField", fieldId: "p_title" } as const;
+    const pdf = { kind: "currentItemField", fieldId: "p_pdf" } as const;
+    render(
+      <FilterField
+        value={{ all: [{ field: "f_city", op: "in", values: [cover, title, pdf] }] }}
+        onChange={vi.fn()}
+        sourceDef={SOURCE_DEF}
+        currentItemDef={withPdf}
+      />,
+    );
+
+    const [coverSelect, titleSelect, pdfSelect] = screen.getAllByLabelText("Current item field");
+    const note = "The page can't read the current item's fields “cover” and “pdf”, so it skips those values.";
+    expect(noteFor(coverSelect!)).toBe(note);
+    expect(noteFor(pdfSelect!)).toBe(note);
+    expect(titleSelect!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("shows no note for a field the page can read", () => {
     renderFilter({ all: [{ field: "f_city", op: "equals", value: { kind: "currentItemField", fieldId: "p_title" } }] });
 
