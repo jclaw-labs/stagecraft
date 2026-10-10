@@ -134,6 +134,8 @@ const EDIT_REQUEST_ITEM_CASES: {
   status: MigrationReportItem["status"];
   old: string;
   current: string;
+  /** The wording starts with a captured value (the page URL), so any prefix is part of it. */
+  prefixIsValue?: boolean;
 }[] = [
   {
     name: "embeds item",
@@ -174,6 +176,7 @@ const EDIT_REQUEST_ITEM_CASES: {
     status: "skipped",
     old: "https://band.example.com/merch — no matching template page. Add content manually via the edit request flow.",
     current: unmappedPageItemDetail("https://band.example.com/merch"),
+    prefixIsValue: true,
   },
 ];
 
@@ -210,14 +213,13 @@ describe("upgradeStoredReport — edit request flow copy (#455)", () => {
         expect(upgradeStoredReport(reportWithItem(c.list, odd))[c.list]).toEqual([odd]);
       });
 
-      it("leaves the old wording alone when other text surrounds it", () => {
-        const surrounded: MigrationReportItem = {
-          label: c.label,
-          status: c.status,
-          detail: `Note: ${c.old} Thanks.`,
-        };
-        expect(upgradeStoredReport(reportWithItem(c.list, surrounded))[c.list]).toEqual([surrounded]);
-      });
+      const extended = c.prefixIsValue ? [`${c.old} Thanks.`] : [`Note: ${c.old}`, `${c.old} Thanks.`];
+      for (const detail of extended) {
+        it(`leaves the old wording alone with other text around it: ${JSON.stringify(detail)}`, () => {
+          const item: MigrationReportItem = { label: c.label, status: c.status, detail };
+          expect(upgradeStoredReport(reportWithItem(c.list, item))[c.list]).toEqual([item]);
+        });
+      }
     });
   }
 
@@ -259,7 +261,8 @@ describe("upgradeStoredReport — edit request flow copy (#455)", () => {
     const lines = [
       embedsSummaryLine(2),
       "Found 2 media embeds — add them somehow",
-      "Note: Found 2 media embeds (YouTube, Spotify, etc.) — add via edit request, later",
+      "Note: Found 2 media embeds (YouTube, Spotify, etc.) — add via edit request",
+      "Found 2 media embeds (YouTube, Spotify, etc.) — add via edit request, later",
     ];
     expect(upgradeStoredReport(makeReport(lines, [])).summary).toEqual(lines);
   });
