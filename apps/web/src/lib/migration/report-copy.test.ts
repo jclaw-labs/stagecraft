@@ -1,12 +1,17 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  DESIGN_ITEM_DETAIL,
+  PAGE_CONTENT_ITEM_DETAIL,
+  embedsItemDetail,
+  embedsSummaryLine,
   imagesItemDetail,
   imagesSummaryLine,
   siteAdminLink,
   siteAdminUrl,
   siteServingState,
   upgradeStoredReport,
+  unmappedPageItemDetail,
   type MigrationReport,
   type MigrationReportItem,
 } from "./report-copy";
@@ -29,7 +34,8 @@ function makeReport(summary: string[], manualReviewItems: MigrationReportItem[])
 const designItem: MigrationReportItem = {
   label: "Design & theme",
   status: "manual_review",
-  detail: "Colors, fonts, and layout are set to the template defaults. Customise using the edit request flow.",
+  detail: DESIGN_ITEM_DETAIL,
+  action: "open_site_admin",
 };
 
 describe("upgradeStoredReport", () => {
@@ -112,6 +118,154 @@ describe("upgradeStoredReport", () => {
     const snapshot = structuredClone(stored);
     upgradeStoredReport(stored);
     expect(stored).toEqual(snapshot);
+  });
+});
+
+type ItemList = "manualReviewItems" | "skippedItems";
+
+/**
+ * One case per item wording that pointed at the removed edit request flow
+ * (#455): the stored item, and what it upgrades to.
+ */
+const EDIT_REQUEST_ITEM_CASES: {
+  name: string;
+  list: ItemList;
+  label: string;
+  status: MigrationReportItem["status"];
+  old: string;
+  current: string;
+}[] = [
+  {
+    name: "embeds item",
+    list: "manualReviewItems",
+    label: "Embedded media",
+    status: "manual_review",
+    old: "3 embeds found (youtube, spotify). Add these via the edit request flow after reviewing the site.",
+    current: embedsItemDetail(3, "youtube, spotify"),
+  },
+  {
+    name: "embeds item, singular",
+    list: "manualReviewItems",
+    label: "Embedded media",
+    status: "manual_review",
+    old: "1 embed found (bandcamp). Add these via the edit request flow after reviewing the site.",
+    current: embedsItemDetail(1, "bandcamp"),
+  },
+  {
+    name: "limited-content item",
+    list: "manualReviewItems",
+    label: "About page content",
+    status: "partial",
+    old: "Limited content was extracted. Review and expand this page using the edit request flow.",
+    current: PAGE_CONTENT_ITEM_DETAIL,
+  },
+  {
+    name: "design item",
+    list: "manualReviewItems",
+    label: "Design & theme",
+    status: "manual_review",
+    old: "Colors, fonts, and layout are set to the template defaults. Customise using the edit request flow.",
+    current: DESIGN_ITEM_DETAIL,
+  },
+  {
+    name: "unmapped-page item",
+    list: "skippedItems",
+    label: "Unmapped page: Merch",
+    status: "skipped",
+    old: "https://band.example.com/merch — no matching template page. Add content manually via the edit request flow.",
+    current: unmappedPageItemDetail("https://band.example.com/merch"),
+  },
+];
+
+function reportWithItem(list: ItemList, item: MigrationReportItem): MigrationReport {
+  const report = makeReport([], []);
+  return { ...report, [list]: [item] };
+}
+
+describe("upgradeStoredReport — edit request flow copy (#455)", () => {
+  for (const c of EDIT_REQUEST_ITEM_CASES) {
+    describe(c.name, () => {
+      it("rewrites the old wording, keeping its values, and links the site admin", () => {
+        const upgraded = upgradeStoredReport(
+          reportWithItem(c.list, { label: c.label, status: c.status, detail: c.old })
+        );
+        expect(upgraded[c.list]).toEqual([
+          { label: c.label, status: c.status, detail: c.current, action: "open_site_admin" },
+        ]);
+        expect(JSON.stringify(upgraded)).not.toMatch(/edit request/i);
+      });
+
+      it("leaves the current wording unchanged", () => {
+        const current = reportWithItem(c.list, {
+          label: c.label,
+          status: c.status,
+          detail: c.current,
+          action: "open_site_admin",
+        });
+        expect(upgradeStoredReport(current)).toEqual(current);
+      });
+
+      it("leaves unknown wording alone, without a link", () => {
+        const odd: MigrationReportItem = { label: c.label, status: c.status, detail: "Some other wording." };
+        expect(upgradeStoredReport(reportWithItem(c.list, odd))[c.list]).toEqual([odd]);
+      });
+    });
+  }
+
+  it("only upgrades a wording under the item label it was stored with", () => {
+    const misplaced: MigrationReportItem = {
+      label: "Images",
+      status: "manual_review",
+      detail: "Colors, fonts, and layout are set to the template defaults. Customise using the edit request flow.",
+    };
+    expect(upgradeStoredReport(makeReport([], [misplaced])).manualReviewItems).toEqual([misplaced]);
+  });
+
+  it("keeps a page URL containing a dash when upgrading an unmapped page", () => {
+    const url = "https://band.example.com/live — 2024";
+    const upgraded = upgradeStoredReport(
+      reportWithItem("skippedItems", {
+        label: "Unmapped page: Live",
+        status: "skipped",
+        detail: `${url} — no matching template page. Add content manually via the edit request flow.`,
+      })
+    );
+    expect(upgraded.skippedItems[0].detail).toBe(unmappedPageItemDetail(url));
+  });
+
+  it("rewrites the old embeds summary line, keeping the count", () => {
+    const upgraded = upgradeStoredReport(
+      makeReport(
+        [
+          "Found 3 media embeds (YouTube, Spotify, etc.) — add via edit request",
+          "Found 1 media embed (YouTube, Spotify, etc.) — add via edit request",
+        ],
+        []
+      )
+    );
+    expect(upgraded.summary).toEqual([embedsSummaryLine(3), embedsSummaryLine(1)]);
+  });
+
+  it("leaves the current and unknown embeds summary lines alone", () => {
+    const lines = [embedsSummaryLine(2), "Found 2 media embeds — add them somehow"];
+    expect(upgradeStoredReport(makeReport(lines, [])).summary).toEqual(lines);
+  });
+
+  it("upgrades a whole pre-#455 report, images included", () => {
+    const stored = makeReport(
+      [
+        "Found 2 images — upload via asset manager to add to your site",
+        "Found 3 media embeds (YouTube, Spotify, etc.) — add via edit request",
+      ],
+      EDIT_REQUEST_ITEM_CASES.filter((c) => c.list === "manualReviewItems").map((c) => ({
+        label: c.label,
+        status: c.status,
+        detail: c.old,
+      }))
+    );
+    const upgraded = upgradeStoredReport(stored);
+    expect(JSON.stringify(upgraded)).not.toMatch(/edit request|asset manager/i);
+    expect(upgraded.manualReviewItems.every((i) => i.action === "open_site_admin")).toBe(true);
   });
 });
 
