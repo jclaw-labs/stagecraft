@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getFailureSummary } from "../failures";
+import { FAILURE_CATEGORIES } from "../types";
 
 describe("getFailureSummary", () => {
   it("returns the correct summary for github_api_error", () => {
@@ -18,11 +19,6 @@ describe("getFailureSummary", () => {
   it("returns the correct summary for validation_error", () => {
     const summary = getFailureSummary("validation_error");
     expect(summary.title).toBe("Content validation failed");
-  });
-
-  it("returns the correct summary for ai_error", () => {
-    const summary = getFailureSummary("ai_error");
-    expect(summary.title).toBe("AI generation failed");
   });
 
   it("returns the correct summary for timeout", () => {
@@ -46,16 +42,7 @@ describe("getFailureSummary", () => {
   });
 
   it("returns an object with all required fields for every category", () => {
-    const categories = [
-      "github_api_error",
-      "netlify_deploy_error",
-      "validation_error",
-      "ai_error",
-      "timeout",
-      "unknown",
-    ] as const;
-
-    for (const category of categories) {
+    for (const category of FAILURE_CATEGORIES) {
       const summary = getFailureSummary(category);
       expect(summary).toHaveProperty("title");
       expect(summary).toHaveProperty("description");

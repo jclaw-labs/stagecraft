@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import StatusBadge, { type BadgeTone } from "@/components/StatusBadge";
-import type { FailureCategory, JobStatus, JobType, SiteStatus } from "@stagecraft/shared";
+import type { KnownJobFields, SiteStatus } from "@stagecraft/shared";
 import {
   MIGRATION_REPORT_ACTION_LABELS,
   siteAdminLink,
@@ -31,12 +31,10 @@ interface CreateJobFailure {
   installUrl?: string;
 }
 
-interface SiteJob {
+/** A job as `GET /api/sites/[siteId]` returns it, with its columns narrowed. */
+interface SiteJob extends KnownJobFields {
   id: string;
-  type: JobType;
-  status: JobStatus;
   errorMessage?: string;
-  failureCategory?: FailureCategory | null;
   resultPayload?: MigrateJobResult & CreateJobFailure;
   createdAt: string;
   completedAt?: string;

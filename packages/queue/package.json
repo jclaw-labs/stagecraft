@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@stagecraft/db": "*"
+    "@stagecraft/db": "*",
+    "@stagecraft/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
+import { toClientSite } from "@/lib/client-site";
 import { setRepoArchived } from "@/lib/integrations/github";
 import { deleteSiteResources } from "@/lib/site-cleanup";
 
@@ -29,12 +30,7 @@ export async function GET(
     return NextResponse.json({ error: "Site not found" }, { status: 404 });
   }
 
-  // Never leak the broker secret hash to the client. Even though it's
-  // a hash, there's no client-side use for it and exposure widens the
-  // attack surface for any future weaknesses.
-  const { brokerSecretHash, ...safeSite } = site;
-  void brokerSecretHash;
-  return NextResponse.json({ site: safeSite });
+  return NextResponse.json({ site: toClientSite(site) });
 }
 
 export async function PATCH(

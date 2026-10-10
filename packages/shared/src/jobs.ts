@@ -1,0 +1,48 @@
+import {
+  isFailureCategory,
+  isJobStatus,
+  isJobType,
+  type FailureCategory,
+  type JobStatus,
+  type JobType,
+} from "./types";
+
+/** The `SiteJob` columns the database stores as plain strings. */
+export interface StoredJobFields {
+  type: string;
+  status: string;
+  failureCategory: string | null;
+}
+
+/** The same columns, narrowed to the values the code knows today. */
+export interface KnownJobFields {
+  /** Null for a type with no handler today, such as a retired `edit_site`. */
+  type: JobType | null;
+  /** Null for a status nothing writes today, such as a retired `awaiting_review`. */
+  status: JobStatus | null;
+  /** `"unknown"` for a retired category such as `ai_error`. */
+  failureCategory: FailureCategory | null;
+}
+
+/**
+ * Narrow a `SiteJob` row's string columns before handing it to a reader.
+ *
+ * The database doesn't constrain these columns, so rows written before a
+ * value was retired keep that value, such as April's `edit_site` type,
+ * `awaiting_review` status or `ai_error` failure category. An unrecognised
+ * type or status becomes null, which matches none of the comparisons readers
+ * make. An unrecognised failure category becomes `"unknown"`, the category's
+ * own catch-all value.
+ */
+export function narrowJobFields<T extends StoredJobFields>(
+  row: T,
+): Omit<T, keyof StoredJobFields> & KnownJobFields {
+  const { failureCategory } = row;
+  return {
+    ...row,
+    type: isJobType(row.type) ? row.type : null,
+    status: isJobStatus(row.status) ? row.status : null,
+    failureCategory:
+      failureCategory === null ? null : isFailureCategory(failureCategory) ? failureCategory : "unknown",
+  };
+}

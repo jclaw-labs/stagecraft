@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
+import { toClientSite } from "@/lib/client-site";
 import { prisma } from "@stagecraft/db";
 import { enqueue } from "@stagecraft/queue";
 import { connectedProviders, siteSetupIntegrationError } from "@stagecraft/shared";
@@ -109,5 +110,5 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json({ sites });
+  return NextResponse.json({ sites: sites.map(toClientSite) });
 }

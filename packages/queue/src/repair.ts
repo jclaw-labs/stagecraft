@@ -13,8 +13,8 @@ export const MAX_REPAIR_ATTEMPTS = 2;
  * a bounded self-repair attempt. The worker will increment repairAttempts
  * and only honour up to MAX_REPAIR_ATTEMPTS total repair cycles.
  *
- * Typical use: a handler detects a validation_error after an AI edit and
- * wants one more pass before surfacing the failure to the user.
+ * Typical use: a handler detects a validation_error in content it generated
+ * and wants one more pass before surfacing the failure to the user.
  *
  * @example
  * if (validationErrors.length > 0) {

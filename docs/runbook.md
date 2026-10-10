@@ -57,7 +57,6 @@ This document is for engineers and support staff operating the Stagecraft platfo
 ```
 queued  ──►  running  ──►  completed
   ▲                  └──►  failed
-  │                  └──►  awaiting_review
   └──── retry / repair / expired lease ──┘
 ```
 

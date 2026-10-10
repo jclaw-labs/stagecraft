@@ -31,8 +31,8 @@ describe("repairResult", () => {
   });
 
   it("accepts a custom failureCategory", () => {
-    const result = repairResult("AI service down", "ai_error");
-    expect(result.failureCategory).toBe("ai_error");
+    const result = repairResult("Deploy timed out", "timeout");
+    expect(result.failureCategory).toBe("timeout");
   });
 
   it("returns all required JobResult fields", () => {
