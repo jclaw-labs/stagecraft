@@ -113,13 +113,23 @@ function hostProjectName(slug: string): string {
   return `stagecraft-site-${slug}`;
 }
 
-/** Shown when the site's repo name is already taken, usually by a deleted site's kept repo. */
-function repoNameTakenMessage(owner: string, repoName: string): string {
-  return (
+/**
+ * Shown when the site's repo name is already taken, usually by a deleted
+ * site's kept repo. Only a created site can be retried ("Retry setup"
+ * re-queues create_site jobs only), so a migration is told to delete the
+ * errored site and migrate again instead.
+ */
+function repoNameTakenMessage(owner: string, repoName: string, action: SiteSetupAction): string {
+  const taken =
     `A repository named ${owner}/${repoName} already exists on your GitHub account, ` +
-    `probably from a site you deleted. Delete or rename it on GitHub, then retry setup. ` +
-    `Or delete this site and create one with a different name.`
-  );
+    `probably from a site you deleted. `;
+  return action === "migrating"
+    ? taken +
+        `Delete or rename it on GitHub, then delete this site and migrate again. ` +
+        `Or delete this site and migrate under a different name.`
+    : taken +
+        `Delete or rename it on GitHub, then retry setup. ` +
+        `Or delete this site and create one with a different name.`;
 }
 
 /** Clock skew allowed between us and a provider when comparing creation times. */
@@ -359,6 +369,8 @@ export interface ProvisionSiteArgs {
   name: string;
   slug: string;
   preconditions: ProvisionPreconditions;
+  /** Which job is provisioning: picks the recovery advice in failure messages. */
+  action: SiteSetupAction;
   /** Files pushed over the template; one replaces the template file at its path. Empty for a new site. */
   contentOverlay: readonly TemplateFile[];
   repoDescription: string;
@@ -415,7 +427,7 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
         interrupted && existing && createdSince(existing.createdAt, firstStartedAt) ? existing : null;
       if (!adopted) {
         throw new PermanentProvisionError(
-          existing ? repoNameTakenMessage(existing.owner, repoName) : errorMessage(cause, ""),
+          existing ? repoNameTakenMessage(existing.owner, repoName, args.action) : errorMessage(cause, ""),
         );
       }
       created = adopted;

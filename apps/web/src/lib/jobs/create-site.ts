@@ -39,6 +39,7 @@ export async function handleCreateSite(ctx: JobContext): Promise<JobResult> {
         name: payload.name,
         slug: payload.slug,
         preconditions,
+        action: "creating",
         contentOverlay: [],
         repoDescription: `${payload.name} — musician website powered by Stagecraft`,
         commitMessage: `Initial site: ${payload.name}`,
