@@ -20,6 +20,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { generateMetadata as generatePublicNotFoundMetadata } from "./(public)/not-found";
 import GlobalNotFound, { generateMetadata } from "./global-not-found";
 import config from "../../next.config";
 import { SITE_FIELD_IDS } from "@/lib/collections/seeds";
@@ -94,6 +95,12 @@ describe("global not-found", () => {
     const meta = await generateMetadata();
     expect(meta.title).toBe("Test Artist — Official");
     expect(meta.description).toBe("Songs and shows");
+  });
+
+  // A notFound() inside a public page renders the group's 404, which
+  // must carry the same title rather than the root layout's default.
+  it("shares its metadata with the (public) group's 404", () => {
+    expect(generateMetadata).toBe(generatePublicNotFoundMetadata);
   });
 });
 

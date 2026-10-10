@@ -1,4 +1,9 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+import { generateMetadata as generatePublicLayoutMetadata } from "./layout";
+import { getFsReadStore } from "@/lib/collections";
+import { readSiteConfig } from "@/lib/content";
 
 /**
  * Public 404 body, in the artist's theme.
@@ -56,4 +61,17 @@ export default function PublicNotFound() {
       <Link href="/">Back to home</Link>
     </main>
   );
+}
+
+/**
+ * The artist's tab title, description and favicon. Without it a
+ * `notFound()` inside a public page would fall back to the root layout's
+ * generic title. `global-not-found.tsx` re-exports it.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const [layoutMetadata, site] = await Promise.all([
+    generatePublicLayoutMetadata(),
+    readSiteConfig(getFsReadStore()),
+  ]);
+  return { ...layoutMetadata, title: site.siteTitle, description: site.siteDescription };
 }

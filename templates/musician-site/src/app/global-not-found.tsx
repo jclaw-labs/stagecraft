@@ -1,9 +1,5 @@
-import type { Metadata } from "next";
-
-import PublicLayout, { generateMetadata as generatePublicLayoutMetadata } from "./(public)/layout";
+import PublicLayout from "./(public)/layout";
 import PublicNotFound from "./(public)/not-found";
-import { getFsReadStore } from "@/lib/collections";
-import { readSiteConfig } from "@/lib/content";
 
 import "./globals.css";
 
@@ -33,11 +29,5 @@ export default function GlobalNotFound() {
   );
 }
 
-/** Same tab title and favicon the catch-all gave an unknown URL. */
-export async function generateMetadata(): Promise<Metadata> {
-  const [layoutMetadata, site] = await Promise.all([
-    generatePublicLayoutMetadata(),
-    readSiteConfig(getFsReadStore()),
-  ]);
-  return { ...layoutMetadata, title: site.siteTitle, description: site.siteDescription };
-}
+/** Same tab title and favicon as the `(public)` group's 404. */
+export { generateMetadata } from "./(public)/not-found";
