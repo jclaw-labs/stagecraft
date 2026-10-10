@@ -11,15 +11,17 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dynamicParams, generateMetadata, generateStaticParams } from "./page";
 import { writeCollectionDef, writeItem, type CollectionDef } from "@/lib/collections";
 import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
+import { POSTS_FIELD_IDS } from "@/lib/collections/field-ids";
+import { pagesCollectionDef, postsCollectionDef } from "@/lib/collections/seeds";
 import { tourDateItem, tourDatesDef } from "@/lib/collections/test-fixtures";
 import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
 import { __resetBootstrapCacheForTests } from "@/lib/content";
+import { asImageId } from "@/lib/image-types";
 import { emptyPageData } from "@/lib/page-data";
 
 let TMP_CONTENT_DIR: string;
@@ -121,12 +123,61 @@ describe("public catch-all — unknown URLs", () => {
 describe("public catch-all — generateMetadata", () => {
   const metadataFor = (slug: string[]) => generateMetadata({ params: Promise.resolve({ slug }) });
 
+  // Pin the host env: a shell that exports Netlify's URL would otherwise
+  // change `metadataBase`.
+  beforeEach(() => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("URL", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("gives a collection item's detail URL the item's own title", async () => {
     await seedSite({ pageSlugs: ["home"] });
     expect(await metadataFor(["shows", "mercury-lounge"])).toEqual({
       title: `Mercury Lounge — ${DEFAULT_SITE_CONFIG.artistName}`,
       description: DEFAULT_SITE_CONFIG.siteDescription,
     });
+  });
+
+  it("resolves a post's cover against the deployed origin", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("URL", "https://juneharlow.example");
+    await seedSite({ pageSlugs: ["home"] });
+    await writeCollectionDef("posts", postsCollectionDef);
+    await writeItem(
+      "posts",
+      "behind-the-record",
+      {
+        id: "item_post_1",
+        slug: "behind-the-record",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        values: {
+          [POSTS_FIELD_IDS.title]: { type: "text", value: "Behind the Record" },
+          [POSTS_FIELD_IDS.publishedAt]: { type: "date", value: "2026-04-02" },
+          [POSTS_FIELD_IDS.coverImage]: {
+            type: "image",
+            value: {
+              id: asImageId("abc1234567890def"),
+              alt: "Studio shot",
+              width: 1600,
+              height: 900,
+              placeholderDataUri: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4TAo=",
+              contentSlug: "post",
+              originalExt: "jpg",
+            },
+          },
+        },
+      },
+      postsCollectionDef,
+    );
+    const metadata = await metadataFor(["news", "behind-the-record"]);
+    expect(metadata.metadataBase?.href).toBe("https://juneharlow.example/");
+    expect(metadata.openGraph?.images).toEqual([
+      { url: "/images/post/abc1234567890def/1600.webp", alt: "Studio shot" },
+    ]);
   });
 
   it("falls back to the site title for a detail URL with no item", async () => {
@@ -137,5 +188,20 @@ describe("public catch-all — generateMetadata", () => {
   it("keeps a page's own title", async () => {
     await seedSite({ pageSlugs: ["home", "about"] });
     expect((await metadataFor(["about"])).title).toBe(`about — ${DEFAULT_SITE_CONFIG.artistName}`);
+  });
+
+  it("reads a page through the page path, not the item path", async () => {
+    // Both paths title a page by its root title; only the item path adds
+    // a `metadataBase`. The pages def is on disk, as in a committed site,
+    // so the URL does resolve to a Pages item.
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("URL", "https://juneharlow.example");
+    await seedSite({ pageSlugs: ["home"] });
+    await writeCollectionDef("pages", pagesCollectionDef);
+    await writeItem("pages", "about", pageDataToItem("about", emptyPageData("About us")), pagesCollectionDef);
+    expect(await metadataFor(["about"])).toStrictEqual({
+      title: `About us — ${DEFAULT_SITE_CONFIG.artistName}`,
+      description: DEFAULT_SITE_CONFIG.siteDescription,
+    });
   });
 });

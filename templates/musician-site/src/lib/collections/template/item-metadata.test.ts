@@ -10,7 +10,7 @@ import { asImageId, type ImageMetadata } from "@/lib/image-types";
 import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
 import type { Item } from "../schema";
 import { postsCollectionDef, releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
-import { itemDetailMetadata } from "./item-metadata";
+import { META_DESCRIPTION_MAX_LENGTH, itemDetailMetadata, metaDescription } from "./item-metadata";
 
 const TS = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
 const SITE = { artistName: "June Harlow", siteDescription: "Songs from the Pacific Northwest." };
@@ -121,5 +121,54 @@ describe("itemDetailMetadata", () => {
       [POSTS_FIELD_IDS.coverImage]: { type: "image", value: { ...COVER, originalExt: "svg" } },
     });
     expect(itemDetailMetadata(postsCollectionDef, item, SITE).openGraph).toBeUndefined();
+  });
+
+  it("leaves og:image off for a cover narrower than the smallest variant", () => {
+    // No webp variant exists, and the original may be AVIF.
+    const item = post({
+      [POSTS_FIELD_IDS.coverImage]: {
+        type: "image",
+        value: { ...COVER, width: 399, height: 300, originalExt: "avif" },
+      },
+    });
+    expect(itemDetailMetadata(postsCollectionDef, item, SITE).openGraph).toBeUndefined();
+  });
+
+  it("puts a multi-paragraph summary on one line and cuts it to length", () => {
+    const paragraph = "Recorded live in one room over three nights. ".repeat(3).trim();
+    const item = post({
+      [POSTS_FIELD_IDS.summary]: { type: "longText", value: `${paragraph}\n\n${paragraph}` },
+    });
+    const { description } = itemDetailMetadata(postsCollectionDef, item, SITE);
+    expect(description).toBe(metaDescription(`${paragraph} ${paragraph}`));
+    expect(description).not.toMatch(/\n/);
+  });
+});
+
+describe("metaDescription", () => {
+  it("returns short text unchanged apart from collapsing whitespace", () => {
+    expect(metaDescription("  Five songs,\n\n  one take.  ")).toBe("Five songs, one take.");
+  });
+
+  it("keeps text exactly at the limit", () => {
+    const text = "a".repeat(META_DESCRIPTION_MAX_LENGTH);
+    expect(metaDescription(text)).toBe(text);
+  });
+
+  it("cuts longer text at the last word boundary, adding an ellipsis", () => {
+    const text = "word ".repeat(40).trim(); // 199 characters
+    const result = metaDescription(text);
+    expect(result.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX_LENGTH);
+    expect(result).toBe(`${"word ".repeat(31).trim()}…`);
+  });
+
+  it("drops trailing punctuation before the ellipsis", () => {
+    const text = `${"x".repeat(156)}, then more words past the limit`;
+    expect(metaDescription(text)).toBe(`${"x".repeat(156)}…`);
+  });
+
+  it("cuts a single overlong word mid-word", () => {
+    const result = metaDescription("y".repeat(200));
+    expect(result).toBe(`${"y".repeat(META_DESCRIPTION_MAX_LENGTH - 1)}…`);
   });
 });
