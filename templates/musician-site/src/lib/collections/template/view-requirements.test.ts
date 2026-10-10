@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { TOUR_DATES_FIELD_IDS, VIDEOS_FIELD_IDS } from "../field-ids";
+import { asImageId, type ImageMetadata } from "@/lib/image-types";
+
+import { PHOTOS_FIELD_IDS, TOUR_DATES_FIELD_IDS, VIDEOS_FIELD_IDS } from "../field-ids";
 import type { CollectionDef, FieldDef, Item } from "../schema";
 import {
   photosCollectionDef,
@@ -33,6 +35,7 @@ const SEED_DEFS: Record<string, CollectionDef> = {
 
 const CITY = VIEW_REQUIREMENTS["tour-dates"].fields.city;
 const TICKETS = VIEW_REQUIREMENTS["tour-dates"].fields.ticketUrl;
+const COUNTRY = VIEW_REQUIREMENTS["tour-dates"].fields.country;
 
 /** The tour-dates seed with one field swapped out (or removed when `next` is null). */
 function tourDatesWith(fieldId: string, next: FieldDef | null): CollectionDef {
@@ -177,11 +180,37 @@ describe("resolveViewFields", () => {
     expect(fields.string(item, "city")).toBeNull();
   });
 
+  it("returns null for a stale string value of a type the role doesn't accept", () => {
+    // String-valued, so only the per-value type check keeps it off the card.
+    const fields = resolveViewFields(tourDatesCollectionDef, "tour-dates")!;
+    const item = tourItem({ [TOUR_DATES_FIELD_IDS.city]: { type: "email", value: "a@b.example" } });
+    expect(fields.string(item, "city")).toBeNull();
+  });
+
   it("reads images only from image values", () => {
     const fields = resolveViewFields(photosCollectionDef, "photos")!;
-    const item: Item = { id: "p", slug: "p", ...TS, values: {} };
-    expect(fields.image(item, "image")).toBeNull();
+    const image: ImageMetadata = {
+      id: asImageId("img_1"),
+      alt: "Live",
+      width: 800,
+      height: 600,
+      placeholderDataUri: "data:image/webp;base64,AAAA",
+      contentSlug: "live",
+      originalExt: "jpg",
+    };
+    const item: Item = {
+      id: "p",
+      slug: "p",
+      ...TS,
+      values: {
+        [PHOTOS_FIELD_IDS.image]: { type: "image", value: image },
+        [PHOTOS_FIELD_IDS.caption]: { type: "text", value: "On stage" },
+      },
+    };
+    expect(fields.image(item, "image")).toBe(image);
     expect(fields.image(item, "caption")).toBeNull();
+    const empty: Item = { id: "p", slug: "p", ...TS, values: {} };
+    expect(fields.image(empty, "image")).toBeNull();
   });
 });
 
@@ -198,15 +227,25 @@ describe("viewFieldProblems", () => {
     const def = tourDatesWith(CITY.fieldId, {
       id: CITY.fieldId,
       key: "city",
-      type: "number",
+      type: "url",
       required: true,
     });
     const withoutTickets = { ...def, fields: def.fields.filter((f) => f.id !== TICKETS.fieldId) };
     const problems = viewFieldProblems(withoutTickets);
     expect(problems.map((p) => [p.role, p.status, p.actualType])).toEqual([
-      ["city", "wrong-type", "number"],
+      ["city", "wrong-type", "url"],
       ["ticketUrl", "missing", null],
     ]);
+  });
+
+  it("skips a retype the save API blocks — that draft never reaches the view", () => {
+    const def = tourDatesWith(CITY.fieldId, {
+      id: CITY.fieldId,
+      key: "city",
+      type: "number",
+      required: true,
+    });
+    expect(viewFieldProblems(def)).toEqual([]);
   });
 });
 
@@ -226,15 +265,27 @@ describe("viewFieldImpact", () => {
     expect(impact?.requirement.required).toBe(false);
   });
 
-  it("flags a retype to a type the view can't render", () => {
+  it("flags a saveable retype to a type the view can't render", () => {
     expect(
-      viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "retype", to: "number" }),
+      viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "retype", from: "text", to: "url" }),
     ).not.toBeNull();
+  });
+
+  it("ignores a retype the save API blocks", () => {
+    // text → number is `type-transition-blocked` on save; warning about the
+    // public site would promise a change that can't happen.
+    expect(
+      viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "retype", from: "text", to: "number" }),
+    ).toBeNull();
   });
 
   it("allows a retype to another accepted type", () => {
     expect(
-      viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, { kind: "retype", to: "longText" }),
+      viewFieldImpact(tourDatesCollectionDef, CITY.fieldId, {
+        kind: "retype",
+        from: "text",
+        to: "longText",
+      }),
     ).toBeNull();
   });
 
@@ -256,26 +307,65 @@ describe("describeViewFieldImpact / describeViewFieldProblem", () => {
   });
 
   it("explains a hidden piece for an optional field, naming the new type on retype", () => {
-    const impact = viewFieldImpact(tourDatesCollectionDef, TICKETS.fieldId, {
+    const impact = viewFieldImpact(tourDatesCollectionDef, COUNTRY.fieldId, {
       kind: "retype",
-      to: "number",
+      from: "text",
+      to: "email",
     })!;
-    expect(describeViewFieldImpact(impact, "ticketUrl")).toBe(
-      'Changing "ticketUrl" to Number means the ticket link will no longer show on the ' +
+    expect(describeViewFieldImpact(impact, "country")).toBe(
+      'Changing "country" to Email means the country will no longer show on the ' +
         "public tour dates list. Continue?",
     );
+  });
+
+  it("uses a role's own effect copy where the generic copy would misstate it", () => {
+    const source = viewFieldImpact(videosCollectionDef, VIDEOS_FIELD_IDS.source, { kind: "remove" })!;
+    expect(describeViewFieldImpact(source, "source")).toBe(
+      'Removing "source" means videos on the public video grid will show as links instead of ' +
+        "embedded players. Continue?",
+    );
+    const caption = viewFieldImpact(photosCollectionDef, PHOTOS_FIELD_IDS.caption, { kind: "remove" })!;
+    expect(describeViewFieldImpact(caption, "caption")).toBe(
+      'Removing "caption" means the public photo grid will only show the caption saved with ' +
+        "each image. Continue?",
+    );
+  });
+
+  it("warns that removing tour-date status empties lists that hide cancelled shows", () => {
+    // The default tour-dates block filters `status notEquals cancelled`; a
+    // removed field fails that clause for every item.
+    const impact = viewFieldImpact(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.status, {
+      kind: "remove",
+    })!;
+    expect(describeViewFieldImpact(impact, "status")).toBe(
+      'Removing "status" means tour dates lists that hide cancelled shows (the default) will ' +
+        "hide every show. Continue?",
+    );
+    const [problem] = viewFieldProblems(tourDatesWith(TOUR_DATES_FIELD_IDS.status, null));
+    expect(describeViewFieldProblem(tourDatesCollectionDef, problem!)).toBe(
+      "The status field was removed, so tour dates lists that hide cancelled shows (the " +
+        "default) hide every show.",
+    );
+    // select → multiSelect keeps the filter working, so it doesn't warn.
+    expect(
+      viewFieldImpact(tourDatesCollectionDef, TOUR_DATES_FIELD_IDS.status, {
+        kind: "retype",
+        from: "select",
+        to: "multiSelect",
+      }),
+    ).toBeNull();
   });
 
   it("describes a standing problem in the present tense", () => {
     const def = tourDatesWith(CITY.fieldId, {
       id: CITY.fieldId,
       key: "city",
-      type: "number",
+      type: "url",
       required: true,
     });
     const [problem] = viewFieldProblems(def);
     expect(describeViewFieldProblem(def, problem!)).toBe(
-      "The city field is now Number, so the public tour dates list falls back to the plain " +
+      "The city field is now URL, so the public tour dates list falls back to the plain " +
         "default card (its layout needs the city as Short text or Long text).",
     );
     const [removed] = viewFieldProblems(tourDatesWith(TICKETS.fieldId, null));

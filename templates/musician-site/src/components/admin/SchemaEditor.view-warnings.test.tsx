@@ -81,11 +81,26 @@ describe("<SchemaEditor> specialised-view warnings", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const onChange = renderEditor();
     const typeSelect = fieldCard("city").querySelector("select")!;
-    fireEvent.change(typeSelect, { target: { value: "number" } });
+    fireEvent.change(typeSelect, { target: { value: "url" } });
     expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/^Changing "city" to Number means/),
+      expect.stringMatching(/^Changing "city" to URL means/),
     );
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("doesn't ask for a retype the save API blocks, and shows no heads-up for it", () => {
+    // text → number is rejected on save (`type-transition-blocked`), so the
+    // public view can never see it; the save error is the artist's message.
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const onChange = renderEditor();
+    fireEvent.change(fieldCard("city").querySelector("select")!, {
+      target: { value: "number" },
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    cleanup();
+    renderEditor(onChange.mock.calls[0]![0] as CollectionDef);
+    expect(screen.queryByText("Heads-up")).toBeNull();
   });
 
   it("doesn't ask for a retype the view still renders", () => {

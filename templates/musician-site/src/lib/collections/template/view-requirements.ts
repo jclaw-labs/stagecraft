@@ -17,7 +17,9 @@
  *     doesn't render.
  *
  * The schema editor reads the same declarations to warn the artist before
- * a delete / retype breaks a view (`viewFieldImpact`). Renames are always
+ * a delete / retype breaks a view (`viewFieldImpact`). A role can also
+ * name a field the card doesn't read but the view still depends on: the
+ * tour-dates `status`, which the default Collection block filters on. Renames are always
  * safe: views resolve by stable field id, never by `key`.
  *
  * Client-safe: type-only imports from `../schema` plus the node-free
@@ -28,7 +30,7 @@
 
 import type { ImageMetadata } from "@/lib/image-types";
 
-import { fieldTypeLabel } from "../field-classification";
+import { canTransition, fieldTypeLabel } from "../field-classification";
 import {
   PHOTOS_FIELD_IDS,
   POSTS_FIELD_IDS,
@@ -58,6 +60,13 @@ export type ViewFieldRequirement = {
   accepts: readonly FieldType[];
   /** True → the card can't render without it; the view falls back to the default card. */
   required: boolean;
+  /**
+   * What losing the field does on the public site, when the generic
+   * copy ("the <label> will no longer show") would misstate it. `will`
+   * completes a confirm prompt; `now` describes a draft that already
+   * lost it.
+   */
+  effect?: { will: string; now: string };
 };
 
 export type ViewSpec = {
@@ -77,15 +86,45 @@ export const VIEW_REQUIREMENTS = {
     viewLabel: "photo grid",
     fields: {
       image: { fieldId: PHOTOS_FIELD_IDS.image, label: "photo", accepts: ["image"], required: true },
-      caption: { fieldId: PHOTOS_FIELD_IDS.caption, label: "caption", accepts: TEXTUAL, required: false },
-      credit: { fieldId: PHOTOS_FIELD_IDS.credit, label: "credit", accepts: TEXTUAL, required: false },
+      // The tile falls back to the caption / credit saved on the image.
+      caption: {
+        fieldId: PHOTOS_FIELD_IDS.caption,
+        label: "caption",
+        accepts: TEXTUAL,
+        required: false,
+        effect: {
+          will: "the public photo grid will only show the caption saved with each image",
+          now: "the public photo grid only shows the caption saved with each image",
+        },
+      },
+      credit: {
+        fieldId: PHOTOS_FIELD_IDS.credit,
+        label: "credit",
+        accepts: TEXTUAL,
+        required: false,
+        effect: {
+          will: "the public photo grid will only show the credit saved with each image",
+          now: "the public photo grid only shows the credit saved with each image",
+        },
+      },
     },
   },
   videos: {
     viewLabel: "video grid",
     fields: {
       embedUrl: { fieldId: VIDEOS_FIELD_IDS.embedUrl, label: "video link", accepts: LINK, required: true },
-      source: { fieldId: VIDEOS_FIELD_IDS.source, label: "video source", accepts: ["select"], required: false },
+      // Never displayed: it picks the embedded player. Without it,
+      // `VideoEmbed` renders a link-out card.
+      source: {
+        fieldId: VIDEOS_FIELD_IDS.source,
+        label: "video source",
+        accepts: ["select"],
+        required: false,
+        effect: {
+          will: "videos on the public video grid will show as links instead of embedded players",
+          now: "videos on the public video grid show as links instead of embedded players",
+        },
+      },
       title: { fieldId: VIDEOS_FIELD_IDS.title, label: "title", accepts: TEXTUAL, required: false },
       thumbnail: { fieldId: VIDEOS_FIELD_IDS.thumbnail, label: "thumbnail", accepts: ["image"], required: false },
       description: { fieldId: VIDEOS_FIELD_IDS.description, label: "description", accepts: TEXTUAL, required: false },
@@ -99,6 +138,20 @@ export const VIEW_REQUIREMENTS = {
       city: { fieldId: TOUR_DATES_FIELD_IDS.city, label: "city", accepts: TEXTUAL, required: true },
       country: { fieldId: TOUR_DATES_FIELD_IDS.country, label: "country", accepts: TEXTUAL, required: false },
       ticketUrl: { fieldId: TOUR_DATES_FIELD_IDS.ticketUrl, label: "ticket link", accepts: LINK, required: false },
+      // Not read by the card: the default tour-dates Collection block
+      // filters out `status = cancelled` (`collection-view-props.ts`), and
+      // a filter clause on a missing value fails, so every show drops out.
+      // `notEquals` on a multi-choice value still works.
+      status: {
+        fieldId: TOUR_DATES_FIELD_IDS.status,
+        label: "status",
+        accepts: ["select", "multiSelect"],
+        required: false,
+        effect: {
+          will: "tour dates lists that hide cancelled shows (the default) will hide every show",
+          now: "tour dates lists that hide cancelled shows (the default) hide every show",
+        },
+      },
     },
   },
   releases: {
@@ -166,6 +219,12 @@ export function viewFieldProblems(def: Pick<CollectionDef, "slug" | "fields">): 
     const status = checkFieldRequirement(def.fields, requirement);
     if (status === "ok") continue;
     const actualType = def.fields.find((f) => f.id === requirement.fieldId)?.type ?? null;
+    // A type no accepted type converts to losslessly is a draft the save
+    // API rejects (`type-transition-blocked`); the view never sees it, so
+    // its save error is the only message the artist needs.
+    if (actualType !== null && !requirement.accepts.some((t) => canTransition(t, actualType))) {
+      continue;
+    }
     problems.push({ role, requirement, status, actualType });
   }
   return problems;
@@ -230,7 +289,7 @@ export function resolveViewFields<S extends SpecialisedViewSlug>(
 // Schema-editor impact
 // ---------------------------------------------------------------------------
 
-export type ViewFieldChange = { kind: "remove" } | { kind: "retype"; to: FieldType };
+export type ViewFieldChange = { kind: "remove" } | { kind: "retype"; from: FieldType; to: FieldType };
 
 export type ViewFieldImpact = {
   viewLabel: string;
@@ -240,8 +299,10 @@ export type ViewFieldImpact = {
 
 /**
  * What a remove / retype of `fieldId` would do to `def`'s specialised
- * view. Null when the field isn't one the view reads, or when the change
- * keeps it working (a retype to another accepted type).
+ * view. Null when the field isn't one the view reads, when the change
+ * keeps it working (a retype to another accepted type), or when the
+ * retype is one the save API blocks (`canTransition`), since that can
+ * never reach the public site.
  */
 export function viewFieldImpact(
   def: Pick<CollectionDef, "slug">,
@@ -252,7 +313,10 @@ export function viewFieldImpact(
   const spec = viewSpec(def.slug);
   const requirement = Object.values(spec.fields).find((r) => r.fieldId === fieldId);
   if (!requirement) return null;
-  if (change.kind === "retype" && requirement.accepts.includes(change.to)) return null;
+  if (change.kind === "retype") {
+    if (requirement.accepts.includes(change.to)) return null;
+    if (!canTransition(change.from, change.to)) return null;
+  }
   return { viewLabel: spec.viewLabel, requirement, change };
 }
 
@@ -266,6 +330,7 @@ function consequence(
   requirement: ViewFieldRequirement,
   tense: "will" | "now",
 ): string {
+  if (requirement.effect) return requirement.effect[tense];
   const needs = `its layout needs the ${requirement.label} as ${acceptedTypesLabel(requirement)}`;
   if (requirement.required) {
     return tense === "will"

@@ -289,8 +289,13 @@ function FieldEditor({
         onChange={(next) => {
           // Retyping a field the public card view reads to a type it
           // can't render: confirm first. Cancelling leaves the
-          // (controlled) select on the old type.
-          const impact = viewFieldImpact(def, field.id, { kind: "retype", to: next.type });
+          // (controlled) select on the old type. A retype the save API
+          // blocks gets no prompt; its save error explains it.
+          const impact = viewFieldImpact(def, field.id, {
+            kind: "retype",
+            from: field.type,
+            to: next.type,
+          });
           if (impact && !confirm(describeViewFieldImpact(impact, field.key))) return;
           onChange(next);
         }}
