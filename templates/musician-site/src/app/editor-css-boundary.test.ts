@@ -97,7 +97,7 @@ describe("puck.css import boundary", () => {
  * comments, missing semicolons and template-literal `import()` calls read
  * the way the bundler reads them.
  */
-function valueImports(source: string, fileName = "module.tsx"): string[] {
+function valueImports(source: string, fileName: string): string[] {
   const specifiers: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -165,6 +165,9 @@ function resolveLocal(specifier: string, fromFile: string): string | null {
 
 const PUCK_MAIN_ENTRY = "@puckeditor/core";
 
+/** `valueImports` on a snippet parsed as a `.tsx` module. */
+const tsxImports = (source: string): string[] => valueImports(source, "module.tsx");
+
 /**
  * The chain of local modules from `entry` to one that value-imports
  * Puck's main entry, or null when none does.
@@ -230,28 +233,28 @@ describe("@puckeditor/core value-import boundary", () => {
   });
 
   it("recognises value and type-only imports", () => {
-    expect(valueImports('import { Render } from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports('import { Puck, type Data } from "@puckeditor/core";')).toEqual([
+    expect(tsxImports('import { Render } from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('import { Puck, type Data } from "@puckeditor/core";')).toEqual([
       PUCK_MAIN_ENTRY,
     ]);
-    expect(valueImports('import * as Puck from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports('export { Render } from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports('import "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports('const m = await import("@puckeditor/core");')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports('import {\n  Render,\n  type Config,\n} from "@puckeditor/core";')).toEqual(
+    expect(tsxImports('import * as Puck from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('export { Render } from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('import "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('const m = await import("@puckeditor/core");')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('import {\n  Render,\n  type Config,\n} from "@puckeditor/core";')).toEqual(
       [PUCK_MAIN_ENTRY],
     );
-    expect(valueImports('import type { Data } from "@puckeditor/core";')).toEqual([]);
-    expect(valueImports('import { type Data, type Config } from "@puckeditor/core";')).toEqual([]);
-    expect(valueImports('export type { Data } from "@puckeditor/core";')).toEqual([]);
-    expect(valueImports('export * from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
-    expect(valueImports("const m = import(`@puckeditor/core`);")).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports('import type { Data } from "@puckeditor/core";')).toEqual([]);
+    expect(tsxImports('import { type Data, type Config } from "@puckeditor/core";')).toEqual([]);
+    expect(tsxImports('export type { Data } from "@puckeditor/core";')).toEqual([]);
+    expect(tsxImports('export * from "@puckeditor/core";')).toEqual([PUCK_MAIN_ENTRY]);
+    expect(tsxImports("const m = import(`@puckeditor/core`);")).toEqual([PUCK_MAIN_ENTRY]);
     expect(
-      valueImports('import {\n  // only a type\n  type Data,\n} from "@puckeditor/core";'),
+      tsxImports('import {\n  // only a type\n  type Data,\n} from "@puckeditor/core";'),
     ).toEqual([]);
     // A semicolon-less type alias must not swallow the value import after it.
     expect(
-      valueImports('export type P = { a: string }\nimport { Render } from "@puckeditor/core"'),
+      tsxImports('export type P = { a: string }\nimport { Render } from "@puckeditor/core"'),
     ).toEqual([PUCK_MAIN_ENTRY]);
   });
 
