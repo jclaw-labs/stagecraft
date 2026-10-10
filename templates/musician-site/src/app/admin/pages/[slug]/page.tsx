@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import { getRequestReadStore } from "@/lib/collections";
-import { readPageOrNull } from "@/lib/content";
+import { readAppearance, readPageOrNull } from "@/lib/content";
 import { pageSlugSchema } from "@/lib/site-config-types";
 
 import { Editor } from "./Editor";
@@ -18,10 +18,11 @@ export default async function AdminEditPage({ params }: Props) {
   const slug = parsed.data;
 
   const store = await getRequestReadStore();
-  const [data, session, collectionSlugs] = await Promise.all([
+  const [data, session, collectionSlugs, appearance] = await Promise.all([
     readPageOrNull(slug, store),
     getSession(),
     store.listCollectionSlugs(),
+    readAppearance(store),
   ]);
   if (!data) notFound();
 
@@ -42,6 +43,7 @@ export default async function AdminEditPage({ params }: Props) {
       pageSlug={slug}
       email={session?.email ?? ""}
       embeddableCollections={embeddableCollections}
+      appearance={appearance}
     />
   );
 }

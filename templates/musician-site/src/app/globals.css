@@ -103,7 +103,8 @@
         (--color-accent, --btn-*, --radius-theme, --shadow-theme,
         --space-scale, --color-on-accent …) on :root.
      3. .stagecraft-site below — re-points the static block tokens at those
-        theme tokens, scoped to the public site, each with a :root fallback.
+        theme tokens, scoped to the public site and the Puck canvas (which
+        wraps its blocks in .stagecraft-site too), each with a :root fallback.
    So inside the public site --radius resolves to the theme's --radius-theme;
    in the editor chrome (outside .stagecraft-site) it stays the static default.
    Blocks consume the stable names (--radius, --shadow-md …) and pick up the
@@ -129,26 +130,19 @@
    body margin and content-box sizing pushed them past the viewport and
    made every public page scroll sideways (#388). The body also takes the
    theme background, so a page shorter than the viewport doesn't end on
-   the browser's white canvas. Scoped to the public site and the Puck
-   canvas (`#frame-root`, which renders the same blocks without the
-   wrapper), so the editor uses the published box model and margins
-   while the admin and Puck chrome keep theirs. (The canvas still lacks
-   the theme tokens set under `.stagecraft-site`; see #395.) */
-body:has(> .stagecraft-site) {
-  margin: 0;
-  background: var(--color-background);
-}
+   the browser's white canvas. The Puck canvas wraps its blocks in
+   `.stagecraft-site` too (Editor.tsx, #395), one level down inside the
+   iframe's `#frame-root`, so its body is matched through that. The admin
+   and Puck chrome keep their own margins and box model. */
+body:has(> .stagecraft-site),
 body:has(> #frame-root) {
   margin: 0;
+  background: var(--color-background);
 }
 .stagecraft-site,
 .stagecraft-site *,
 .stagecraft-site *::before,
-.stagecraft-site *::after,
-#frame-root,
-#frame-root *,
-#frame-root *::before,
-#frame-root *::after {
+.stagecraft-site *::after {
   box-sizing: border-box;
 }
 
@@ -239,8 +233,7 @@ body:has(> #frame-root) {
 /* Gallery block — a tiled photo grid. The active layout is theme-driven:
    AppearanceStyles emits `.stagecraft-site [data-gallery]` overrides for
    the `portrait` / `masonry` galleryLayout tokens. This base is the `grid`
-   default — and also what the editor canvas (which renders outside
-   `.stagecraft-site`) shows. */
+   default. */
 [data-gallery] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

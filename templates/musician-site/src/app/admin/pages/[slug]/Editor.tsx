@@ -3,9 +3,10 @@
 import { Puck, usePuck } from "@measured/puck";
 import "@measured/puck/puck.css";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
+import { AppearanceStyles } from "@/components/AppearanceStyles";
 import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
 import {
   buildUnifiedEditorConfig,
@@ -15,6 +16,7 @@ import { BLOCK_DESCRIPTIONS } from "@/puck/config";
 import { DrawerItemPreview } from "@/puck/DrawerItemPreview";
 import type { CollectionDef, Item } from "@/lib/collections/schema";
 import { pageValuesForSave, type PageData } from "@/lib/page-data";
+import type { Appearance } from "@/lib/site-config-types";
 
 import {
   type CategoryConfig,
@@ -33,6 +35,8 @@ type Props = {
    * (ADR-015 step 5) — see `buildUnifiedEditorConfig`.
    */
   embeddableCollections: EmbeddableCollection[];
+  /** The site's theme, applied to the canvas so it matches the public page. */
+  appearance: Appearance;
 };
 
 /**
@@ -59,7 +63,13 @@ type ItemResponse =
   | ItemRouteFailureBody
   | null;
 
-export function Editor({ initialData, pageSlug, email, embeddableCollections }: Props) {
+export function Editor({
+  initialData,
+  pageSlug,
+  email,
+  embeddableCollections,
+  appearance,
+}: Props) {
   // Page editor's unified config (ADR-015 step 5): chrome blocks + the generic
   // Collection-block authoring config per embeddable collection. Memoised so
   // Puck doesn't re-init on every keystroke (a fresh config identity resets
@@ -123,6 +133,28 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
     [pageSlug],
   );
 
+  // The canvas iframe renders the page's blocks outside the public
+  // layout, so on its own it misses the theme that layout applies.
+  // Wrapping the canvas root in `.stagecraft-site` with the site's
+  // AppearanceStyles gives it the same tokens, typography and gallery
+  // layout as the published page (#395). The <style> lands in the
+  // iframe's document, so its `:root` tokens don't reach the editor
+  // chrome. Only the theme comes along: the header, footer, page
+  // background image and lightbox stay on the public layout.
+  //
+  // Puck renders this override as the canvas's component type, so it has
+  // to keep its identity across renders: a new function would remount the
+  // whole canvas on every edit, save-state change and drawer keystroke.
+  const CanvasFrame = useCallback(
+    ({ children }: { children: ReactNode }) => (
+      <div className="stagecraft-site">
+        <AppearanceStyles appearance={appearance} />
+        {children}
+      </div>
+    ),
+    [appearance],
+  );
+
   return (
     <Puck
       config={config}
@@ -130,6 +162,7 @@ export function Editor({ initialData, pageSlug, email, embeddableCollections }: 
       onPublish={savePageToDraft}
       onChange={() => setIsDirty(true)}
       overrides={{
+        iframe: CanvasFrame,
         drawer: ({ children }) => {
           const q = drawerFilter.trim().toLowerCase();
           const hasMatch =
