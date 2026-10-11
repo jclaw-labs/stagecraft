@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "agentGuidance": false,
+  "globalEnv": ["STAGECRAFT_SITE_PACKAGE_LATEST"],
+  "globalPassThroughEnv": ["NODE_EXTRA_CA_CERTS"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

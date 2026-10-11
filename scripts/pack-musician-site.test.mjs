@@ -4,6 +4,7 @@ import { publishProblems } from "../templates/musician-site/scripts/prepublish-g
 import {
   assertLockstep,
   packedTemplatePackageJson,
+  packMusicianSite,
   packedUpgradersPackageJson,
   UPGRADERS_NAME,
   upgradersSpec,
@@ -47,6 +48,12 @@ describe("packedTemplatePackageJson", () => {
     const real = JSON.parse(fs.readFileSync(new URL("../templates/musician-site/package.json", import.meta.url), "utf8"));
     expect(publishProblems(real)).not.toEqual([]);
     expect(publishProblems(packedTemplatePackageJson(real, "1.0.0-rc.0"))).toEqual([]);
+  });
+
+  it("records the shell digest under stagecraft for a release, keeping the other fields", () => {
+    const packed = packedTemplatePackageJson({ ...TEMPLATE, stagecraft: { schemaVersion: 1 } }, "1.2.3", "abc123");
+    expect(packed.stagecraft).toEqual({ schemaVersion: 1, shellDigest: "abc123" });
+    expect(packedTemplatePackageJson(TEMPLATE, "1.2.3")).not.toHaveProperty("stagecraft");
   });
 
   it("refuses a template without the upgraders dependency", () => {
@@ -109,5 +116,11 @@ describe("assertLockstep", () => {
     expect(() => assertLockstep(TEMPLATE, { name: UPGRADERS_NAME, version: "1.2.4" })).toThrow(
       "@jclaw-labs/musician-site@1.2.3 and @jclaw-labs/content-upgraders@1.2.4 must share a version.",
     );
+  });
+});
+
+describe("packMusicianSite", () => {
+  it("refuses a release pack without the shell digest", () => {
+    expect(() => packMusicianSite({ release: true, outDir: "/nonexistent" })).toThrow(/needs the shell's digest/);
   });
 });

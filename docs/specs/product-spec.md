@@ -301,8 +301,14 @@ Use:
 
 Each customer site repo should follow a standard layout.
 
-Every repo starts as a copy of `templates/musician-site`, minus the files
-provisioning skips (§10.1). Abridged:
+Once a release of `@jclaw-labs/musician-site` is on npm's `latest`
+dist-tag, every new repo starts as the artist-repo shell
+(`templates/musician-site-shell`, ADR-016 §1): `src/content/`, about ten
+files under `src/app/` and `src/middleware.ts` that re-export from the
+package, `next.config.ts`, `tsconfig.json`, and a `package.json` that pins
+the package to that exact version. Until then, and while `latest` holds a
+prerelease, every repo starts as a copy of `templates/musician-site`, minus
+the files provisioning skips (§10.1). The copy, abridged:
 
 ```txt
 /
@@ -357,8 +363,8 @@ Monorepo packages the template depends on through `file:` (today only
 `@jclaw-labs/content-upgraders`) are vendored into the copy under
 `vendor/<name>/`: their `src/` and a source-only `package.json`. The site's
 dependency points at `file:./vendor/<name>`, which the template's
-`next.config.ts` builds from source. This lasts until the package is published
-(ADR-016 §2, #422).
+`next.config.ts` builds from source. Sites on the shell install the published
+package instead (ADR-016 §2).
 
 ## 11. Content model
 

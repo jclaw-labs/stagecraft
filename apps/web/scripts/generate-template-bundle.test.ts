@@ -6,9 +6,19 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  collectShellFiles,
   collectSiteFiles,
   collectTemplateFiles,
+  fetchLatestVersion,
+  fetchReleasedShellDigest,
   generateTemplateBundle,
+  LATEST_OVERRIDE_ENV,
+  NPM_REGISTRY,
+  resolveSitePackageVersion,
+  SHELL_DIR,
+  shellDigest,
+  shellSitePackageJson,
+  sitePackageVersion,
   STARTER_CONTENT_DIR,
   sitePackageJson,
   TEST_FILE,
@@ -66,6 +76,8 @@ describe("collectTemplateFiles", () => {
       "vitest.setup.ts",
       "CLAUDE.md",
       "EDITING.md",
+      "README.md",
+      "CHANGELOG.md",
       "tsconfig.build.json",
       "test-fixtures.ts",
     ]) {
@@ -382,5 +394,296 @@ describe("generateTemplateBundle", () => {
       generateTemplateBundle({ templateDir: path.join(root, "template"), contentDir: await content(), outFile }),
     ).rejects.toThrow(/No template files/);
     await expect(fs.access(outFile)).rejects.toThrow();
+  });
+});
+
+const PACKAGE = "@jclaw-labs/musician-site";
+
+const SHELL_PACKAGE = {
+  name: "musician-site",
+  version: "0.0.1",
+  private: true,
+  stagecraft: { shellVersion: 1 },
+  dependencies: { [PACKAGE]: "file:../musician-site", next: "^15.5.27" },
+  overrides: { "@jclaw-labs/content-upgraders": "file:../../packages/content-upgraders" },
+};
+
+describe("shellSitePackageJson", () => {
+  it("pins the package to the exact version and drops the monorepo-only overrides", () => {
+    const site = JSON.parse(shellSitePackageJson(JSON.stringify(SHELL_PACKAGE), PACKAGE, "1.2.3"));
+    const { overrides: _overrides, ...rest } = SHELL_PACKAGE;
+    expect(site).toEqual({ ...rest, dependencies: { [PACKAGE]: "1.2.3", next: "^15.5.27" } });
+  });
+
+  it("ends with a newline", () => {
+    expect(shellSitePackageJson(JSON.stringify(SHELL_PACKAGE), PACKAGE, "1.2.3").endsWith("}\n")).toBe(true);
+  });
+
+  it("refuses a prerelease, a range or a tag", () => {
+    for (const version of ["1.0.0-rc.0", "^1.2.3", "latest", "1.2", "1.2.3+build.1"]) {
+      expect(() => shellSitePackageJson(JSON.stringify(SHELL_PACKAGE), PACKAGE, version)).toThrow(/only pins a release/);
+    }
+  });
+
+  it("refuses a shell that doesn't depend on the package through file:", () => {
+    const pinned = { ...SHELL_PACKAGE, dependencies: { [PACKAGE]: "1.0.0" } };
+    expect(() => shellSitePackageJson(JSON.stringify(pinned), PACKAGE, "1.2.3")).toThrow(/through file:/);
+    expect(() => shellSitePackageJson("{}", PACKAGE, "1.2.3")).toThrow(/through file:/);
+  });
+});
+
+describe("collectShellFiles", () => {
+  it("returns the shell's files with package.json pinned, without monorepo-only or test files", async () => {
+    await write("shell/package.json", JSON.stringify(SHELL_PACKAGE));
+    await write("shell/.npmrc", "install-links=true");
+    await write("shell/CLAUDE.md", "notes");
+    await write("shell/next.config.ts", "config");
+    await write("shell/src/app/layout.tsx", "layout");
+    await write("shell/src/app/layout.test.tsx", "test");
+    await write("shell/src/content/collections/pages/items/home.json", "{}");
+    await write("shell/node_modules/x/index.js", "dep");
+    await write("shell/.next/cache.json", "{}");
+
+    const files = await collectShellFiles(path.join(root, "shell"), PACKAGE, "2.0.0");
+    expect(files.map((f) => f.path)).toEqual([
+      "next.config.ts",
+      "package.json",
+      "src/app/layout.tsx",
+      "src/content/collections/pages/items/home.json",
+    ]);
+    expect(JSON.parse(files[1].content).dependencies[PACKAGE]).toBe("2.0.0");
+  });
+
+  it("refuses a shell without package.json or starter content", async () => {
+    await write("shell/next.config.ts", "config");
+    await expect(collectShellFiles(path.join(root, "shell"), PACKAGE, "2.0.0")).rejects.toThrow(/No package\.json/);
+    await write("shell/package.json", JSON.stringify(SHELL_PACKAGE));
+    await expect(collectShellFiles(path.join(root, "shell"), PACKAGE, "2.0.0")).rejects.toThrow(/No starter content/);
+  });
+
+  it("reads the real shell as a site on the published package", async () => {
+    const templatePackage = JSON.parse(await fs.readFile(path.join(REAL_TEMPLATE_DIR, "package.json"), "utf-8"));
+    const files = await collectShellFiles(SHELL_DIR, templatePackage.name, "1.0.0");
+    const paths = files.map((f) => f.path);
+    const pkg = JSON.parse(files.find((f) => f.path === "package.json")!.content);
+
+    expect(pkg.dependencies[templatePackage.name]).toBe("1.0.0");
+    expect(pkg).not.toHaveProperty("overrides");
+    expect(Object.values(pkg.dependencies).some((spec) => String(spec).startsWith("file:"))).toBe(false);
+    expect(pkg.stagecraft.shellVersion).toEqual(expect.any(Number));
+    for (const file of ["next.config.ts", "src/middleware.ts", "src/app/layout.tsx", "src/app/api/[...path]/route.ts"]) {
+      expect(paths).toContain(file);
+    }
+    expect(paths).toContain("src/content/collections/pages/_collection.json");
+    expect(paths).not.toContain(".npmrc");
+    expect(paths).not.toContain("CLAUDE.md");
+    // Nothing of the package's own source comes along: the site installs it.
+    expect(paths.some((p) => /^(?:src\/(?:lib|components|puck)|vendor)\//.test(p))).toBe(false);
+  });
+});
+
+describe("sitePackageVersion", () => {
+  it("pins the release on latest", () => {
+    expect(sitePackageVersion(PACKAGE, "1.4.0")).toEqual({ version: "1.4.0", reason: `${PACKAGE}@1.4.0 is on latest` });
+  });
+
+  it("refuses a prerelease, even on latest", () => {
+    expect(sitePackageVersion(PACKAGE, "1.0.0-rc.0")).toEqual({
+      version: null,
+      reason: `refusing ${PACKAGE}@1.0.0-rc.0 on latest: it's a prerelease`,
+    });
+  });
+
+  it("bundles the full template when nothing is on latest", () => {
+    expect(sitePackageVersion(PACKAGE, null).version).toBeNull();
+  });
+});
+
+describe("shellDigest", () => {
+  it("is stable, and changes with any shipped shell file but not the monorepo-only ones", async () => {
+    await write("shell/package.json", "{}");
+    await write("shell/src/app/layout.tsx", "a");
+    const shell = path.join(root, "shell");
+    const first = await shellDigest(shell);
+    expect(await shellDigest(shell)).toBe(first);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+
+    await write("shell/.npmrc", "x");
+    await write("shell/CLAUDE.md", "x");
+    await write("shell/node_modules/x/index.js", "x");
+    expect(await shellDigest(shell)).toBe(first);
+
+    await write("shell/src/app/layout.tsx", "b");
+    expect(await shellDigest(shell)).not.toBe(first);
+  });
+});
+
+describe("fetchLatestVersion", () => {
+  function fakeFetch(status: number, body: unknown) {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const impl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify(body), { status });
+    }) as unknown as typeof fetch;
+    return { calls, impl };
+  }
+
+  it("reads latest from the abbreviated packument", async () => {
+    const { calls, impl } = fakeFetch(200, { name: PACKAGE, "dist-tags": { latest: "1.2.3", rc: "1.3.0-rc.0" } });
+    expect(await fetchLatestVersion(PACKAGE, { fetchImpl: impl })).toBe("1.2.3");
+    expect(calls[0].url).toBe(`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site`);
+    expect(new Headers(calls[0].init?.headers).get("accept")).toBe("application/vnd.npm.install-v1+json");
+  });
+
+  it("is null for a package the registry doesn't have, or one without latest", async () => {
+    expect(await fetchLatestVersion(PACKAGE, { fetchImpl: fakeFetch(404, { error: "Not found" }).impl })).toBeNull();
+    expect(await fetchLatestVersion(PACKAGE, { fetchImpl: fakeFetch(200, { "dist-tags": {} }).impl })).toBeNull();
+    expect(await fetchLatestVersion(PACKAGE, { fetchImpl: fakeFetch(200, {}).impl })).toBeNull();
+  });
+
+  it("fails on any other registry error, naming the override", async () => {
+    await expect(fetchLatestVersion(PACKAGE, { fetchImpl: fakeFetch(503, {}).impl })).rejects.toThrow(
+      new RegExp(`HTTP 503.*${LATEST_OVERRIDE_ENV}`),
+    );
+  });
+
+  it("fails when the registry can't be reached, naming the override", async () => {
+    const offline = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    await expect(fetchLatestVersion(PACKAGE, { fetchImpl: offline })).rejects.toThrow(
+      new RegExp(`fetch failed.*${LATEST_OVERRIDE_ENV}`),
+    );
+  });
+});
+
+describe("fetchReleasedShellDigest", () => {
+  it("reads stagecraft.shellDigest from the version's manifest", async () => {
+    const urls: string[] = [];
+    const impl = (async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ version: "1.2.3", stagecraft: { schemaVersion: 1, shellDigest: "abc" } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: impl })).toBe("abc");
+    expect(urls).toEqual([`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site/1.2.3`]);
+  });
+
+  it("is null for a version that isn't there or carries no digest", async () => {
+    const respond = (status: number, body: unknown) =>
+      (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: respond(404, {}) })).toBeNull();
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: respond(200, { stagecraft: {} }) })).toBeNull();
+  });
+
+  it("fails on a registry error, naming the override", async () => {
+    const impl = (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch;
+    await expect(fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: impl })).rejects.toThrow(
+      new RegExp(`HTTP 500.*${LATEST_OVERRIDE_ENV}`),
+    );
+  });
+});
+
+describe("resolveSitePackageVersion", () => {
+  const noFetch = (async () => {
+    throw new Error("fetch called");
+  }) as unknown as typeof fetch;
+
+  /** A registry with `latest` on `version`, released with `digest` (or none). */
+  function registry(version: string, digest: string | undefined) {
+    const urls: string[] = [];
+    const impl = (async (url: string) => {
+      urls.push(url);
+      const body = url.endsWith(`/${version}`)
+        ? { version, stagecraft: digest === undefined ? {} : { shellDigest: digest } }
+        : { "dist-tags": { latest: version } };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { urls, impl };
+  }
+
+  async function shell(layout = "a") {
+    await write("shell/package.json", "{}");
+    await write("shell/src/app/layout.tsx", layout);
+    return path.join(root, "shell");
+  }
+
+  it("takes latest from the override without asking the registry, with this checkout's shell", async () => {
+    expect(
+      await resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: "2.0.0" }, fetchImpl: noFetch }),
+    ).toEqual({ packageName: PACKAGE, version: "2.0.0", reason: `${PACKAGE}@2.0.0 is on latest` });
+  });
+
+  it("treats an empty override as nothing on latest", async () => {
+    expect((await resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: " " }, fetchImpl: noFetch })).version).toBeNull();
+  });
+
+  it("refuses an override that isn't a version", async () => {
+    await expect(resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: "v1.0.0" }, fetchImpl: noFetch })).rejects.toThrow(
+      new RegExp(`${LATEST_OVERRIDE_ENV} must be a version`),
+    );
+  });
+
+  it("pins the release on latest when it was released with this checkout's shell", async () => {
+    const shellDir = await shell();
+    const { urls, impl } = registry("1.4.0", await shellDigest(shellDir));
+    expect(await resolveSitePackageVersion({ shellDir, env: {}, fetchImpl: impl })).toEqual({
+      packageName: PACKAGE,
+      version: "1.4.0",
+      reason: `${PACKAGE}@1.4.0 is on latest`,
+    });
+    expect(urls).toEqual([`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site`, `${NPM_REGISTRY}/@jclaw-labs%2fmusician-site/1.4.0`]);
+  });
+
+  it("bundles the full template when the shell changed since the release on latest", async () => {
+    const released = await shellDigest(await shell("a"));
+    const shellDir = await shell("b");
+    const resolved = await resolveSitePackageVersion({ shellDir, env: {}, fetchImpl: registry("1.4.0", released).impl });
+    expect(resolved).toEqual({
+      packageName: PACKAGE,
+      version: null,
+      reason: `${PACKAGE}@1.4.0 is on latest, but it was released with a different shell from this checkout's`,
+    });
+  });
+
+  it("bundles the full template when the release on latest carries no shell digest", async () => {
+    const resolved = await resolveSitePackageVersion({ shellDir: await shell(), env: {}, fetchImpl: registry("1.4.0", undefined).impl });
+    expect(resolved.version).toBeNull();
+  });
+
+  it("asks the registry for the template package's latest, and refuses a prerelease there", async () => {
+    const { urls, impl } = registry("1.0.0-rc.0", "x");
+    const resolved = await resolveSitePackageVersion({ env: {}, fetchImpl: impl });
+    expect(resolved.packageName).toBe(PACKAGE);
+    expect(resolved.version).toBeNull();
+    expect(urls).toEqual([`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site`]);
+  });
+});
+
+describe("generateTemplateBundle with a release on latest", () => {
+  it("bundles the shell pinned to that release instead of the template", async () => {
+    await write("template/package.json", '{"name":"t"}');
+    await write("template/src/page.tsx", "export default 1;");
+    await write("content/collections/pages/items/home.json", "{}");
+    await write("shell/package.json", JSON.stringify(SHELL_PACKAGE));
+    await write("shell/src/app/layout.tsx", "layout");
+    await write("shell/src/content/collections/pages/items/home.json", "{}");
+    const outFile = path.join(root, "bundle.json");
+
+    const result = await generateTemplateBundle({
+      templateDir: path.join(root, "template"),
+      contentDir: path.join(root, "content"),
+      shellDir: path.join(root, "shell"),
+      outFile,
+      sitePackage: { packageName: PACKAGE, version: "3.1.0" },
+    });
+
+    const files = JSON.parse(await fs.readFile(outFile, "utf-8"));
+    expect(files.map((f: { path: string }) => f.path)).toEqual([
+      "package.json",
+      "src/app/layout.tsx",
+      "src/content/collections/pages/items/home.json",
+    ]);
+    expect(JSON.parse(files[0].content).dependencies[PACKAGE]).toBe("3.1.0");
+    expect(result.fileCount).toBe(3);
   });
 });

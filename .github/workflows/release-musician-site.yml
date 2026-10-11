@@ -1,0 +1,172 @@
+name: Release musician-site
+
+# Publishes @jclaw-labs/content-upgraders and @jclaw-labs/musician-site to
+# npm when the version in templates/musician-site/package.json isn't on npm
+# yet (ADR-016 §2). Bump `version` in both packages' package.json, in
+# lockstep, and merge to main to release; docs/runbook.md §11 has the steps.
+#
+# Order: build the shell on the local tarballs (no lockfile, as a site
+# host builds), publish the upgraders unless that version is already on
+# npm with the same files, pack the template pinned to that published
+# version, publish it, and tag `musician-site@<version>`. A rerun after a
+# failed template publish skips the upgraders. A version already on npm
+# (published by hand, or a rerun after the tag job failed) is never tagged
+# here, since a later run can't know which commit it was built from: tag
+# it by hand (runbook §11).
+#
+# Three jobs, so the credentials never meet an install. `verify` does every
+# install and build (including the shell's install with no lockfile, which
+# resolves dependency versions fresh) with read-only permissions, and
+# hands the two tarballs on as an artifact. `publish` holds the npm
+# credential and only downloads and publishes them. `tag` holds
+# `contents: write` and only creates the tag through the API.
+#
+# Publishing uses npm trusted publishing (OIDC): no npm token, so the
+# publish job needs `id-token: write` and npm >= 11.5.1. Don't pass
+# `--provenance`: trusted publishing adds it while the repo is public, and
+# the flag fails a publish from a private repo. npm only accepts this file
+# name from this repo (the trusted publisher config), so renaming it needs
+# the config changed on npmjs.com first.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/musician-site/package.json"
+      - "packages/content-upgraders/package.json"
+  # Rerun a release from the Actions tab (e.g. after npm was down).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a release half-way.
+concurrency:
+  group: release-musician-site
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Check and pack
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      upgraders_published: ${{ steps.plan.outputs.upgraders_published }}
+      dist_tag: ${{ steps.plan.outputs.dist_tag }}
+      git_tag: ${{ steps.plan.outputs.git_tag }}
+      tagged: ${{ steps.plan.outputs.tagged }}
+      upgraders: ${{ steps.pack.outputs.upgraders }}
+      template: ${{ steps.pack.outputs.template }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            templates/musician-site/package-lock.json
+
+      # Fails when the two versions differ. `publish` is false once the
+      # template version is on npm, which ends the release.
+      - name: Plan the release
+        id: plan
+        run: node scripts/release-musician-site.mjs plan
+
+      - name: Install
+        if: steps.plan.outputs.publish == 'true'
+        run: npm ci
+
+      - name: Install the template
+        if: steps.plan.outputs.publish == 'true'
+        working-directory: templates/musician-site
+        run: npm ci
+
+      # The pre-publish check: pack both packages, install the tarballs
+      # into a clean copy of the shell with no lockfile, and `next build`.
+      - name: Build the shell on the local tarballs
+        if: steps.plan.outputs.publish == 'true'
+        run: npm run check:musician-site-shell
+
+      # The template tarball depends on the exact upgraders version on npm,
+      # and records the shell's digest (stagecraft.shellDigest), which the
+      # platform checks before it gives new sites the shell on this release.
+      # Outputs are file names inside the `release-tarballs` artifact.
+      - name: Pack for release
+        id: pack
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          result=$(node scripts/pack-musician-site.mjs --release --out "$RUNNER_TEMP/pack" | tail -n 1)
+          echo "upgraders=$(node -p 'require("path").basename(JSON.parse(process.argv[1]).upgraders)' "$result")" >> "$GITHUB_OUTPUT"
+          echo "template=$(node -p 'require("path").basename(JSON.parse(process.argv[1]).template)' "$result")" >> "$GITHUB_OUTPUT"
+
+      # Released versions never change. If this version of the upgraders
+      # is already on npm (a rerun, or a version bumped by hand), the
+      # template is about to depend on it, so it must hold this commit's
+      # files: compared unpacked, since two packs differ in timestamps.
+      - name: Check the published @jclaw-labs/content-upgraders matches
+        if: steps.plan.outputs.publish == 'true' && steps.plan.outputs.upgraders_published == 'true'
+        run: node scripts/release-musician-site.mjs verify-upgraders "$RUNNER_TEMP/pack/${{ steps.pack.outputs.upgraders }}"
+
+      - name: Hand the tarballs to the publish job
+        if: steps.plan.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # No checkout and no install from the repo: only the tarballs `verify`
+  # built, and an exact npm version.
+  publish:
+    name: Publish to npm
+    needs: verify
+    if: needs.verify.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # npm trusted publishing
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/pack
+
+      - name: Use an npm with trusted publishing
+        run: npm install -g npm@11.6.2
+
+      - name: Publish @jclaw-labs/content-upgraders
+        if: needs.verify.outputs.upgraders_published != 'true'
+        env:
+          TARBALL: ${{ runner.temp }}/pack/${{ needs.verify.outputs.upgraders }}
+          DIST_TAG: ${{ needs.verify.outputs.dist_tag }}
+        run: npm publish "$TARBALL" --tag "$DIST_TAG" --access public
+
+      - name: Publish @jclaw-labs/musician-site
+        env:
+          TARBALL: ${{ runner.temp }}/pack/${{ needs.verify.outputs.template }}
+          DIST_TAG: ${{ needs.verify.outputs.dist_tag }}
+        run: npm publish "$TARBALL" --tag "$DIST_TAG" --access public
+
+  tag:
+    name: Tag the release
+    needs: [verify, publish]
+    if: needs.verify.outputs.tagged != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # create the musician-site@<version> tag
+    steps:
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TAG: ${{ needs.verify.outputs.git_tag }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$GIT_TAG" -f sha="$GITHUB_SHA"

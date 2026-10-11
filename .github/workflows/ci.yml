@@ -100,6 +100,28 @@ jobs:
           fi
           node scripts/migration-safety.mjs --base "origin/$BASE_REF"
 
+  # A PR that changes the package source (templates/musician-site/src,
+  # tests aside) must add a CHANGELOG.md entry marked patch, minor or major
+  # (ADR-016 §2, the semver rules in templates/musician-site/README.md).
+  changelog:
+    name: Template changelog entry
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Full history so the script can find the merge base with the base branch.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check for a changelog entry
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-changelog.mjs --base "origin/$BASE_REF"
+
   musician-site:
     name: Template (musician-site)
     runs-on: ubuntu-latest
@@ -126,7 +148,8 @@ jobs:
       - run: npm run test
 
       # The template still builds as an app, which is what provisioning
-      # copies into new sites until they move onto the shell (#422). Its
+      # copies into new sites until a release of the package is on npm's
+      # `latest` (apps/web/scripts/generate-template-bundle.mjs). Its
       # starter content lives in the shell.
       - run: npm run build
         env:

@@ -6,8 +6,12 @@ the conventions for the code these files re-export, is in
 `../musician-site/CLAUDE.md`.
 
 - `src/content/` is the starter content new sites begin with. It is the
-  artist's, so it lives here rather than in the package. Provisioning
-  bundles it with the template (`apps/web/scripts/generate-template-bundle.mjs`).
+  artist's, so it lives here rather than in the package.
+- Once a release of the package is on npm's `latest`, provisioning
+  copies this directory into new site repos, without the monorepo-only
+  files below and with the package pinned to that release. Until then it
+  copies the full template plus this `src/content/`
+  (`apps/web/scripts/generate-template-bundle.mjs`).
 - Every other file re-exports from the package. Route config Next.js
   reads statically (`dynamic`, `dynamicParams`, the middleware
   `matcher`) stays a literal in the route file. Changing any of these
@@ -20,7 +24,7 @@ the conventions for the code these files re-export, is in
 ## Monorepo-only
 
 These exist so the shell runs the package from this checkout. A site
-repo gets none of them: it installs the package from npm (#422).
+repo gets none of them: it installs the package from npm.
 
 - The `file:../musician-site` dependency.
 - `overrides`, which points the package's own

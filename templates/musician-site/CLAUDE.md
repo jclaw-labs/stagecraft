@@ -66,7 +66,8 @@ with the package's dependencies beside it, as a site installs from npm.
   a snapshot, so re-run `shell:install` after changing the package.
 - The e2e suite and screenshot capture run against the shell.
 - The template still runs as an app (provisioning copies it, plus the
-  shell's starter content, into new sites until #422). Its own
+  shell's starter content, into new sites until a release is on npm's
+  `latest`; then new sites get the shell). Its own
   `next dev` / `next build` need the content:
   `STAGECRAFT_CONTENT_DIR=../musician-site-shell/src/content`.
 - Changing the shell (a file added, renamed or removed, a changed export,
@@ -79,13 +80,26 @@ with the package's dependencies beside it, as a site installs from npm.
   names exists here.
 - The shell's `file:` dependency, its `overrides` (which point the
   package's own `file:` upgraders dependency at the monorepo copy) and
-  its `.npmrc` are monorepo-only. The bundle generator replaces or drops
-  them when it starts reading the shell (#422).
+  its `.npmrc` are monorepo-only. The bundle generator pins the
+  dependency to the release on `latest` and drops the other two
+  (`collectShellFiles`).
 
 `next`, `react` and `react-dom` are peer dependencies, and every other
 runtime dependency is pinned exact. Never `npm publish` from this
-directory (a `prepublishOnly` guard refuses it); see `docs/runbook.md`
-§11. Until sites move onto the package, provisioning still copies this
+directory (a `prepublishOnly` guard refuses it): bumping `version` here
+and in `packages/content-upgraders` on `main` releases through
+`.github/workflows/release-musician-site.yml`; see `docs/runbook.md` §11.
+
+## Releases and the changelog
+
+- A change to `src/` (tests aside) adds a line under `## Unreleased` in
+  `CHANGELOG.md`, `- patch: …`, `- minor: …` or `- major: …`, judged by
+  the semver rules in `README.md` (ADR-016 §3). CI fails the PR without
+  one (`scripts/check-changelog.mjs`).
+- `README.md` is the package's npm readme. Neither file is copied into
+  site repos.
+
+Until a release is on `latest`, provisioning still copies this
 directory into the site repo, and
 `apps/web/scripts/generate-template-bundle.mjs` adds the shell's starter
 content under `src/content/` and turns its `package.json`
