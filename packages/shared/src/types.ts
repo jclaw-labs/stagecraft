@@ -150,6 +150,21 @@ export type SiteNewerReleaseRoute = "dependabot" | "platform";
 /** Who opened a pull request that moves a site onto a newer release. */
 export type SiteUpdatePullRequestKind = "upgrade" | "dependabot";
 
+/** An open pull request that moves a site onto a newer release of the package. */
+export interface SiteUpdatePullRequest {
+  number: number;
+  url: string;
+  kind: SiteUpdatePullRequestKind;
+  /**
+   * Whether merging it moves the site onto `target` or later: always for
+   * the platform's upgrade pull request; for a Dependabot bump, only when
+   * the release its branch names is `target` or later. Dependabot ignores
+   * major releases of the package (ADR-016 §3), so its bump is never the
+   * update to a new major.
+   */
+  reachesTarget: boolean;
+}
+
 /**
  * What `GET /api/sites/[siteId]/version` returns: the
  * `@jclaw-labs/musician-site` release a site is on, the release the
@@ -177,9 +192,15 @@ export interface SiteVersionInfo {
    * Whether `upgrade_site` would stop with `customized` over package.json:
    * it no longer names the package as a dependency (the version comes from
    * the stamp, or there's none), or names it by a spec that isn't a version
-   * or range (a dist-tag, a git, file or URL spec). Never true for a full
-   * copy of the template from before ADR-016, which the job migrates.
-   * Customizations to other files aren't seen.
+   * or range (a dist-tag, a git, file or URL spec), or, on a site whose
+   * stamp has a manifest, differs from the manifest's package.json in
+   * anything but dependency versions (an added or removed dependency, a
+   * changed script or field: `packageJsonChangedBeyondVersions`). Never true
+   * for a full copy of the template from before ADR-016, which the job
+   * migrates. Not seen: changes to any other file of ours (`src/` code,
+   * `next.config.ts`, …), and package.json edits beyond the package's spec
+   * on a site whose stamp predates the manifest, which the job measures
+   * from the template push in the repo's history.
    */
   needsHandUpgrade: boolean;
   /**
@@ -200,5 +221,5 @@ export interface SiteVersionInfo {
    * a site that needs upgrading by hand. A prerelease never counts.
    */
   newerRelease: SiteNewerReleaseRoute | null;
-  pullRequest: { number: number; url: string; kind: SiteUpdatePullRequestKind } | null;
+  pullRequest: SiteUpdatePullRequest | null;
 }

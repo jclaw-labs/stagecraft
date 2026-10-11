@@ -768,7 +768,14 @@ describe("handleUpgradeSite — credentials and preconditions", () => {
   });
 });
 
-describe("the site page's version read agrees with handleUpgradeSite", () => {
+/*
+ * The page reads package.json, the stamp and (on a site whose stamp has a
+ * manifest) the manifest's package.json, so it agrees with the job on
+ * package.json. It doesn't read the rest of the tree: an edit to any other
+ * file of ours (`src/` code, `next.config.ts`) is seen only by the job, and
+ * the last case pins that gap.
+ */
+describe("the site page's version read agrees with handleUpgradeSite on package.json", () => {
   type Outcome = "upgrade" | "up_to_date" | "customized";
   type PackageJson = { dependencies: Record<string, string>; devDependencies?: Record<string, string> };
 
@@ -809,6 +816,29 @@ describe("the site page's version read agrees with handleUpgradeSite", () => {
       "customized",
     ],
     ["a deleted package.json", () => migratedWith(() => null), "1.1.0", "customized"],
+    [
+      "an added dependency",
+      () => migratedWith((pkg) => ({ ...pkg, dependencies: { ...pkg.dependencies, "left-pad": "1.3.0" } })),
+      "1.1.0",
+      "customized",
+    ],
+    [
+      "a major on offer, with Dependabot's minor bump open",
+      async () => {
+        await migratedWith(pin("1.0.0"));
+        repo.pulls.push({
+          number: 90,
+          htmlUrl: "https://github.com/jclaw/stagecraft-site-sarah/pull/90",
+          state: "open",
+          head: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.0.1",
+          base: "main",
+          title: "Bump @jclaw-labs/musician-site from 1.0.0 to 1.0.1",
+          body: "",
+        });
+      },
+      "2.0.0",
+      "upgrade",
+    ],
   ])("%s", async (_label, setup, target, expected) => {
     if (setup) await setup();
     mocks.readTemplateFiles.mockResolvedValue(shellBundle(target));
@@ -831,5 +861,20 @@ describe("the site page's version read agrees with handleUpgradeSite", () => {
     expect(page.target).toBe(target);
     expect(page.updateAvailable).toBe(outcome === "upgrade");
     expect(page.needsHandUpgrade).toBe(outcome === "customized");
+    // A Dependabot bump open beside the update isn't it: only the job's pull request moves the site to the target.
+    if (page.pullRequest?.kind === "dependabot") expect(page.pullRequest.reachesTarget).toBe(false);
+  });
+
+  it("doesn't see an edit to a source file, which the job stops on (the documented gap)", async () => {
+    await migratedWith(pin("1.0.0"));
+    repo.commitOn("main", { "src/lib/site-content.ts": "// changed by the artist\n" });
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+    const npm = vi.fn(async () => new Response(JSON.stringify({ version: "1.1.0" }), { status: 200 })) as unknown as typeof fetch;
+
+    const page = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+    const data = ((await runJob()).data ?? {}) as UpgradeSiteResultData;
+
+    expect(data.blocker).toBe("customized");
+    expect(page).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
   });
 });

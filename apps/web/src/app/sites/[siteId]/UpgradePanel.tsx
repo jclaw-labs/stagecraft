@@ -38,8 +38,8 @@ export interface UpgradeJob extends KnownJobFields {
 
 /**
  * The "Upgrade site" action on a live site's page (ADR-016 §4): shows the
- * release the site is on against the latest one, with any open update pull
- * request; queues an upgrade_site job, then shows how the latest one went:
+ * release the site is on against the one Stagecraft can upgrade it to and
+ * npm's latest, with any open update pull request; queues an upgrade_site job, then shows how the latest one went:
  * the pull request it opened or updated, or why it stopped (sign in again,
  * changed files, drafts to publish).
  */
@@ -125,8 +125,8 @@ export default function UpgradePanel({
       </div>
       <div className={styles.panelBody}>
         <p className={styles.upgradeIntro}>
-          Move this site onto the latest release of Stagecraft&rsquo;s site code. Stagecraft opens a pull request on
-          your repository; nothing changes on your site until you merge it.
+          Move this site onto the newest release of the site code that Stagecraft can upgrade it to. Stagecraft opens
+          a pull request on your repository; nothing changes on your site until you merge it.
         </p>
 
         {versionLine && (

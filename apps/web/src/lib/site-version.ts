@@ -2,6 +2,7 @@ import semver from "semver";
 import type {
   SiteLatestReleaseStatus,
   SiteNewerReleaseRoute,
+  SiteUpdatePullRequest,
   SiteVersionInfo,
   SiteVersionSpecKind,
 } from "@stagecraft/shared";
@@ -13,6 +14,7 @@ import {
   isOnOrPastRelease,
   isVersionSpec,
   NPM_REGISTRY,
+  packageJsonChangedBeyondVersions,
   packageMetadataUrl,
   pinnedPackageVersion,
   readStamp,
@@ -29,9 +31,9 @@ import {
  * The branch of a Dependabot npm bump of the package, in the repo's root or
  * a subdirectory: `dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1`.
  * The version right after the name keeps out lookalikes such as
- * `musician-site-shell`.
+ * `musician-site-shell`, and is the release the bump moves the site to.
  */
-const DEPENDABOT_BUMP_BRANCH = new RegExp(`^dependabot/npm_and_yarn/(?:.+/)?${MUSICIAN_SITE_PACKAGE.slice(1)}-\\d`);
+const DEPENDABOT_BUMP_BRANCH = new RegExp(`^dependabot/npm_and_yarn/(?:.+/)?${MUSICIAN_SITE_PACKAGE.slice(1)}-(\\d\\S*)`);
 
 /** npm's `latest` release of the package, or why there isn't one. */
 export interface LatestRelease {
@@ -66,18 +68,42 @@ export function isDependabotBump(pull: Pick<OpenPullRequest, "headRef">): boolea
   return DEPENDABOT_BUMP_BRANCH.test(pull.headRef);
 }
 
-/** The open pull request that updates the package, the platform's upgrade first. */
+/**
+ * The release a Dependabot bump of the package moves the site to, from its
+ * branch, or null when the branch names no valid release.
+ */
+export function dependabotBumpVersion(pull: Pick<OpenPullRequest, "headRef">): string | null {
+  const version = DEPENDABOT_BUMP_BRANCH.exec(pull.headRef)?.[1];
+  return version === undefined ? null : semver.valid(version);
+}
+
+/**
+ * The open pull request that updates the package, the platform's upgrade
+ * first, and whether merging it moves the site onto `target` or later. A
+ * Dependabot bump only does when its release is `target` or later: it
+ * never crosses a major (ADR-016 §3), and a bump whose build gate failed
+ * stays open while the platform's release moves on.
+ */
 export function findUpdatePullRequest(
   upgrade: PullRequestResult | null,
   pulls: readonly OpenPullRequest[],
-): SiteVersionInfo["pullRequest"] {
-  if (upgrade) return { number: upgrade.number, url: upgrade.htmlUrl, kind: "upgrade" };
+  target: string | null,
+): SiteUpdatePullRequest | null {
+  if (upgrade) return { number: upgrade.number, url: upgrade.htmlUrl, kind: "upgrade", reachesTarget: true };
   const bump = pulls.find(isDependabotBump);
-  return bump ? { number: bump.number, url: bump.htmlUrl, kind: "dependabot" } : null;
+  if (!bump) return null;
+  const version = dependabotBumpVersion(bump);
+  const reachesTarget = version !== null && target !== null && semver.valid(target) !== null && semver.gte(version, target);
+  return { number: bump.number, url: bump.htmlUrl, kind: "dependabot", reachesTarget };
 }
 
-/** What kind of spec a version is, for how the page words it. */
+/**
+ * What kind of spec a version is, for how the page words it. A spec the
+ * upgrade doesn't read as a version or range (`isVersionSpec`) is `other`,
+ * even where npm would take it as one (`x`, `X`, `x.x` for any release).
+ */
 export function versionSpecKind(spec: string): SiteVersionSpecKind {
+  if (!isVersionSpec(spec)) return "other";
   if (semver.valid(spec) !== null) return "version";
   const range = semver.validRange(spec);
   if (range === "*") return "any";
@@ -99,11 +125,22 @@ function isPastTarget(latest: string, target: string | null): boolean {
  * names it there, or names it by a spec that isn't a version or range
  * (`isVersionSpec`: a dist-tag, a git, file or URL spec), as a
  * customization. A full copy of the template (no package.json pin and no
- * stamp release) never named it, so it isn't one. Other changes to our
- * files can't be seen without the job's own check.
+ * stamp release) never named it, so it isn't one.
+ *
+ * With the manifest's package.json (`baselinePackageJson`) in hand, any
+ * other change but dependency versions counts too, by the job's own
+ * `packageJsonChangedBeyondVersions`. Without it (a stamp from before the
+ * manifest, measured from the template push in the repo's history), and
+ * for every other file of ours, the page can't see what the job would.
  */
-function needsHandUpgrade(pinned: string | null, stamped: string | null): boolean {
-  return pinned === null ? stamped !== null : !isVersionSpec(pinned);
+function needsHandUpgrade(
+  pinned: string | null,
+  stamped: string | null,
+  packageJson: string | null,
+  baselinePackageJson: string | null,
+): boolean {
+  if (pinned === null ? stamped !== null : !isVersionSpec(pinned)) return true;
+  return packageJson !== null && baselinePackageJson !== null && packageJsonChangedBeyondVersions(baselinePackageJson, packageJson);
 }
 
 /** The major release a site is on: the lowest its pin admits. */
@@ -131,6 +168,8 @@ function pinnedMajor(pinned: string | null): number | null {
  */
 export function siteVersionInfo(args: {
   packageJson: string | null;
+  /** The package.json the stamp's manifest records, or null when it records none or there's no manifest. */
+  baselinePackageJson?: string | null;
   stamp: string | null;
   target: string | null;
   latest: LatestRelease;
@@ -141,7 +180,7 @@ export function siteVersionInfo(args: {
   const stamped = pinned === null ? readStamp(args.stamp).packageVersion : null;
   const current = pinned ?? stamped;
   const latest = args.latest.status === "published" ? args.latest.version : null;
-  const byHand = needsHandUpgrade(pinned, stamped);
+  const byHand = needsHandUpgrade(pinned, stamped, args.packageJson, args.baselinePackageJson ?? null);
   const updateAvailable = !byHand && args.target !== null && !isOnOrPastRelease(pinned, args.target);
   const newer = !byHand && latest !== null && isPastTarget(latest, args.target) && !isOnOrPastRelease(pinned, latest);
   const major = updateAvailable ? pinnedMajor(args.target) : pinnedMajor(pinned);
@@ -160,16 +199,18 @@ export function siteVersionInfo(args: {
     latest,
     latestStatus: args.latest.status,
     newerRelease,
-    pullRequest: findUpdatePullRequest(args.upgradePull, args.pulls),
+    pullRequest: findUpdatePullRequest(args.upgradePull, args.pulls, args.target),
   };
 }
 
 /**
  * Read a site's version from its repo's `branch`, the platform's bundle and
  * npm. npm being unreachable leaves `latest` unknown rather than failing the
- * read; GitHub errors are thrown. The upgrade pull request is looked up by
- * its branch, so it's found however many pull requests are open; Dependabot
- * bumps come from the first page of open ones, which its
+ * read; GitHub errors are thrown. When the stamp has a manifest, the
+ * package.json it records is read too, to tell other edits to package.json
+ * from Dependabot's bumps as the job does. The upgrade pull request is
+ * looked up by its branch, so it's found however many pull requests are
+ * open; Dependabot bumps come from the first page of open ones, which its
  * `open-pull-requests-limit` of 5 keeps short.
  */
 export async function readSiteVersion(
@@ -186,5 +227,7 @@ export async function readSiteVersion(
     fetchLatestPackageVersion(npm).catch((): LatestRelease => ({ status: "unreachable", version: null })),
     readTarget(),
   ]);
-  return siteVersionInfo({ packageJson, stamp, target, latest, upgradePull, pulls });
+  const baselineSha = readStamp(stamp).manifest?.["package.json"];
+  const baselinePackageJson = baselineSha ? await client.getBlobText(baselineSha) : null;
+  return siteVersionInfo({ packageJson, baselinePackageJson, stamp, target, latest, upgradePull, pulls });
 }

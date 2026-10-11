@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { GitHubRepoClient, OpenPullRequest, PullRequestResult } from "./integrations/github";
 import {
+  dependabotBumpVersion,
   fetchLatestPackageVersion,
   findUpdatePullRequest,
   isDependabotBump,
@@ -173,7 +174,37 @@ describe("siteVersionInfo", () => {
       number: 7,
       url: "https://github.com/jclaw/site/pull/7",
       kind: "upgrade",
+      reachesTarget: true,
     });
+  });
+
+  it("counts a Dependabot bump as the update only when it reaches the platform's release", () => {
+    const bump = (version: string) => [pull({ number: 4, htmlUrl: "u4", headRef: `dependabot/npm_and_yarn/jclaw-labs/musician-site-${version}` })];
+    // A major on offer: Dependabot ignores majors, so its bump stays in 1.x.
+    expect(info({ packageJson: pkg("1.4.1"), target: "2.0.0", latest: published("2.0.0"), pulls: bump("1.4.2") })).toMatchObject({
+      updateAvailable: true,
+      pullRequest: { kind: "dependabot", reachesTarget: false },
+    });
+    // An older bump left open (its build gate failed) while the platform moved on.
+    expect(info({ packageJson: pkg("1.2.0"), pulls: bump("1.3.0") }).pullRequest?.reachesTarget).toBe(false);
+    expect(info({ packageJson: pkg("1.2.0"), pulls: bump("1.4.1") }).pullRequest?.reachesTarget).toBe(true);
+    expect(info({ packageJson: pkg("1.2.0"), pulls: bump("1.5.0") }).pullRequest?.reachesTarget).toBe(true);
+  });
+
+  it("needs upgrading by hand when package.json changed beyond versions since the manifest, as the job reads it", () => {
+    const baseline = JSON.stringify({ dependencies: { next: "^15.5.0", "@jclaw-labs/musician-site": "1.0.0" } }, null, 2);
+    const leftPad = JSON.stringify({ dependencies: { next: "^15.5.27", "left-pad": "1.3.0", "@jclaw-labs/musician-site": "1.2.0" } });
+    const script = JSON.stringify({ scripts: { build: "next build" }, dependencies: { next: "^15.5.27", "@jclaw-labs/musician-site": "1.2.0" } });
+    for (const packageJson of [leftPad, script]) {
+      expect(info({ packageJson, baselinePackageJson: baseline, stamp: stamp("1.0.0") }), packageJson).toMatchObject({
+        current: "1.2.0",
+        needsHandUpgrade: true,
+        updateAvailable: false,
+      });
+    }
+    // Dependabot's bumps alone aren't a change, and without the manifest's package.json nothing is compared.
+    expect(info({ packageJson: pkg("1.2.0"), baselinePackageJson: baseline })).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
+    expect(info({ packageJson: leftPad, baselinePackageJson: null })).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
   });
 });
 
@@ -181,8 +212,9 @@ describe("versionSpecKind", () => {
   it("tells versions, ranges, any release and other specs apart", () => {
     expect(versionSpecKind("1.4.1")).toBe("version");
     for (const spec of ["^1.0.0", "~1.2.0", "1.2.x", ">=1.2.0 <2.0.0"]) expect(versionSpecKind(spec)).toBe("range");
-    for (const spec of ["*", "x"]) expect(versionSpecKind(spec)).toBe("any");
-    for (const spec of ["latest", "git+https://github.com/jclaw-labs/stagecraft.git", "file:../musician-site"]) {
+    expect(versionSpecKind("*")).toBe("any");
+    // npm reads `x` as any release, but the upgrade doesn't take it for a version spec.
+    for (const spec of ["x", "X", "x.x", "latest", "git+https://github.com/jclaw-labs/stagecraft.git", "file:../musician-site"]) {
       expect(versionSpecKind(spec)).toBe("other");
     }
   });
@@ -213,17 +245,42 @@ describe("isDependabotBump", () => {
 describe("findUpdatePullRequest", () => {
   it("prefers the platform's upgrade over a Dependabot bump", () => {
     const pulls = [pull({ number: 3, htmlUrl: "u3", headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1" })];
-    expect(findUpdatePullRequest({ number: 2, htmlUrl: "u2", state: "open" }, pulls)).toEqual({ number: 2, url: "u2", kind: "upgrade" });
+    expect(findUpdatePullRequest({ number: 2, htmlUrl: "u2", state: "open" }, pulls, "1.4.1")).toEqual({
+      number: 2,
+      url: "u2",
+      kind: "upgrade",
+      reachesTarget: true,
+    });
   });
 
   it("takes a Dependabot bump when there's no upgrade", () => {
     const pulls = [pull({}), pull({ number: 4, htmlUrl: "u4", headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1" })];
-    expect(findUpdatePullRequest(null, pulls)).toEqual({ number: 4, url: "u4", kind: "dependabot" });
+    expect(findUpdatePullRequest(null, pulls, "1.4.1")).toEqual({ number: 4, url: "u4", kind: "dependabot", reachesTarget: true });
+  });
+
+  it("says a Dependabot bump reaches the target only at or past it, and never without one", () => {
+    const at = (version: string, target: string | null) =>
+      findUpdatePullRequest(null, [pull({ headRef: `dependabot/npm_and_yarn/jclaw-labs/musician-site-${version}` })], target)?.reachesTarget;
+    expect(at("1.4.2", "2.0.0")).toBe(false);
+    expect(at("1.3.0", "1.4.1")).toBe(false);
+    expect(at("1.4.1", "1.4.1")).toBe(true);
+    expect(at("1.5.0", "1.4.1")).toBe(true);
+    expect(at("2.0.0-rc.0", "2.0.0")).toBe(false);
+    expect(at("1.4.1", null)).toBe(false);
   });
 
   it("is null when nothing updates the package", () => {
-    expect(findUpdatePullRequest(null, [])).toBeNull();
-    expect(findUpdatePullRequest(null, [pull({}), pull({ headRef: "stagecraft/upgrade" })])).toBeNull();
+    expect(findUpdatePullRequest(null, [], "1.4.1")).toBeNull();
+    expect(findUpdatePullRequest(null, [pull({}), pull({ headRef: "stagecraft/upgrade" })], "1.4.1")).toBeNull();
+  });
+});
+
+describe("dependabotBumpVersion", () => {
+  it("reads the release from a bump's branch, or null when it names none", () => {
+    expect(dependabotBumpVersion({ headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.2" })).toBe("1.4.2");
+    expect(dependabotBumpVersion({ headRef: "dependabot/npm_and_yarn/site/jclaw-labs/musician-site-2.0.0-rc.1" })).toBe("2.0.0-rc.1");
+    expect(dependabotBumpVersion({ headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4" })).toBeNull();
+    expect(dependabotBumpVersion({ headRef: "dependabot/npm_and_yarn/next-15.6.0" })).toBeNull();
   });
 });
 
@@ -255,13 +312,20 @@ describe("fetchLatestPackageVersion", () => {
 });
 
 describe("readSiteVersion", () => {
-  function client(files: Record<string, string>, pulls: OpenPullRequest[] = [], upgrade: PullRequestResult | null = null) {
+  function client(
+    files: Record<string, string>,
+    pulls: OpenPullRequest[] = [],
+    upgrade: PullRequestResult | null = null,
+    blobs: Record<string, string> = {},
+  ) {
     return {
       getFileText: vi.fn(async (path: string) => files[path] ?? null),
+      getBlobText: vi.fn(async (sha: string) => blobs[sha]),
       findOpenPullRequest: vi.fn(async () => upgrade),
       listOpenPullRequests: vi.fn(async () => pulls),
     } as unknown as GitHubRepoClient & {
       getFileText: ReturnType<typeof vi.fn>;
+      getBlobText: ReturnType<typeof vi.fn>;
       findOpenPullRequest: ReturnType<typeof vi.fn>;
     };
   }
@@ -284,17 +348,34 @@ describe("readSiteVersion", () => {
       latest: "1.5.0",
       latestStatus: "published",
       newerRelease: "dependabot",
-      pullRequest: { number: 9, url: "u9", kind: "dependabot" },
+      pullRequest: { number: 9, url: "u9", kind: "dependabot", reachesTarget: true },
     });
     expect(repo.getFileText).toHaveBeenCalledWith("package.json", "trunk");
     expect(repo.getFileText).toHaveBeenCalledWith(".stagecraft-template.json", "trunk");
+    expect(repo.getBlobText).not.toHaveBeenCalled();
+  });
+
+  it("compares package.json with the one the stamp's manifest records", async () => {
+    const baseline = JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.2.0" } });
+    const withManifest = JSON.stringify({ packageVersion: "1.2.0", manifest: { "package.json": "b1", "src/app/page.tsx": "b2" } });
+    const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
+    const read = (packageJson: string) => {
+      const repo = client({ "package.json": packageJson, ".stagecraft-template.json": withManifest }, [], null, { b1: baseline });
+      return readSiteVersion(repo, "main", { fetchImpl, readTarget: target("1.4.1") }).then((info) => ({ info, repo }));
+    };
+
+    const bumped = await read(JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.3.0" } }));
+    expect(bumped.info).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
+    expect(bumped.repo.getBlobText).toHaveBeenCalledWith("b1");
+    const added = await read(JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.3.0", "left-pad": "1.3.0" } }));
+    expect(added.info).toMatchObject({ needsHandUpgrade: true, updateAvailable: false });
   });
 
   it("looks the upgrade pull request up by its branch into the default branch", async () => {
     const repo = client({ "package.json": pkg("1.2.0") }, [], upgradePull(12));
     const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
     const read = await readSiteVersion(repo, "trunk", { fetchImpl, readTarget: target("1.4.1") });
-    expect(read.pullRequest).toEqual({ number: 12, url: "https://github.com/jclaw/site/pull/12", kind: "upgrade" });
+    expect(read.pullRequest).toEqual({ number: 12, url: "https://github.com/jclaw/site/pull/12", kind: "upgrade", reachesTarget: true });
     expect(repo.findOpenPullRequest).toHaveBeenCalledWith("stagecraft/upgrade", "trunk");
   });
 
