@@ -38,10 +38,11 @@ describe("siteVersionInfo", () => {
       currentKind: "version",
       source: "package_json",
       target: "1.4.1",
+      needsHandUpgrade: false,
       updateAvailable: false,
       latest: "1.4.1",
       latestStatus: "published",
-      newerReleaseOut: false,
+      newerRelease: null,
       pullRequest: null,
     });
   });
@@ -51,7 +52,7 @@ describe("siteVersionInfo", () => {
       current: "1.2.0",
       target: "1.4.1",
       updateAvailable: true,
-      newerReleaseOut: false,
+      newerRelease: null,
     });
   });
 
@@ -63,21 +64,32 @@ describe("siteVersionInfo", () => {
   it("decides by the platform's release, as upgrade_site does, not by npm's latest", () => {
     // npm is past the bundle: the job would find the site up to date.
     const ahead = info({ packageJson: pkg("1.4.1"), target: "1.4.1", latest: published("1.5.0") });
-    expect(ahead).toMatchObject({ updateAvailable: false, latest: "1.5.0", newerReleaseOut: true });
+    expect(ahead).toMatchObject({ updateAvailable: false, latest: "1.5.0", newerRelease: "dependabot" });
     // The bundle is past npm (a deploy built before npm's tag moved back): the job would act.
     const behind = info({ packageJson: pkg("1.4.1"), target: "1.5.0", latest: published("1.4.1") });
-    expect(behind).toMatchObject({ updateAvailable: true, newerReleaseOut: false });
+    expect(behind).toMatchObject({ updateAvailable: true, newerRelease: null });
   });
 
   it("doesn't count a newer release the site's range already admits", () => {
-    expect(info({ packageJson: pkg("^1.4.0"), target: "1.4.1", latest: published("1.5.0") }).newerReleaseOut).toBe(false);
+    expect(info({ packageJson: pkg("^1.4.0"), target: "1.4.1", latest: published("1.5.0") }).newerRelease).toBeNull();
+  });
+
+  it("routes a newer release in the site's major through Dependabot, and a new major through the platform", () => {
+    expect(info({ packageJson: pkg("1.4.1"), latest: published("1.5.0") }).newerRelease).toBe("dependabot");
+    expect(info({ packageJson: pkg("~1.4.0"), latest: published("1.5.0") }).newerRelease).toBe("dependabot");
+    expect(info({ packageJson: pkg("1.4.1"), latest: published("2.0.0") }).newerRelease).toBe("platform");
+    // Behind the target: the major it moves onto with the update on offer counts.
+    expect(info({ packageJson: pkg("1.2.0"), target: "2.0.0", latest: published("2.1.0") }).newerRelease).toBe("dependabot");
+    expect(info({ packageJson: pkg("1.2.0"), target: "1.4.1", latest: published("2.0.0") }).newerRelease).toBe("platform");
+    // A full copy reaches the package only through the platform.
+    expect(info({ packageJson: pkg(), target: null, latest: published("1.4.1") }).newerRelease).toBe("platform");
   });
 
   it("never counts a prerelease on latest as newer", () => {
     for (const target of ["1.4.1", null]) {
       expect(info({ packageJson: pkg("1.4.1"), target, latest: published("2.0.0-rc.0") })).toMatchObject({
         latest: "2.0.0-rc.0",
-        newerReleaseOut: false,
+        newerRelease: null,
       });
     }
   });
@@ -86,24 +98,29 @@ describe("siteVersionInfo", () => {
     expect(info({ packageJson: pkg("1.2.0"), target: null, latest: published("1.4.1") })).toMatchObject({
       target: null,
       updateAvailable: false,
-      newerReleaseOut: true,
+      newerRelease: "dependabot",
     });
     expect(info({ packageJson: null, stamp: null, target: null, latest: { status: "not_published", version: null } })).toMatchObject({
       current: null,
       updateAvailable: false,
       latest: null,
       latestStatus: "not_published",
-      newerReleaseOut: false,
+      newerRelease: null,
     });
   });
 
-  it("falls back to the stamp when package.json doesn't name the package, but never reads it as current", () => {
-    // upgrade_site reads only package.json, so it would still upgrade this site.
-    expect(info({ packageJson: pkg(), stamp: stamp("1.4.1") })).toMatchObject({
-      current: "1.4.1",
-      source: "stamp",
-      updateAvailable: true,
-    });
+  it("falls back to the stamp when package.json doesn't name the package, and offers no update the job would refuse", () => {
+    // upgrade_site counts a package.json that dropped the package as a customization.
+    const devDependency = JSON.stringify({ devDependencies: { "@jclaw-labs/musician-site": "1.2.0" } });
+    for (const packageJson of [pkg(), devDependency]) {
+      expect(info({ packageJson, stamp: stamp("1.2.0"), latest: published("1.5.0") })).toMatchObject({
+        current: "1.2.0",
+        source: "stamp",
+        needsHandUpgrade: true,
+        updateAvailable: false,
+        newerRelease: null,
+      });
+    }
   });
 
   it("falls back to the stamp when package.json is missing or unreadable", () => {
@@ -111,9 +128,23 @@ describe("siteVersionInfo", () => {
       expect(info({ packageJson, stamp: stamp("1.2.0"), latest: UNREACHABLE })).toMatchObject({
         current: "1.2.0",
         source: "stamp",
-        updateAvailable: true,
+        needsHandUpgrade: true,
+        updateAvailable: false,
       });
     }
+  });
+
+  it("offers no update to a site naming the package by a spec that isn't a version or range", () => {
+    for (const spec of ["latest", "github:jclaw-labs/musician-site", "git+https://github.com/x/y.git", "file:../musician-site"]) {
+      expect(info({ packageJson: pkg(spec), stamp: stamp("1.2.0") }), spec).toMatchObject({
+        current: spec,
+        source: "package_json",
+        needsHandUpgrade: true,
+        updateAvailable: false,
+      });
+    }
+    // `*` is a range the job reads: it admits the target, so the site is on it.
+    expect(info({ packageJson: pkg("*"), stamp: stamp("1.2.0") })).toMatchObject({ needsHandUpgrade: false, updateAvailable: false });
   });
 
   it("reads a missing, unreadable or pre-package stamp as no version: a full copy, behind any release", () => {
@@ -122,6 +153,7 @@ describe("siteVersionInfo", () => {
         current: null,
         currentKind: null,
         source: null,
+        needsHandUpgrade: false,
         updateAvailable: true,
       });
     }
@@ -132,7 +164,7 @@ describe("siteVersionInfo", () => {
       latest: null,
       latestStatus: "unreachable",
       updateAvailable: true,
-      newerReleaseOut: false,
+      newerRelease: null,
     });
   });
 
@@ -233,8 +265,7 @@ describe("readSiteVersion", () => {
       findOpenPullRequest: ReturnType<typeof vi.fn>;
     };
   }
-  const bundle = (spec: string | null) => async () =>
-    spec === null ? [] : [{ path: "package.json", content: pkg(spec) }];
+  const target = (version: string | null) => async () => version;
 
   it("reads package.json and the stamp from the default branch, the target from the bundle, and latest from npm", async () => {
     const repo = client(
@@ -243,15 +274,16 @@ describe("readSiteVersion", () => {
     );
     const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.5.0" }));
 
-    expect(await readSiteVersion(repo, "trunk", { fetchImpl, readBundle: bundle("1.4.1") })).toEqual({
+    expect(await readSiteVersion(repo, "trunk", { fetchImpl, readTarget: target("1.4.1") })).toEqual({
       current: "1.2.0",
       currentKind: "version",
       source: "package_json",
       target: "1.4.1",
+      needsHandUpgrade: false,
       updateAvailable: true,
       latest: "1.5.0",
       latestStatus: "published",
-      newerReleaseOut: true,
+      newerRelease: "dependabot",
       pullRequest: { number: 9, url: "u9", kind: "dependabot" },
     });
     expect(repo.getFileText).toHaveBeenCalledWith("package.json", "trunk");
@@ -261,14 +293,14 @@ describe("readSiteVersion", () => {
   it("looks the upgrade pull request up by its branch into the default branch", async () => {
     const repo = client({ "package.json": pkg("1.2.0") }, [], upgradePull(12));
     const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
-    const read = await readSiteVersion(repo, "trunk", { fetchImpl, readBundle: bundle("1.4.1") });
+    const read = await readSiteVersion(repo, "trunk", { fetchImpl, readTarget: target("1.4.1") });
     expect(read.pullRequest).toEqual({ number: 12, url: "https://github.com/jclaw/site/pull/12", kind: "upgrade" });
     expect(repo.findOpenPullRequest).toHaveBeenCalledWith("stagecraft/upgrade", "trunk");
   });
 
   it("has no target when the bundle names no release", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: "Not found" }, 404));
-    const read = await readSiteVersion(client({ "package.json": pkg("1.2.0") }), "main", { fetchImpl, readBundle: bundle(null) });
+    const read = await readSiteVersion(client({ "package.json": pkg("1.2.0") }), "main", { fetchImpl, readTarget: target(null) });
     expect(read).toMatchObject({ target: null, updateAvailable: false, latestStatus: "not_published" });
   });
 
@@ -276,7 +308,7 @@ describe("readSiteVersion", () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError("fetch failed");
     });
-    const read = await readSiteVersion(client({ "package.json": pkg("1.2.0") }), "main", { fetchImpl, readBundle: bundle("1.4.1") });
+    const read = await readSiteVersion(client({ "package.json": pkg("1.2.0") }), "main", { fetchImpl, readTarget: target("1.4.1") });
     expect(read).toMatchObject({ current: "1.2.0", latest: null, latestStatus: "unreachable", updateAvailable: true });
   });
 
@@ -284,6 +316,6 @@ describe("readSiteVersion", () => {
     const repo = client({});
     repo.getFileText.mockRejectedValue(new Error("GitHub API error (500)"));
     const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
-    await expect(readSiteVersion(repo, "main", { fetchImpl, readBundle: bundle("1.4.1") })).rejects.toThrow("GitHub API error (500)");
+    await expect(readSiteVersion(repo, "main", { fetchImpl, readTarget: target("1.4.1") })).rejects.toThrow("GitHub API error (500)");
   });
 });

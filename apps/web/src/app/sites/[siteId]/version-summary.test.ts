@@ -8,10 +8,11 @@ const info = (overrides: Partial<SiteVersionInfo>): SiteVersionInfo => ({
   currentKind: "version",
   source: "package_json",
   target: "1.4.1",
+  needsHandUpgrade: false,
   updateAvailable: true,
   latest: "1.4.1",
   latestStatus: "published",
-  newerReleaseOut: false,
+  newerRelease: null,
   pullRequest: null,
   ...overrides,
 });
@@ -50,16 +51,50 @@ describe("versionSummary", () => {
     });
   });
 
-  it("says a newer release than the platform's is out, without offering an update", () => {
+  it("says Dependabot brings a newer release in the site's major, without offering an update", () => {
     expect(
-      versionSummary(info({ current: "1.4.1", target: "1.4.1", updateAvailable: false, latest: "1.5.0", newerReleaseOut: true })),
+      versionSummary(info({ current: "1.4.1", updateAvailable: false, latest: "1.5.0", newerRelease: "dependabot" })),
     ).toEqual({
       tone: "unknown",
-      text: "This site is on 1.4.1. The latest release is 1.5.0. Stagecraft will be able to upgrade this site to 1.5.0 once the platform is updated.",
+      text: "This site is on 1.4.1. The latest release is 1.5.0. Dependabot will update this site to 1.5.0.",
     });
-    expect(versionSummary(info({ target: "1.4.1", latest: "1.5.0", newerReleaseOut: true }))).toEqual({
+    expect(versionSummary(info({ latest: "1.5.0", newerRelease: "dependabot" }))).toEqual({
       tone: "behind",
-      text: "This site is on 1.2.0. The latest release is 1.5.0. An update to 1.4.1 is available. Stagecraft will be able to upgrade this site to 1.5.0 once the platform is updated.",
+      text: "This site is on 1.2.0. The latest release is 1.5.0. An update to 1.4.1 is available. After this update, Dependabot will update the site to 1.5.0.",
+    });
+  });
+
+  it("names Dependabot's open pull request as what brings the newer release", () => {
+    const dependabot = { number: 4, url: "u4", kind: "dependabot" } as const;
+    expect(
+      versionSummary(info({ current: "1.4.1", updateAvailable: false, latest: "1.5.0", newerRelease: "dependabot", pullRequest: dependabot })),
+    ).toEqual({
+      tone: "unknown",
+      text: "This site is on 1.4.1. The latest release is 1.5.0. Dependabot has a pull request open that updates it.",
+      pullRequest: { url: "u4", label: "Review Dependabot's pull request" },
+    });
+  });
+
+  it("says a new major waits for the platform", () => {
+    expect(
+      versionSummary(info({ current: "1.4.1", updateAvailable: false, latest: "2.0.0", newerRelease: "platform" })),
+    ).toEqual({
+      tone: "unknown",
+      text: "This site is on 1.4.1. The latest release is 2.0.0. Stagecraft will be able to upgrade this site to 2.0.0 once the platform is updated.",
+    });
+  });
+
+  it("says a site the upgrade would stop on over its package.json needs upgrading by hand, offering nothing", () => {
+    const byHand = " Stagecraft can only upgrade a site whose package.json names a release of its package, so this site needs upgrading by hand.";
+    expect(versionSummary(info({ current: "1.2.0", source: "stamp", needsHandUpgrade: true, updateAvailable: false }))).toEqual({
+      tone: "unknown",
+      text: `This site was created on 1.2.0, but its package.json doesn't name Stagecraft's package. The latest release is 1.4.1.${byHand}`,
+    });
+    expect(
+      versionSummary(info({ current: "latest", currentKind: "other", needsHandUpgrade: true, updateAvailable: false })),
+    ).toEqual({
+      tone: "unknown",
+      text: `This site names Stagecraft's package as latest, not a release number. The latest release is 1.4.1.${byHand}`,
     });
   });
 
@@ -70,17 +105,10 @@ describe("versionSummary", () => {
     });
   });
 
-  it("says when the site isn't on the package", () => {
+  it("offers a full copy of the template the move onto the package", () => {
     expect(versionSummary(info({ current: null, currentKind: null, source: null })).text).toBe(
       "This site runs its own copy of the site code, not a release of Stagecraft's package. The latest release is 1.4.1. An update to 1.4.1 is available.",
     );
-  });
-
-  it("words a stamp-only version as the release the site was created on", () => {
-    expect(versionSummary(info({ current: "1.4.1", source: "stamp" }))).toEqual({
-      tone: "behind",
-      text: "This site was created on 1.4.1, but its package.json doesn't name Stagecraft's package. The latest release is 1.4.1. An update to 1.4.1 is available.",
-    });
   });
 
   it("words ranges and specs that aren't versions as what package.json says, not as a release", () => {
@@ -102,9 +130,14 @@ describe("versionSummary", () => {
       tone: "behind",
       text: "This site is on 1.2.0. Stagecraft couldn't check the latest release. An update to 1.4.1 is available.",
     });
-    expect(versionSummary(info({ target: null, updateAvailable: false, latest: null, latestStatus: "not_published" }))).toEqual({
+    // Shells pin only a published release, so with none published the site is a full copy.
+    expect(
+      versionSummary(
+        info({ current: null, currentKind: null, source: null, target: null, updateAvailable: false, latest: null, latestStatus: "not_published" }),
+      ),
+    ).toEqual({
       tone: "unknown",
-      text: "This site is on 1.2.0. No release has been published yet.",
+      text: "This site runs its own copy of the site code, not a release of Stagecraft's package. No release has been published yet.",
     });
   });
 });

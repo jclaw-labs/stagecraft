@@ -1,18 +1,23 @@
 import semver from "semver";
-import type { SiteLatestReleaseStatus, SiteVersionInfo, SiteVersionSpecKind } from "@stagecraft/shared";
+import type {
+  SiteLatestReleaseStatus,
+  SiteNewerReleaseRoute,
+  SiteVersionInfo,
+  SiteVersionSpecKind,
+} from "@stagecraft/shared";
 
 import type { GitHubRepoClient, OpenPullRequest, PullRequestResult } from "@/lib/integrations/github";
+import { availableUpgradeVersion } from "@/lib/jobs/queue-upgrade";
 import { MUSICIAN_SITE_PACKAGE, TEMPLATE_STAMP_PATH } from "@/lib/site-scaffold";
 import {
   isOnOrPastRelease,
+  isVersionSpec,
   NPM_REGISTRY,
   packageMetadataUrl,
   pinnedPackageVersion,
   readStamp,
-  targetShell,
   UPGRADE_BRANCH,
 } from "@/lib/site-upgrade";
-import { readTemplateFiles, type TemplateFile } from "@/lib/template-reader";
 
 /**
  * The release a site is on, the one "Upgrade site" would move it to, and the
@@ -87,6 +92,28 @@ function isPastTarget(latest: string, target: string | null): boolean {
 }
 
 /**
+ * Whether upgrade_site would stop on the site with `customized` because of
+ * its package.json alone. Every site on the package has a stamp manifest
+ * (or a template push) whose package.json names the package at an exact
+ * release, and `changedCodeFiles` counts a package.json that no longer
+ * names it there, or names it by a spec that isn't a version or range
+ * (`isVersionSpec`: a dist-tag, a git, file or URL spec), as a
+ * customization. A full copy of the template (no package.json pin and no
+ * stamp release) never named it, so it isn't one. Other changes to our
+ * files can't be seen without the job's own check.
+ */
+function needsHandUpgrade(pinned: string | null, stamped: string | null): boolean {
+  return pinned === null ? stamped !== null : !isVersionSpec(pinned);
+}
+
+/** The major release a site is on: the lowest its pin admits. */
+function pinnedMajor(pinned: string | null): number | null {
+  const range = pinned === null ? null : semver.validRange(pinned);
+  const floor = range === null ? null : semver.minVersion(range);
+  return floor === null ? null : floor.major;
+}
+
+/**
  * Put together what the page shows. The site's package.json is read first:
  * Dependabot keeps it current, but never updates the stamp, whose
  * `packageVersion` is the release the site was created on. The stamp only
@@ -94,8 +121,13 @@ function isPastTarget(latest: string, target: string | null): boolean {
  * missing or unreadable). A missing or unreadable stamp is no version.
  *
  * Whether an update is available is the upgrade job's own test, against its
- * own target (the platform's bundled release, `checkBaseline`): only
- * package.json counts, so a site known only by its stamp always has one.
+ * own target (the platform's bundled release, `checkBaseline`), on a site
+ * whose package.json the job would accept (`needsHandUpgrade`).
+ *
+ * A newer release on npm reaches the site through Dependabot when it's in
+ * the major the site is on (or will be, after the upgrade on offer), since
+ * sites take patch and minor releases that way; a new major waits for the
+ * platform to bundle it (ADR-016 §3).
  */
 export function siteVersionInfo(args: {
   packageJson: string | null;
@@ -109,15 +141,25 @@ export function siteVersionInfo(args: {
   const stamped = pinned === null ? readStamp(args.stamp).packageVersion : null;
   const current = pinned ?? stamped;
   const latest = args.latest.status === "published" ? args.latest.version : null;
+  const byHand = needsHandUpgrade(pinned, stamped);
+  const updateAvailable = !byHand && args.target !== null && !isOnOrPastRelease(pinned, args.target);
+  const newer = !byHand && latest !== null && isPastTarget(latest, args.target) && !isOnOrPastRelease(pinned, latest);
+  const major = updateAvailable ? pinnedMajor(args.target) : pinnedMajor(pinned);
+  const newerRelease: SiteNewerReleaseRoute | null = !newer
+    ? null
+    : major !== null && major === semver.major(latest!)
+      ? "dependabot"
+      : "platform";
   return {
     current,
     currentKind: current === null ? null : versionSpecKind(current),
     source: pinned !== null ? "package_json" : stamped !== null ? "stamp" : null,
     target: args.target,
-    updateAvailable: args.target !== null && !isOnOrPastRelease(pinned, args.target),
+    needsHandUpgrade: byHand,
+    updateAvailable,
     latest,
     latestStatus: args.latest.status,
-    newerReleaseOut: latest !== null && isPastTarget(latest, args.target) && !isOnOrPastRelease(pinned, latest),
+    newerRelease,
     pullRequest: findUpdatePullRequest(args.upgradePull, args.pulls),
   };
 }
@@ -133,17 +175,16 @@ export function siteVersionInfo(args: {
 export async function readSiteVersion(
   client: GitHubRepoClient,
   branch: string,
-  options: { fetchImpl?: typeof fetch; registry?: string; readBundle?: () => Promise<TemplateFile[]> } = {},
+  options: { fetchImpl?: typeof fetch; registry?: string; readTarget?: () => Promise<string | null> } = {},
 ): Promise<SiteVersionInfo> {
-  const { readBundle = readTemplateFiles, ...npm } = options;
-  const [packageJson, stamp, upgradePull, pulls, latest, bundle] = await Promise.all([
+  const { readTarget = availableUpgradeVersion, ...npm } = options;
+  const [packageJson, stamp, upgradePull, pulls, latest, target] = await Promise.all([
     client.getFileText("package.json", branch),
     client.getFileText(TEMPLATE_STAMP_PATH, branch),
     client.findOpenPullRequest(UPGRADE_BRANCH, branch),
     client.listOpenPullRequests(),
     fetchLatestPackageVersion(npm).catch((): LatestRelease => ({ status: "unreachable", version: null })),
-    readBundle(),
+    readTarget(),
   ]);
-  const target = targetShell(bundle)?.packageVersion ?? null;
   return siteVersionInfo({ packageJson, stamp, target, latest, upgradePull, pulls });
 }

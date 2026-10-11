@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobContext } from "@stagecraft/queue";
+import type { UpgradeSiteResultData } from "@stagecraft/shared";
 
 import type { GitHubRepoClient, GitHubTokenCheck, PullRequestResult } from "../integrations/github";
 import { gitBlobSha, SITE_AUTOMERGE_WORKFLOW_PATH, TEMPLATE_STAMP_PATH } from "../site-scaffold";
@@ -47,6 +48,7 @@ vi.mock("@jclaw-labs/content-upgraders", () => ({
 }));
 
 const { handleUpgradeSite, REAUTH_MESSAGE } = await import("./upgrade-site");
+const { readSiteVersion } = await import("../site-version");
 const { GitHubApiError } = await import("../integrations/github");
 
 // ---------------------------------------------------------------------------
@@ -763,5 +765,71 @@ describe("handleUpgradeSite — credentials and preconditions", () => {
     expect(result).toMatchObject({ success: true, data: { pullRequest: { action: "opened" } } });
     // commitUpgrade finished on the first run and isn't repeated.
     expect(repo.commits.size).toBe(commitsBefore);
+  });
+});
+
+describe("the site page's version read agrees with handleUpgradeSite", () => {
+  type Outcome = "upgrade" | "up_to_date" | "customized";
+  type PackageJson = { dependencies: Record<string, string>; devDependencies?: Record<string, string> };
+
+  /** Migrate to 1.0.0 and merge it, then edit the site's package.json (null deletes it). */
+  async function migratedWith(edit: (pkg: PackageJson) => PackageJson | null) {
+    await runJob();
+    repo.branches.set("main", repo.branches.get("stagecraft/upgrade")!);
+    repo.pulls[0].state = "closed";
+    const pkg = edit(JSON.parse(repo.files("main")["package.json"]) as PackageJson);
+    repo.commitOn("main", { "package.json": pkg === null ? null : JSON.stringify(pkg, null, 2) + "\n" });
+  }
+  const pin = (spec: string) => (pkg: PackageJson) => {
+    pkg.dependencies["@jclaw-labs/musician-site"] = spec;
+    return pkg;
+  };
+  const drop = (pkg: PackageJson) => {
+    delete pkg.dependencies["@jclaw-labs/musician-site"];
+    return pkg;
+  };
+
+  it.each<[string, (() => Promise<void>) | null, string, Outcome]>([
+    ["a full copy from before ADR-016", null, "1.0.0", "upgrade"],
+    ["a site on the platform's release", () => migratedWith(pin("1.0.0")), "1.0.0", "up_to_date"],
+    ["a site a patch behind it", () => migratedWith(pin("1.0.1")), "1.0.3", "upgrade"],
+    ["a site past it", () => migratedWith(pin("1.2.0")), "1.1.0", "up_to_date"],
+    ["a range admitting it", () => migratedWith(pin("^1.0.0")), "1.1.0", "up_to_date"],
+    ["a range below it", () => migratedWith(pin("~1.0.0")), "1.1.0", "upgrade"],
+    ["any release (*) against a stable release", () => migratedWith(pin("*")), "1.1.0", "up_to_date"],
+    ["any release (*) against a prerelease", () => migratedWith(pin("*")), "1.1.0-rc.0", "upgrade"],
+    ["a dist-tag", () => migratedWith(pin("latest")), "1.1.0", "customized"],
+    ["a GitHub spec", () => migratedWith(pin("github:jclaw-labs/musician-site")), "1.1.0", "customized"],
+    ["a file spec", () => migratedWith(pin("file:../musician-site")), "1.1.0", "customized"],
+    ["a dropped dependency (stamp only)", () => migratedWith(drop), "1.1.0", "customized"],
+    [
+      "a dependency moved to devDependencies",
+      () => migratedWith((pkg) => ({ ...drop(pkg), devDependencies: { "@jclaw-labs/musician-site": "1.0.0" } })),
+      "1.1.0",
+      "customized",
+    ],
+    ["a deleted package.json", () => migratedWith(() => null), "1.1.0", "customized"],
+  ])("%s", async (_label, setup, target, expected) => {
+    if (setup) await setup();
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle(target));
+    mocks.createPullRequest.mockClear();
+    const npm = vi.fn(async () => new Response(JSON.stringify({ version: target }), { status: 200 })) as unknown as typeof fetch;
+
+    // The page reads first: the job only ever moves stagecraft/upgrade.
+    const page = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+    const result = await runJob();
+    const data = (result.data ?? {}) as UpgradeSiteResultData;
+    const outcome: Outcome | "other" = data.pullRequest
+      ? "upgrade"
+      : data.upToDate
+        ? "up_to_date"
+        : data.blocker === "customized"
+          ? "customized"
+          : "other";
+
+    expect(outcome).toBe(expected);
+    expect(page.target).toBe(target);
+    expect(page.updateAvailable).toBe(outcome === "upgrade");
+    expect(page.needsHandUpgrade).toBe(outcome === "customized");
   });
 });

@@ -3,7 +3,8 @@ import type { SiteVersionInfo } from "@stagecraft/shared";
 /**
  * How the version line reads: an upgrade is available, the site is on the
  * release Stagecraft upgrades to, or neither can be said (nothing to upgrade
- * to yet, or a newer release the platform can't offer until it's updated).
+ * to yet, a newer release on its way, or a site that needs upgrading by
+ * hand).
  */
 export type VersionSummaryTone = "behind" | "current" | "unknown";
 
@@ -38,29 +39,53 @@ function latestSentence(info: SiteVersionInfo): string {
   return ` The latest release is ${info.latest}.`;
 }
 
+/** What the artist is told when the upgrade would stop over package.json (`customized`, by hand). */
+const HAND_UPGRADE_SENTENCE =
+  " Stagecraft can only upgrade a site whose package.json names a release of its package, so this site needs upgrading by hand.";
+
+/** How a newer release on npm reaches the site (ADR-016 §3). */
+function newerSentence(info: SiteVersionInfo): string {
+  switch (info.newerRelease) {
+    case "dependabot":
+      // An open Dependabot pull request is the one bringing it, said already.
+      if (info.pullRequest?.kind === "dependabot") return "";
+      return info.updateAvailable
+        ? ` After this update, Dependabot will update the site to ${info.latest}.`
+        : ` Dependabot will update this site to ${info.latest}.`;
+    case "platform":
+      return ` Stagecraft will be able to upgrade this site to ${info.latest} once the platform is updated.`;
+    default:
+      return "";
+  }
+}
+
 /**
  * The site page's version line, "on 1.2.0, latest 1.4.1" (ADR-016
  * Consequences). It offers an update only when "Upgrade site" would make
- * one, and says so when npm has a newer release than the platform can
- * upgrade to yet.
+ * one, says when the site needs upgrading by hand instead, and says how a
+ * release newer than the platform's reaches the site: Dependabot within the
+ * site's major, the platform for a new one.
  */
 export function versionSummary(info: SiteVersionInfo): VersionSummary {
   let update = "";
-  if (info.updateAvailable) {
+  if (info.needsHandUpgrade) {
+    update = HAND_UPGRADE_SENTENCE;
+  } else if (info.updateAvailable) {
     update = info.pullRequest ? " An update is waiting for you to merge it." : ` An update to ${info.target} is available.`;
-  } else if (info.pullRequest) {
-    update = " A pull request that updates it is open.";
   }
-  const newer = info.newerReleaseOut
-    ? ` Stagecraft will be able to upgrade this site to ${info.latest} once the platform is updated.`
-    : "";
+  if (!info.updateAvailable && info.pullRequest) {
+    update +=
+      info.pullRequest.kind === "dependabot"
+        ? " Dependabot has a pull request open that updates it."
+        : " A pull request that updates it is open.";
+  }
   const tone: VersionSummaryTone = info.updateAvailable
     ? "behind"
-    : !info.newerReleaseOut && info.target !== null
+    : !info.needsHandUpgrade && info.newerRelease === null && info.target !== null
       ? "current"
       : "unknown";
 
-  const summary: VersionSummary = { tone, text: onSentence(info) + latestSentence(info) + update + newer };
+  const summary: VersionSummary = { tone, text: onSentence(info) + latestSentence(info) + update + newerSentence(info) };
   if (info.pullRequest) {
     summary.pullRequest = {
       url: info.pullRequest.url,

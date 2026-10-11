@@ -195,7 +195,13 @@ export default function UpgradePanel({
 
         {requestError && <p className={styles.upgradeError}>{requestError}</p>}
 
-        <Button onClick={handleUpgrade} isDisabled={isRequesting || summary?.inFlight === true}>
+        {/* Secondary once the page knows the job would find nothing to do; still
+            enabled, since the platform's release can change before the click. */}
+        <Button
+          onClick={handleUpgrade}
+          isDisabled={isRequesting || summary?.inFlight === true}
+          variant={version && !version.updateAvailable ? "secondary" : "primary"}
+        >
           {isRequesting || summary?.inFlight ? "Upgrading…" : "Upgrade site"}
         </Button>
       </div>

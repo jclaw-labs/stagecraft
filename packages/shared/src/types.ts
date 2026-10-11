@@ -140,6 +140,13 @@ export type SiteVersionSpecKind = "version" | "range" | "any" | "other";
  */
 export type SiteLatestReleaseStatus = "published" | "not_published" | "unreachable";
 
+/**
+ * How a newer release on npm reaches a site: Dependabot, for a patch or
+ * minor in the site's major, or the platform's upgrade once the platform
+ * bundles it, for a new major (ADR-016 §3).
+ */
+export type SiteNewerReleaseRoute = "dependabot" | "platform";
+
 /** Who opened a pull request that moves a site onto a newer release. */
 export type SiteUpdatePullRequestKind = "upgrade" | "dependabot";
 
@@ -167,20 +174,31 @@ export interface SiteVersionInfo {
    */
   target: string | null;
   /**
+   * Whether `upgrade_site` would stop with `customized` over package.json:
+   * it no longer names the package as a dependency (the version comes from
+   * the stamp, or there's none), or names it by a spec that isn't a version
+   * or range (a dist-tag, a git, file or URL spec). Never true for a full
+   * copy of the template from before ADR-016, which the job migrates.
+   * Customizations to other files aren't seen.
+   */
+  needsHandUpgrade: boolean;
+  /**
    * Whether `upgrade_site` would move the site onto `target`, by the same
-   * test the job runs: false when there's no target, or package.json pins
-   * `target` or later. A site whose version comes from the stamp always
-   * gets one, since the job doesn't read the stamp.
+   * test the job runs: false when there's no target, the site needs
+   * upgrading by hand (`needsHandUpgrade`), or package.json pins `target`
+   * or later.
    */
   updateAvailable: boolean;
   /** npm's `latest` release of the package, or null when `latestStatus` isn't `published`. */
   latest: string | null;
   latestStatus: SiteLatestReleaseStatus;
   /**
-   * Whether npm's `latest` is a stable release past `target` (or there's no
-   * target) that the site isn't already on: one the platform can't upgrade
-   * to until it's updated. A prerelease never counts.
+   * When npm's `latest` is a stable release past `target` (or there's no
+   * target) that the site isn't already on, how it reaches the site:
+   * `dependabot` when it's in the major the site is on (or moves onto with
+   * the update on offer), `platform` for a new major. Null otherwise, and on
+   * a site that needs upgrading by hand. A prerelease never counts.
    */
-  newerReleaseOut: boolean;
+  newerRelease: SiteNewerReleaseRoute | null;
   pullRequest: { number: number; url: string; kind: SiteUpdatePullRequestKind } | null;
 }

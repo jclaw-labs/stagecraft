@@ -28,7 +28,7 @@ describe("upgradeJobSummary", () => {
 
   it("reports a site already on the release", () => {
     expect(upgradeJobSummary({ status: "completed", resultPayload: { packageVersion: "1.2.0", upToDate: true } })?.text).toBe(
-      "This site is on the latest release (1.2.0).",
+      "Stagecraft has no newer release to upgrade this site to (it's on 1.2.0).",
     );
     expect(upgradeJobSummary({ status: "completed", resultPayload: null })?.text).toBe("The last upgrade finished.");
   });
@@ -36,7 +36,7 @@ describe("upgradeJobSummary", () => {
   it("names the release a site ahead of the platform's runs", () => {
     expect(
       upgradeJobSummary({ status: "completed", resultPayload: { packageVersion: "1.2.0", upToDate: true, currentVersion: "1.3.1" } })?.text,
-    ).toBe("This site is on the latest release (1.3.1).");
+    ).toBe("Stagecraft has no newer release to upgrade this site to (it's on 1.3.1).");
   });
 
   it.each(UPGRADE_SITE_BLOCKERS)("explains a %s stop as a warning", (blocker) => {

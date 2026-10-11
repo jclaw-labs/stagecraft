@@ -63,8 +63,8 @@ export function upgradeJobSummary(job: UpgradeJobFields | null): UpgradeSummary 
       }
       if (result?.upToDate) {
         const current = result.currentVersion ?? result.packageVersion;
-        const version = current ? ` (${current})` : "";
-        return { tone: "ok", text: `This site is on the latest release${version}.`, inFlight: false };
+        const version = current ? ` (it's on ${current})` : "";
+        return { tone: "ok", text: `Stagecraft has no newer release to upgrade this site to${version}.`, inFlight: false };
       }
       return { tone: "ok", text: "The last upgrade finished.", inFlight: false };
     }

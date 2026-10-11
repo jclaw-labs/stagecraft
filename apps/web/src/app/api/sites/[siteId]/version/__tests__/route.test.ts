@@ -24,10 +24,11 @@ const VERSION = {
   currentKind: "version",
   source: "package_json",
   target: "1.4.1",
+  needsHandUpgrade: false,
   updateAvailable: true,
   latest: "1.4.1",
   latestStatus: "published",
-  newerReleaseOut: false,
+  newerRelease: null,
   pullRequest: null,
 };
 const CLIENT = { owner: "jclaw", repo: "stagecraft-site-sarah" };
