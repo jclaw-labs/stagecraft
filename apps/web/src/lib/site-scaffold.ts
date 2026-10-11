@@ -62,7 +62,7 @@ export const SITE_MAJOR_UPDATES_IGNORED = [MUSICIAN_SITE_PACKAGE, "next", "react
  * the images it uploads. Everything else the bundle pushes is our code and
  * goes in the stamp's manifest.
  */
-const ARTIST_PATH_PREFIXES = ["src/content/", "public/images/"] as const;
+export const ARTIST_PATH_PREFIXES = ["src/content/", "public/images/"] as const;
 
 /** Path → git blob SHA of each of our files a site was created with. */
 export type CodePathManifest = Record<string, string>;

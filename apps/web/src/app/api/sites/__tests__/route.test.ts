@@ -205,4 +205,14 @@ describe("GET /api/sites", () => {
     expect(body.sites[0].jobs[0]).toEqual({ id: "job-1", type: null, status: null, failureCategory: "unknown" });
     expect(body.sites[1].jobs[0]).toEqual({ id: "job-2", type: "create_site", status: "failed", failureCategory: "timeout" });
   });
+
+  it("leaves upgrade jobs out of each site's latest job", async () => {
+    prismaMock.site.findMany.mockResolvedValue([]);
+    await GET();
+    expect(prismaMock.site.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { jobs: expect.objectContaining({ where: { type: { not: "upgrade_site" } }, take: 1 }) },
+      }),
+    );
+  });
 });

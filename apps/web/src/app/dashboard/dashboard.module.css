@@ -108,6 +108,20 @@
   border-top: var(--border-width) solid var(--color-border);
 }
 
+/* Admin tools */
+.adminTool {
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.adminToolTitle { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.adminToolText { margin: var(--space-2) 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.adminToolActions { display: flex; gap: var(--space-2); }
+.adminToolResult { margin-top: var(--space-2); }
+.adminToolList { margin: 0; padding-left: var(--space-5); font-size: var(--font-size-sm); color: var(--color-text); }
+.adminToolError { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-error); }
+
 /* --breakpoint md (768px) */
 @media (max-width: 768px) {
   .container { padding: var(--space-6) var(--space-4) var(--space-10); }

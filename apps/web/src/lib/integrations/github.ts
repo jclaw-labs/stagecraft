@@ -57,13 +57,21 @@ export const MAX_TREE_CONTENT_BYTES = 2 * 1024 * 1024;
 /** Attempts (2s apart) to read the branch head right after repo creation. */
 const BRANCH_HEAD_ATTEMPTS = 5;
 
+/** The user has no GitHub token stored: they never connected, or disconnected. */
+export class GitHubNotConnectedError extends Error {
+  constructor() {
+    super("GitHub account not connected");
+    this.name = "GitHubNotConnectedError";
+  }
+}
+
 async function getGitHubToken(userId: string): Promise<string> {
   const integration = await prisma.integrationAccount.findUnique({
     where: { userId_provider: { userId, provider: "github" } },
   });
 
   if (!integration?.accessToken) {
-    throw new Error("GitHub account not connected");
+    throw new GitHubNotConnectedError();
   }
 
   return decryptCredential(
@@ -72,7 +80,7 @@ async function getGitHubToken(userId: string): Promise<string> {
   );
 }
 
-async function githubApi(token: string, path: string, options?: RequestInit) {
+async function githubFetch(token: string, path: string, options?: RequestInit): Promise<Response> {
   const res = await fetch(`https://api.github.com${path}`, {
     ...options,
     headers: {
@@ -88,7 +96,11 @@ async function githubApi(token: string, path: string, options?: RequestInit) {
     throw new GitHubApiError(res.status, body);
   }
 
-  return res.json();
+  return res;
+}
+
+async function githubApi(token: string, path: string, options?: RequestInit) {
+  return (await githubFetch(token, path, options)).json();
 }
 
 export async function getAuthenticatedUser(token: string): Promise<{ login: string; id: number }> {
@@ -155,7 +167,8 @@ export async function getOwnRepo(userId: string, name: string): Promise<CreateRe
 
 type TreeEntry =
   | { path: string; mode: "100644"; type: "blob"; content: string }
-  | { path: string; mode: "100644"; type: "blob"; sha: string };
+  // A null sha deletes the path from the base tree.
+  | { path: string; mode: "100644"; type: "blob"; sha: string | null };
 
 /** Split tree entries so no group's inline content exceeds `maxBytes`. */
 function chunkTreeEntries(entries: TreeEntry[], maxBytes: number): TreeEntry[][] {
@@ -411,4 +424,274 @@ export async function findGithubAppInstallation(
   }
 
   return null;
+}
+
+/** Whether a user's stored GitHub token can do what a job needs. */
+export type GitHubTokenCheck =
+  | { status: "ok"; scopes: string[] }
+  /** No GitHub account connected, or no token stored. */
+  | { status: "missing" }
+  /** GitHub rejects the token (revoked, expired). */
+  | { status: "stale" }
+  /** The token works but was granted without these scopes. */
+  | { status: "missing_scopes"; missingScopes: string[] };
+
+/**
+ * Check the user's stored GitHub OAuth token against GitHub and the scopes
+ * it was granted (the `X-OAuth-Scopes` header). A token issued before the
+ * platform asked for a scope keeps working without it, so a job that needs
+ * one (pushing under `.github/workflows/` needs `workflow`) checks first and
+ * asks the user to sign in again instead of failing part way.
+ *
+ * A response without the header (not an OAuth App token) is taken as
+ * having every scope: GitHub reports a missing permission on the call
+ * that needs it.
+ */
+export async function checkGitHubToken(userId: string, requiredScopes: readonly string[]): Promise<GitHubTokenCheck> {
+  let token: string;
+  try {
+    token = await getGitHubToken(userId);
+  } catch (error) {
+    // Only a missing token asks for a sign-in; a database or decryption
+    // failure isn't fixed by one, so it goes back to the caller.
+    if (error instanceof GitHubNotConnectedError) return { status: "missing" };
+    throw error;
+  }
+  let res: Response;
+  try {
+    res = await githubFetch(token, "/user");
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 401) return { status: "stale" };
+    throw error;
+  }
+  const header = res.headers.get("x-oauth-scopes");
+  if (header === null) return { status: "ok", scopes: [...requiredScopes] };
+  const scopes = header
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const missingScopes = requiredScopes.filter((scope) => !scopes.includes(scope));
+  return missingScopes.length > 0 ? { status: "missing_scopes", missingScopes } : { status: "ok", scopes };
+}
+
+/** One file in a commit's tree: its path and git blob SHA. */
+export type RepoTree = Map<string, string>;
+
+/** A file `GitHubRepoClient.createCommit` writes. */
+export type CommitFile = PushFileEntry;
+
+export interface PullRequestUpdate {
+  title: string;
+  body: string;
+}
+
+/**
+ * Git and pull-request calls on one repo, with the user's token read once.
+ * The upgrade_site job (`jobs/upgrade-site.ts`) reads a site's tree and
+ * history, then commits to a branch and opens or updates a pull request.
+ */
+export interface GitHubRepoClient {
+  readonly owner: string;
+  readonly repo: string;
+  /** The commit SHA `branch` points at, or null when there's no such branch. */
+  getBranchHead(branch: string): Promise<string | null>;
+  /** Every file in a commit's tree, by path. Throws if GitHub truncates the tree. */
+  getTree(commitSha: string): Promise<RepoTree>;
+  /** A commit's message. */
+  getCommitMessage(commitSha: string): Promise<string>;
+  /** A blob's content as UTF-8 text. */
+  getBlobText(blobSha: string): Promise<string>;
+  /** The oldest commit on `ref` that touches `path`, or null when none does. */
+  findOldestCommitTouching(path: string, ref: string): Promise<string | null>;
+  /** Whether `commitSha` itself changes anything under `path`. */
+  commitTouchesPath(commitSha: string, path: string): Promise<boolean>;
+  /** Every branch name in the repo. */
+  listBranches(): Promise<string[]>;
+  /** The paths `head` changed since it forked from `base`. */
+  changedFilesSince(base: string, head: string): Promise<string[]>;
+  /**
+   * Create a commit on `parentSha` that writes `files` and deletes
+   * `deletePaths`, without moving any branch. Returns its SHA.
+   */
+  createCommit(args: { parentSha: string; files: CommitFile[]; deletePaths: string[]; message: string }): Promise<string>;
+  /** Point an existing branch at `sha`, discarding what it held. */
+  setBranchHead(branch: string, sha: string): Promise<void>;
+  /** The open pull request from `head` (a branch in this repo) into `base`, if any. */
+  findOpenPullRequest(head: string, base: string): Promise<PullRequestResult | null>;
+  updatePullRequest(number: number, update: PullRequestUpdate): Promise<PullRequestResult>;
+}
+
+/** Commits listed per page when reading history. */
+const COMMITS_PER_PAGE = 100;
+
+/** The page number of the `rel="last"` link in a `Link` header, if any. */
+export function lastPageFromLinkHeader(link: string | null): number | null {
+  if (!link) return null;
+  for (const part of link.split(",")) {
+    const match = /<([^>]+)>\s*;\s*rel="last"/.exec(part);
+    if (!match) continue;
+    const page = Number(new URL(match[1]).searchParams.get("page"));
+    return Number.isInteger(page) && page > 0 ? page : null;
+  }
+  return null;
+}
+
+function toPullRequestResult(data: { number: number; html_url: string; state: string }): PullRequestResult {
+  return { number: data.number, htmlUrl: data.html_url, state: data.state };
+}
+
+/** A `GitHubRepoClient` for `owner/repo`, acting as `userId`. */
+export async function githubRepoClient(userId: string, owner: string, repo: string): Promise<GitHubRepoClient> {
+  const token = await getGitHubToken(userId);
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+  async function commitsTouching(path: string, ref: string, perPage: number, page = 1) {
+    const query = new URLSearchParams({ path, sha: ref, per_page: String(perPage), page: String(page) });
+    const res = await githubFetch(token, `${repoPath}/commits?${query}`);
+    return { commits: (await res.json()) as Array<{ sha: string }>, link: res.headers.get("link") };
+  }
+
+  return {
+    owner,
+    repo,
+
+    async getBranchHead(branch) {
+      try {
+        const ref = await githubApi(token, `${repoPath}/git/ref/heads/${branch}`);
+        return ref.object.sha as string;
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return null;
+        throw error;
+      }
+    },
+
+    async getCommitMessage(commitSha) {
+      const commit = await githubApi(token, `${repoPath}/git/commits/${commitSha}`);
+      return commit.message as string;
+    },
+
+    async getTree(commitSha) {
+      const commit = await githubApi(token, `${repoPath}/git/commits/${commitSha}`);
+      const tree = (await githubApi(token, `${repoPath}/git/trees/${commit.tree.sha}?recursive=1`)) as {
+        truncated?: boolean;
+        tree: Array<{ path: string; type: string; sha: string }>;
+      };
+      if (tree.truncated) {
+        throw new Error(`${owner}/${repo}'s tree at ${commitSha} is too large for GitHub to list in one call`);
+      }
+      return new Map(tree.tree.filter((entry) => entry.type === "blob").map((entry) => [entry.path, entry.sha]));
+    },
+
+    async getBlobText(blobSha) {
+      const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
+      return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
+    },
+
+    async findOldestCommitTouching(path, ref) {
+      // Commits come newest first, so the oldest is the last one on the
+      // last page. One page of one commit tells us how many pages there are.
+      const first = await commitsTouching(path, ref, 1);
+      const lastPage = lastPageFromLinkHeader(first.link);
+      if (lastPage === null) return first.commits[0]?.sha ?? null;
+      const last = await commitsTouching(path, ref, 1, lastPage);
+      return last.commits[0]?.sha ?? null;
+    },
+
+    async commitTouchesPath(commitSha, path) {
+      // The newest commit reachable from `commitSha` that touches `path` is
+      // `commitSha` itself exactly when it touches `path`.
+      try {
+        const { commits } = await commitsTouching(path, commitSha, 1);
+        return commits[0]?.sha === commitSha;
+      } catch (error) {
+        // A recorded commit that isn't in the repo (any more) touches nothing.
+        if (error instanceof GitHubApiError && (error.status === 404 || error.status === 422)) return false;
+        throw error;
+      }
+    },
+
+    async listBranches() {
+      const names: string[] = [];
+      for (let page = 1; ; page++) {
+        const batch = (await githubApi(
+          token,
+          `${repoPath}/branches?per_page=${COMMITS_PER_PAGE}&page=${page}`,
+        )) as Array<{ name: string }>;
+        names.push(...batch.map((branch) => branch.name));
+        if (batch.length < COMMITS_PER_PAGE) return names;
+      }
+    },
+
+    async changedFilesSince(base, head) {
+      const comparison = (await githubApi(
+        token,
+        `${repoPath}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+      )) as { files?: Array<{ filename: string; previous_filename?: string }> };
+      return (comparison.files ?? []).flatMap((file) =>
+        file.previous_filename ? [file.filename, file.previous_filename] : [file.filename],
+      );
+    },
+
+    async createCommit({ parentSha, files, deletePaths, message }) {
+      const parent = await githubApi(token, `${repoPath}/git/commits/${parentSha}`);
+      const binaryShas = new Map<string, string>();
+      await mapWithConcurrency(
+        files.filter((f) => f.encoding === "base64"),
+        BLOB_UPLOAD_CONCURRENCY,
+        async (file) => {
+          const blob = await githubApi(token, `${repoPath}/git/blobs`, {
+            method: "POST",
+            body: JSON.stringify({ content: file.content, encoding: "base64" }),
+          });
+          binaryShas.set(file.path, blob.sha as string);
+        },
+      );
+      const entries: TreeEntry[] = [
+        ...files.map((file): TreeEntry =>
+          file.encoding === "base64"
+            ? { path: file.path, mode: "100644", type: "blob", sha: binaryShas.get(file.path)! }
+            : { path: file.path, mode: "100644", type: "blob", content: file.content },
+        ),
+        ...deletePaths.map((path): TreeEntry => ({ path, mode: "100644", type: "blob", sha: null })),
+      ];
+      let treeSha = parent.tree.sha as string;
+      for (const chunk of chunkTreeEntries(entries, MAX_TREE_CONTENT_BYTES)) {
+        const tree = await githubApi(token, `${repoPath}/git/trees`, {
+          method: "POST",
+          body: JSON.stringify({ base_tree: treeSha, tree: chunk }),
+        });
+        treeSha = tree.sha as string;
+      }
+      const commit = await githubApi(token, `${repoPath}/git/commits`, {
+        method: "POST",
+        body: JSON.stringify({ message, tree: treeSha, parents: [parentSha] }),
+      });
+      return commit.sha as string;
+    },
+
+    async setBranchHead(branch, sha) {
+      await githubApi(token, `${repoPath}/git/refs/heads/${branch}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sha, force: true }),
+      });
+    },
+
+    async findOpenPullRequest(head, base) {
+      const query = new URLSearchParams({ head: `${owner}:${head}`, base, state: "open" });
+      const pulls = (await githubApi(token, `${repoPath}/pulls?${query}`)) as Array<{
+        number: number;
+        html_url: string;
+        state: string;
+      }>;
+      return pulls[0] ? toPullRequestResult(pulls[0]) : null;
+    },
+
+    async updatePullRequest(number, update) {
+      const data = await githubApi(token, `${repoPath}/pulls/${number}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: update.title, body: update.body }),
+      });
+      return toPullRequestResult(data);
+    },
+  };
 }

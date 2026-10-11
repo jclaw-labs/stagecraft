@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { UPGRADE_SITE } from "@/lib/jobs/queue-upgrade";
 import { drainAfterResponse } from "@/lib/jobs/worker";
 import { slugify } from "@/lib/slugify";
 import { toClientSite } from "@/lib/client-site";
@@ -99,7 +100,10 @@ export async function GET() {
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
     include: {
+      // As on GET /api/sites/[siteId]: a site's latest job is its setup
+      // state, which an upgrade job isn't.
       jobs: {
+        where: { type: { not: UPGRADE_SITE } },
         orderBy: { createdAt: "desc" },
         take: 1,
       },

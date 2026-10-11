@@ -15,6 +15,7 @@ import {
   type SiteAdminLink,
 } from "@/lib/migration/report-copy";
 
+import UpgradePanel, { type UpgradeJob } from "./UpgradePanel";
 import styles from "./site-detail.module.css";
 
 interface MigrateJobResult {
@@ -59,7 +60,10 @@ interface Site {
   vercelTeamSlug?: string;
   productionUrl?: string;
   archivedAt?: string;
+  /** Provisioning jobs (create_site, migrate_site), newest first. */
   jobs: SiteJob[];
+  /** The latest upgrade_site job, if the site was ever upgraded. */
+  upgradeJob: UpgradeJob | null;
 }
 
 type DeployState =
@@ -140,6 +144,34 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
       clearInterval(interval);
     };
   }, [siteId]);
+
+  // Poll while an upgrade is queued or running, until the job finishes.
+  const upgradeInFlight = site?.upgradeJob?.status === "queued" || site?.upgradeJob?.status === "running";
+  const [upgradePollKey, setUpgradePollKey] = useState(0);
+  useEffect(() => {
+    if (!upgradeInFlight && upgradePollKey === 0) return;
+    let active = true;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/sites/${siteId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { site: Site };
+        if (!active) return;
+        setSite(data.site);
+        const status = data.site.upgradeJob?.status;
+        if (status !== "queued" && status !== "running") {
+          clearInterval(id);
+          setUpgradePollKey(0);
+        }
+      } catch {
+        // The next tick retries.
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [siteId, upgradeInFlight, upgradePollKey]);
 
   // Poll the deploy target (Vercel/Netlify) for first-build status. Runs
   // only once Site.status flips to "active" (the deploy project exists)
@@ -565,6 +597,10 @@ export default function SiteDetailClient({ siteId }: { siteId: string }) {
               )}
             </div>
           </section>
+        )}
+
+        {isActive && githubUrl && (
+          <UpgradePanel siteId={site.id} job={site.upgradeJob} onQueued={() => setUpgradePollKey((k) => k + 1)} />
         )}
 
         {(site.status === "active" || isArchived) && (

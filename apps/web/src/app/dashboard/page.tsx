@@ -9,6 +9,7 @@ import SiteCard from "@/components/SiteCard";
 
 import { isStagecraftAdmin } from "@/lib/admin-allowlist";
 import { NukeAllSitesButton } from "./NukeAllSitesButton";
+import { UpgradeAllSitesButton } from "./UpgradeAllSitesButton";
 import styles from "./dashboard.module.css";
 
 export default async function DashboardPage() {
@@ -111,6 +112,7 @@ export default async function DashboardPage() {
 
         {isAdmin && (
           <div className={styles.adminZone}>
+            <UpgradeAllSitesButton />
             <NukeAllSitesButton siteCount={sites.length} />
           </div>
         )}

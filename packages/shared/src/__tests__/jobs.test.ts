@@ -4,9 +4,11 @@ import {
   FAILURE_CATEGORIES,
   JOB_STATUSES,
   JOB_TYPES,
+  UPGRADE_SITE_BLOCKERS,
   isFailureCategory,
   isJobStatus,
   isJobType,
+  isUpgradeSiteBlocker,
 } from "../types";
 
 describe("job type guards", () => {
@@ -30,6 +32,21 @@ describe("job type guards", () => {
     expect(isJobStatus("")).toBe(false);
     expect(isFailureCategory("ai_error")).toBe(false);
     expect(isFailureCategory("")).toBe(false);
+  });
+
+  it.each(UPGRADE_SITE_BLOCKERS)("isUpgradeSiteBlocker accepts %s", (blocker) => {
+    expect(isUpgradeSiteBlocker(blocker)).toBe(true);
+  });
+
+  it("isUpgradeSiteBlocker rejects unknown values and non-strings", () => {
+    expect(isUpgradeSiteBlocker("customised")).toBe(false);
+    expect(isUpgradeSiteBlocker("")).toBe(false);
+    expect(isUpgradeSiteBlocker(null)).toBe(false);
+    expect(isUpgradeSiteBlocker(1)).toBe(false);
+  });
+
+  it("knows upgrade_site as a job type", () => {
+    expect(isJobType("upgrade_site")).toBe(true);
   });
 
   it("rejects Object.prototype keys", () => {
