@@ -409,6 +409,14 @@ describe("handleUpgradeSite — a site Dependabot moved", () => {
     expect(repo.pulls.at(-1)!.body).not.toContain("changed in your repository");
   });
 
+  it("doesn't downgrade a site whose artist pinned a range past the platform's release", async () => {
+    await migratedThenBumped("^1.2.0");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+
+    expect(await runJob()).toMatchObject({ success: true, data: { upToDate: true, currentVersion: "^1.2.0" } });
+    expect(mocks.createPullRequest).not.toHaveBeenCalled();
+  });
+
   it("still opens a pull request for a release past the site's", async () => {
     await migratedThenBumped("1.0.1");
     mocks.readTemplateFiles.mockResolvedValue(shellBundle("2.0.0"));

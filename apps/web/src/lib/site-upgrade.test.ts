@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { gitBlobSha, TEMPLATE_STAMP_PATH } from "./site-scaffold";
+import { gitBlobSha, MUSICIAN_SITE_PACKAGE, TEMPLATE_STAMP_PATH } from "./site-scaffold";
 import {
   changedCodeFiles,
   fetchTargetSchemaVersion,
@@ -249,6 +249,14 @@ describe("targetShell and isOnOrPastRelease", () => {
     expect(pinnedPackageVersion(shellPackage)).toBe("1.4.0");
     expect(pinnedPackageVersion(JSON.stringify({ dependencies: { next: "^15.5.27" } }))).toBeNull();
     expect(pinnedPackageVersion(null)).toBeNull();
+    expect(pinnedPackageVersion("not json")).toBeNull();
+  });
+
+  it("keeps a range or other spec the artist pinned", () => {
+    const pin = (spec: string) => JSON.stringify({ dependencies: { [MUSICIAN_SITE_PACKAGE]: spec } });
+    expect(pinnedPackageVersion(pin("^1.2.0"))).toBe("^1.2.0");
+    expect(pinnedPackageVersion(pin(">=1.2.0"))).toBe(">=1.2.0");
+    expect(pinnedPackageVersion(pin("github:a/b"))).toBe("github:a/b");
   });
 
   it("is up to date on the target or a later release, and never downgrades", () => {
@@ -273,6 +281,11 @@ describe("targetShell and isOnOrPastRelease", () => {
     expect(isOnOrPastRelease("2.0.0", "2.0.0-rc.1")).toBe(true);
     expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.1")).toBe(true);
     expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.2")).toBe(false);
+  });
+
+  it("doesn't read an upper bound as a lower one", () => {
+    expect(isOnOrPastRelease("<2.0.0", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("<=1.2.0", "1.1.0")).toBe(false);
   });
 
   it("matches a pin that isn't a release only to itself", () => {

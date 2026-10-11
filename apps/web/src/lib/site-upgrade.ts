@@ -278,18 +278,27 @@ export function targetShell(bundle: TemplateFile[]): TargetShell | null {
  * else (a tag, a git spec).
  */
 function releaseParts(version: string): { core: [number, number, number]; prerelease: boolean } | null {
-  const match = /^(?:[\^~]|[<>]=?|=)?\s*v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/.exec(version.trim());
+  const match = /^(?:[\^~]|>=?|=)?\s*v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/.exec(version.trim());
   if (!match) return null;
   return { core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] !== undefined };
 }
 
 /**
- * The release of the package the site's package.json pins, or null when it
- * doesn't depend on the package (a site from before ADR-016).
+ * The spec the site's package.json pins the package at, as written (an exact
+ * release, a range, or anything else npm accepts), or null when it doesn't
+ * depend on the package (a site from before ADR-016) or the file is absent or
+ * unparseable. Unlike `packageVersionFromFiles` it keeps ranges, so an artist's
+ * `^1.2.0` still counts as on 1.2.0.
  */
 export function pinnedPackageVersion(packageJson: string | null): string | null {
   if (packageJson === null) return null;
-  return packageVersionFromFiles([{ path: PACKAGE_JSON, content: packageJson }]);
+  try {
+    const parsed = JSON.parse(packageJson) as { dependencies?: Record<string, unknown> };
+    const spec = parsed.dependencies?.[MUSICIAN_SITE_PACKAGE];
+    return typeof spec === "string" ? spec : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
