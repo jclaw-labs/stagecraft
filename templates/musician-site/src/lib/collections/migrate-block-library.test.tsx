@@ -21,10 +21,11 @@ import type { CollectionDef, FieldValue, Item } from "./schema.js";
 import { PREBAKED_COLLECTIONS } from "./seeds.js";
 import { resolveTemplate } from "./template/renderer.js";
 import type { Template } from "./template/types.js";
+import { STARTER_CONTENT_DIR } from "./test-fixtures.js";
 
 const run = promisify(execFile);
 const APP_DIR = process.cwd();
-const CONTENT_DIR = path.join(APP_DIR, "src/content");
+const CONTENT_DIR = STARTER_CONTENT_DIR;
 const SCRIPT = path.join(APP_DIR, "scripts/migrate-block-library.mjs");
 
 const bind = (fieldId: string) => ({ kind: "binding", fieldId });

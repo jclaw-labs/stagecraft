@@ -23,6 +23,17 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 /** Template source directory (monorepo `templates/musician-site`). */
 export const TEMPLATE_DIR = path.resolve(SCRIPT_DIR, "../../../templates/musician-site");
 
+/**
+ * The starter content a new site starts with. It lives in the artist-repo
+ * shell, `templates/musician-site-shell` (ADR-016 §1), since content is the
+ * artist's, not the package's. Until sites move onto the shell (#422), the
+ * bundle is the template plus this content under `src/content/`.
+ */
+export const STARTER_CONTENT_DIR = path.resolve(SCRIPT_DIR, "../../../templates/musician-site-shell/src/content");
+
+/** Where a site keeps its content, relative to the repo root. */
+export const SITE_CONTENT_PREFIX = "src/content";
+
 /** Generated module, imported by `src/lib/template-reader.ts`. Gitignored. */
 export const TEMPLATE_BUNDLE_FILE = path.resolve(SCRIPT_DIR, "../src/generated/template-bundle.json");
 
@@ -259,20 +270,44 @@ export async function collectTemplateFiles(templateDir, { vendor = true } = {}) 
 }
 
 /**
- * Collect the template and write it to `outFile` as a JSON array of
- * `{ path, content }`. Returns the file count and raw / gzipped sizes.
+ * The site's files: the template's (`collectTemplateFiles`) plus the
+ * starter content under `src/content/`, sorted by path. Refuses a template
+ * with no files, one with content of its own (which would collide with
+ * the starter content), and missing starter content.
  *
- * @param {{ templateDir?: string; outFile?: string }} [options]
+ * @param {string} templateDir
+ * @param {string} contentDir
+ * @returns {Promise<Array<{ path: string; content: string }>>}
+ */
+export async function collectSiteFiles(templateDir, contentDir) {
+  const template = await collectTemplateFiles(templateDir);
+  if (template.length === 0) throw new Error(`No template files found under ${templateDir}`);
+  const clash = template.find((f) => f.path.startsWith(`${SITE_CONTENT_PREFIX}/`));
+  if (clash) {
+    throw new Error(`${templateDir} has ${clash.path}; starter content belongs in ${contentDir}.`);
+  }
+  const content = (await collectTemplateFiles(contentDir, { vendor: false })).map((f) => ({
+    path: `${SITE_CONTENT_PREFIX}/${f.path}`,
+    content: f.content,
+  }));
+  if (content.length === 0) throw new Error(`No starter content found under ${contentDir}`);
+  return [...template, ...content].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/**
+ * Collect the site's files (`collectSiteFiles`) and write them to
+ * `outFile` as a JSON array of `{ path, content }`. Returns the file
+ * count and raw / gzipped sizes.
+ *
+ * @param {{ templateDir?: string; contentDir?: string; outFile?: string }} [options]
  * @returns {Promise<{ fileCount: number; bytes: number; gzipBytes: number }>}
  */
 export async function generateTemplateBundle({
   templateDir = TEMPLATE_DIR,
+  contentDir = STARTER_CONTENT_DIR,
   outFile = TEMPLATE_BUNDLE_FILE,
 } = {}) {
-  const files = await collectTemplateFiles(templateDir);
-  if (files.length === 0) {
-    throw new Error(`No template files found under ${templateDir}`);
-  }
+  const files = await collectSiteFiles(templateDir, contentDir);
   const json = JSON.stringify(files);
   await fs.mkdir(path.dirname(outFile), { recursive: true });
   // Write then rename, so a build reading the bundle never sees a half-written file.

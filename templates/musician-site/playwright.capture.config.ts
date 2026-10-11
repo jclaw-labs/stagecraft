@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { captureLaunchOptions } from "./capture/chromium.js";
+import { SHELL_DIR } from "./playwright.config.js";
 
 /**
  * Playwright config for SCREENSHOT CAPTURE (not assertions).
@@ -21,6 +22,9 @@ import { captureLaunchOptions } from "./capture/chromium.js";
  *     via `/api/auth/dev-login` and stashes the session — the same
  *     dev-only escape hatch the e2e suite uses.
  *   - `next dev` forces NODE_ENV=development, so dev-login is reachable.
+ *
+ * Like the e2e suite, it runs the artist-repo shell on an installed copy
+ * of this package: run `npm run shell:install` at the repo root first.
  */
 
 const PORT = 3031;
@@ -59,7 +63,8 @@ export default defineConfig({
   },
   globalSetup: "./capture/setup.ts",
   webServer: {
-    command: `next dev --port ${PORT}`,
+    command: `npm run dev -- --port ${PORT}`,
+    cwd: SHELL_DIR,
     // `/admin/login` is a static 200 regardless of content state — a
     // stable readiness signal (the public catch-all 404s on an empty
     // content dir, which Playwright would treat as "not ready").

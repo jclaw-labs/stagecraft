@@ -61,13 +61,16 @@ admin surfaces (Pages, Site Settings, Header & Nav, Appearance,
 Collections, and the Puck page editor):
 
 ```bash
+npm run shell:install             # at the repo root: build the package into the shell
 cd templates/musician-site
 npx playwright install chromium   # local only — cloud sessions auto-detect
 npm run capture:screenshots       # writes .pr-screenshots/artist-*.{jpg,png}
 ```
 
 It's a Playwright capture config (`playwright.capture.config.ts`) that
-boots its own dev server against a seeded, completed site and signs in
+boots its own dev server in the artist-repo shell
+(`templates/musician-site-shell`, running the package as a site does)
+against a seeded, completed site and signs in
 via the dev-login escape hatch — so no manual server/auth setup. Output
 lands directly in the repo-root `.pr-screenshots/`.
 Override the dir with `PR_SCREENSHOTS_DIR=...`.

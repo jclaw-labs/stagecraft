@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { collectTemplateFiles, TEMPLATE_DIR } from "../../../scripts/generate-template-bundle.mjs";
+import {
+  collectSiteFiles,
+  STARTER_CONTENT_DIR,
+  TEMPLATE_DIR,
+} from "../../../scripts/generate-template-bundle.mjs";
 import { readTemplateFiles } from "../template-reader";
 
 describe("readTemplateFiles", () => {
-  it("serves the build-time bundle, matching the template on disk", async () => {
+  it("serves the build-time bundle, matching the template and starter content on disk", async () => {
     // The bundle is regenerated before every test run (`npm run test`), so a
     // mismatch here means the generator and the template walk disagree.
-    expect(await readTemplateFiles()).toEqual(await collectTemplateFiles(TEMPLATE_DIR));
+    expect(await readTemplateFiles()).toEqual(await collectSiteFiles(TEMPLATE_DIR, STARTER_CONTENT_DIR));
   });
 
   it("includes the template's package.json and excludes skipped paths", async () => {

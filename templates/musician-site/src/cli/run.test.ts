@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { STARTER_CONTENT_DIR } from "../lib/collections/test-fixtures.js";
+
 import { packageVersion, run, USAGE } from "./run.js";
 
 function capture(argv: string[]) {
@@ -35,11 +37,11 @@ describe("stagecraft-site CLI", () => {
   });
 });
 
-describe("stagecraft-site migrate-content on the template's own content", () => {
+describe("stagecraft-site migrate-content on the starter content", () => {
   it("finds every collection already at the package's schemaVersion", () => {
     let out = "";
     let err = "";
-    const code = run(["migrate-content", "--check"], { out: (t) => (out += t), err: (t) => (err += t) });
+    const code = run(["migrate-content", "--check", "--content-dir", STARTER_CONTENT_DIR], { out: (t) => (out += t), err: (t) => (err += t) });
     expect({ code, err }).toEqual({ code: 0, err: "" });
     expect(out).toMatch(/^All \d+ collections are at schemaVersion \d+\.\n$/);
   });

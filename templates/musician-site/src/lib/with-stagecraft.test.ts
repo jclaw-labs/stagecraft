@@ -4,7 +4,14 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { detectMonorepoRoot, STAGECRAFT_HEADERS, withStagecraft } from "./with-stagecraft.js";
+import {
+  detectMonorepoRoot,
+  PACKAGE_NAME,
+  REQUIRED_SHELL_VERSION,
+  shellVersionError,
+  STAGECRAFT_HEADERS,
+  withStagecraft,
+} from "./with-stagecraft.js";
 
 let tmp: string;
 
@@ -74,5 +81,65 @@ describe("withStagecraft", () => {
     expect(withStagecraft({ experimental: { globalNotFound: false } }, appUnder()).experimental?.globalNotFound).toBe(
       true,
     );
+  });
+});
+
+/** An app at `<tmp>/app` with `pkg` as its package.json. */
+function appWith(pkg: unknown): string {
+  const app = path.join(tmp, "app");
+  fs.mkdirSync(app, { recursive: true });
+  fs.writeFileSync(path.join(app, "package.json"), typeof pkg === "string" ? pkg : JSON.stringify(pkg));
+  return app;
+}
+
+const shell = (shellVersion?: unknown) => ({
+  dependencies: { [PACKAGE_NAME]: "1.0.0", next: "^15.5.27" },
+  ...(shellVersion === undefined ? {} : { stagecraft: { shellVersion } }),
+});
+
+describe("shellVersionError", () => {
+  it("passes a shell at or above the required version", () => {
+    expect(shellVersionError(appWith(shell(REQUIRED_SHELL_VERSION)))).toBeNull();
+    expect(shellVersionError(appWith(shell(REQUIRED_SHELL_VERSION + 1)))).toBeNull();
+  });
+
+  it("fails a shell older than the required version, naming both versions", () => {
+    const error = shellVersionError(appWith(shell(REQUIRED_SHELL_VERSION - 1)));
+    expect(error).toContain(`This site's shell is version ${REQUIRED_SHELL_VERSION - 1}`);
+    expect(error).toContain(`needs shell version ${REQUIRED_SHELL_VERSION} or later`);
+    expect(error).toContain("upgrade pull request");
+  });
+
+  it.each([undefined, "1", 1.5, null])("fails a shell whose shellVersion is %s", (version) => {
+    expect(shellVersionError(appWith(shell(version)))).toContain("has no stagecraft.shellVersion");
+  });
+
+  it("skips an app that doesn't depend on the package, such as a full template copy", () => {
+    expect(shellVersionError(appWith({ dependencies: { next: "^15.5.27" } }))).toBeNull();
+    expect(shellVersionError(appWith({ devDependencies: { [PACKAGE_NAME]: "1.0.0" } }))).toBeNull();
+  });
+
+  it("skips an app without a readable package.json", () => {
+    expect(shellVersionError(path.join(tmp, "missing"))).toBeNull();
+    expect(shellVersionError(appWith("{not json"))).toBeNull();
+  });
+
+  it("passes the monorepo's shell, which is at the required version", () => {
+    const shellDir = path.resolve(import.meta.dirname, "../../../musician-site-shell");
+    const pkg = JSON.parse(fs.readFileSync(path.join(shellDir, "package.json"), "utf8"));
+    expect(pkg.stagecraft.shellVersion).toBe(REQUIRED_SHELL_VERSION);
+    expect(shellVersionError(shellDir)).toBeNull();
+  });
+});
+
+describe("withStagecraft and the shell version", () => {
+  it("throws for a shell that is too old", () => {
+    expect(() => withStagecraft({}, appWith(shell(REQUIRED_SHELL_VERSION - 1)))).toThrow(
+      /needs shell version/,
+    );
+  });
+
+  it("builds a config for a current shell", () => {
+    expect(withStagecraft({}, appWith(shell(REQUIRED_SHELL_VERSION))).reactStrictMode).toBe(true);
   });
 });

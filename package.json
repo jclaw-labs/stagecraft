@@ -23,6 +23,7 @@
     "migrations:check": "node scripts/migration-safety.mjs --base origin/main",
     "pack-musician-site": "node scripts/pack-musician-site.mjs",
     "check:musician-site-package": "node scripts/check-musician-site-package.mjs",
+    "shell:install": "node scripts/install-musician-site-shell.mjs",
     "audit:gate": "node scripts/audit-gate.mjs . templates/musician-site claude/skills/crawl-artist-site"
   },
   "devDependencies": {
