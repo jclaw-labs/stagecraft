@@ -27,6 +27,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -367,6 +368,29 @@ describe("lazy Puck editor boundary", () => {
     // lazy-editors is a client module, but it reaches the editors only
     // through `import()`.
     expect(staticPathToPuck(path.join(SRC, "admin", "lazy-editors.tsx"))).toBeNull();
+  });
+
+  it("flags Puck's main entry reached through a client module, and not through a server one", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "puck-boundary-"));
+    try {
+      const write = (name: string, source: string): string => {
+        const file = path.join(dir, name);
+        fs.writeFileSync(file, source);
+        return file;
+      };
+      write("renders.tsx", 'import { Render } from "@puckeditor/core";\nexport { Render };\n');
+      write("panel.tsx", '"use client";\nimport { Render } from "./renders.js";\nexport { Render };\n');
+      const server = write("server.tsx", 'import { Render } from "./renders.js";\nexport { Render };\n');
+      const client = write("page.tsx", 'import { Render } from "./panel.js";\nexport { Render };\n');
+      expect(staticPathToPuck(server)).toBeNull();
+      expect(staticPathToPuck(client)?.map((step) => path.basename(step))).toEqual([
+        "page.tsx",
+        "panel.tsx",
+        "renders.tsx",
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("skips dynamic imports only when asked", () => {
