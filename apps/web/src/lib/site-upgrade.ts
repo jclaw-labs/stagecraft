@@ -161,13 +161,15 @@ export function packageJsonChangedBeyondVersions(baseline: string, current: stri
 /**
  * Whether a dependency spec is a registry version or range (`1.2.3`,
  * `^15.2.0`, `~4.0`, `>=1 <2`, `1.x`, `*`), the kind Dependabot bumps,
- * rather than a git, file, URL or `npm:` alias spec, or a dist-tag.
+ * rather than a git, file, URL or `npm:` alias spec, or a dist-tag. A spec
+ * that looks like one but isn't a valid range (`>=1.2.0 <2 foo`) isn't:
+ * `isOnOrPastRelease` couldn't read it, so it counts as a customization.
  */
 export function isVersionSpec(spec: unknown): boolean {
   if (typeof spec !== "string") return false;
   const trimmed = spec.trim();
   if (trimmed === "*" || trimmed === "") return true;
-  return !/[:/#]/.test(trimmed) && /^(?:[\^~]|[<>]=?|=)?\s*v?\d/.test(trimmed);
+  return !/[:/#]/.test(trimmed) && /^(?:[\^~]|[<>]=?|=)?\s*v?\d/.test(trimmed) && semver.validRange(trimmed) !== null;
 }
 
 /** A placeholder for a version spec, so a bump compares equal to the original. */
@@ -298,12 +300,18 @@ export function pinnedPackageVersion(packageJson: string | null): string | null 
  * bundle only moves when it's deployed, so a site can be ahead of the
  * bundle. The stamp isn't read: Dependabot never updates it.
  *
- * A range counts when it admits `target` or anything later (`^1.0.0`
- * against 1.1.0 does): without a lockfile the host installs the newest
- * release the range admits, which `target`, being published, bounds from
- * below; with one, the site may still run an older release, and the
- * upgrade waits for Dependabot rather than risk a downgrade. Compound and
- * partial ranges (`>=1.2.0 <2.0.0`, `1.2.x`, `^1.2`) read the same way. A
+ * A range counts when everything it admits is `target` or later (`^1.2.0`
+ * against 1.1.0), or when it admits `target` itself under npm's rules
+ * (`^1.0.0` against 1.1.0): without a lockfile the host installs the newest
+ * release the range admits, which `target`, being published and admitted,
+ * bounds from below; with one, the site may still run an older release,
+ * and the upgrade waits for Dependabot rather than risk a downgrade. Such a
+ * site, open-ended to later releases (`*`, `>=1.0.0`, `^1.0.0` for every
+ * 1.x), relies on Dependabot for the package from then on. A range with a
+ * gap around `target` (`1.0.0 || 2.0.0` against 1.5.0) is behind, and so
+ * is a range that npm wouldn't resolve to a prerelease `target` (`^1.0.0`
+ * against 1.1.0-rc.0): the host installs below it. Compound and partial
+ * ranges (`>=1.2.0 <2.0.0`, `1.2.x`, `^1.2`) read the same way. A
  * prerelease is behind the release it precedes. A pin that isn't a version
  * or range (a dist-tag, a git spec) only matches itself.
  */
@@ -311,7 +319,8 @@ export function isOnOrPastRelease(pinned: string | null, target: string): boolea
   if (pinned === null) return false;
   const range = semver.validRange(pinned);
   if (range === null || semver.valid(target) === null) return pinned.trim() === target;
-  return semver.intersects(range, `>=${target}`, { includePrerelease: true });
+  const floor = semver.minVersion(range);
+  return (floor !== null && semver.gte(floor, target)) || semver.satisfies(target, range);
 }
 
 /**
