@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { SESSION_COOKIE, verifySessionToken } from "#lib/auth.js";
+import type { PublishError } from "#lib/publish-types.js";
 
 /**
  * Paths under `/admin` and `/api` that don't need a session (ADR-016 §1):
@@ -32,10 +33,8 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/api" || pathname.startsWith("/api/")) {
       // The handlers' own error envelope, so a client that shows
       // `error` tells the artist what to do rather than "unauthorized".
-      return NextResponse.json(
-        { ok: false, code: "unauthorized", error: "Your session has expired. Sign in again." },
-        { status: 401 },
-      );
+      const body: PublishError = { ok: false, code: "unauthorized", error: "Sign in to continue." };
+      return NextResponse.json(body, { status: 401 });
     }
     const loginUrl = new URL("/admin/login", request.url);
     return NextResponse.redirect(loginUrl);

@@ -82,7 +82,7 @@ describe("middleware", () => {
       expect(await res.json()).toEqual({
         ok: false,
         code: "unauthorized",
-        error: "Your session has expired. Sign in again.",
+        error: "Sign in to continue.",
       });
     }
   });

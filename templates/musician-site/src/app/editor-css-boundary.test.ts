@@ -286,10 +286,11 @@ describe("@puckeditor/core value-import boundary", () => {
 
 /**
  * Every admin page is served by one catch-all route, and Next.js ships a
- * route's client modules together, so an editor reached through static
- * imports loads Puck (about 1 MB of script plus `puck.css`) on every admin
- * page, the sign-in page included. `admin/lazy-editors.tsx` loads each
- * editor through `next/dynamic` instead; this keeps it the only way in.
+ * route's client modules together, so Puck reached through static imports
+ * (about 1 MB of script plus `puck.css`) loads on every admin page, the
+ * sign-in page included. `admin/lazy-editors.tsx` loads each editor
+ * through `next/dynamic` instead; this keeps it the only way to Puck's
+ * main entry or stylesheet.
  */
 const PUCK_EDITORS = [
   path.join(SRC, "admin", "pages", "[slug]", "Editor.tsx"),
@@ -297,14 +298,23 @@ const PUCK_EDITORS = [
   path.join(SRC, "admin", "collections", "[slug]", "items", "[itemSlug]", "body", "[fieldId]", "BodyEditorClient.tsx"),
 ];
 
-/** The chain of static value imports from `entry` to a Puck editor, or null. */
-function staticPathToEditor(entry: string): string[] | null {
+/** Puck's main entry, or one of its stylesheets. */
+const isPuckClientImport = (specifier: string): boolean =>
+  specifier === PUCK_MAIN_ENTRY || /^@puckeditor\/core\/.*\.css$/.test(specifier);
+
+/**
+ * The chain of static value imports from `entry` to a Puck editor, or to a
+ * module that imports Puck's main entry or stylesheet, or null.
+ */
+function staticPathToPuck(entry: string): string[] | null {
   const seen = new Set<string>();
   const visit = (file: string): string[] | null => {
     if (PUCK_EDITORS.includes(file)) return [file];
     if (seen.has(file)) return null;
     seen.add(file);
-    for (const specifier of valueImports(fs.readFileSync(file, "utf-8"), file, { dynamic: false })) {
+    const imports = valueImports(fs.readFileSync(file, "utf-8"), file, { dynamic: false });
+    if (imports.some(isPuckClientImport)) return [file];
+    for (const specifier of imports) {
       const next = resolveLocal(specifier, file);
       const chain = next ? visit(next) : null;
       if (chain) return [file, ...chain];
@@ -317,9 +327,9 @@ function staticPathToEditor(entry: string): string[] | null {
 const adminRouteFiles = sourceFiles(path.join(SRC, "app", "admin")).filter((file) => /\.(ts|tsx)$/.test(file));
 
 describe("lazy Puck editor boundary", () => {
-  it("no admin route reaches an editor through static imports", () => {
+  it("no admin route reaches an editor or Puck through static imports", () => {
     const offenders = adminRouteFiles.flatMap((file) => {
-      const chain = staticPathToEditor(file);
+      const chain = staticPathToPuck(file);
       return chain ? [chain.map((step) => path.relative(SRC, step)).join(" → ")] : [];
     });
     expect(offenders).toEqual([]);
@@ -341,6 +351,14 @@ describe("lazy Puck editor boundary", () => {
       .filter((specifier) => !staticImports.includes(specifier))
       .map((specifier) => resolveLocal(specifier, lazy));
     expect(dynamicTargets.sort()).toEqual([...PUCK_EDITORS].sort());
+  });
+
+  it("stops at a module that imports Puck or its stylesheet", () => {
+    expect(isPuckClientImport(PUCK_MAIN_ENTRY)).toBe(true);
+    expect(isPuckClientImport("@puckeditor/core/puck.css")).toBe(true);
+    expect(isPuckClientImport("@puckeditor/core/rsc")).toBe(false);
+    const renderConfig = path.join(SRC, "puck", "render-config.tsx");
+    expect(staticPathToPuck(renderConfig)).toEqual([renderConfig]);
   });
 
   it("skips dynamic imports only when asked", () => {

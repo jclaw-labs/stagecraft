@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 // No admin page sets a title yet; give two of them one each way, to check
 // the router forwards it.
-vi.mock("./settings/page.js", async (importActual) => ({
+vi.mock("./pages/[slug]/page.js", async (importActual) => ({
   ...(await importActual<object>()),
   generateMetadata: async ({ params }: { params: Promise<Record<string, string>> }) => ({
-    title: `Settings ${JSON.stringify(await params)}`,
+    title: `Editing ${(await params).slug}`,
   }),
 }));
 vi.mock("./navigation/page.js", async (importActual) => ({
@@ -63,7 +63,7 @@ describe("admin router", () => {
   });
 
   it("forwards the matched page's generateMetadata or metadata", async () => {
-    expect(await generateMetadata(props(["settings"]))).toEqual({ title: "Settings {}" });
+    expect(await generateMetadata(props(["pages", "home"]))).toEqual({ title: "Editing home" });
     expect(await generateMetadata(props(["navigation"]))).toEqual({ title: "Navigation" });
   });
 
