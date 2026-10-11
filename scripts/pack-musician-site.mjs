@@ -11,6 +11,10 @@
  *   - the upgraders tarball, by absolute path (default, for local checks);
  *   - the exact upgraders version on npm (`--release`, for publishing).
  *
+ * A release pack also records the shell it was built with: the template's
+ * `stagecraft.shellDigest` (`shellDigest` from the bundle generator), which
+ * the generator checks before it gives new sites the shell on this release.
+ *
  * Both packed package.json files also drop the `source` condition (the
  * template's from `imports`, the upgraders' from `exports`), since `src/`
  * isn't in either tarball. Both packages are versioned in lockstep, and
@@ -27,6 +31,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { shellDigest } from "../apps/web/scripts/generate-template-bundle.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const UPGRADERS_DIR = path.join(REPO_ROOT, "packages/content-upgraders");
@@ -66,13 +72,15 @@ function withoutSource(map) {
 
 /**
  * The template's package.json as it goes into the tarball: the upgraders
- * dependency set to `upgradersSpec`, and no `source` conditions.
+ * dependency set to `upgradersSpec`, no `source` conditions, and, for a
+ * release, `stagecraft.shellDigest`.
  *
  * @param {PackageJson} pkg
  * @param {string} upgradersSpec
+ * @param {string} [digest] the shell's `shellDigest`
  * @returns {PackageJson}
  */
-export function packedTemplatePackageJson(pkg, upgradersSpec) {
+export function packedTemplatePackageJson(pkg, upgradersSpec, digest) {
   if (!pkg.dependencies?.[UPGRADERS_NAME]) {
     throw new Error(`${pkg.name} has no ${UPGRADERS_NAME} dependency to pin.`);
   }
@@ -80,6 +88,7 @@ export function packedTemplatePackageJson(pkg, upgradersSpec) {
     ...pkg,
     ...(pkg.imports ? { imports: withoutSource(pkg.imports) } : {}),
     dependencies: { ...pkg.dependencies, [UPGRADERS_NAME]: upgradersSpec },
+    ...(digest ? { stagecraft: { .../** @type {object} */ (pkg.stagecraft ?? {}), shellDigest: digest } } : {}),
   };
 }
 
@@ -177,12 +186,14 @@ function packStaged(dir, packageJson, outDir) {
 }
 
 /**
- * Build and pack both packages into `outDir`.
+ * Build and pack both packages into `outDir`. A release needs the shell's
+ * digest.
  *
- * @param {{ release?: boolean; outDir: string }} options
+ * @param {{ release?: boolean; outDir: string; shellDigest?: string }} options
  * @returns {{ upgraders: string; template: string }}
  */
-export function packMusicianSite({ release = false, outDir }) {
+export function packMusicianSite({ release = false, outDir, shellDigest: digest }) {
+  if (release && !digest) throw new Error("A release pack needs the shell's digest.");
   const upgraders = readPackageJson(UPGRADERS_DIR);
   const template = readPackageJson(TEMPLATE_DIR);
   assertLockstep(template, upgraders);
@@ -195,7 +206,7 @@ export function packMusicianSite({ release = false, outDir }) {
   const spec = upgradersSpec({ release, upgradersVersion: upgraders.version, upgradersTarball });
   return {
     upgraders: upgradersTarball,
-    template: packStaged(TEMPLATE_DIR, packedTemplatePackageJson(template, spec), outDir),
+    template: packStaged(TEMPLATE_DIR, packedTemplatePackageJson(template, spec, release ? digest : undefined), outDir),
   };
 }
 
@@ -204,6 +215,7 @@ if (isMain) {
   const args = process.argv.slice(2);
   const outIndex = args.indexOf("--out");
   const outDir = path.resolve(outIndex >= 0 ? args[outIndex + 1] : path.join(REPO_ROOT, ".pack"));
-  const result = packMusicianSite({ release: args.includes("--release"), outDir });
+  const release = args.includes("--release");
+  const result = packMusicianSite({ release, outDir, shellDigest: release ? await shellDigest() : undefined });
   console.log(JSON.stringify(result));
 }

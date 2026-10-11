@@ -29,6 +29,7 @@
  * as `latest`, or empty to bundle the full template.
  */
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -415,6 +416,28 @@ export async function collectShellFiles(shellDir, packageName, version) {
 }
 
 /**
+ * GET `url` from the registry as JSON, or null on a 404. Fails, naming the
+ * override, when the registry can't be reached or answers anything else.
+ *
+ * @param {string} url
+ * @param {string} what what's being read, for the error
+ * @param {{ fetchImpl: typeof fetch; headers?: Record<string, string> }} options
+ * @returns {Promise<unknown>}
+ */
+async function fetchRegistryJson(url, what, { fetchImpl, headers }) {
+  const hint = `Set ${LATEST_OVERRIDE_ENV} to bundle without the registry.`;
+  let res;
+  try {
+    res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(15_000) });
+  } catch (err) {
+    throw new Error(`Reading ${what} from ${url} failed: ${err instanceof Error ? err.message : err}. ${hint}`, { cause: err });
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Reading ${what} from ${url} failed with HTTP ${res.status}. ${hint}`);
+  return res.json();
+}
+
+/**
  * The version on the package's `latest` dist-tag, or null when the package
  * isn't on the registry or has no `latest`.
  *
@@ -425,76 +448,102 @@ export async function collectShellFiles(shellDir, packageName, version) {
 export async function fetchLatestVersion(packageName, { fetchImpl = fetch, registry = NPM_REGISTRY } = {}) {
   // The abbreviated packument: the registry answers 404 for a package it
   // doesn't have here, where the dist-tags endpoint answers 401.
-  const url = `${registry}/${packageName.replace("/", "%2f")}`;
-  const hint = `Set ${LATEST_OVERRIDE_ENV} to bundle without the registry.`;
-  let res;
-  try {
-    res = await fetchImpl(url, {
-      headers: { accept: "application/vnd.npm.install-v1+json" },
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    throw new Error(`Reading ${packageName}'s dist-tags from ${url} failed: ${err instanceof Error ? err.message : err}. ${hint}`, {
-      cause: err,
-    });
-  }
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`Reading ${packageName}'s dist-tags from ${url} failed with HTTP ${res.status}. ${hint}`);
-  }
-  const latest = (await res.json())?.["dist-tags"]?.latest;
+  const packument = await fetchRegistryJson(`${registry}/${packageName.replace("/", "%2f")}`, `${packageName}'s dist-tags`, {
+    fetchImpl,
+    headers: { accept: "application/vnd.npm.install-v1+json" },
+  });
+  const latest = /** @type {{ "dist-tags"?: { latest?: unknown } } | null} */ (packument)?.["dist-tags"]?.latest;
   return typeof latest === "string" ? latest : null;
 }
 
 /**
- * Which version of the package new sites pin, given what's on `latest` and
- * the template version in this checkout: that version when it's a release
- * and it's the checkout's, or null (bundle the full template) otherwise.
- * The shell comes from this checkout, and the package checks that the
- * shell is the one it was released with (`stagecraft.shellVersion`), so a
- * shell is only ever paired with the release made from the same tree.
- * While main is ahead of `latest` (a bump merged but not yet published, a
- * release candidate period) or `latest` was moved back, new sites get the
- * full template until the platform is built on a matching checkout.
+ * Which version of the package new sites pin, given what's on `latest`:
+ * that version when it's a release, or null (bundle the full template)
+ * when nothing is on `latest` or it's a prerelease.
  *
  * @param {string} packageName
  * @param {string | null} latest
- * @param {string} checkoutVersion
  * @returns {{ version: string | null; reason: string }}
  */
-export function sitePackageVersion(packageName, latest, checkoutVersion) {
+export function sitePackageVersion(packageName, latest) {
   if (!latest) return { version: null, reason: `no ${packageName} release is on latest` };
   if (!RELEASE_VERSION.test(latest)) {
     return { version: null, reason: `refusing ${packageName}@${latest} on latest: it's a prerelease` };
-  }
-  if (latest !== checkoutVersion) {
-    return {
-      version: null,
-      reason: `${packageName}@${latest} is on latest, but this checkout's shell is for ${checkoutVersion}`,
-    };
   }
   return { version: latest, reason: `${packageName}@${latest} is on latest` };
 }
 
 /**
- * Resolve the version new sites pin (`sitePackageVersion`): `latest` from
- * `LATEST_OVERRIDE_ENV` when set, otherwise the registry's `latest`
- * dist-tag (`fetchLatestVersion`). Refuses an override that isn't a
- * version.
+ * A digest of the shell files a site gets (`collectShellFiles` before the
+ * pin), so a release can record the shell it was built with. The release
+ * pack (`scripts/pack-musician-site.mjs --release`) writes it to the
+ * package's `stagecraft.shellDigest`.
  *
- * @param {{ templateDir?: string; env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }} [options]
+ * @param {string} [shellDir]
+ * @returns {Promise<string>}
+ */
+export async function shellDigest(shellDir = SHELL_DIR) {
+  const files = await walkTextFiles(shellDir, SHELL_SKIP_FILES);
+  return createHash("sha256").update(JSON.stringify(files)).digest("hex");
+}
+
+/**
+ * The `stagecraft.shellDigest` a published version was released with, or
+ * null when the version isn't on the registry or carries none.
+ *
+ * @param {string} packageName
+ * @param {string} version
+ * @param {{ fetchImpl?: typeof fetch; registry?: string }} [options]
+ * @returns {Promise<string | null>}
+ */
+export async function fetchReleasedShellDigest(packageName, version, { fetchImpl = fetch, registry = NPM_REGISTRY } = {}) {
+  const manifest = await fetchRegistryJson(`${registry}/${packageName.replace("/", "%2f")}/${version}`, `${packageName}@${version}`, {
+    fetchImpl,
+  });
+  const digest = /** @type {{ stagecraft?: { shellDigest?: unknown } } | null} */ (manifest)?.stagecraft?.shellDigest;
+  return typeof digest === "string" ? digest : null;
+}
+
+/**
+ * Resolve the version new sites pin.
+ *
+ * With `LATEST_OVERRIDE_ENV` set, that version is taken as `latest` and
+ * pinned to this checkout's shell as is, with no registry call: for
+ * offline work and for trying the shell bundle. Anything but a version or
+ * an empty value fails.
+ *
+ * Otherwise the registry's `latest` dist-tag (`fetchLatestVersion`), when
+ * it's a release, and only when that release was built with this
+ * checkout's shell (`shellDigest` against its `stagecraft.shellDigest`).
+ * The package checks the shell's `stagecraft.shellVersion` at build time,
+ * but a shell changed since the release, before the next version bump,
+ * would still pass that check; the digest pairs the two exactly. A
+ * mismatch bundles the full template until a release carries this shell.
+ *
+ * @param {{ templateDir?: string; shellDir?: string; env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }} [options]
  * @returns {Promise<{ packageName: string; version: string | null; reason: string }>}
  */
-export async function resolveSitePackageVersion({ templateDir = TEMPLATE_DIR, env = process.env, fetchImpl } = {}) {
-  const { name: packageName, version: checkoutVersion } = JSON.parse(
-    await fs.readFile(path.join(templateDir, "package.json"), "utf-8"),
-  );
+export async function resolveSitePackageVersion({ templateDir = TEMPLATE_DIR, shellDir = SHELL_DIR, env = process.env, fetchImpl } = {}) {
+  const { name: packageName } = JSON.parse(await fs.readFile(path.join(templateDir, "package.json"), "utf-8"));
   const override = env[LATEST_OVERRIDE_ENV]?.trim();
-  if (override && !EXACT_VERSION.test(override)) {
-    throw new Error(`${LATEST_OVERRIDE_ENV} must be a version like 1.2.3 (or empty for nothing on latest), not ${JSON.stringify(override)}.`);
+  if (override !== undefined) {
+    if (override && !EXACT_VERSION.test(override)) {
+      throw new Error(`${LATEST_OVERRIDE_ENV} must be a version like 1.2.3 (or empty for nothing on latest), not ${JSON.stringify(override)}.`);
+    }
+    return { packageName, ...sitePackageVersion(packageName, override || null) };
   }
-  const latest = override !== undefined ? override || null : await fetchLatestVersion(packageName, { fetchImpl });
-  return { packageName, ...sitePackageVersion(packageName, latest, checkoutVersion) };
+  const latest = await fetchLatestVersion(packageName, { fetchImpl });
+  const resolved = sitePackageVersion(packageName, latest);
+  if (!resolved.version) return { packageName, ...resolved };
+  const released = await fetchReleasedShellDigest(packageName, resolved.version, { fetchImpl });
+  if (released !== (await shellDigest(shellDir))) {
+    return {
+      packageName,
+      version: null,
+      reason: `${packageName}@${resolved.version} is on latest, but it was released with ${released ? "a different shell from" : "no shell digest, so not"} this checkout's`,
+    };
+  }
+  return { packageName, ...resolved };
 }
 
 /**

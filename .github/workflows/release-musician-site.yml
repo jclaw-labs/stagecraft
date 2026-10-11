@@ -90,7 +90,9 @@ jobs:
         if: steps.plan.outputs.publish == 'true'
         run: npm run check:musician-site-shell
 
-      # The template tarball depends on the exact upgraders version on npm.
+      # The template tarball depends on the exact upgraders version on npm,
+      # and records the shell's digest (stagecraft.shellDigest), which the
+      # platform checks before it gives new sites the shell on this release.
       # Outputs are file names inside the `release-tarballs` artifact.
       - name: Pack for release
         id: pack

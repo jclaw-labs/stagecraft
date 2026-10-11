@@ -10,11 +10,13 @@ import {
   collectSiteFiles,
   collectTemplateFiles,
   fetchLatestVersion,
+  fetchReleasedShellDigest,
   generateTemplateBundle,
   LATEST_OVERRIDE_ENV,
   NPM_REGISTRY,
   resolveSitePackageVersion,
   SHELL_DIR,
+  shellDigest,
   shellSitePackageJson,
   sitePackageVersion,
   STARTER_CONTENT_DIR,
@@ -481,30 +483,38 @@ describe("collectShellFiles", () => {
 });
 
 describe("sitePackageVersion", () => {
-  it("pins the release on latest when it's this checkout's version", () => {
-    expect(sitePackageVersion(PACKAGE, "1.4.0", "1.4.0")).toEqual({ version: "1.4.0", reason: `${PACKAGE}@1.4.0 is on latest` });
+  it("pins the release on latest", () => {
+    expect(sitePackageVersion(PACKAGE, "1.4.0")).toEqual({ version: "1.4.0", reason: `${PACKAGE}@1.4.0 is on latest` });
   });
 
   it("refuses a prerelease, even on latest", () => {
-    expect(sitePackageVersion(PACKAGE, "1.0.0-rc.0", "1.0.0-rc.0")).toEqual({
+    expect(sitePackageVersion(PACKAGE, "1.0.0-rc.0")).toEqual({
       version: null,
       reason: `refusing ${PACKAGE}@1.0.0-rc.0 on latest: it's a prerelease`,
     });
   });
 
   it("bundles the full template when nothing is on latest", () => {
-    expect(sitePackageVersion(PACKAGE, null, "1.0.0").version).toBeNull();
+    expect(sitePackageVersion(PACKAGE, null).version).toBeNull();
   });
+});
 
-  it("bundles the full template when latest isn't the release this checkout's shell is for", () => {
-    // main ahead of latest: a bump merged but not yet published, or an rc period.
-    expect(sitePackageVersion(PACKAGE, "1.4.0", "2.0.0")).toEqual({
-      version: null,
-      reason: `${PACKAGE}@1.4.0 is on latest, but this checkout's shell is for 2.0.0`,
-    });
-    expect(sitePackageVersion(PACKAGE, "1.4.0", "2.0.0-rc.1").version).toBeNull();
-    // latest moved back after a bad release.
-    expect(sitePackageVersion(PACKAGE, "1.3.0", "1.4.0").version).toBeNull();
+describe("shellDigest", () => {
+  it("is stable, and changes with any shipped shell file but not the monorepo-only ones", async () => {
+    await write("shell/package.json", "{}");
+    await write("shell/src/app/layout.tsx", "a");
+    const shell = path.join(root, "shell");
+    const first = await shellDigest(shell);
+    expect(await shellDigest(shell)).toBe(first);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+
+    await write("shell/.npmrc", "x");
+    await write("shell/CLAUDE.md", "x");
+    await write("shell/node_modules/x/index.js", "x");
+    expect(await shellDigest(shell)).toBe(first);
+
+    await write("shell/src/app/layout.tsx", "b");
+    expect(await shellDigest(shell)).not.toBe(first);
   });
 });
 
@@ -547,29 +557,60 @@ describe("fetchLatestVersion", () => {
   });
 });
 
+describe("fetchReleasedShellDigest", () => {
+  it("reads stagecraft.shellDigest from the version's manifest", async () => {
+    const urls: string[] = [];
+    const impl = (async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ version: "1.2.3", stagecraft: { schemaVersion: 1, shellDigest: "abc" } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: impl })).toBe("abc");
+    expect(urls).toEqual([`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site/1.2.3`]);
+  });
+
+  it("is null for a version that isn't there or carries no digest", async () => {
+    const respond = (status: number, body: unknown) =>
+      (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: respond(404, {}) })).toBeNull();
+    expect(await fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: respond(200, { stagecraft: {} }) })).toBeNull();
+  });
+
+  it("fails on a registry error, naming the override", async () => {
+    const impl = (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch;
+    await expect(fetchReleasedShellDigest(PACKAGE, "1.2.3", { fetchImpl: impl })).rejects.toThrow(
+      new RegExp(`HTTP 500.*${LATEST_OVERRIDE_ENV}`),
+    );
+  });
+});
+
 describe("resolveSitePackageVersion", () => {
   const noFetch = (async () => {
     throw new Error("fetch called");
   }) as unknown as typeof fetch;
 
-  async function template(version: string) {
-    await write("template/package.json", JSON.stringify({ name: PACKAGE, version }));
-    return path.join(root, "template");
+  /** A registry with `latest` on `version`, released with `digest` (or none). */
+  function registry(version: string, digest: string | undefined) {
+    const urls: string[] = [];
+    const impl = (async (url: string) => {
+      urls.push(url);
+      const body = url.endsWith(`/${version}`)
+        ? { version, stagecraft: digest === undefined ? {} : { shellDigest: digest } }
+        : { "dist-tags": { latest: version } };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { urls, impl };
   }
 
-  it("takes latest from the override without asking the registry", async () => {
-    expect(
-      await resolveSitePackageVersion({ templateDir: await template("2.0.0"), env: { [LATEST_OVERRIDE_ENV]: "2.0.0" }, fetchImpl: noFetch }),
-    ).toEqual({ packageName: PACKAGE, version: "2.0.0", reason: `${PACKAGE}@2.0.0 is on latest` });
-  });
+  async function shell(layout = "a") {
+    await write("shell/package.json", "{}");
+    await write("shell/src/app/layout.tsx", layout);
+    return path.join(root, "shell");
+  }
 
-  it("bundles the full template when latest isn't the checkout's version", async () => {
-    const resolved = await resolveSitePackageVersion({
-      templateDir: await template("2.0.0"),
-      env: { [LATEST_OVERRIDE_ENV]: "1.4.0" },
-      fetchImpl: noFetch,
-    });
-    expect(resolved.version).toBeNull();
+  it("takes latest from the override without asking the registry, with this checkout's shell", async () => {
+    expect(
+      await resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: "2.0.0" }, fetchImpl: noFetch }),
+    ).toEqual({ packageName: PACKAGE, version: "2.0.0", reason: `${PACKAGE}@2.0.0 is on latest` });
   });
 
   it("treats an empty override as nothing on latest", async () => {
@@ -582,12 +623,35 @@ describe("resolveSitePackageVersion", () => {
     );
   });
 
+  it("pins the release on latest when it was released with this checkout's shell", async () => {
+    const shellDir = await shell();
+    const { urls, impl } = registry("1.4.0", await shellDigest(shellDir));
+    expect(await resolveSitePackageVersion({ shellDir, env: {}, fetchImpl: impl })).toEqual({
+      packageName: PACKAGE,
+      version: "1.4.0",
+      reason: `${PACKAGE}@1.4.0 is on latest`,
+    });
+    expect(urls).toEqual([`${NPM_REGISTRY}/@jclaw-labs%2fmusician-site`, `${NPM_REGISTRY}/@jclaw-labs%2fmusician-site/1.4.0`]);
+  });
+
+  it("bundles the full template when the shell changed since the release on latest", async () => {
+    const released = await shellDigest(await shell("a"));
+    const shellDir = await shell("b");
+    const resolved = await resolveSitePackageVersion({ shellDir, env: {}, fetchImpl: registry("1.4.0", released).impl });
+    expect(resolved).toEqual({
+      packageName: PACKAGE,
+      version: null,
+      reason: `${PACKAGE}@1.4.0 is on latest, but it was released with a different shell from this checkout's`,
+    });
+  });
+
+  it("bundles the full template when the release on latest carries no shell digest", async () => {
+    const resolved = await resolveSitePackageVersion({ shellDir: await shell(), env: {}, fetchImpl: registry("1.4.0", undefined).impl });
+    expect(resolved.version).toBeNull();
+  });
+
   it("asks the registry for the template package's latest, and refuses a prerelease there", async () => {
-    const urls: string[] = [];
-    const impl = (async (url: string) => {
-      urls.push(url);
-      return new Response(JSON.stringify({ "dist-tags": { latest: "1.0.0-rc.0" } }), { status: 200 });
-    }) as unknown as typeof fetch;
+    const { urls, impl } = registry("1.0.0-rc.0", "x");
     const resolved = await resolveSitePackageVersion({ env: {}, fetchImpl: impl });
     expect(resolved.packageName).toBe(PACKAGE);
     expect(resolved.version).toBeNull();
