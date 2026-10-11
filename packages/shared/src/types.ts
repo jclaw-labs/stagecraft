@@ -127,25 +127,60 @@ export interface UpgradeSiteResultData {
 /** Where a site's current package version was read from. */
 export type SiteVersionSource = "package_json" | "stamp";
 
+/**
+ * What kind of spec a site's version is: an exact release (`1.2.0`), a
+ * range (`^1.2.0`), any release at all (`*`), or something that isn't a
+ * release number (a dist-tag, a git or file spec).
+ */
+export type SiteVersionSpecKind = "version" | "range" | "any" | "other";
+
+/**
+ * How reading npm's `latest` release went: read, not published yet (the
+ * registry has no such package), or not reachable.
+ */
+export type SiteLatestReleaseStatus = "published" | "not_published" | "unreachable";
+
 /** Who opened a pull request that moves a site onto a newer release. */
 export type SiteUpdatePullRequestKind = "upgrade" | "dependabot";
 
 /**
  * What `GET /api/sites/[siteId]/version` returns: the
- * `@jclaw-labs/musician-site` release a site is on, the latest one on npm,
- * and an open pull request that would update it (ADR-016 Consequences).
+ * `@jclaw-labs/musician-site` release a site is on, the release the
+ * platform's "Upgrade site" would move it to, the latest one on npm, and an
+ * open pull request that would update it (ADR-016 Consequences).
  */
 export interface SiteVersionInfo {
   /**
    * The version or range the site's package.json pins the package at, or
-   * the stamp's `packageVersion` when package.json doesn't name it. Null
-   * for a full copy of the template (a site from before ADR-016).
+   * the stamp's `packageVersion` (the release the site was created on) when
+   * package.json doesn't name it. Null for a full copy of the template (a
+   * site from before ADR-016).
    */
   current: string | null;
+  /** What kind of spec `current` is; null when `current` is. */
+  currentKind: SiteVersionSpecKind | null;
   source: SiteVersionSource | null;
-  /** npm's `latest` release of the package, or null when it couldn't be read. */
+  /**
+   * The release `upgrade_site` upgrades to: the one bundled with the
+   * platform, which moves only when the platform is deployed. Null when
+   * the platform bundles no release.
+   */
+  target: string | null;
+  /**
+   * Whether `upgrade_site` would move the site onto `target`, by the same
+   * test the job runs: false when there's no target, or package.json pins
+   * `target` or later. A site whose version comes from the stamp always
+   * gets one, since the job doesn't read the stamp.
+   */
+  updateAvailable: boolean;
+  /** npm's `latest` release of the package, or null when `latestStatus` isn't `published`. */
   latest: string | null;
-  /** Whether `latest` is newer than what the site may run; null when `latest` is unknown. */
-  updateAvailable: boolean | null;
+  latestStatus: SiteLatestReleaseStatus;
+  /**
+   * Whether npm's `latest` is a stable release past `target` (or there's no
+   * target) that the site isn't already on: one the platform can't upgrade
+   * to until it's updated. A prerelease never counts.
+   */
+  newerReleaseOut: boolean;
   pullRequest: { number: number; url: string; kind: SiteUpdatePullRequestKind } | null;
 }

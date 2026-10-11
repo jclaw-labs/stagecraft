@@ -530,7 +530,10 @@ export interface GitHubRepoClient {
   /** The open pull request from `head` (a branch in this repo) into `base`, if any. */
   findOpenPullRequest(head: string, base: string): Promise<PullRequestResult | null>;
   updatePullRequest(number: number, update: PullRequestUpdate): Promise<PullRequestResult>;
-  /** The repo's open pull requests, newest first (the first 100). */
+  /**
+   * The repo's open pull requests, newest first: the first 100 only, so an
+   * older one can be missed (`findOpenPullRequest` looks one up by branch).
+   */
   listOpenPullRequests(): Promise<OpenPullRequest[]>;
 }
 
@@ -564,6 +567,11 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
     return { commits: (await res.json()) as Array<{ sha: string }>, link: res.headers.get("link") };
   }
 
+  async function blobText(blobSha: string) {
+    const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
+    return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
+  }
+
   return {
     owner,
     repo,
@@ -595,10 +603,7 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
       return new Map(tree.tree.filter((entry) => entry.type === "blob").map((entry) => [entry.path, entry.sha]));
     },
 
-    async getBlobText(blobSha) {
-      const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
-      return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
-    },
+    getBlobText: blobText,
 
     async getFileText(path, ref) {
       const query = new URLSearchParams({ ref });
@@ -606,11 +611,16 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
       try {
         const file = (await githubApi(token, `${repoPath}/contents/${encodedPath}?${query}`)) as {
           type?: string;
+          sha?: string;
           content?: string;
           encoding?: string;
         };
         if (file.type !== "file" || typeof file.content !== "string") return null;
-        return file.encoding === "base64" ? Buffer.from(file.content, "base64").toString("utf8") : file.content;
+        if (file.encoding === "base64") return Buffer.from(file.content, "base64").toString("utf8");
+        // Past 1 MB the contents API leaves `content` empty (`encoding:
+        // "none"`); the blobs API still returns it.
+        if (file.encoding === "none" && file.sha) return blobText(file.sha);
+        return file.content;
       } catch (error) {
         if (error instanceof GitHubApiError && error.status === 404) return null;
         throw error;

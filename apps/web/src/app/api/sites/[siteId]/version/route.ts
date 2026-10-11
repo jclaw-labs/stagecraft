@@ -7,12 +7,12 @@ import { readSiteVersion } from "@/lib/site-version";
 
 /**
  * GET /api/sites/[siteId]/version — the musician-site release a site is on,
- * the latest one on npm, and the open pull request that would update it
- * (`SiteVersionInfo`), read live from the site's repo with the owner's
- * GitHub sign-in.
+ * the one "Upgrade site" would move it to, the latest one on npm, and the
+ * open pull request that would update it (`SiteVersionInfo`), read live from
+ * the site's repo with the owner's GitHub sign-in.
  *
  * 409 when the site has no repo, or GitHub isn't connected or the sign-in
- * has expired; 502 when GitHub can't be read.
+ * has expired (`reauthRequired: true`); 502 when GitHub can't be read.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ siteId: string }> }) {
   const session = await auth();
@@ -39,7 +39,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ siteId:
   } catch (error) {
     if (error instanceof GitHubNotConnectedError || (error instanceof GitHubApiError && error.status === 401)) {
       return NextResponse.json(
-        { error: "Sign in with GitHub again to see which version this site runs" },
+        { error: "Sign in with GitHub again to see which version this site runs", reauthRequired: true },
         { status: 409 },
       );
     }

@@ -57,6 +57,7 @@ export default function UpgradePanel({
   const [requestError, setRequestError] = useState("");
   const [version, setVersion] = useState<SiteVersionInfo | null>(null);
   const [versionError, setVersionError] = useState("");
+  const [versionReauth, setVersionReauth] = useState(false);
 
   // Read again once an upgrade finishes: it may have opened a pull request.
   const finishedJobId = job?.status === "completed" || job?.status === "failed" ? job.id : null;
@@ -65,16 +66,21 @@ export default function UpgradePanel({
     async function fetchVersion() {
       try {
         const res = await fetch(`/api/sites/${siteId}/version`);
-        const data = (await res.json()) as { version?: SiteVersionInfo; error?: string };
+        const data = (await res.json()) as { version?: SiteVersionInfo; error?: string; reauthRequired?: boolean };
         if (cancelled) return;
         if (res.ok && data.version) {
           setVersion(data.version);
           setVersionError("");
+          setVersionReauth(false);
         } else {
           setVersionError(data.error || "Couldn't read which version this site runs");
+          setVersionReauth(data.reauthRequired === true);
         }
       } catch {
-        if (!cancelled) setVersionError("Couldn't read which version this site runs");
+        if (!cancelled) {
+          setVersionError("Couldn't read which version this site runs");
+          setVersionReauth(false);
+        }
       }
     }
     fetchVersion();
@@ -86,6 +92,9 @@ export default function UpgradePanel({
   const versionLine = version ? versionSummary(version) : null;
 
   const summary = upgradeJobSummary(job);
+  // The job's summary links the pull request it opened; don't link it twice.
+  const versionPullRequest =
+    versionLine?.pullRequest && versionLine.pullRequest.url !== summary?.pullRequestUrl ? versionLine.pullRequest : null;
   const result = job?.resultPayload ?? null;
   const blocker = isUpgradeSiteBlocker(result?.blocker) ? result.blocker : null;
 
@@ -121,16 +130,29 @@ export default function UpgradePanel({
         </p>
 
         {versionLine && (
-          <div className={`${styles.upgradeStatus} ${VERSION_TONE_CLASS[versionLine.tone] ?? ""}`}>
+          <div className={`${styles.upgradeStatus} ${VERSION_TONE_CLASS[versionLine.tone] ?? ""}`} role="status">
             <p className={styles.upgradeStatusText}>{versionLine.text}</p>
-            {versionLine.pullRequest && (
-              <Button href={versionLine.pullRequest.url} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
-                {versionLine.pullRequest.label}
+            {versionPullRequest && (
+              <Button href={versionPullRequest.url} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
+                {versionPullRequest.label}
               </Button>
             )}
           </div>
         )}
-        {!versionLine && versionError && <p className={styles.versionError}>{versionError}</p>}
+        {versionError && (
+          <div className={styles.versionError} role="status">
+            <p className={styles.versionErrorText}>
+              {versionLine ? `${versionError}. The line above may be out of date.` : versionError}
+            </p>
+            {versionReauth && (
+              <form action={signInWithGitHubAgain.bind(null, siteId)}>
+                <Button type="submit" size="sm" variant="secondary">
+                  Sign in with GitHub again
+                </Button>
+              </form>
+            )}
+          </div>
+        )}
 
         {summary && (
           <div className={`${styles.upgradeStatus} ${TONE_CLASS[summary.tone] ?? ""}`} role="status">

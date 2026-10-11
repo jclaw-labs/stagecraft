@@ -19,7 +19,17 @@ import { GitHubApiError, GitHubNotConnectedError } from "@/lib/integrations/gith
 import { GET } from "../route";
 
 const SITE = { githubRepoOwner: "jclaw", githubRepoName: "stagecraft-site-sarah", githubDefaultBranch: "main" };
-const VERSION = { current: "1.2.0", source: "package_json", latest: "1.4.1", updateAvailable: true, pullRequest: null };
+const VERSION = {
+  current: "1.2.0",
+  currentKind: "version",
+  source: "package_json",
+  target: "1.4.1",
+  updateAvailable: true,
+  latest: "1.4.1",
+  latestStatus: "published",
+  newerReleaseOut: false,
+  pullRequest: null,
+};
 const CLIENT = { owner: "jclaw", repo: "stagecraft-site-sarah" };
 
 function call(siteId = "site-1") {
@@ -51,7 +61,9 @@ describe("GET /api/sites/[siteId]/version", () => {
 
   it("409 when the site has no repo", async () => {
     prismaMock.site.findFirst.mockResolvedValue({ ...SITE, githubRepoName: null });
-    expect((await call()).status).toBe(409);
+    const res = await call();
+    expect(res.status).toBe(409);
+    expect((await res.json()).reauthRequired).toBeUndefined();
     expect(githubRepoClientMock).not.toHaveBeenCalled();
   });
 
@@ -68,12 +80,14 @@ describe("GET /api/sites/[siteId]/version", () => {
     githubRepoClientMock.mockRejectedValue(new GitHubNotConnectedError());
     const res = await call();
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toContain("Sign in with GitHub again");
+    expect(await res.json()).toEqual({ error: expect.stringContaining("Sign in with GitHub again"), reauthRequired: true });
   });
 
   it("409 asking to sign in again when GitHub rejects the token", async () => {
     readSiteVersionMock.mockRejectedValue(new GitHubApiError(401, "Bad credentials"));
-    expect((await call()).status).toBe(409);
+    const res = await call();
+    expect(res.status).toBe(409);
+    expect((await res.json()).reauthRequired).toBe(true);
   });
 
   it("502 when GitHub can't be read", async () => {
