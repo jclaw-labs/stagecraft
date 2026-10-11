@@ -335,16 +335,19 @@ provisioning skips (§10.1). Abridged:
 4. `src/lib/` contains helper utilities, content reads, and the save and publish paths.
 5. `src/content/collections/<slug>/` holds all site content as JSON, one directory per collection (ADR-009).
 6. `public/images/` holds uploaded images and their generated variants.
-7. Unit tests sit next to the code (`*.test.ts`); `e2e/` holds Playwright tests.
+7. In the template, unit tests sit next to the code (`*.test.ts`) and `e2e/` holds Playwright tests. Generated repos don't get them.
 
-Provisioning doesn't copy the template's `CLAUDE.md`, `package-lock.json`,
-`playwright.config.ts` or `scripts/` into the repo
-(`TEMPLATE_SKIP_FILES` and `TEMPLATE_SKIP_DIRS` in
-`apps/web/scripts/generate-template-bundle.mjs`). `CLAUDE.md` stays in this
-monorepo as the template's documentation. Because `playwright.config.ts` is
-left out, the `e2e/` suite, whose global setup and seed helper import it,
-can't run in a generated repo as shipped, and the unit test for
-`scripts/migrate-block-library.mjs` has no script to run.
+Provisioning copies only what a site needs to build and run
+(`TEMPLATE_SKIP_FILES`, `TEMPLATE_SKIP_DIRS` and `TEST_FILE` in
+`apps/web/scripts/generate-template-bundle.mjs`). It leaves out:
+- the template's `CLAUDE.md`, which stays in this monorepo as the template's documentation;
+- `package-lock.json` and `scripts/`;
+- every test: `*.test.*` files, `__snapshots__/`, `e2e/` and `capture/`, along with their Vitest and Playwright configs.
+
+The site's `package.json` also drops the test scripts and test-only dev
+dependencies. A generated repo runs `next build` and nothing else. Without
+a lockfile, npm 10.9 (Netlify's npm on Node 22) crashes resolving Vitest's
+peers (#473).
 
 ## 11. Content model
 

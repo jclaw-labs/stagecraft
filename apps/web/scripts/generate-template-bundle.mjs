@@ -47,6 +47,11 @@ export const TEMPLATE_SKIP_DIRS = new Set([
   ".git",
   "tests",
   "scripts",
+  // Test-only directories (#473). Sites run `next build` and nothing else,
+  // so the template's tests and their tooling stay out of site copies.
+  "e2e",
+  "capture",
+  "__snapshots__",
 ]);
 
 /** Individual files to skip when reading the template. */
@@ -56,7 +61,17 @@ export const TEMPLATE_SKIP_FILES = new Set([
   "CLAUDE.md",
   "EDITING.md",
   "tsconfig.build.json",
+  "playwright.capture.config.ts",
+  "vitest.config.ts",
+  "vitest.setup.ts",
 ]);
+
+/**
+ * Test files, skipped wherever they sit. They import the test tooling that
+ * site copies drop (see `TEST_ONLY_DEV_DEPENDENCIES`), and a site's
+ * `next build` type-checks every `.ts` file it has.
+ */
+export const TEST_FILE = /\.test\.(?:[cm]?[jt]s|[jt]sx)$/;
 
 /**
  * Fields of the template's package.json that only the published npm
@@ -65,8 +80,34 @@ export const TEMPLATE_SKIP_FILES = new Set([
  */
 const PACKAGE_ONLY_FIELDS = ["exports", "files", "bin", "repository", "description"];
 
-/** Scripts that only build or guard the published package. */
-const PACKAGE_ONLY_SCRIPTS = ["build:package", "prepublishOnly"];
+/**
+ * Scripts a site can't run: the ones that build or guard the published
+ * package, the test runners whose tests aren't copied, and the ones that
+ * run files from the skipped `scripts/` directory.
+ */
+const TEMPLATE_ONLY_SCRIPTS = [
+  "build:package",
+  "prepublishOnly",
+  "test",
+  "test:e2e",
+  "capture:screenshots",
+  "refresh:demo",
+];
+
+/**
+ * Dev dependencies only the template's tests use. Sites don't get the
+ * tests, and npm 10.9 (Netlify's npm on Node 22) crashes resolving
+ * vitest's peers when there's no lockfile, as in a site repo (#473).
+ */
+export const TEST_ONLY_DEV_DEPENDENCIES = [
+  "@playwright/test",
+  "@testing-library/react",
+  "@testing-library/user-event",
+  "@vitejs/plugin-react",
+  "jsdom",
+  "vite",
+  "vitest",
+];
 
 /** An exact semver version, as the package pins its runtime dependencies. */
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -77,6 +118,8 @@ const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
  * of the template and builds from source, so its package.json:
  *
  * - is a private app named `musician-site`, without the publish fields;
+ * - drops the test scripts and test-only dev dependencies, since the
+ *   tests aren't copied;
  * - lists `next`, `react` and `react-dom` as dependencies, since hosts
  *   detect Next.js from them and the package only declares them as peers;
  * - drops `file:` dependencies, which point into the monorepo and can't
@@ -93,7 +136,8 @@ const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 export function sitePackageJson(content) {
   const pkg = JSON.parse(content);
   for (const field of PACKAGE_ONLY_FIELDS) delete pkg[field];
-  for (const script of PACKAGE_ONLY_SCRIPTS) delete pkg.scripts?.[script];
+  for (const script of TEMPLATE_ONLY_SCRIPTS) delete pkg.scripts?.[script];
+  for (const name of TEST_ONLY_DEV_DEPENDENCIES) delete pkg.devDependencies?.[name];
   for (const target of Object.values(pkg.imports ?? {})) {
     if (target && typeof target === "object" && typeof target.source === "string") target.default = target.source;
   }
@@ -135,7 +179,7 @@ export async function collectTemplateFiles(templateDir) {
       if (entry.isDirectory()) {
         await walk(fullPath, relativePath);
       } else if (entry.isFile()) {
-        if (TEMPLATE_SKIP_FILES.has(entry.name)) continue;
+        if (TEMPLATE_SKIP_FILES.has(entry.name) || TEST_FILE.test(entry.name)) continue;
         if (BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
         const content = await fs.readFile(fullPath, "utf-8");
         files.push({ path: relativePath, content: relativePath === "package.json" ? sitePackageJson(content) : content });
