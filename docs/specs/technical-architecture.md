@@ -160,8 +160,9 @@ application layer (AES-256-GCM, bound to their row; ADR-005, runbook §9).
 `Site.brokerSecretHash` is a SHA-256 hash; the plaintext secret is never
 stored.
 
-`Site.blueprintType` is vestigial: always `solo-artist`, no longer written
-by app code, and on its way out (#445).
+`Site.blueprintType` is vestigial: always `solo-artist`, marked `@ignore` in
+the Prisma schema so the client never reads or writes it (the DB default
+fills it on insert), and on its way out (#445).
 
 ---
 
