@@ -54,20 +54,25 @@ export const REQUIRED_SHELL_VERSION = 1;
  * or null when it can.
  *
  * Only an artist-repo shell is checked: an app whose package.json
- * depends on the package. A site that is a full copy of the template,
+ * depends on the package, as a dependency or a dev dependency (a build
+ * works either way, so either way gets checked). A site that is a full copy of the template,
  * and the template itself, have no shell to check. A shell older than
  * `REQUIRED_SHELL_VERSION`, or one without a version, fails, so a
  * package release that needs a new shell fails the site's build (and the
  * Dependabot auto-merge gate) rather than the live site.
  */
 export function shellVersionError(appRoot: string = process.cwd()): string | null {
-  let pkg: { dependencies?: Record<string, unknown>; stagecraft?: { shellVersion?: unknown } };
+  let pkg: {
+    dependencies?: Record<string, unknown>;
+    devDependencies?: Record<string, unknown>;
+    stagecraft?: { shellVersion?: unknown };
+  };
   try {
     pkg = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8"));
   } catch {
     return null;
   }
-  if (!pkg.dependencies?.[PACKAGE_NAME]) return null;
+  if (!pkg.dependencies?.[PACKAGE_NAME] && !pkg.devDependencies?.[PACKAGE_NAME]) return null;
   const version = pkg.stagecraft?.shellVersion;
   const upgrade =
     "Merge the site's Stagecraft upgrade pull request, which updates the shell and the package together.";

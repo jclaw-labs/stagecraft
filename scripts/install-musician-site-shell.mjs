@@ -30,13 +30,20 @@ function npm(args, cwd) {
   execFileSync("npm", args, { cwd, stdio: ["ignore", "inherit", "inherit"] });
 }
 
-export function installMusicianSiteShell() {
-  npm(["run", "build"], UPGRADERS_DIR);
-  npm(["run", "build:package"], TEMPLATE_DIR);
+/**
+ * @param {{ run?: (args: string[], cwd: string) => void; remove?: (dir: string) => void }} [deps]
+ *   `npm` and the directory removal, replaceable in tests.
+ */
+export function installMusicianSiteShell({
+  run = npm,
+  remove = (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+} = {}) {
+  run(["run", "build"], UPGRADERS_DIR);
+  run(["run", "build:package"], TEMPLATE_DIR);
   // npm keeps an installed copy whose version hasn't changed, so drop the
   // copies first to install the packages as just built.
-  fs.rmSync(path.join(SHELL_DIR, "node_modules/@jclaw-labs"), { recursive: true, force: true });
-  npm(["install", "--no-audit", "--no-fund"], SHELL_DIR);
+  remove(path.join(SHELL_DIR, "node_modules/@jclaw-labs"));
+  run(["install", "--no-audit", "--no-fund"], SHELL_DIR);
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

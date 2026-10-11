@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { SHELL_DIR } from "./collections/test-fixtures.js";
 import {
   detectMonorepoRoot,
   PACKAGE_NAME,
@@ -114,9 +115,14 @@ describe("shellVersionError", () => {
     expect(shellVersionError(appWith(shell(version)))).toContain("has no stagecraft.shellVersion");
   });
 
+  it("checks a shell that lists the package as a dev dependency", () => {
+    expect(shellVersionError(appWith({ devDependencies: { [PACKAGE_NAME]: "1.0.0" } }))).toContain(
+      "has no stagecraft.shellVersion",
+    );
+  });
+
   it("skips an app that doesn't depend on the package, such as a full template copy", () => {
     expect(shellVersionError(appWith({ dependencies: { next: "^15.5.27" } }))).toBeNull();
-    expect(shellVersionError(appWith({ devDependencies: { [PACKAGE_NAME]: "1.0.0" } }))).toBeNull();
   });
 
   it("skips an app without a readable package.json", () => {
@@ -125,10 +131,9 @@ describe("shellVersionError", () => {
   });
 
   it("passes the monorepo's shell, which is at the required version", () => {
-    const shellDir = path.resolve(import.meta.dirname, "../../../musician-site-shell");
-    const pkg = JSON.parse(fs.readFileSync(path.join(shellDir, "package.json"), "utf8"));
+    const pkg = JSON.parse(fs.readFileSync(path.join(SHELL_DIR, "package.json"), "utf8"));
     expect(pkg.stagecraft.shellVersion).toBe(REQUIRED_SHELL_VERSION);
-    expect(shellVersionError(shellDir)).toBeNull();
+    expect(shellVersionError(SHELL_DIR)).toBeNull();
   });
 });
 

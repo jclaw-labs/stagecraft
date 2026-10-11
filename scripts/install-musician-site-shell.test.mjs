@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { SHELL_DIR } from "./install-musician-site-shell.mjs";
-import { TEMPLATE_DIR } from "./pack-musician-site.mjs";
+import { installMusicianSiteShell, SHELL_DIR } from "./install-musician-site-shell.mjs";
+import { TEMPLATE_DIR, UPGRADERS_DIR } from "./pack-musician-site.mjs";
 
 const shellPackage = () => JSON.parse(fs.readFileSync(path.join(SHELL_DIR, "package.json"), "utf8"));
 
@@ -29,5 +29,22 @@ describe("the shell the script installs into", () => {
     expect(path.resolve(SHELL_DIR, override.slice("file:".length))).toBe(
       path.resolve(TEMPLATE_DIR, upgraders.slice("file:".length)),
     );
+  });
+});
+
+describe("installMusicianSiteShell", () => {
+  it("builds both packages, drops the installed copies, then installs the shell", () => {
+    /** @type {string[]} */
+    const calls = [];
+    installMusicianSiteShell({
+      run: (args, cwd) => calls.push(`npm ${args.join(" ")} in ${cwd}`),
+      remove: (dir) => calls.push(`remove ${dir}`),
+    });
+    expect(calls).toEqual([
+      `npm run build in ${UPGRADERS_DIR}`,
+      `npm run build:package in ${TEMPLATE_DIR}`,
+      `remove ${path.join(SHELL_DIR, "node_modules/@jclaw-labs")}`,
+      `npm install --no-audit --no-fund in ${SHELL_DIR}`,
+    ]);
   });
 });

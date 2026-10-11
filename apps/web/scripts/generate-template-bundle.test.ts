@@ -305,7 +305,7 @@ describe("collectSiteFiles", () => {
     await write("content/collections/pages/_collection.json", "{}");
 
     await expect(collectSiteFiles(path.join(root, "template"), path.join(root, "content"))).rejects.toThrow(
-      /has src\/content\/collections\/pages\/_collection\.json; starter content belongs in/,
+      /has src\/content\/collections\/pages\/_collection\.json; starter content belongs in .*set STAGECRAFT_CONTENT_DIR/,
     );
   });
 

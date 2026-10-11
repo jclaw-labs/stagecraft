@@ -284,7 +284,11 @@ export async function collectSiteFiles(templateDir, contentDir) {
   if (template.length === 0) throw new Error(`No template files found under ${templateDir}`);
   const clash = template.find((f) => f.path.startsWith(`${SITE_CONTENT_PREFIX}/`));
   if (clash) {
-    throw new Error(`${templateDir} has ${clash.path}; starter content belongs in ${contentDir}.`);
+    throw new Error(
+      `${templateDir} has ${clash.path}; starter content belongs in ${contentDir}. ` +
+        "Running the template without STAGECRAFT_CONTENT_DIR writes content there: " +
+        `delete ${path.join(templateDir, SITE_CONTENT_PREFIX)} and set STAGECRAFT_CONTENT_DIR when you run it.`,
+    );
   }
   const content = (await collectTemplateFiles(contentDir, { vendor: false })).map((f) => ({
     path: `${SITE_CONTENT_PREFIX}/${f.path}`,
