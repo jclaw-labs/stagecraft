@@ -30,6 +30,33 @@ export const UPGRADERS: Readonly<Record<number, Upgrader>> = {};
 export const LATEST_SCHEMA_VERSION = OLDEST_SCHEMA_VERSION + Object.keys(UPGRADERS).length;
 
 /**
+ * Why a site can't read a `_collection.json` newer than it knows. One
+ * source for the reader and `stagecraft-site migrate-content`. It names
+ * the template, not a release: a site can't know which future release
+ * reads a version, and a site may run the template either as the
+ * published `@jclaw-labs/musician-site` package or as a copy of its code.
+ */
+export function newerSchemaVersionMessage(schemaVersion: number, readsUpTo: number): string {
+  return (
+    `_collection.json has schemaVersion ${schemaVersion}, but this site reads up to ${readsUpTo}. ` +
+    `Update the site to a musician-site release that reads schemaVersion ${schemaVersion} ` +
+    `(the @jclaw-labs/musician-site package, or the template code in a copy of it).`
+  );
+}
+
+/**
+ * Why a site can't read a `_collection.json` older than the oldest
+ * version it upgrades from. One source for the reader and
+ * `stagecraft-site migrate-content`.
+ */
+export function olderSchemaVersionMessage(schemaVersion: number, oldest: number): string {
+  return (
+    `_collection.json has schemaVersion ${schemaVersion}, older than ${oldest}, the oldest this site reads. ` +
+    `Upgrade it with a musician-site release that still reads schemaVersion ${schemaVersion}, then retry.`
+  );
+}
+
+/**
  * Upgrade a collection definition to `target` (the latest version by
  * default), one step at a time. Returns the input unchanged when it is
  * already at `target`.

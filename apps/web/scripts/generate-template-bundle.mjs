@@ -124,8 +124,9 @@ const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
  *   tests aren't copied;
  * - lists `next`, `react` and `react-dom` as dependencies, since hosts
  *   detect Next.js from them and the package only declares them as peers;
- * - drops `file:` dependencies, which point into the monorepo and can't
- *   install anywhere else. Nothing the site runs imports them yet;
+ * - points each `file:` dependency, which names a monorepo package that
+ *   can't install anywhere else, at the copy of its source vendored into
+ *   the site (`vendoredPackageFiles`);
  * - turns the package's exact runtime pins back into `^` ranges. Sites
  *   have no lockfile and float to new patch and minor releases on each
  *   host build, as they did before the package pinned them;
@@ -145,8 +146,7 @@ export function sitePackageJson(content) {
   }
   const dependencies = Object.fromEntries(
     Object.entries(pkg.dependencies ?? {})
-      .filter(([, spec]) => !String(spec).startsWith("file:"))
-      .map(([name, spec]) => [name, EXACT_VERSION.test(String(spec)) ? `^${spec}` : spec]),
+      .map(([name, spec]) => [name, siteDependencySpec(String(spec))]),
   );
   for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
     dependencies[name] = pkg.devDependencies?.[name] ?? range;
@@ -159,14 +159,75 @@ export function sitePackageJson(content) {
   return JSON.stringify(site, null, 2) + "\n";
 }
 
+/** Where a site copy vendors the monorepo package a `file:` spec names. */
+export const VENDOR_DIR = "vendor";
+
+/** @param {string} spec */
+function vendorPath(spec) {
+  return `${VENDOR_DIR}/${path.posix.basename(spec.slice("file:".length))}`;
+}
+
 /**
- * Walk `templateDir` and return all non-binary, non-skipped text files,
- * sorted by path so the generated bundle is deterministic.
+ * A dependency spec as the site needs it: `file:` points at the vendored
+ * copy, exact pins become `^` ranges, anything else stays.
+ *
+ * @param {string} spec
+ */
+function siteDependencySpec(spec) {
+  if (spec.startsWith("file:")) return `file:./${vendorPath(spec)}`;
+  return EXACT_VERSION.test(spec) ? `^${spec}` : spec;
+}
+
+/**
+ * The files that vendor the monorepo packages the template depends on
+ * through `file:` into a site copy, under `vendor/<directory name>/`.
+ * Until those packages are published (ADR-016 §2, #422), a site installs
+ * them from its own repo. Each gets its `src/` (tests left out) and a
+ * package.json whose only export is the TypeScript entry: the site
+ * builds it from source, as the template does (`transpilePackages` and
+ * the alias in the template's `next.config.ts`).
  *
  * @param {string} templateDir
+ * @param {string} templatePackageJson
  * @returns {Promise<Array<{ path: string; content: string }>>}
  */
-export async function collectTemplateFiles(templateDir) {
+export async function vendoredPackageFiles(templateDir, templatePackageJson) {
+  const { dependencies = {} } = JSON.parse(templatePackageJson);
+  /** @type {Array<{ path: string; content: string }>} */
+  const files = [];
+  /** @type {Map<string, string>} vendor directory -> the spec that claimed it */
+  const claimed = new Map();
+  for (const spec of Object.values(dependencies).map(String)) {
+    if (!spec.startsWith("file:")) continue;
+    const dir = vendorPath(spec);
+    if (claimed.has(dir)) throw new Error(`"${claimed.get(dir)}" and "${spec}" both vendor to ${dir}/.`);
+    claimed.set(dir, spec);
+    const packageDir = path.resolve(templateDir, spec.slice("file:".length));
+    const pkg = JSON.parse(await fs.readFile(path.join(packageDir, "package.json"), "utf-8"));
+    const source = pkg.exports?.["."]?.source;
+    if (typeof source !== "string") {
+      throw new Error(`${pkg.name} has no "source" export to vendor into site copies.`);
+    }
+    const vendored = { name: pkg.name, version: pkg.version, private: true, type: pkg.type, exports: { ".": source } };
+    const prefix = vendorPath(spec);
+    files.push({ path: `${prefix}/package.json`, content: JSON.stringify(vendored, null, 2) + "\n" });
+    for (const file of await collectTemplateFiles(path.join(packageDir, "src"), { vendor: false })) {
+      files.push({ path: `${prefix}/src/${file.path}`, content: file.content });
+    }
+  }
+  return files;
+}
+
+/**
+ * Walk `templateDir` and return all non-binary, non-skipped text files,
+ * plus the vendored `file:` packages (`vendoredPackageFiles`), sorted by
+ * path so the generated bundle is deterministic.
+ *
+ * @param {string} templateDir
+ * @param {{ vendor?: boolean }} [options]
+ * @returns {Promise<Array<{ path: string; content: string }>>}
+ */
+export async function collectTemplateFiles(templateDir, { vendor = true } = {}) {
   /** @type {Array<{ path: string; content: string }>} */
   const files = [];
 
@@ -190,6 +251,10 @@ export async function collectTemplateFiles(templateDir) {
   }
 
   await walk(templateDir, "");
+  if (vendor) {
+    const packageJson = await fs.readFile(path.join(templateDir, "package.json"), "utf-8").catch(() => null);
+    if (packageJson !== null) files.push(...(await vendoredPackageFiles(templateDir, packageJson)));
+  }
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 

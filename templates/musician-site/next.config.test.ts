@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import config, { SOURCE_ALIASES } from "./next.config.js";
+import config, { SOURCE_ALIASES, SOURCE_PACKAGE_ALIASES } from "./next.config.js";
 
 describe("next.config — static-asset headers", () => {
   it("declares an async headers() rule list", async () => {
@@ -130,7 +130,38 @@ describe("next.config — subpath imports", () => {
       webpackConfig,
       {},
     );
-    expect(result.resolve.alias).toEqual({ existing: "/x", ...SOURCE_ALIASES });
+    expect(result.resolve.alias).toEqual({ existing: "/x", ...SOURCE_ALIASES, ...SOURCE_PACKAGE_ALIASES });
     expect(result.resolve.extensionAlias).toEqual({ ".mjs": [".mts", ".mjs"], ".js": [".ts", ".tsx", ".js"] });
+  });
+});
+
+describe("next.config — source-built packages", () => {
+  it("covers exactly the template's file: dependencies, in the alias map and transpilePackages", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const { dependencies } = JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    const sourceBuilt = Object.keys(dependencies)
+      .filter((name) => dependencies[name].startsWith("file:"))
+      .sort();
+    expect(sourceBuilt).toEqual(["@jclaw-labs/content-upgraders"]);
+    expect(Object.keys(SOURCE_PACKAGE_ALIASES).sort()).toEqual(sourceBuilt.map((name) => `${name}$`));
+    expect([...(config.transpilePackages ?? [])].sort()).toEqual(sourceBuilt);
+  });
+
+  it("aliases each to the existing file its package.json `source` export names, and transpiles it", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    for (const [key, target] of Object.entries(SOURCE_PACKAGE_ALIASES)) {
+      const name = key.replace(/\$$/, "");
+      const pkgDir = path.join(__dirname, "node_modules", name);
+      const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8")) as {
+        exports: { ".": { source: string } };
+      };
+      expect(target).toBe(path.join(pkgDir, pkg.exports["."].source));
+      expect(existsSync(target)).toBe(true);
+      expect(config.transpilePackages).toContain(name);
+    }
   });
 });

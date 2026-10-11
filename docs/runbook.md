@@ -587,6 +587,31 @@ Both publish under the `@jclaw-labs` npm **user** scope. The `stagecraft` and `j
 
 The two packages are versioned in lockstep, and the template depends on the exact upgraders version. In the monorepo that dependency is `file:../../packages/content-upgraders`, so never publish from `templates/musician-site/` directly. `npm run pack-musician-site` (from the repo root, after `npm ci` at the root and in `templates/musician-site/`) builds and packs both packages into `.pack/`, pointing the template at the upgraders tarball. `npm run pack-musician-site -- --release` pins it to the published upgraders version instead, for a release. `npm run check:musician-site-package` installs the local tarballs into a minimal Next.js app with no lockfile, runs `next build`, and runs `stagecraft-site --help`. CI runs that check (`.github/workflows/musician-site-package.yml`) on every PR that touches either package or the scripts that pack them.
 
+### Content schema versions
+
+`_collection.json` carries a `schemaVersion`. The template reads every
+version from `OLDEST_SCHEMA_VERSION` up to the current one, upgrading older
+files in memory through the `@jclaw-labs/content-upgraders` chain. The next
+save writes the current version back. The template refuses a version newer
+than it knows, or older than `OLDEST_SCHEMA_VERSION`, with an error that
+names the version and the template, not a release: a site can't know which
+future release reads a version (ADR-016 §3). A step that throws is reported
+the same way, as a validation error on `schemaVersion`.
+
+To ship a new version N+1:
+1. Append step N to `UPGRADERS` in `packages/content-upgraders/src/index.ts`. Steps are pure functions over parsed JSON and never change once released. A step must keep the input's key order and add no keys the schema doesn't know, so its output is what the CMS would write.
+2. Add `fixtures/v<N>-to-v<N+1>/<name>.json` for every `fixtures/v<N>/<name>.json`: what the step must turn that file into, written by hand. `src/fixtures.test.ts` fails until every step has one per fixture, and compares each with the step's output (`fixtures/README.md`).
+3. Change `currentCollectionDefSchema` in `templates/musician-site/src/lib/collections/schema.ts` to the new shape.
+4. Bump `stagecraft.schemaVersion` in the template's `package.json` and `CURRENT_COLLECTION_SCHEMA_VERSION`. Tests keep the two in step with the chain.
+5. Migrate the template's own collections (`templates/musician-site/src/content/collections/*/_collection.json`) to the new version, matching the step's expected outputs, and update `src/lib/collections/seeds.ts` to the new shape. `src/cli/run.test.ts` runs `migrate-content --check` over the template's content and fails while any collection is behind.
+6. Add `fixtures/v<N+1>/` with the template's collections as the new version writes them. Never edit a released version's fixtures or step outputs.
+
+To upgrade every collection at once without the CMS, run `migrate-content`. It ships only in the published `@jclaw-labs/musician-site` package (`bin` is dropped from site copies), so it works only in a site that depends on that package, after #422. From the site's root, run `npx --no-install stagecraft-site migrate-content` (add `--check` to only list what would change). `--no-install` stops npx falling back to the unrelated, unscoped `stagecraft-site` registry name. Outside a site, pin the package instead: `npm exec --package=@jclaw-labs/musician-site@<version> -- stagecraft-site migrate-content`.
+
+A site that is a copy of the template (every site today) has no CLI. Its CMS upgrades each collection on read and writes it back at the current version on the next save, so nothing needs running by hand.
+
+`migrate-content` replaces each file atomically (a temporary file in the same directory, then a rename). It writes the step's output as is, in the step's key order; the next CMS save rewrites it in schema key order, so a step that keeps key order makes that a no-op. The CLI doesn't validate the output against the zod schema: `src/cli/` runs under plain Node and can't import it (template CLAUDE.md). The next CMS read validates it.
+
 ### Publishing a release
 
 1. Bump `version` in both `package.json` files to the same new version, and merge.

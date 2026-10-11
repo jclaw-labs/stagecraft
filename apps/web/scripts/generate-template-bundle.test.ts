@@ -9,6 +9,7 @@ import {
   collectTemplateFiles,
   generateTemplateBundle,
   sitePackageJson,
+  TEST_FILE,
   TEST_ONLY_DEV_DEPENDENCIES,
 } from "./generate-template-bundle.mjs";
 
@@ -141,8 +142,13 @@ describe("sitePackageJson", () => {
     expect(site.imports).toEqual({ "#lib/*": { source: "./src/lib/*", default: "./src/lib/*" } });
   });
 
-  it("moves peers into dependencies, preferring the dev range, and drops file: deps", () => {
-    expect(site.dependencies).toEqual({ next: "^15.5.27", react: "^19.0.0", zod: "^4.4.2" });
+  it("moves peers into dependencies, preferring the dev range, and points file: deps at the vendored copy", () => {
+    expect(site.dependencies).toEqual({
+      "@jclaw-labs/content-upgraders": "file:./vendor/content-upgraders",
+      next: "^15.5.27",
+      react: "^19.0.0",
+      zod: "^4.4.2",
+    });
     expect(site.devDependencies).toEqual({ typescript: "^5.7.0" });
   });
 
@@ -169,8 +175,17 @@ describe("sitePackageJson", () => {
     const files = await collectTemplateFiles(REAL_TEMPLATE_DIR);
     const pkg = JSON.parse(files.find((f) => f.path === "package.json")!.content);
     expect(pkg.dependencies.next).toBeDefined();
-    expect(Object.values(pkg.dependencies).some((spec) => String(spec).startsWith("file:"))).toBe(false);
-    for (const spec of Object.values(pkg.dependencies)) expect(spec).toMatch(/^\^/);
+    const paths = new Set(files.map((f) => f.path));
+    for (const spec of Object.values(pkg.dependencies) as string[]) {
+      if (!spec.startsWith("file:")) {
+        expect(spec).toMatch(/^\^/);
+        continue;
+      }
+      // A file: dependency names a directory the copy vendors, with its entry.
+      const dir = spec.slice("file:./".length);
+      const vendored = JSON.parse(files.find((f) => f.path === `${dir}/package.json`)!.content);
+      expect(paths).toContain(`${dir}/${vendored.exports["."].replace(/^\.\//, "")}`);
+    }
     for (const target of Object.values(pkg.imports) as { default: string }[]) expect(target.default).toMatch(/^\.\/src\//);
   });
 
@@ -200,6 +215,72 @@ describe("sitePackageJson", () => {
     for (const command of Object.values(pkg.scripts) as string[]) {
       for (const file of command.match(/\S+\.(?:m?js|ts)\b/g) ?? []) expect(paths, command).toContain(file);
     }
+  });
+});
+
+describe("vendoredPackageFiles", () => {
+  it("vendors every non-test source file of the real template's file: packages", async () => {
+    const files = await collectTemplateFiles(REAL_TEMPLATE_DIR);
+    const { dependencies } = JSON.parse(await fs.readFile(path.join(REAL_TEMPLATE_DIR, "package.json"), "utf-8"));
+    const fileDeps = Object.values(dependencies as Record<string, string>).filter((spec) => spec.startsWith("file:"));
+    expect(fileDeps.length).toBeGreaterThan(0);
+    for (const spec of fileDeps) {
+      const srcDir = path.join(path.resolve(REAL_TEMPLATE_DIR, spec.slice("file:".length)), "src");
+      const sources = (await fs.readdir(srcDir, { recursive: true, withFileTypes: true }))
+        .filter((entry) => entry.isFile() && !TEST_FILE.test(entry.name))
+        .map((entry) => path.relative(srcDir, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"))
+        .sort();
+      expect(sources.length).toBeGreaterThan(0);
+      const prefix = `vendor/${path.basename(spec)}/src/`;
+      const vendored = files.filter((f) => f.path.startsWith(prefix)).map((f) => f.path.slice(prefix.length));
+      expect(vendored).toEqual(sources);
+    }
+  });
+
+  it("refuses two file: packages that would vendor to the same directory", async () => {
+    for (const dir of ["a/up", "b/up"]) {
+      await write(`${dir}/package.json`, JSON.stringify({ name: `@x/${dir.replace("/", "-")}`, exports: { ".": { source: "./src/index.ts" } } }));
+      await write(`${dir}/src/index.ts`, "export {};");
+    }
+    await write("template/package.json", JSON.stringify({ dependencies: { "@x/a": "file:../a/up", "@x/b": "file:../b/up" } }));
+    await expect(collectTemplateFiles(path.join(root, "template"))).rejects.toThrow(/both vendor to vendor\/up/);
+  });
+
+  it("vendors each file: package's src/ and a source-only package.json, without tests", async () => {
+    await write("packages/up/package.json", JSON.stringify({
+      name: "@x/up",
+      version: "1.2.3",
+      type: "module",
+      exports: { ".": { source: "./src/index.ts", default: "./dist/index.js" } },
+      scripts: { build: "tsc" },
+    }));
+    await write("packages/up/src/index.ts", "export const a = 1;");
+    await write("packages/up/src/index.test.ts", "test");
+    await write("packages/up/dist/index.js", "built");
+    await write("template/package.json", JSON.stringify({ dependencies: { "@x/up": "file:../packages/up", zod: "1.0.0" } }));
+    await write("template/src/page.ts", "page");
+
+    const files = await collectTemplateFiles(path.join(root, "template"));
+    expect(files.map((f) => f.path)).toEqual([
+      "package.json",
+      "src/page.ts",
+      "vendor/up/package.json",
+      "vendor/up/src/index.ts",
+    ]);
+    expect(JSON.parse(files[2].content)).toEqual({
+      name: "@x/up",
+      version: "1.2.3",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts" },
+    });
+    expect(JSON.parse(files[0].content).dependencies["@x/up"]).toBe("file:./vendor/up");
+  });
+
+  it("refuses a file: package without a source export", async () => {
+    await write("packages/up/package.json", JSON.stringify({ name: "@x/up", exports: { ".": "./dist/index.js" } }));
+    await write("template/package.json", JSON.stringify({ dependencies: { "@x/up": "file:../packages/up" } }));
+    await expect(collectTemplateFiles(path.join(root, "template"))).rejects.toThrow(/no "source" export/);
   });
 });
 

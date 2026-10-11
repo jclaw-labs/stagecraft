@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "slug": "posts",
+  "singularName": "post",
+  "pluralName": "posts",
+  "fields": [
+    {
+      "id": "fld_posts_title",
+      "key": "title",
+      "systemLocked": true,
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "fld_posts_coverImage",
+      "key": "coverImage",
+      "type": "image",
+      "required": false
+    },
+    {
+      "id": "fld_posts_publishedAt",
+      "key": "publishedAt",
+      "systemLocked": true,
+      "type": "date",
+      "required": true
+    },
+    {
+      "id": "fld_posts_category",
+      "key": "category",
+      "type": "select",
+      "required": false,
+      "options": [
+        {
+          "id": "o1",
+          "value": "news",
+          "label": "News"
+        },
+        {
+          "id": "o2",
+          "value": "announcement",
+          "label": "Announcement"
+        },
+        {
+          "id": "o3",
+          "value": "interview",
+          "label": "Interview"
+        },
+        {
+          "id": "o4",
+          "value": "essay",
+          "label": "Essay"
+        }
+      ]
+    },
+    {
+      "id": "fld_posts_summary",
+      "key": "summary",
+      "type": "longText",
+      "required": false
+    },
+    {
+      "id": "fld_posts_body",
+      "key": "body",
+      "systemLocked": true,
+      "type": "puckContent"
+    }
+  ],
+  "slugSourceFieldId": "fld_posts_title",
+  "detailUrlPrefix": "/news",
+  "defaultSort": {
+    "mode": "fieldSort",
+    "fieldId": "fld_posts_publishedAt",
+    "direction": "desc"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

@@ -31,9 +31,20 @@ apart from `cli/` still needs a bundler (it imports `next/*` and CSS), so:
   e2e, dev and the site build all run from source. A new `#` prefix goes
   in all three places: `imports` in `package.json`, `paths` in
   `tsconfig.json` and `SOURCE_ALIASES` in `next.config.ts`.
+- `@jclaw-labs/content-upgraders` (`file:` in the monorepo) also builds
+  from source: `SOURCE_PACKAGE_ALIASES` and `transpilePackages` in
+  `next.config.ts`. `collectionDefSchema` runs its chain on read, so an
+  older `_collection.json` reads at `CURRENT_COLLECTION_SCHEMA_VERSION`
+  and a newer one, or one older than the chain, fails closed (runbook §11).
+- Parse `_collection.json` only through `collectionDefSchema`, so the
+  upgrade runs. It is a `z.preprocess` pipe with no `.shape`, `.extend`,
+  `.pick` or `.omit`: derive sub-schemas from the inner object schema
+  (`currentCollectionDefSchema` in `schema.ts`), and never parse a file
+  with that inner schema directly.
 - `src/cli/` is the `stagecraft-site` bin and runs under plain Node: keep
-  its imports to `node:` builtins and relative `.js` files, with no CSS
-  and no `next/*`. `npm run typecheck` checks it under Node's own
+  its imports to `node:` builtins, relative `.js` files and the
+  dependency-free `@jclaw-labs/content-upgraders`, with no CSS and no
+  `next/*`. `npm run typecheck` checks it under Node's own
   resolution (`tsconfig.cli.json`).
 
 `next`, `react` and `react-dom` are peer dependencies, and every other

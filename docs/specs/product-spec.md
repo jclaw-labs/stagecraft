@@ -353,6 +353,13 @@ tests in a generated repo. Without
 a lockfile, npm 10.9 (Netlify's npm on Node 22) crashes resolving Vitest's
 peers (#473).
 
+Monorepo packages the template depends on through `file:` (today only
+`@jclaw-labs/content-upgraders`) are vendored into the copy under
+`vendor/<name>/`: their `src/` and a source-only `package.json`. The site's
+dependency points at `file:./vendor/<name>`, which the template's
+`next.config.ts` builds from source. This lasts until the package is published
+(ADR-016 §2, #422).
+
 ## 11. Content model
 
 The site content model must be **schema-first**. Every piece of editable content should have a declared shape — named fields, defined types, and a validation contract — before any component renders it.

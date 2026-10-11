@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import * as entry from "./index.js";
 import {
   LATEST_SCHEMA_VERSION,
+  newerSchemaVersionMessage,
   OLDEST_SCHEMA_VERSION,
+  olderSchemaVersionMessage,
   UPGRADERS,
   upgradeCollection,
   type CollectionJson,
@@ -68,6 +70,18 @@ describe("upgradeCollection", () => {
     expect(() => upgradeCollection(v1, 0)).toThrow(/outside 1–1/);
     expect(() => upgradeCollection(v1, LATEST_SCHEMA_VERSION + 1)).toThrow(RangeError);
     expect(() => upgradeCollection(v1, 1.5)).toThrow(RangeError);
+  });
+});
+
+describe("schemaVersion messages", () => {
+  it("names the version, what the site reads, and the template for both kinds of site", () => {
+    const newer = newerSchemaVersionMessage(3, 2);
+    expect(newer).toContain("schemaVersion 3, but this site reads up to 2");
+    expect(newer).toContain("@jclaw-labs/musician-site package, or the template code in a copy of it");
+  });
+
+  it("names the floor for a version older than the site reads", () => {
+    expect(olderSchemaVersionMessage(0, 1)).toMatch(/schemaVersion 0, older than 1, the oldest this site reads.*still reads schemaVersion 0/);
   });
 });
 

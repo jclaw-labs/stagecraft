@@ -26,6 +26,13 @@
  * are silently stripped on read.
  */
 
+import {
+  newerSchemaVersionMessage,
+  OLDEST_SCHEMA_VERSION,
+  olderSchemaVersionMessage,
+  upgradeCollection,
+  type CollectionJson,
+} from "@jclaw-labs/content-upgraders";
 import type { Data as PuckData } from "@puckeditor/core";
 import { z, type ZodTypeAny } from "zod";
 
@@ -545,14 +552,49 @@ export type CollectionSort = z.infer<typeof collectionSortSchema>;
  * enforced via `superRefine`.
  */
 /**
- * Current `CollectionDef` shape version. Bumped on breaking model
- * changes; the migration runner (deferred) keys off this to rewrite
- * old `_collection.json` files before consumers see them. Always
- * present on v1 files so future migrations have a reliable starting
- * point instead of inferring "what version is this" from missing-field
- * heuristics.
+ * Current `CollectionDef` shape version: what this reader validates and
+ * what saves write. Always present on `_collection.json`, so upgrades
+ * have a reliable starting point instead of inferring "what version is
+ * this" from missing-field heuristics. Matches `stagecraft.schemaVersion`
+ * in package.json and the end of the `@jclaw-labs/content-upgraders`
+ * chain (ADR-016 §3).
  */
 export const CURRENT_COLLECTION_SCHEMA_VERSION = 1;
+
+/** The oldest `schemaVersion` the reader accepts, upgrading it on read. */
+export const OLDEST_COLLECTION_SCHEMA_VERSION = OLDEST_SCHEMA_VERSION;
+
+/**
+ * Upgrade-on-read (ADR-016 §3): a `_collection.json` from any supported
+ * older `schemaVersion` is upgraded in memory to the current one, and the
+ * next save writes it back at the current version. A version newer than
+ * this reader knows, or older than the oldest it upgrades from, fails
+ * closed with an issue on `schemaVersion`, and so does a step that
+ * throws: `safeParse` returns a failure rather than throwing. Anything
+ * else (not an object, no integer `schemaVersion`) passes through for
+ * the schema below to reject.
+ */
+function upgradeOnRead(value: unknown, ctx: z.RefinementCtx): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const { schemaVersion } = value as CollectionJson;
+  if (typeof schemaVersion !== "number" || !Number.isInteger(schemaVersion)) return value;
+  const fail = (message: string) => {
+    ctx.addIssue({ code: "custom", path: ["schemaVersion"], message });
+    return z.NEVER;
+  };
+  if (schemaVersion > CURRENT_COLLECTION_SCHEMA_VERSION) {
+    return fail(newerSchemaVersionMessage(schemaVersion, CURRENT_COLLECTION_SCHEMA_VERSION));
+  }
+  if (schemaVersion < OLDEST_COLLECTION_SCHEMA_VERSION) {
+    return fail(olderSchemaVersionMessage(schemaVersion, OLDEST_COLLECTION_SCHEMA_VERSION));
+  }
+  if (schemaVersion === CURRENT_COLLECTION_SCHEMA_VERSION) return value;
+  try {
+    return upgradeCollection(value as CollectionJson, CURRENT_COLLECTION_SCHEMA_VERSION);
+  } catch (error) {
+    return fail(`could not upgrade from schemaVersion ${schemaVersion}: ${(error as Error).message}`);
+  }
+}
 
 /**
  * Field types whose stored value can be slugified for use as an item's
@@ -572,7 +614,8 @@ import { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES } from "./field-clas
 
 export { SLUG_SOURCE_COMPATIBLE_TYPES, SORTABLE_FIELD_TYPES };
 
-export const collectionDefSchema = z
+/** `_collection.json` at the current `schemaVersion`. */
+const currentCollectionDefSchema = z
   .object({
     schemaVersion: z.literal(CURRENT_COLLECTION_SCHEMA_VERSION),
 
@@ -663,6 +706,12 @@ export const collectionDefSchema = z
       });
     }
   });
+
+/**
+ * Schema validating `_collection.json`: any supported `schemaVersion`,
+ * upgraded to the current one before validation (`upgradeOnRead`).
+ */
+export const collectionDefSchema = z.preprocess(upgradeOnRead, currentCollectionDefSchema);
 
 export type CollectionDef = z.infer<typeof collectionDefSchema>;
 

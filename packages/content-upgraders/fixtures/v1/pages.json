@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "slug": "pages",
+  "singularName": "page",
+  "pluralName": "pages",
+  "fields": [
+    {
+      "id": "fld_pages_title",
+      "key": "title",
+      "type": "text",
+      "required": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_pages_isSplashPage",
+      "key": "isSplashPage",
+      "type": "boolean",
+      "systemLocked": true
+    },
+    {
+      "id": "fld_pages_isFooterHidden",
+      "key": "isFooterHidden",
+      "type": "boolean",
+      "systemLocked": true
+    },
+    {
+      "id": "fld_pages_showInNav",
+      "key": "showInNav",
+      "type": "boolean",
+      "default": true,
+      "systemLocked": true
+    },
+    {
+      "id": "fld_pages_body",
+      "key": "body",
+      "type": "puckContent",
+      "systemLocked": true
+    }
+  ],
+  "slugSourceFieldId": "fld_pages_title",
+  "detailUrlPrefix": "/",
+  "defaultSort": {
+    "mode": "manual"
+  },
+  "itemTemplate": null,
+  "detailTemplate": null,
+  "listTemplate": null,
+  "isSingleton": false
+}

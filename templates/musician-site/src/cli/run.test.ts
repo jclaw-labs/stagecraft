@@ -34,3 +34,13 @@ describe("stagecraft-site CLI", () => {
     expect(result.err).toContain(USAGE);
   });
 });
+
+describe("stagecraft-site migrate-content on the template's own content", () => {
+  it("finds every collection already at the package's schemaVersion", () => {
+    let out = "";
+    let err = "";
+    const code = run(["migrate-content", "--check"], { out: (t) => (out += t), err: (t) => (err += t) });
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out).toMatch(/^All \d+ collections are at schemaVersion \d+\.\n$/);
+  });
+});
