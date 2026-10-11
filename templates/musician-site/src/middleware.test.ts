@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createSessionToken, SESSION_COOKIE } from "#lib/auth.js";
 
+import { ADMIN_ROUTES } from "./admin/router.js";
+import { API_ROUTES } from "./api/router.js";
 import { config, isPublicPath, middleware } from "./middleware.js";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -38,6 +40,22 @@ describe("isPublicPath", () => {
       expect(isPublicPath(pathname)).toBe(false);
     },
   );
+
+  // For an admin page the public list is the only gate, so pin the set.
+  it("leaves exactly sign-in and the contact form public", () => {
+    const urls = [
+      ...ADMIN_ROUTES.map((r) => `/admin/${r.pattern}`.replace(/\/$/, "")),
+      ...API_ROUTES.map((r) => `/api/${r.pattern}`),
+    ].map((url) => url.replace(/:(\w+)/g, "$1"));
+    expect(urls.filter(isPublicPath).sort()).toEqual([
+      "/admin/login",
+      "/api/auth/dev-login",
+      "/api/auth/logout",
+      "/api/auth/request",
+      "/api/auth/verify",
+      "/api/contact",
+    ]);
+  });
 });
 
 describe("middleware", () => {
@@ -61,7 +79,11 @@ describe("middleware", () => {
     for (const pathname of ["/api/publish-draft", "/api/collections/shows/items", "/api/not-an-endpoint"]) {
       const res = await middleware(request(pathname));
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ error: "unauthorized" });
+      expect(await res.json()).toEqual({
+        ok: false,
+        code: "unauthorized",
+        error: "Your session has expired. Sign in again.",
+      });
     }
   });
 

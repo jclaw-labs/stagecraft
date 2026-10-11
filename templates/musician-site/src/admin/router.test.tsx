@@ -1,4 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// No admin page sets a title yet; give two of them one each way, to check
+// the router forwards it.
+vi.mock("./settings/page.js", async (importActual) => ({
+  ...(await importActual<object>()),
+  generateMetadata: async ({ params }: { params: Promise<Record<string, string>> }) => ({
+    title: `Settings ${JSON.stringify(await params)}`,
+  }),
+}));
+vi.mock("./navigation/page.js", async (importActual) => ({
+  ...(await importActual<object>()),
+  metadata: { title: "Navigation" },
+  generateMetadata: undefined,
+}));
 
 import * as collectionItem from "./collections/[slug]/items/[itemSlug]/page.js";
 import * as collectionNew from "./collections/new/page.js";
@@ -46,6 +60,11 @@ describe("admin router", () => {
     for (const path of [["nope"], ["collections", "shows", "items"], ["pages", "home", "extra"]]) {
       expect(await thrownDigest(() => AdminRouter(props(path)))).toMatch(/;404$/);
     }
+  });
+
+  it("forwards the matched page's generateMetadata or metadata", async () => {
+    expect(await generateMetadata(props(["settings"]))).toEqual({ title: "Settings {}" });
+    expect(await generateMetadata(props(["navigation"]))).toEqual({ title: "Navigation" });
   });
 
   it("returns no metadata for a page without any, or an unknown path", async () => {

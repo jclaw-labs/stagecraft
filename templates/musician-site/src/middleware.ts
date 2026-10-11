@@ -30,7 +30,12 @@ export async function middleware(request: NextRequest) {
 
   if (!session) {
     if (pathname === "/api" || pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      // The handlers' own error envelope, so a client that shows
+      // `error` tells the artist what to do rather than "unauthorized".
+      return NextResponse.json(
+        { ok: false, code: "unauthorized", error: "Your session has expired. Sign in again." },
+        { status: 401 },
+      );
     }
     const loginUrl = new URL("/admin/login", request.url);
     return NextResponse.redirect(loginUrl);
