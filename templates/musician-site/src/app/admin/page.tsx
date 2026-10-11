@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { checkIsFirstRun } from "@/lib/first-run";
+import { checkIsFirstRun } from "#lib/first-run.js";
 
 /**
  * Decide the redirect per request. Left to Next, this page reads no

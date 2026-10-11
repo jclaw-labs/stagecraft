@@ -11,15 +11,15 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { asImageId } from "@/lib/image-types";
-import { TemplateRenderer } from "@/puck/render-config";
+import { asImageId } from "#lib/image-types.js";
+import { TemplateRenderer } from "#puck/render-config.js";
 
-import { binding, literal } from "./binding";
-import { blockNameForCollection } from "./collection-block";
-import { resolveTemplate } from "./renderer";
-import type { Template } from "./types";
-import type { Item } from "../schema";
-import { FIXTURE_TIMESTAMP, tourDatesDef } from "../test-fixtures";
+import { binding, literal } from "./binding.js";
+import { blockNameForCollection } from "./collection-block.js";
+import { resolveTemplate } from "./renderer.js";
+import type { Template } from "./types.js";
+import type { Item } from "../schema.js";
+import { FIXTURE_TIMESTAMP, tourDatesDef } from "../test-fixtures.js";
 
 function parisItem(): Item {
   return {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink";
+import { DiscardPendingChangesLink } from "./DiscardPendingChangesLink.js";
 
 describe("DiscardPendingChangesLink > isDegraded", () => {
   it("disables the discard link while GitHub is unreachable", () => {

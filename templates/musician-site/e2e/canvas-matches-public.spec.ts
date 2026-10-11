@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { seedDemoContent } from "./setup/seed";
+import { seedDemoContent } from "./setup/seed.js";
 
 /**
  * The Puck editor canvas lays blocks out the way the published page does

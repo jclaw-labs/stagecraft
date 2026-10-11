@@ -6,10 +6,10 @@ import {
   filterForDefs,
   mapFilterFields,
   withoutClausesOnMissingFields,
-} from "./filter";
-import { TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, Filter, FilterClause, Item } from "../schema";
-import { FIXTURE_TIMESTAMP } from "../test-fixtures";
+} from "./filter.js";
+import { TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, Filter, FilterClause, Item } from "../schema.js";
+import { FIXTURE_TIMESTAMP } from "../test-fixtures.js";
 
 /** Make a tour-date-shaped item with the fields the tests want. */
 function tourDateItem(

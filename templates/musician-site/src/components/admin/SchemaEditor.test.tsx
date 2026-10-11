@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SchemaEditor } from "./SchemaEditor";
-import type { CollectionDef } from "@/lib/collections";
+import { SchemaEditor } from "./SchemaEditor.js";
+import type { CollectionDef } from "#lib/collections/index.js";
 
 function tourDatesDef(): CollectionDef {
   return {

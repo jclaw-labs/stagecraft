@@ -20,11 +20,11 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { generateMetadata as generatePublicNotFoundMetadata } from "./(public)/not-found";
-import GlobalNotFound, { generateMetadata } from "./global-not-found";
-import config from "../../next.config";
-import { SITE_FIELD_IDS } from "@/lib/collections/seeds";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+import { generateMetadata as generatePublicNotFoundMetadata } from "./(public)/not-found.js";
+import GlobalNotFound, { generateMetadata } from "./global-not-found.js";
+import config from "../../next.config.js";
+import { SITE_FIELD_IDS } from "#lib/collections/seeds.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 
 let TMP_CONTENT_DIR: string;
 let SITE_ITEM_PATH: string;

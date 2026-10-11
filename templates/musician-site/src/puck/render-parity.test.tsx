@@ -18,16 +18,16 @@ import { Render } from "@puckeditor/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { getFsReadStore, listCollectionSlugs } from "@/lib/collections";
-import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
-import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
-import { resolveTemplate } from "@/lib/collections/template/renderer";
-import type { Template } from "@/lib/collections/template/types";
-import { readPageOrNull } from "@/lib/content";
-import { buildFirstRunSeed } from "@/lib/first-run-seeds";
+import { getFsReadStore, listCollectionSlugs } from "#lib/collections/index.js";
+import { pageDataToItem } from "#lib/collections/migrate-from-legacy.js";
+import { pagesCollectionDef } from "#lib/collections/seeds.js";
+import { loadCollectionsForTemplate } from "#lib/collections/template/load-collections.js";
+import { resolveTemplate } from "#lib/collections/template/renderer.js";
+import type { Template } from "#lib/collections/template/types.js";
+import { readPageOrNull } from "#lib/content.js";
+import { buildFirstRunSeed } from "#lib/first-run-seeds.js";
 
-import { buildRenderConfig } from "./render-config";
+import { buildRenderConfig } from "./render-config.js";
 
 const PINNED_NOW = new Date("2026-06-01T12:00:00Z");
 const PAGES_DIR = path.join(process.cwd(), "src/content/collections/pages/items");

@@ -22,11 +22,11 @@ import {
   hasField,
   itemDisplayLabel,
   selectOptionLabel,
-} from "./accessors";
-import type { CollectionDef, Item } from "./schema";
-import { asImageId } from "../image-types";
+} from "./accessors.js";
+import type { CollectionDef, Item } from "./schema.js";
+import { asImageId } from "../image-types.js";
 
-import { FIXTURE_TIMESTAMP } from "./test-fixtures";
+import { FIXTURE_TIMESTAMP } from "./test-fixtures.js";
 
 function makeItem(values: Item["values"]): Item {
   return {

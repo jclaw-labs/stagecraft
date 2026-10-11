@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { TiptapJSON } from "../schema";
-import { renderTiptap } from "./tiptap-render";
+import type { TiptapJSON } from "../schema.js";
+import { renderTiptap } from "./tiptap-render.js";
 
 function html(doc: TiptapJSON | null | undefined): string {
   return renderToStaticMarkup(<>{renderTiptap(doc)}</>);

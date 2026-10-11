@@ -5,12 +5,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
-import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { Item } from "../schema";
-import { postsCollectionDef, releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
-import { META_DESCRIPTION_MAX_LENGTH, itemDetailMetadata, metaDescription } from "./item-metadata";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { Item } from "../schema.js";
+import { postsCollectionDef, releasesCollectionDef, tourDatesCollectionDef } from "../seeds.js";
+import { META_DESCRIPTION_MAX_LENGTH, itemDetailMetadata, metaDescription } from "./item-metadata.js";
 
 const TS = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
 const SITE = { artistName: "June Harlow", siteDescription: "Songs from the Pacific Northwest." };

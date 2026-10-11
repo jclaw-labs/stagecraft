@@ -10,7 +10,7 @@
  * leaking state into sibling tests.
  */
 
-import { CURRENT_COLLECTION_SCHEMA_VERSION, type CollectionDef, type Item } from "./schema";
+import { CURRENT_COLLECTION_SCHEMA_VERSION, type CollectionDef, type Item } from "./schema.js";
 
 /**
  * A representative tour-dates collection. Five fields covering most

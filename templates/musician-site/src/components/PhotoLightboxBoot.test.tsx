@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { PhotoLightboxBoot } from "./PhotoLightboxBoot";
+import { PhotoLightboxBoot } from "./PhotoLightboxBoot.js";
 
 /**
  * Build a photos-gallery DOM fragment matching what `PhotoTile`

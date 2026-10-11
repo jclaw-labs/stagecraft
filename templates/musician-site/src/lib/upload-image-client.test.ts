@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { uploadImageFromClient, EDITOR_UPLOAD_SLUG } from "./upload-image-client";
+import { uploadImageFromClient, EDITOR_UPLOAD_SLUG } from "./upload-image-client.js";
 
 function makeFile(size: number, type: string, name = "x.jpg"): File {
   const bytes = new Uint8Array(size);

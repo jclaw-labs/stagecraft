@@ -3,9 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
+import { __resetDraftChangesClientForTests } from "#lib/draft-changes-client.js";
 
-import { PendingChangesIndicator } from "./PendingChangesIndicator";
+import { PendingChangesIndicator } from "./PendingChangesIndicator.js";
 
 const fetchMock = vi.fn();
 

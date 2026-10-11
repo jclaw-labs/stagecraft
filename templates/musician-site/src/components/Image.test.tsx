@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Image } from "./Image";
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { Image } from "./Image.js";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
 const fixture: ImageMetadata = {
   id: asImageId("abc1234567890def"),

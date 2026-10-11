@@ -14,7 +14,7 @@ import {
   parseMailchimpAudienceHoneypotName,
   validateNewsletterActionUrl,
   type NewsletterAdditionalField,
-} from "./newsletter-types";
+} from "./newsletter-types.js";
 
 function field(name: string): NewsletterAdditionalField {
   return { label: name, name, type: "text" };

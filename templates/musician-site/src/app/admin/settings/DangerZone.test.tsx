@@ -5,7 +5,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }));
 
-import { DangerZone } from "./DangerZone";
+import { DangerZone } from "./DangerZone.js";
 
 function render(props: Partial<React.ComponentProps<typeof DangerZone>> = {}): string {
   return renderToStaticMarkup(<DangerZone artistName="Nova Reyes" {...props} />);

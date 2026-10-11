@@ -3,12 +3,12 @@ import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 
-import { computeImageId, imageDir, processImage, variantFilename } from "./image";
+import { computeImageId, imageDir, processImage, variantFilename } from "./image.js";
 import {
   IMAGE_VARIANT_FORMATS,
   IMAGE_VARIANT_WIDTHS,
   imageMetadataSchema,
-} from "./image-types";
+} from "./image-types.js";
 
 const TEST_SLUG = "__test__";
 const TEST_PUBLIC = path.join(process.cwd(), "public/images", TEST_SLUG);

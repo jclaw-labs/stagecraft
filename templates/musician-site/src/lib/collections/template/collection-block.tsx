@@ -19,7 +19,7 @@
  * This module holds the data side: the on-disk and resolved props, the
  * walker's resolver, block naming and source discovery. The render
  * component (`CollectionBlockRender`) lives with the render config in
- * `@/puck/render-config`, because it renders item templates through that
+ * `#puck/render-config`, because it renders item templates through that
  * same config. That keeps this module free of the walker and of any Puck
  * config, so the walker can import it without an import cycle.
  *
@@ -31,13 +31,13 @@
 
 import type { ReactNode } from "react";
 
-import { Image } from "@/components/Image";
+import { Image } from "#components/Image.js";
 
-import { applyFilter, filterForDefs } from "./filter";
-import type { ResolveContext, Template } from "./types";
-import { viewFieldIdFor } from "./view-requirements";
-import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema";
-import { compareItemsByField, scalarSortKey } from "../sort-key";
+import { applyFilter, filterForDefs } from "./filter.js";
+import type { ResolveContext, Template } from "./types.js";
+import { viewFieldIdFor } from "./view-requirements.js";
+import type { FieldDef, FieldValue, Filter, FieldId, CollectionDef, Item } from "../schema.js";
+import { compareItemsByField, scalarSortKey } from "../sort-key.js";
 
 // ---------------------------------------------------------------------------
 // On-disk props (what the Puck JSON stores)

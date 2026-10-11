@@ -20,12 +20,12 @@ const {
   resetBranchToMock: vi.fn(),
   squashBranchIntoMock: vi.fn(),
 }));
-vi.mock("./git-commit", async () => {
+vi.mock("./git-commit.js", async () => {
   // Partial mock: stub the side-effecting functions but pass through
   // the real exports (notably the `ConcurrentEditError` class, which
   // publish.ts uses for `instanceof` discrimination — a synthetic
   // class would fail that check at runtime).
-  const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
+  const actual = await vi.importActual<typeof import("./git-commit.js")>("./git-commit.js");
   return {
     ...actual,
     adoptSquashInto: adoptSquashIntoMock,
@@ -50,13 +50,13 @@ import {
   readEnv,
   saveAndPublish,
   saveToDraft,
-} from "./publish";
-import { planItemWrite, saveContent } from "./save-content";
-import { ConcurrentEditError } from "./git-commit";
-import { itemCommitSubject } from "./collections";
-import { pageDataToItem } from "./collections/migrate-from-legacy";
-import { pagesCollectionDef } from "./collections/seeds";
-import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures";
+} from "./publish.js";
+import { planItemWrite, saveContent } from "./save-content.js";
+import { ConcurrentEditError } from "./git-commit.js";
+import { itemCommitSubject } from "./collections/index.js";
+import { pageDataToItem } from "./collections/migrate-from-legacy.js";
+import { pagesCollectionDef } from "./collections/seeds.js";
+import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures.js";
 
 /**
  * Save one collection item through `saveContent`, which commits to the
@@ -1127,7 +1127,7 @@ describe("fetchPublishToken — cache", () => {
 
   it("does not surface a cached token under a different siteId", async () => {
     brokerOk({ expiresAt: "2099-01-01T00:00:00.000Z", token: "ghs_alpha" });
-    const envA = await import("./publish").then((m) => m.readEnv());
+    const envA = await import("./publish.js").then((m) => m.readEnv());
     await fetchPublishToken(envA);
 
     // Switch siteId — fresh cache key, broker called again.
@@ -1144,7 +1144,7 @@ describe("fetchPublishToken — cache", () => {
           repo: { owner: "artist", name: "site" },
         }),
     }) as unknown as typeof fetch;
-    const envB = await import("./publish").then((m) => m.readEnv());
+    const envB = await import("./publish.js").then((m) => m.readEnv());
     const second = await fetchPublishToken(envB);
     expect(second.token).toBe("ghs_beta");
   });

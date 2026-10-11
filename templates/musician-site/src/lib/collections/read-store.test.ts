@@ -21,8 +21,8 @@ vi.mock("@octokit/rest", () => ({
 const { fetchPublishTokenMock } = vi.hoisted(() => ({
   fetchPublishTokenMock: vi.fn(),
 }));
-vi.mock("../publish", async () => {
-  const actual = await vi.importActual<typeof import("../publish")>("../publish");
+vi.mock("../publish.js", async () => {
+  const actual = await vi.importActual<typeof import("../publish.js")>("../publish.js");
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
@@ -45,8 +45,8 @@ const {
   fsReadOrder: vi.fn(),
   fsListCollectionSlugs: vi.fn(),
 }));
-vi.mock("./store", async () => {
-  const actual = await vi.importActual<typeof import("./store")>("./store");
+vi.mock("./store.js", async () => {
+  const actual = await vi.importActual<typeof import("./store.js")>("./store.js");
   return {
     ...actual,
     readCollectionDef: fsReadCollectionDef,
@@ -64,11 +64,11 @@ import {
   getFsReadStore,
   readItemOrSingletonDraft,
   type ReadStore,
-} from "./read-store";
-import { resetDraftStoreCache } from "./draft-store";
-import { PublishError } from "../publish";
-import { tourDatesDef } from "./test-fixtures";
-import type { Item } from "./schema";
+} from "./read-store.js";
+import { resetDraftStoreCache } from "./draft-store.js";
+import { PublishError } from "../publish.js";
+import { tourDatesDef } from "./test-fixtures.js";
+import type { Item } from "./schema.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

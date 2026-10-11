@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import config from "./next.config";
+import config, { SOURCE_ALIASES } from "./next.config.js";
 
 describe("next.config — static-asset headers", () => {
   it("declares an async headers() rule list", async () => {
@@ -103,5 +103,34 @@ describe("next.config — static-asset headers", () => {
     // new rule belongs.
     const rules = await config.headers!();
     expect(rules).toHaveLength(2);
+  });
+});
+
+describe("next.config — subpath imports", () => {
+  it("aliases every package.json subpath import to its source target", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const pkg = JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf8")) as {
+      imports: Record<string, { source: string }>;
+    };
+    const expected = Object.fromEntries(
+      Object.entries(pkg.imports).map(([key, target]) => [
+        key.replace(/\/\*$/, ""),
+        path.join(__dirname, target.source.replace(/\/\*$/, "")),
+      ]),
+    );
+    expect(SOURCE_ALIASES).toEqual(expected);
+  });
+
+  it("adds the aliases and maps .js to .ts/.tsx, keeping webpack's own", () => {
+    const webpackConfig = {
+      resolve: { alias: { existing: "/x" }, extensionAlias: { ".mjs": [".mts", ".mjs"] } },
+    };
+    const result = (config.webpack as (c: typeof webpackConfig, o: unknown) => typeof webpackConfig)(
+      webpackConfig,
+      {},
+    );
+    expect(result.resolve.alias).toEqual({ existing: "/x", ...SOURCE_ALIASES });
+    expect(result.resolve.extensionAlias).toEqual({ ".mjs": [".mts", ".mjs"], ".js": [".ts", ".tsx", ".js"] });
   });
 });

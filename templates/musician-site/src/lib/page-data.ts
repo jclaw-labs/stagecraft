@@ -9,11 +9,11 @@
 
 import type { Data } from "@puckeditor/core";
 
-import type { BlockProps } from "@/puck/config";
+import type { BlockProps } from "#puck/config.js";
 
-import { PAGES_FIELD_IDS } from "./collections/field-ids";
-import { pageDataToItemValues } from "./collections/migrate-from-legacy-values";
-import type { Item } from "./collections/schema";
+import { PAGES_FIELD_IDS } from "./collections/field-ids.js";
+import { pageDataToItemValues } from "./collections/migrate-from-legacy-values.js";
+import type { Item } from "./collections/schema.js";
 
 export type PageData = Data<BlockProps>;
 

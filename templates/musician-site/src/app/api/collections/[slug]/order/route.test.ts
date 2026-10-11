@@ -9,18 +9,18 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveToDraft: publishMock };
 });
 
-import { PUT } from "./route";
-import { PAGES_FIELD_IDS, PREBAKED_COLLECTIONS, pagesCollectionDef } from "@/lib/collections/seeds";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
-import { generateItemId, readOrder, writeCollectionDef, writeItem } from "@/lib/collections";
+import { PUT } from "./route.js";
+import { PAGES_FIELD_IDS, PREBAKED_COLLECTIONS, pagesCollectionDef } from "#lib/collections/seeds.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
+import { generateItemId, readOrder, writeCollectionDef, writeItem } from "#lib/collections/index.js";
 
 async function seedPage(slug: string, title: string) {
   const now = new Date().toISOString();
@@ -165,7 +165,7 @@ describe("PUT /api/collections/[slug]/order", () => {
 
   it("returns a 502 failure (never ok: true) on broker failure", async () => {
     getSessionMock.mockResolvedValue({ email: "a@b.c" });
-    const { PublishError } = await import("@/lib/publish");
+    const { PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValueOnce(new PublishError("broker-rejected", "broker rejected"));
     await seedPage("home", "Home");
     const res = await PUT(jsonReq({ order: ["home"] }), ctx("pages"));

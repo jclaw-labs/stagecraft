@@ -57,13 +57,13 @@ import {
   type CollectionDef,
   type Item,
   type ItemFile,
-} from "./schema";
+} from "./schema.js";
 import {
   collectionDefRepoPath,
   itemRepoPath,
   orderRepoPath,
-} from "./store";
-import { sortByField, sortByManualOrder } from "./sort-key";
+} from "./store.js";
+import { sortByField, sortByManualOrder } from "./sort-key.js";
 
 // ---------------------------------------------------------------------------
 // Context + cache

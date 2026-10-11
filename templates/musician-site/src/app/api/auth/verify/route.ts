@@ -6,7 +6,7 @@ import {
   createSessionToken,
   getAllowedEditorEmails,
   verifyMagicLinkToken,
-} from "@/lib/auth";
+} from "#lib/auth.js";
 
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token");

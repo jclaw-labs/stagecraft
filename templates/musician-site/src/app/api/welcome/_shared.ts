@@ -4,14 +4,14 @@
  * Both routes build a singleton item from an existing-or-null base + a
  * fresh values map (preserving `id` / `createdAt` when possible so the
  * publish history is clean). Shaping the item into a publish target is
- * `planItemWrite` in `@/lib/save-content`, which also validates it.
+ * `planItemWrite` in `#lib/save-content`, which also validates it.
  */
 
 import {
   generateItemId,
   SINGLETON_ITEM_SLUG,
   type Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
 /**
  * Merge a fresh `values` map into an existing singleton item, or

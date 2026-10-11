@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 
-import { AppearanceStyles } from "@/components/AppearanceStyles";
-import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
-import { PhotoLightboxBoot } from "@/components/PhotoLightboxBoot";
-import { getFsReadStore } from "@/lib/collections";
-import { readAppearance, readSiteConfig } from "@/lib/content";
-import { type ImageMetadata } from "@/lib/image-types";
+import { AppearanceStyles } from "#components/AppearanceStyles.js";
+import { PageBackgroundUnderlay } from "#components/PageBackgroundUnderlay.js";
+import { PhotoLightboxBoot } from "#components/PhotoLightboxBoot.js";
+import { getFsReadStore } from "#lib/collections/index.js";
+import { readAppearance, readSiteConfig } from "#lib/content.js";
+import { type ImageMetadata } from "#lib/image-types.js";
 
 /**
  * Public-site layout wrapper.

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_THEME_ID, THEME_IDS } from "@/lib/theme-presets";
+import { DEFAULT_THEME_ID, THEME_IDS } from "#lib/theme-presets.js";
 import {
   buildWelcomePayload,
   START_CHOICES,
   WELCOME_STEPS,
   type WelcomeFormValues,
-} from "./welcome-steps";
+} from "./welcome-steps.js";
 
 // A named preset that isn't the default — keeps the "named preset" case
 // distinct from the "empty → default theme" case below, and stays valid

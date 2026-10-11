@@ -5,9 +5,9 @@ import {
   bindableFieldsByKind,
   compatibleFields,
   isFieldTypeCompatible,
-} from "./bindable-slots";
-import type { CollectionDef } from "../schema";
-import { BLOCKS } from "@/puck/config";
+} from "./bindable-slots.js";
+import type { CollectionDef } from "../schema.js";
+import { BLOCKS } from "#puck/config.js";
 
 function def(): CollectionDef {
   return {

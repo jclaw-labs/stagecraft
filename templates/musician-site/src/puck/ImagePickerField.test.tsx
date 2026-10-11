@@ -14,16 +14,16 @@ import userEvent from "@testing-library/user-event";
 const { uploadImageFromClientMock } = vi.hoisted(() => ({
   uploadImageFromClientMock: vi.fn(),
 }));
-vi.mock("@/lib/upload-image-client", async () => {
+vi.mock("#lib/upload-image-client.js", async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/upload-image-client")>(
-      "@/lib/upload-image-client",
+    await vi.importActual<typeof import("#lib/upload-image-client.js")>(
+      "#lib/upload-image-client.js",
     );
   return { ...actual, uploadImageFromClient: uploadImageFromClientMock };
 });
 
-import { ImagePickerField, SanitisedHint } from "./ImagePickerField";
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { ImagePickerField, SanitisedHint } from "./ImagePickerField.js";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
 const VALUE: ImageMetadata = {
   id: asImageId("abc1234567890def"),

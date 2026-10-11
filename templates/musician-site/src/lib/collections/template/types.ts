@@ -9,7 +9,7 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import type { Bindable, CollectionDef, FieldId, Item } from "../schema";
+import type { Bindable, CollectionDef, FieldId, Item } from "../schema.js";
 
 /** One block instance inside a template. Maps to one rendered React element. */
 export type BlockInstance = {

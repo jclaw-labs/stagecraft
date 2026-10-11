@@ -4,7 +4,7 @@ import {
   DRAFT_BRANCH,
   resolveDraftBranch,
   resolveDraftBranchForRequest,
-} from "./draft-branch";
+} from "./draft-branch.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

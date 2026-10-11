@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { UnpublishedBadge } from "@/components/admin/UnpublishedBadge";
+import { UnpublishedBadge } from "#components/admin/UnpublishedBadge.js";
 
 /**
  * Standard page-frame around a single admin panel. Holds the title +

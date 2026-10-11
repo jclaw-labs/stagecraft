@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { seedDemoContent, seedDetailPageFixtures } from "./setup/seed";
+import { seedDemoContent, seedDetailPageFixtures } from "./setup/seed.js";
 
 /**
  * Public pages must never scroll sideways (#388).

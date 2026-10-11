@@ -17,15 +17,15 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveToDraft: publishMock };
 });
 
-import { DELETE, PATCH, PUT } from "./route";
+import { DELETE, PATCH, PUT } from "./route.js";
 import {
   collectionDefSchema,
   CURRENT_COLLECTION_SCHEMA_VERSION,
@@ -36,7 +36,7 @@ import {
   writeOrder,
   type CollectionDef,
   type Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
 let TMP_CONTENT_DIR: string;
 
@@ -263,7 +263,7 @@ describe("platform configured (production) — issue #345", () => {
   });
 
   it("returns 502 (never ok: true) when the commit fails, still without a local write", async () => {
-    const { PublishError } = await import("@/lib/publish");
+    const { PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(new PublishError("github-failed", "commit to draft: boom"));
 
     const res = await putReq("booking-info", "_singleton", {
@@ -279,7 +279,7 @@ describe("platform configured (production) — issue #345", () => {
   });
 
   it("maps a concurrent-edit commit failure to 409", async () => {
-    const { PublishError } = await import("@/lib/publish");
+    const { PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(
       new PublishError("concurrent-edit", "heads/draft: retries exhausted"),
     );

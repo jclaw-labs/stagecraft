@@ -32,13 +32,13 @@ import {
   type FieldType,
   type FieldValue,
   type Item,
-} from "./schema";
+} from "./schema.js";
 import {
   BINDABLE_SLOTS,
   isFieldTypeCompatible,
   type BindableSlotKind,
-} from "./template/bindable-slots";
-import { canTransition } from "./field-classification";
+} from "./template/bindable-slots.js";
+import { canTransition } from "./field-classification.js";
 
 // ---------------------------------------------------------------------------
 // Allowed type transitions (ADR §11)
@@ -48,7 +48,7 @@ import { canTransition } from "./field-classification";
 // `field-classification.ts` so the client-side schema editor can check a
 // retype before warning about it (#352). Re-exported here for existing
 // importers.
-export { canTransition, LOSSLESS_TYPE_TRANSITIONS } from "./field-classification";
+export { canTransition, LOSSLESS_TYPE_TRANSITIONS } from "./field-classification.js";
 
 // ---------------------------------------------------------------------------
 // Counting affected items

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   DeployStatusError,
   fetchDeployStatus,
-} from "@/lib/deploy-status";
+} from "#lib/deploy-status.js";
 
 /**
  * Editor-facing wrapper around the platform's broker deploy-status route.

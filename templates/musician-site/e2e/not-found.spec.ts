@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { seedCompletedSite } from "./setup/seed";
+import { seedCompletedSite } from "./setup/seed.js";
 
 /**
  * Admin responses must not carry the public layout, and both 404s must

@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { collectionDefSchema } from "./schema";
+import { collectionDefSchema } from "./schema.js";
 import {
   appearanceCollectionDef,
   headerCollectionDef,
@@ -25,7 +25,7 @@ import {
   TOUR_DATES_FIELD_IDS,
   videosCollectionDef,
   VIDEOS_FIELD_IDS,
-} from "./seeds";
+} from "./seeds.js";
 
 describe("prebaked CollectionDefs", () => {
   it.each([

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Footer } from "./Footer";
-import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
+import { Footer } from "./Footer.js";
+import { DEFAULT_SITE_CONFIG } from "#lib/site-config-types.js";
 
 function renderFooter(siteOverride: Partial<typeof DEFAULT_SITE_CONFIG> = {}) {
   const site = { ...DEFAULT_SITE_CONFIG, ...siteOverride };

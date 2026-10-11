@@ -17,7 +17,7 @@ import {
   writeJson,
   writeJsonAtomic,
   writeJsonBatchAtomic,
-} from "./fs-helpers";
+} from "./fs-helpers.js";
 
 let TMP_DIR: string;
 

@@ -30,13 +30,13 @@ import {
   NumberField,
   SelectField,
   TextField,
-} from "@/components/admin/form";
+} from "#components/admin/form.js";
 import type {
   CollectionDef,
   FieldDef,
   FieldType,
   SelectOption,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 // Direct from the field-classification submodule — node-import-free
 // so this client component doesn't drag schema.ts's node:crypto into
 // the browser bundle.
@@ -44,7 +44,7 @@ import {
   FIELD_TYPE_OPTIONS,
   SLUG_SOURCE_COMPATIBLE_TYPES,
   SORTABLE_FIELD_TYPES,
-} from "@/lib/collections/field-classification";
+} from "#lib/collections/field-classification.js";
 // Node-import-free like field-classification: declares which fields the
 // public specialised card views (tour dates, releases, …) depend on.
 import {
@@ -52,11 +52,11 @@ import {
   describeViewFieldProblem,
   viewFieldImpact,
   viewFieldProblems,
-} from "@/lib/collections/template/view-requirements";
+} from "#lib/collections/template/view-requirements.js";
 
 /**
  * Client-side field-id generator. Mirrors `generateFieldId` from
- * `@/lib/collections/schema` but uses the browser's Web Crypto so
+ * `#lib/collections/schema` but uses the browser's Web Crypto so
  * importing this client module doesn't transitively pull `node:crypto`
  * (and the `store.ts` → `fs-helpers.ts` chain) into the bundle.
  */

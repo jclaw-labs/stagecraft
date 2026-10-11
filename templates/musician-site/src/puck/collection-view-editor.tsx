@@ -26,7 +26,7 @@ import type { CSSProperties } from "react";
 import {
   collectionViewProps,
   defaultCollectionViewLimit,
-} from "@/lib/collections/collection-view-props";
+} from "#lib/collections/collection-view-props.js";
 
 export type EmbeddableCollection = {
   /** Collection slug (e.g. `tour-dates`). */

@@ -38,7 +38,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { DeployState } from "@/lib/deploy-status";
+import type { DeployState } from "#lib/deploy-status.js";
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 90_000;

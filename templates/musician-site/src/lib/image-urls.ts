@@ -3,7 +3,7 @@ import {
   isVectorExt,
   type ImageMetadata,
   type ImageVariantFormat,
-} from "./image-types";
+} from "./image-types.js";
 
 /**
  * Path to the unmodified upload on disk. Vector formats (SVG, ICO)

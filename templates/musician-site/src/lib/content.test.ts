@@ -14,15 +14,15 @@ import {
   readPageOrNull,
   readSiteConfig,
   resolveRootPageSlug,
-} from "./content";
-import { emptyPageData, type PageData } from "./page-data";
+} from "./content.js";
+import { emptyPageData, type PageData } from "./page-data.js";
 import {
   PAGES_FIELD_IDS,
   appearanceCollectionDef,
   headerCollectionDef,
   pagesCollectionDef,
   siteCollectionDef,
-} from "./collections/seeds";
+} from "./collections/seeds.js";
 import {
   generateItemId,
   getFsReadStore,
@@ -30,20 +30,20 @@ import {
   writeItem,
   writeOrder,
   writeSingleton,
-} from "./collections";
+} from "./collections/index.js";
 
 const store = getFsReadStore();
-import { pageDataToItem } from "./collections/migrate-from-legacy";
+import { pageDataToItem } from "./collections/migrate-from-legacy.js";
 import {
   appearanceToItemValues,
   headerConfigToItemValues,
   siteConfigToItemValues,
-} from "./collections/migrate-from-legacy-values";
+} from "./collections/migrate-from-legacy-values.js";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_SITE_CONFIG,
-} from "./site-config-types";
+} from "./site-config-types.js";
 
 /**
  * Helpers for tests that previously used the now-removed
@@ -99,7 +99,7 @@ async function setHiddenFromNavLegacy(hiddenSlugs: readonly string[]) {
   // flip its showInNav field. Used by tests that previously set the
   // legacy `siteConfig.hiddenFromNav` and now need to reach the same
   // on-disk state.
-  const { listItemSlugs, readItem } = await import("./collections");
+  const { listItemSlugs, readItem } = await import("./collections/index.js");
   const hidden = new Set(hiddenSlugs);
   const slugs = await listItemSlugs("pages");
   for (const slug of slugs) {
@@ -483,7 +483,7 @@ describe("ensurePrebakedCollections", () => {
     // posts, store-items, photos, and videos were unreachable on a
     // fresh artist site because `listCollectionSlugs()` reads from
     // disk and ignored the registry.
-    const { PREBAKED_COLLECTIONS } = await import("./collections/seeds");
+    const { PREBAKED_COLLECTIONS } = await import("./collections/seeds.js");
     for (const slug of Object.keys(PREBAKED_COLLECTIONS)) {
       const defPath = path.join(
         TMP_CONTENT_DIR,

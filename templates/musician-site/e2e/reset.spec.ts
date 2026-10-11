@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { seedCompletedSite } from "./setup/seed";
+import { seedCompletedSite } from "./setup/seed.js";
 
 const TEST_ARTIST_NAME = "Reset Test Artist";
 

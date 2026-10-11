@@ -22,10 +22,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
-import { DraftChangesError, resolveSelectedChangePaths } from "@/lib/draft-changes";
-import { publishSelectedToMain, PublishError } from "@/lib/publish";
-import { MAX_COMMIT_MESSAGE_LENGTH, publishErrorHttpStatus } from "@/lib/publish-types";
+import { getSession } from "#lib/auth.js";
+import { DraftChangesError, resolveSelectedChangePaths } from "#lib/draft-changes.js";
+import { publishSelectedToMain, PublishError } from "#lib/publish.js";
+import { MAX_COMMIT_MESSAGE_LENGTH, publishErrorHttpStatus } from "#lib/publish-types.js";
 
 const requestSchema = z
   .object({

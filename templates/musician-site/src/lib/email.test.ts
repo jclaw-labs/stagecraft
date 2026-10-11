@@ -12,7 +12,7 @@ import {
   MAGIC_LINK_FROM_DEFAULT,
   sendContactEmail,
   sendMagicLink,
-} from "./email";
+} from "./email.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

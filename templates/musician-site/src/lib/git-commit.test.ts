@@ -28,7 +28,7 @@ import {
   mergeBranchInto,
   resetBranchTo,
   squashBranchInto,
-} from "./git-commit";
+} from "./git-commit.js";
 
 beforeEach(() => {
   getRef.mockReset();

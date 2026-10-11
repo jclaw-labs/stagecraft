@@ -20,22 +20,22 @@
 import type { ReactNode } from "react";
 import { Render, type ComponentConfig, type Config } from "@puckeditor/core";
 
-import type { CollectionDef, Item } from "@/lib/collections/schema";
+import type { CollectionDef, Item } from "#lib/collections/schema.js";
 import {
   blockNameForCollection,
   DefaultItemFieldsList,
   type CollectionBlockResolvedProps,
-} from "@/lib/collections/template/collection-block";
-import { resolveTemplate } from "@/lib/collections/template/renderer";
+} from "#lib/collections/template/collection-block.js";
+import { resolveTemplate } from "#lib/collections/template/renderer.js";
 import {
   emptyMessageFor,
   specialisedRendererForDef,
   type SpecialisedRenderer,
-} from "@/lib/collections/template/specialized-views";
-import type { LoadedCollections, Template } from "@/lib/collections/template/types";
-import { isSpecialisedViewSlug } from "@/lib/collections/template/view-requirements";
+} from "#lib/collections/template/specialized-views.js";
+import type { LoadedCollections, Template } from "#lib/collections/template/types.js";
+import { isSpecialisedViewSlug } from "#lib/collections/template/view-requirements.js";
 
-import { BLOCKS, type BlockLibraryConfig } from "./config";
+import { BLOCKS, type BlockLibraryConfig } from "./config.js";
 
 type AnyComponent = ComponentConfig<Record<string, unknown>>;
 

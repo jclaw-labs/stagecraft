@@ -24,7 +24,7 @@
  * can load it straight from Node (type stripping).
  */
 
-import type { CollectionDef, FieldValue } from "./schema";
+import type { CollectionDef, FieldValue } from "./schema.js";
 
 type BlockLike = { type: string; props?: Record<string, unknown> };
 

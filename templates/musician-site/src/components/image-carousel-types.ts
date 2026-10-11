@@ -11,7 +11,7 @@
  * `puck-content-value.ts`, `field-ids.ts`.
  */
 
-import type { ImageMetadata } from "@/lib/image-types";
+import type { ImageMetadata } from "#lib/image-types.js";
 
 export const CAROUSEL_ASPECT_RATIOS = ["16/9", "4/3", "1/1", "3/4"] as const;
 export type CarouselAspectRatio = (typeof CAROUSEL_ASPECT_RATIOS)[number];

@@ -40,8 +40,8 @@ import {
   prepareItemFileWrite,
   type CollectionDef,
   type Item,
-} from "./collections";
-import { writeJsonAtomic } from "./fs-helpers";
+} from "./collections/index.js";
+import { writeJsonAtomic } from "./fs-helpers.js";
 import {
   DraftSavedPublishError,
   isPlatformConfigured,
@@ -53,7 +53,7 @@ import {
   type PublishArgs,
   type PublishResult,
   type PublishTarget,
-} from "./publish";
+} from "./publish.js";
 
 export type SaveContentArgs = PublishArgs & {
   /**

@@ -38,19 +38,19 @@ import {
   SelectField,
   TextField,
   TextareaField,
-} from "@/components/admin/form";
-import { ImagePickerField } from "@/puck/ImagePickerField";
+} from "#components/admin/form.js";
+import { ImagePickerField } from "#puck/ImagePickerField.js";
 
 import type {
   CollectionDef,
   FieldDef,
   FieldValue,
   Item,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 // Direct from the puck-content-value submodule (no node:crypto
 // pull-in via schema.ts). Same client-bundle discipline as
 // `filter-schema.ts`.
-import { puckContentValue } from "@/lib/collections/puck-content-value";
+import { puckContentValue } from "#lib/collections/puck-content-value.js";
 
 export type ReferenceOptions = Record<
   string /* targetCollectionSlug */,

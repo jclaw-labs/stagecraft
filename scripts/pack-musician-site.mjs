@@ -1,0 +1,209 @@
+#!/usr/bin/env node
+// @ts-check
+/**
+ * pack-musician-site.mjs — build and pack `@jclaw-labs/content-upgraders`
+ * and `@jclaw-labs/musician-site` into npm tarballs (ADR-016 §2).
+ *
+ * In the monorepo the template depends on the upgraders through
+ * `file:../../packages/content-upgraders`, which can't install anywhere
+ * else. The packed template points that dependency at:
+ *
+ *   - the upgraders tarball, by absolute path (default, for local checks);
+ *   - the exact upgraders version on npm (`--release`, for publishing).
+ *
+ * Both packed package.json files also drop the `source` condition (the
+ * template's from `imports`, the upgraders' from `exports`), since `src/`
+ * isn't in either tarball. Both packages are versioned in lockstep, and
+ * the script refuses to pack when they differ.
+ *
+ * Usage (from the repo root, after `npm ci` at the root and in
+ * templates/musician-site):
+ *   node scripts/pack-musician-site.mjs [--release] [--out DIR]
+ *
+ * Prints the two tarball paths as JSON on the last line of stdout.
+ */
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const UPGRADERS_DIR = path.join(REPO_ROOT, "packages/content-upgraders");
+export const TEMPLATE_DIR = path.join(REPO_ROOT, "templates/musician-site");
+export const UPGRADERS_NAME = "@jclaw-labs/content-upgraders";
+
+/**
+ * @typedef {{
+ *   name: string;
+ *   version: string;
+ *   imports?: Record<string, string | Record<string, string>>;
+ *   exports?: Record<string, string | Record<string, string>>;
+ *   dependencies?: Record<string, string>;
+ *   [key: string]: unknown;
+ * }} PackageJson
+ */
+
+/**
+ * A subpath map (`imports` or `exports`) without its `source` conditions.
+ *
+ * @param {NonNullable<PackageJson["imports"]>} map
+ * @returns {NonNullable<PackageJson["imports"]>}
+ */
+function withoutSource(map) {
+  /** @type {NonNullable<PackageJson["imports"]>} */
+  const out = {};
+  for (const [key, target] of Object.entries(map)) {
+    if (typeof target === "string") {
+      out[key] = target;
+    } else {
+      const { source: _source, ...rest } = target;
+      out[key] = rest;
+    }
+  }
+  return out;
+}
+
+/**
+ * The template's package.json as it goes into the tarball: the upgraders
+ * dependency set to `upgradersSpec`, and no `source` conditions.
+ *
+ * @param {PackageJson} pkg
+ * @param {string} upgradersSpec
+ * @returns {PackageJson}
+ */
+export function packedTemplatePackageJson(pkg, upgradersSpec) {
+  if (!pkg.dependencies?.[UPGRADERS_NAME]) {
+    throw new Error(`${pkg.name} has no ${UPGRADERS_NAME} dependency to pin.`);
+  }
+  return {
+    ...pkg,
+    ...(pkg.imports ? { imports: withoutSource(pkg.imports) } : {}),
+    dependencies: { ...pkg.dependencies, [UPGRADERS_NAME]: upgradersSpec },
+  };
+}
+
+/**
+ * The upgraders' package.json as it goes into the tarball: no `source`
+ * conditions in `exports`.
+ *
+ * @param {PackageJson} pkg
+ * @returns {PackageJson}
+ */
+export function packedUpgradersPackageJson(pkg) {
+  return { ...pkg, ...(pkg.exports ? { exports: withoutSource(pkg.exports) } : {}) };
+}
+
+/**
+ * The upgraders spec the packed template depends on.
+ *
+ * @param {{ release: boolean; upgradersVersion: string; upgradersTarball: string }} input
+ */
+export function upgradersSpec({ release, upgradersVersion, upgradersTarball }) {
+  return release ? upgradersVersion : `file:${upgradersTarball}`;
+}
+
+/**
+ * Both packages must carry the same version.
+ *
+ * @param {PackageJson} template
+ * @param {PackageJson} upgraders
+ */
+export function assertLockstep(template, upgraders) {
+  if (template.version !== upgraders.version) {
+    throw new Error(
+      `${template.name}@${template.version} and ${upgraders.name}@${upgraders.version} must share a version.`,
+    );
+  }
+}
+
+/** @param {string} dir @returns {PackageJson} */
+function readPackageJson(dir) {
+  return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+}
+
+/**
+ * `npm pack` in `dir` into `outDir`; returns the tarball's absolute path.
+ *
+ * @param {string} dir
+ * @param {string} outDir
+ */
+function npmPack(dir, outDir) {
+  const out = execFileSync("npm", ["pack", "--json", "--pack-destination", outDir], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const [{ filename }] = JSON.parse(out);
+  return path.join(outDir, filename);
+}
+
+/**
+ * The files `npm pack` would include from `dir`, relative to it.
+ *
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function packFileList(dir) {
+  const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const [{ files }] = JSON.parse(out);
+  return files.map((/** @type {{ path: string }} */ f) => f.path);
+}
+
+/**
+ * `npm pack` a staged copy of `dir` with `packageJson` in place of its
+ * package.json, so the rewritten file never touches the checkout.
+ *
+ * @param {string} dir
+ * @param {PackageJson} packageJson
+ * @param {string} outDir
+ */
+function packStaged(dir, packageJson, outDir) {
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), "musician-site-pack-"));
+  try {
+    for (const file of packFileList(dir)) {
+      fs.mkdirSync(path.dirname(path.join(stage, file)), { recursive: true });
+      fs.copyFileSync(path.join(dir, file), path.join(stage, file));
+    }
+    fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify(packageJson, null, 2) + "\n");
+    return npmPack(stage, outDir);
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Build and pack both packages into `outDir`.
+ *
+ * @param {{ release?: boolean; outDir: string }} options
+ * @returns {{ upgraders: string; template: string }}
+ */
+export function packMusicianSite({ release = false, outDir }) {
+  const upgraders = readPackageJson(UPGRADERS_DIR);
+  const template = readPackageJson(TEMPLATE_DIR);
+  assertLockstep(template, upgraders);
+  fs.mkdirSync(outDir, { recursive: true });
+
+  execFileSync("npm", ["run", "build"], { cwd: UPGRADERS_DIR, stdio: ["ignore", "inherit", "inherit"] });
+  const upgradersTarball = packStaged(UPGRADERS_DIR, packedUpgradersPackageJson(upgraders), outDir);
+
+  execFileSync("npm", ["run", "build:package"], { cwd: TEMPLATE_DIR, stdio: ["ignore", "inherit", "inherit"] });
+  const spec = upgradersSpec({ release, upgradersVersion: upgraders.version, upgradersTarball });
+  return {
+    upgraders: upgradersTarball,
+    template: packStaged(TEMPLATE_DIR, packedTemplatePackageJson(template, spec), outDir),
+  };
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const args = process.argv.slice(2);
+  const outIndex = args.indexOf("--out");
+  const outDir = path.resolve(outIndex >= 0 ? args[outIndex + 1] : path.join(REPO_ROOT, ".pack"));
+  const result = packMusicianSite({ release: args.includes("--release"), outDir });
+  console.log(JSON.stringify(result));
+}

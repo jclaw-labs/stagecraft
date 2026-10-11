@@ -5,14 +5,14 @@ import {
   findCollectionBlockSources,
   resolveCollectionBlockProps,
   type CollectionBlockRawProps,
-} from "./collection-block";
-import type { Template } from "./types";
-import { collectionViewProps } from "../collection-view-props";
-import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, FieldDef, FilterClause, Item } from "../schema";
-import { releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
-import { FIXTURE_TIMESTAMP } from "../test-fixtures";
-import { asImageId } from "@/lib/image-types";
+} from "./collection-block.js";
+import type { Template } from "./types.js";
+import { collectionViewProps } from "../collection-view-props.js";
+import { RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, FieldDef, FilterClause, Item } from "../schema.js";
+import { releasesCollectionDef, tourDatesCollectionDef } from "../seeds.js";
+import { FIXTURE_TIMESTAMP } from "../test-fixtures.js";
+import { asImageId } from "#lib/image-types.js";
 
 function dateItem(slug: string, date: string, venue: string): Item {
   return {

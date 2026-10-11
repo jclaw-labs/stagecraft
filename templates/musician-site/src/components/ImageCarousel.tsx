@@ -10,13 +10,13 @@ import {
   type ReactNode,
 } from "react";
 
-import { Image } from "@/components/Image";
+import { Image } from "#components/Image.js";
 
 import {
   CAROUSEL_ASPECT_RATIOS,
   type CarouselAspectRatio,
   type ImageCarouselSlide,
-} from "./image-carousel-types";
+} from "./image-carousel-types.js";
 
 /**
  * ImageCarousel — scroll-snap carousel with React-driven controls.

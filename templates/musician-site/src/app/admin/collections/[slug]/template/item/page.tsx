@@ -5,13 +5,13 @@
 
 import { notFound } from "next/navigation";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   getRequestReadStore,
   slugSchema,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
-import { TemplateEditorClient } from "../TemplateEditorClient";
+import { TemplateEditorClient } from "../TemplateEditorClient.js";
 
 type Params = { slug: string };
 

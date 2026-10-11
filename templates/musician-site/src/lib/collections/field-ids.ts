@@ -15,8 +15,8 @@
  * consumed them from the seeds module before the split.
  */
 
-import type { FieldId } from "./schema";
-import type { ColorField, SocialPlatform } from "../site-config-types";
+import type { FieldId } from "./schema.js";
+import type { ColorField, SocialPlatform } from "../site-config-types.js";
 
 const socialFieldId = (platform: SocialPlatform): FieldId =>
   `fld_site_social_${platform}`;

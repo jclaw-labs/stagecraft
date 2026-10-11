@@ -8,19 +8,19 @@ import { Render, type Data } from "@puckeditor/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildFirstRunSeed, homePageItemValues } from "@/lib/first-run-seeds";
-import { buildRenderConfig } from "@/puck/render-config";
+import { buildFirstRunSeed, homePageItemValues } from "#lib/first-run-seeds.js";
+import { buildRenderConfig } from "#puck/render-config.js";
 
 import {
   migrateBlocks,
   migrateCollectionDef,
   migrateBlockLibraryValues,
   migratePuckData,
-} from "./migrate-block-library";
-import type { CollectionDef, FieldValue, Item } from "./schema";
-import { PREBAKED_COLLECTIONS } from "./seeds";
-import { resolveTemplate } from "./template/renderer";
-import type { Template } from "./template/types";
+} from "./migrate-block-library.js";
+import type { CollectionDef, FieldValue, Item } from "./schema.js";
+import { PREBAKED_COLLECTIONS } from "./seeds.js";
+import { resolveTemplate } from "./template/renderer.js";
+import type { Template } from "./template/types.js";
 
 const run = promisify(execFile);
 const APP_DIR = process.cwd();

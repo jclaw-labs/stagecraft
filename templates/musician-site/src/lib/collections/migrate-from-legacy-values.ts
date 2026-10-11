@@ -18,7 +18,7 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import type { ImageMetadata } from "../image-types";
+import type { ImageMetadata } from "../image-types.js";
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_DESIGN,
@@ -33,15 +33,15 @@ import {
   type SocialPlatform,
   COLOR_FIELDS,
   SOCIAL_PLATFORMS,
-} from "../site-config-types";
+} from "../site-config-types.js";
 
-import type { Item } from "./schema";
+import type { Item } from "./schema.js";
 import {
   APPEARANCE_FIELD_IDS,
   HEADER_FIELD_IDS,
   PAGES_FIELD_IDS,
   SITE_FIELD_IDS,
-} from "./field-ids";
+} from "./field-ids.js";
 
 // ---------------------------------------------------------------------------
 // Pages — value-shape conversion only. Item-creating helper that needs

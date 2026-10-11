@@ -6,7 +6,7 @@ import {
   parseHex,
   relativeLuminance,
   WCAG_AA_NORMAL,
-} from "./contrast";
+} from "./contrast.js";
 
 describe("parseHex", () => {
   it("parses #rrggbb and #rgb", () => {

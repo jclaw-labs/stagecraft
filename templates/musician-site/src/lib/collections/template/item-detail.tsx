@@ -26,17 +26,17 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Render } from "@puckeditor/core";
 
-import { Image } from "@/components/Image";
-import type { ImageMetadata } from "@/lib/image-types";
-import { buildRenderConfig } from "@/puck/render-config";
+import { Image } from "#components/Image.js";
+import type { ImageMetadata } from "#lib/image-types.js";
+import { buildRenderConfig } from "#puck/render-config.js";
 
-import { itemDisplayLabel, selectOptionLabel } from "../accessors";
-import { TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, FieldDef, FieldId, Item, TiptapJSON } from "../schema";
-import { resolveTemplate } from "./renderer";
-import { renderTiptap } from "./tiptap-render";
-import type { Template } from "./types";
-import { viewFieldIdFor } from "./view-requirements";
+import { itemDisplayLabel, selectOptionLabel } from "../accessors.js";
+import { TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, FieldDef, FieldId, Item, TiptapJSON } from "../schema.js";
+import { resolveTemplate } from "./renderer.js";
+import { renderTiptap } from "./tiptap-render.js";
+import type { Template } from "./types.js";
+import { viewFieldIdFor } from "./view-requirements.js";
 
 // ---------------------------------------------------------------------------
 // Field → section classification (pure; exported for tests)

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { PAGES_FIELD_IDS } from "./collections/field-ids";
-import type { Item } from "./collections/schema";
-import { emptyPageData, pageValuesForSave } from "./page-data";
+import { PAGES_FIELD_IDS } from "./collections/field-ids.js";
+import type { Item } from "./collections/schema.js";
+import { emptyPageData, pageValuesForSave } from "./page-data.js";
 
 describe("emptyPageData", () => {
   it("includes a heading and root props with the title", () => {

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { generateMetadata as generatePublicLayoutMetadata } from "./layout";
-import { getFsReadStore } from "@/lib/collections";
-import { readSiteConfig } from "@/lib/content";
+import { generateMetadata as generatePublicLayoutMetadata } from "./layout.js";
+import { getFsReadStore } from "#lib/collections/index.js";
+import { readSiteConfig } from "#lib/content.js";
 
 /**
  * Public 404 body, in the artist's theme.

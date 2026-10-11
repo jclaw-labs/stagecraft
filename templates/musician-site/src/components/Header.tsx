@@ -1,14 +1,14 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
-import { Image as PublicImage } from "@/components/Image";
+import { Image as PublicImage } from "#components/Image.js";
 import {
   isGlassHeader,
   isStickyHeader,
   isTransparentHeader,
   type HeaderConfig,
   type HeaderLayout,
-} from "@/lib/site-config-types";
+} from "#lib/site-config-types.js";
 
 /**
  * Public site header. Renders the artist name (or wordmark image) + the

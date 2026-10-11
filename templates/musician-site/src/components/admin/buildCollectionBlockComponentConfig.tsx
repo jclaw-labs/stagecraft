@@ -43,12 +43,12 @@
 import type { CSSProperties } from "react";
 import type { Config, Field } from "@puckeditor/core";
 
-import { FilterField } from "./FilterField";
-import { ManageCollectionLink } from "./ManageCollectionLink";
+import { FilterField } from "./FilterField.js";
+import { ManageCollectionLink } from "./ManageCollectionLink.js";
 
-import type { CollectionDef } from "@/lib/collections/schema";
-import { SORTABLE_FIELD_TYPES } from "@/lib/collections/field-classification";
-import type { Filter } from "@/lib/collections/filter-schema";
+import type { CollectionDef } from "#lib/collections/schema.js";
+import { SORTABLE_FIELD_TYPES } from "#lib/collections/field-classification.js";
+import type { Filter } from "#lib/collections/filter-schema.js";
 
 type ComponentConfig = Config["components"][string];
 

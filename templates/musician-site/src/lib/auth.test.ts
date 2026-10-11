@@ -6,7 +6,7 @@ import {
   getAllowedEditorEmails,
   verifyMagicLinkToken,
   verifySessionToken,
-} from "./auth";
+} from "./auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

@@ -1,18 +1,18 @@
-import { type FileToCommit } from "./git-commit";
+import { type FileToCommit } from "./git-commit.js";
 import {
   generateImageVariants,
   variantFilename,
   type ProcessImageInput,
   type SanitisedInfo,
-} from "./image";
-import { type ImageMetadata } from "./image-types";
+} from "./image.js";
+import { type ImageMetadata } from "./image-types.js";
 import {
   _commitToDraft as commitToDraft,
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
   readEnv,
-} from "./publish";
+} from "./publish.js";
 
 /**
  * Layout under `public/images/` that both the local-disk and broker paths

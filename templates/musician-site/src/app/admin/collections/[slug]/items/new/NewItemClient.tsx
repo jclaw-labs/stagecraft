@@ -3,7 +3,7 @@
  *
  * Adds a slug input above the field editor — the slug becomes the
  * item's filename. Slug suggestions come from
- * `@/lib/collections/suggest-slug`, which handles both the common
+ * `#lib/collections/suggest-slug`, which handles both the common
  * text-source case and the photo-specific image-derived case.
  */
 
@@ -12,13 +12,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { ItemEditor, type ReferenceOptions } from "@/components/admin/ItemEditor";
-import { SaveBar, type SaveStatus } from "@/components/admin/SaveBar";
-import { TextField } from "@/components/admin/form";
+import { ItemEditor, type ReferenceOptions } from "#components/admin/ItemEditor.js";
+import { SaveBar, type SaveStatus } from "#components/admin/SaveBar.js";
+import { TextField } from "#components/admin/form.js";
 
-import { suggestSlug } from "@/lib/collections/suggest-slug";
-import type { CollectionDef, Item } from "@/lib/collections";
-import { type ItemRouteFailureBody, saveErrorMessage } from "@/lib/collections/save-error";
+import { suggestSlug } from "#lib/collections/suggest-slug.js";
+import type { CollectionDef, Item } from "#lib/collections/index.js";
+import { type ItemRouteFailureBody, saveErrorMessage } from "#lib/collections/save-error.js";
 
 export function NewItemClient({
   def,

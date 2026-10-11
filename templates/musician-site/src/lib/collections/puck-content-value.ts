@@ -19,7 +19,7 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import type { FieldValue } from "./schema";
+import type { FieldValue } from "./schema.js";
 
 export function puckContentValue(
   data: PuckData,

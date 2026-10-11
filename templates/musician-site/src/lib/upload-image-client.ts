@@ -6,7 +6,7 @@ import {
   type ImageMetadata,
   type SanitisedInfoWire,
   uploadResponseSchema,
-} from "./image-types";
+} from "./image-types.js";
 
 /**
  * Single bucket for editor-uploaded images. The `contentSlug` slot in

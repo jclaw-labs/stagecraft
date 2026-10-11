@@ -9,10 +9,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { SchemaEditorClient } from "./SchemaEditorClient";
-import type { CollectionDef } from "@/lib/collections";
-import { TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
-import { tourDatesCollectionDef } from "@/lib/collections/seeds";
+import { SchemaEditorClient } from "./SchemaEditorClient.js";
+import type { CollectionDef } from "#lib/collections/index.js";
+import { TOUR_DATES_FIELD_IDS } from "#lib/collections/field-ids.js";
+import { tourDatesCollectionDef } from "#lib/collections/seeds.js";
 
 afterEach(() => {
   cleanup();

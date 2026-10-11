@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deployedSiteOrigin } from "./site-origin";
+import { deployedSiteOrigin } from "./site-origin.js";
 
 const NETLIFY = { NETLIFY: "true" };
 

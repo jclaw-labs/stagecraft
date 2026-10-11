@@ -25,7 +25,7 @@ import {
   siteConfigSchema,
   slugifyTitle,
   SOCIAL_PLATFORMS,
-} from "./site-config-types";
+} from "./site-config-types.js";
 
 describe("siteConfigSchema", () => {
   it("parses the default config", () => {

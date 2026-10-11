@@ -21,7 +21,7 @@
  */
 import { z } from "zod";
 
-import { imageMetadataSchema } from "./image-types";
+import { imageMetadataSchema } from "./image-types.js";
 
 // ---------------------------------------------------------------------------
 // Social link platforms

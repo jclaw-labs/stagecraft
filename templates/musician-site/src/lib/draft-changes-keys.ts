@@ -1,4 +1,4 @@
-import { type DraftChange } from "./draft-changes";
+import { type DraftChange } from "./draft-changes.js";
 
 /**
  * Stable identity for a pending change, used to map a publish-modal

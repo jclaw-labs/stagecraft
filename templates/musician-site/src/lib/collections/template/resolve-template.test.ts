@@ -9,13 +9,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { binding, literal } from "./binding";
-import { resolveTemplate } from "./renderer";
-import type { Template } from "./types";
-import { TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, Item } from "../schema";
-import { tourDatesCollectionDef } from "../seeds";
-import { FIXTURE_TIMESTAMP } from "../test-fixtures";
+import { binding, literal } from "./binding.js";
+import { resolveTemplate } from "./renderer.js";
+import type { Template } from "./types.js";
+import { TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, Item } from "../schema.js";
+import { tourDatesCollectionDef } from "../seeds.js";
+import { FIXTURE_TIMESTAMP } from "../test-fixtures.js";
 
 function makeItem(values: Item["values"]): Item {
   return {

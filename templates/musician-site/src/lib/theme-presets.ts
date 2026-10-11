@@ -18,7 +18,7 @@
  * `design/theme-comps/` (the structure archetypes `frame`/`card` are page
  * layouts, not themes, so they aren't presets).
  */
-import { type Appearance, type HeaderConfig } from "./site-config-types";
+import { type Appearance, type HeaderConfig } from "./site-config-types.js";
 
 export const THEME_IDS = [
   "meadow",

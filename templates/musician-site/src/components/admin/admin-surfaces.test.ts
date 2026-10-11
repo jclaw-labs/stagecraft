@@ -11,7 +11,7 @@ import {
   CUSTOM_ADMIN_SURFACES,
   CUSTOM_PANEL_COLLECTION_SLUGS,
   findCustomSurface,
-} from "./admin-surfaces";
+} from "./admin-surfaces.js";
 
 describe("findCustomSurface", () => {
   it("returns the registered surface for a known custom-panel slug", () => {

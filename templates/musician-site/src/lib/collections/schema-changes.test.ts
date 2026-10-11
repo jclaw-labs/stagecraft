@@ -9,9 +9,9 @@ import {
   LOSSLESS_TYPE_TRANSITIONS,
   migrateItemValues,
   validateSchemaChange,
-} from "./schema-changes";
-import type { CollectionDef, Item } from "./schema";
-import { FIXTURE_TIMESTAMP, tourDateItem, tourDatesDef } from "./test-fixtures";
+} from "./schema-changes.js";
+import type { CollectionDef, Item } from "./schema.js";
+import { FIXTURE_TIMESTAMP, tourDateItem, tourDatesDef } from "./test-fixtures.js";
 
 function itemValuesUsing(fieldId: string, value = "x"): Item["values"] {
   return { [fieldId]: { type: "text" as const, value } };

@@ -25,10 +25,10 @@
 
 "use client";
 
-import type { ImageMetadata } from "@/lib/image-types";
-import type { BindableRef, FieldDef } from "@/lib/collections";
+import type { ImageMetadata } from "#lib/image-types.js";
+import type { BindableRef, FieldDef } from "#lib/collections/index.js";
 
-import { ImagePickerField } from "@/puck/ImagePickerField";
+import { ImagePickerField } from "#puck/ImagePickerField.js";
 
 // ---------------------------------------------------------------------------
 // Shared chrome

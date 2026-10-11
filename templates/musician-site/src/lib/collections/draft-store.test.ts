@@ -22,9 +22,9 @@ import {
   readSingletonFromDraft,
   resetDraftStoreCache,
   type DraftStoreContext,
-} from "./draft-store";
-import { tourDatesDef } from "./test-fixtures";
-import type { CollectionDef } from "./schema";
+} from "./draft-store.js";
+import { tourDatesDef } from "./test-fixtures.js";
+import type { CollectionDef } from "./schema.js";
 
 const CTX: DraftStoreContext = {
   token: "t",

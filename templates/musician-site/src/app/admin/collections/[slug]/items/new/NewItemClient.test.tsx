@@ -7,12 +7,12 @@ const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
 // Stub the field editor: the save handler is what's under test.
-vi.mock("@/components/admin/ItemEditor", () => ({ ItemEditor: () => null }));
+vi.mock("#components/admin/ItemEditor.js", () => ({ ItemEditor: () => null }));
 
-import type { Item } from "@/lib/collections/schema";
-import { tourDatesDef } from "@/lib/collections/test-fixtures";
+import type { Item } from "#lib/collections/schema.js";
+import { tourDatesDef } from "#lib/collections/test-fixtures.js";
 
-import { NewItemClient } from "./NewItemClient";
+import { NewItemClient } from "./NewItemClient.js";
 
 function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };

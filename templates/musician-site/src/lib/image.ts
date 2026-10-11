@@ -13,8 +13,8 @@ import {
   type ImageVariantWidth,
   asImageId,
   isVectorExt,
-} from "./image-types";
-import { sanitiseSvg } from "./svg-sanitise";
+} from "./image-types.js";
+import { sanitiseSvg } from "./svg-sanitise.js";
 
 const PUBLIC_IMAGES_DIR = path.join(process.cwd(), "public/images");
 const HASH_LENGTH = 16;

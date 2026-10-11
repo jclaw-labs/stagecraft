@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
-import { commitUploadedImage } from "@/lib/commit-image";
-import { processImage } from "@/lib/image";
+import { getSession } from "#lib/auth.js";
+import { commitUploadedImage } from "#lib/commit-image.js";
+import { processImage } from "#lib/image.js";
 import {
   ALLOWED_INPUT_MIME_TYPES,
   MAX_UPLOAD_BYTES,
@@ -12,9 +12,9 @@ import {
   type FocalPoint,
   type ImageMetadata,
   uploadResponseSchema,
-} from "@/lib/image-types";
-import { isPlatformConfigured, PublishError } from "@/lib/publish";
-import { publishErrorHttpStatus } from "@/lib/publish-types";
+} from "#lib/image-types.js";
+import { isPlatformConfigured, PublishError } from "#lib/publish.js";
+import { publishErrorHttpStatus } from "#lib/publish-types.js";
 
 /**
  * Form fields parsed alongside the file. Caption / credit / focalPoint

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cardMediaFilename, inferCardMediaKind } from "./card-media";
+import { cardMediaFilename, inferCardMediaKind } from "./card-media.js";
 
 describe("inferCardMediaKind", () => {
   it("classifies common audio extensions", () => {

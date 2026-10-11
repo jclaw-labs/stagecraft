@@ -12,7 +12,7 @@
  * end in both consumers.
  */
 
-import type { FieldValue, Item } from "./schema";
+import type { FieldValue, Item } from "./schema.js";
 
 export function scalarSortKey(
   value: FieldValue | undefined,

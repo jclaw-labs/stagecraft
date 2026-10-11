@@ -40,17 +40,17 @@
  * bundle (see the template CLAUDE.md "Client-bundle discipline").
  */
 
-import type { ImageMetadata } from "@/lib/image-types";
+import type { ImageMetadata } from "#lib/image-types.js";
 
-import { canTransition, fieldTypeLabel } from "../field-classification";
+import { canTransition, fieldTypeLabel } from "../field-classification.js";
 import {
   PHOTOS_FIELD_IDS,
   POSTS_FIELD_IDS,
   RELEASES_FIELD_IDS,
   TOUR_DATES_FIELD_IDS,
   VIDEOS_FIELD_IDS,
-} from "../field-ids";
-import type { CollectionDef, FieldDef, FieldId, FieldType, FieldValue, Item } from "../schema";
+} from "../field-ids.js";
+import type { CollectionDef, FieldDef, FieldId, FieldType, FieldValue, Item } from "../schema.js";
 
 // ---------------------------------------------------------------------------
 // Declarations

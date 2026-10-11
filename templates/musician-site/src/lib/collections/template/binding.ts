@@ -23,8 +23,8 @@
 import type { Data as PuckData } from "@puckeditor/core";
 import { z } from "zod";
 
-import type { ImageMetadata } from "../../image-types";
-import { selectOptionLabel } from "../accessors";
+import type { ImageMetadata } from "../../image-types.js";
+import { selectOptionLabel } from "../accessors.js";
 
 import type {
   Bindable,
@@ -36,7 +36,7 @@ import type {
   FileRef,
   Item,
   TiptapJSON,
-} from "../schema";
+} from "../schema.js";
 
 // ---------------------------------------------------------------------------
 // Zod schema

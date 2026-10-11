@@ -15,9 +15,9 @@
  * walker and the schema validator can import it anywhere.
  */
 
-import type { CollectionDef, FieldDef, FieldType } from "../schema";
+import type { CollectionDef, FieldDef, FieldType } from "../schema.js";
 
-import { STRING_VALUED_FIELD_TYPES } from "./binding";
+import { STRING_VALUED_FIELD_TYPES } from "./binding.js";
 
 /**
  * What a bindable prop resolves to, which decides the fields it can bind:

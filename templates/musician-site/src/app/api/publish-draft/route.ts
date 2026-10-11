@@ -29,9 +29,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSession } from "@/lib/auth";
-import { publishDraftToMain, PublishError } from "@/lib/publish";
-import { MAX_COMMIT_MESSAGE_LENGTH, publishErrorHttpStatus } from "@/lib/publish-types";
+import { getSession } from "#lib/auth.js";
+import { publishDraftToMain, PublishError } from "#lib/publish.js";
+import { MAX_COMMIT_MESSAGE_LENGTH, publishErrorHttpStatus } from "#lib/publish-types.js";
 
 const requestSchema = z
   .object({

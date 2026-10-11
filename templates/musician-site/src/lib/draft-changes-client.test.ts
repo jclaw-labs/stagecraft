@@ -4,7 +4,7 @@ import {
   __resetDraftChangesClientForTests,
   fetchDraftChangesShared,
   fetchDraftChangesWithLabels,
-} from "./draft-changes-client";
+} from "./draft-changes-client.js";
 
 const fetchMock = vi.fn();
 

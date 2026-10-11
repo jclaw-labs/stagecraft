@@ -4,9 +4,9 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { Footer } from "@/components/Footer";
-import { Header } from "@/components/Header";
-import { PageBackgroundUnderlay } from "@/components/PageBackgroundUnderlay";
+import { Footer } from "#components/Footer.js";
+import { Header } from "#components/Header.js";
+import { PageBackgroundUnderlay } from "#components/PageBackgroundUnderlay.js";
 import {
   assertCollectionRouting,
   getFsReadStore,
@@ -18,14 +18,14 @@ import {
   slugSchema,
   type CollectionDef,
   type Item,
-} from "@/lib/collections";
-import { DefaultItemDetail } from "@/lib/collections/template/item-detail";
-import { itemDetailMetadata } from "@/lib/collections/template/item-metadata";
-import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
-import { loadCollectionsForTemplate } from "@/lib/collections/template/load-collections";
-import { resolveTemplate } from "@/lib/collections/template/renderer";
-import type { Template } from "@/lib/collections/template/types";
+} from "#lib/collections/index.js";
+import { DefaultItemDetail } from "#lib/collections/template/item-detail.js";
+import { itemDetailMetadata } from "#lib/collections/template/item-metadata.js";
+import { pageDataToItem } from "#lib/collections/migrate-from-legacy.js";
+import { pagesCollectionDef } from "#lib/collections/seeds.js";
+import { loadCollectionsForTemplate } from "#lib/collections/template/load-collections.js";
+import { resolveTemplate } from "#lib/collections/template/renderer.js";
+import type { Template } from "#lib/collections/template/types.js";
 import {
   extractPageRootProps,
   listPageSlugs,
@@ -34,10 +34,10 @@ import {
   readPageOrNull,
   readSiteConfig,
   resolveRootPageSlug,
-} from "@/lib/content";
-import { pageSlugSchema } from "@/lib/site-config-types";
-import { deployedSiteOrigin } from "@/lib/site-origin";
-import { buildRenderConfig } from "@/puck/render-config";
+} from "#lib/content.js";
+import { pageSlugSchema } from "#lib/site-config-types.js";
+import { deployedSiteOrigin } from "#lib/site-origin.js";
+import { buildRenderConfig } from "#puck/render-config.js";
 
 // ---------------------------------------------------------------------------
 // Per-request caches

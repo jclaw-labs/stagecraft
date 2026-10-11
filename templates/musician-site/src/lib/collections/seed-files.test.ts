@@ -21,7 +21,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { PREBAKED_COLLECTIONS } from "./seeds";
+import { PREBAKED_COLLECTIONS } from "./seeds.js";
 
 const SEED_ROOT = path.resolve(
   __dirname,

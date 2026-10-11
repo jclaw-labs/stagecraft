@@ -4,8 +4,8 @@ import {
   designSchema,
   type Appearance,
   type Design,
-} from "@/lib/site-config-types";
-import { buildFontStack } from "@/lib/google-fonts";
+} from "#lib/site-config-types.js";
+import { buildFontStack } from "#lib/google-fonts.js";
 
 type Props = {
   appearance: Appearance;

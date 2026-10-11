@@ -14,10 +14,16 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
+    "customConditions": ["source"],
+    // The same mapping as the `source` condition of package.json's
+    // `imports`, for Playwright's loader, which reads tsconfig paths but
+    // not package conditions.
     "paths": {
-      "@/*": ["./src/*"]
+      "#lib/*": ["./src/lib/*"],
+      "#components/*": ["./src/components/*"],
+      "#puck/*": ["./src/puck/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "dist"]
 }

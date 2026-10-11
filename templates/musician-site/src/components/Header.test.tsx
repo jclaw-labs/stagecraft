@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Header } from "./Header";
-import { DEFAULT_HEADER_CONFIG } from "@/lib/site-config-types";
+import { Header } from "./Header.js";
+import { DEFAULT_HEADER_CONFIG } from "#lib/site-config-types.js";
 
 function renderHeader(
   override: Partial<Parameters<typeof Header>[0]> = {},

@@ -7,13 +7,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-import { buildItemFileSchema } from "@/lib/collections";
-import { PAGES_FIELD_IDS } from "@/lib/collections/field-ids";
-import { pagesCollectionDef } from "@/lib/collections/seeds";
-import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
-import { type PageSummary } from "@/lib/site-config-types";
+import { buildItemFileSchema } from "#lib/collections/index.js";
+import { PAGES_FIELD_IDS } from "#lib/collections/field-ids.js";
+import { pagesCollectionDef } from "#lib/collections/seeds.js";
+import { __resetDraftChangesClientForTests } from "#lib/draft-changes-client.js";
+import { type PageSummary } from "#lib/site-config-types.js";
 
-import { PagesPanel } from "./PagesPanel";
+import { PagesPanel } from "./PagesPanel.js";
 
 const SUMMARIES: PageSummary[] = [
   { slug: "home", title: "Home", isSplashPage: false, isHiddenFromNav: false },

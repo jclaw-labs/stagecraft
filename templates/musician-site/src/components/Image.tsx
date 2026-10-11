@@ -6,7 +6,7 @@ import {
   focalPointObjectPosition,
   isVectorExt,
   type ImageMetadata,
-} from "@/lib/image-types";
+} from "#lib/image-types.js";
 
 type Props = {
   image: ImageMetadata;

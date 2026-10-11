@@ -25,7 +25,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
-import { fetchDraftChangesShared } from "@/lib/draft-changes-client";
+import { fetchDraftChangesShared } from "#lib/draft-changes-client.js";
 
 type Status =
   | { kind: "loading" }

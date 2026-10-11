@@ -14,9 +14,9 @@ import path from "node:path";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
-import { seedCompletedSite } from "../e2e/setup/seed";
-import { CAPTURE_CONTENT_DIR, CAPTURE_STORAGE_STATE } from "../playwright.capture.config";
-import { captureLaunchOptions } from "./chromium";
+import { seedCompletedSite } from "../e2e/setup/seed.js";
+import { CAPTURE_CONTENT_DIR, CAPTURE_STORAGE_STATE } from "../playwright.capture.config.js";
+import { captureLaunchOptions } from "./chromium.js";
 
 export default async function captureSetup(config: FullConfig): Promise<void> {
   // Seed BEFORE the first request: the dev server reads the content

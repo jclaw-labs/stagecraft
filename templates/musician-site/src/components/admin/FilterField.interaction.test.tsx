@@ -15,10 +15,10 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { FilterField } from "./FilterField";
-import type { Filter } from "@/lib/collections/filter-schema";
-import type { CollectionDef } from "@/lib/collections";
-import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
+import { FilterField } from "./FilterField.js";
+import type { Filter } from "#lib/collections/filter-schema.js";
+import type { CollectionDef } from "#lib/collections/index.js";
+import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "#lib/collections/field-ids.js";
 
 const SOURCE_DEF: CollectionDef = {
   schemaVersion: 1,

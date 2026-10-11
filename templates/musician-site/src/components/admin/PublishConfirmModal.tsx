@@ -39,13 +39,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
-import type { DraftChange } from "@/lib/draft-changes";
-import { changeKey } from "@/lib/draft-changes-keys";
-import { fetchDraftChangesWithLabels } from "@/lib/draft-changes-client";
+import type { DraftChange } from "#lib/draft-changes.js";
+import { changeKey } from "#lib/draft-changes-keys.js";
+import { fetchDraftChangesWithLabels } from "#lib/draft-changes-client.js";
 import {
   MAX_COMMIT_MESSAGE_LENGTH,
   MAX_COMMIT_SUBJECT_LENGTH,
-} from "@/lib/publish-types";
+} from "#lib/publish-types.js";
 
 /**
  * What the artist chose to publish (ADR-012). `allSelected` lets the

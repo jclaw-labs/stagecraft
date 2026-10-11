@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   buildItemFileSchema,
   deleteItem,
@@ -23,12 +23,12 @@ import {
   renameCommitSubject,
   slugSchema,
   writeOrder,
-} from "@/lib/collections";
-import { pageSlugShadowError } from "@/lib/collections/page-slug-shadow";
-import { PublishError, type PublishTarget } from "@/lib/publish";
-import { planItemWrite, saveContent, saveFailureResponse } from "@/lib/save-content";
+} from "#lib/collections/index.js";
+import { pageSlugShadowError } from "#lib/collections/page-slug-shadow.js";
+import { PublishError, type PublishTarget } from "#lib/publish.js";
+import { planItemWrite, saveContent, saveFailureResponse } from "#lib/save-content.js";
 
-import { zodIssuesToStructured } from "./issue-format";
+import { zodIssuesToStructured } from "./issue-format.js";
 
 function err(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });

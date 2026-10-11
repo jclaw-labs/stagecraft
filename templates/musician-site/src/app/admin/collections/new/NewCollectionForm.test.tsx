@@ -4,7 +4,7 @@
  * Interaction tests for the create-collection form's client-side slug
  * validation. The point of the test is the PoC from the schema-core
  * split: `NewCollectionForm` imports `slugSchema` / `slugifyToCollectionSlug`
- * straight from `@/lib/collections/schema` and validates in the browser
+ * straight from `#lib/collections/schema` and validates in the browser
  * with the same Zod schema the server route runs. An unslugifiable
  * plural name must surface a field-level error and gate the submit
  * button before any network round-trip.
@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
 }));
 
-import { NewCollectionForm } from "./NewCollectionForm";
+import { NewCollectionForm } from "./NewCollectionForm.js";
 
 // jest-dom isn't wired up in this repo, so we assert against native DOM
 // properties (matching the plain-matcher style of the other tests).

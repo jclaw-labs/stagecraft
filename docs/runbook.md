@@ -16,6 +16,7 @@ This document is for engineers and support staff operating the Stagecraft platfo
 8. [Scheduled Queue Drain](#8-scheduled-queue-drain)
 9. [Credential Encryption](#9-credential-encryption)
 10. [Database Migrations](#10-database-migrations)
+11. [npm Packages](#11-npm-packages)
 
 ---
 
@@ -570,3 +571,27 @@ Run it locally before pushing: `git fetch origin main && npm run migrations:chec
 ### Overriding it
 
 When a flagged change is safe for the code running in production (typically the contract step, after the code that used the old shape has shipped), add the label `migration:destructive-ok` to the PR and say in the PR body why it's safe. Adding the label doesn't restart CI: re-run the "Migrations are backward compatible" job from the PR's Checks tab, or push a new commit. The job reads the PR's current labels, so a re-run picks up the new one.
+
+---
+
+## 11. npm Packages
+
+The musician-site template ships as two npm packages (ADR-016):
+
+| Package | Source |
+|---|---|
+| `@jclaw-labs/musician-site` | `templates/musician-site/` |
+| `@jclaw-labs/content-upgraders` | `packages/content-upgraders/` |
+
+Both publish under the `@jclaw-labs` npm **user** scope. The `stagecraft` and `jclaw-labs` org names were already taken on npm (#418). Jackson owns the scope, with 2FA required for both sign-in and writes. A second maintainer is added after the first publish.
+
+The two packages are versioned in lockstep, and the template depends on the exact upgraders version. In the monorepo that dependency is `file:../../packages/content-upgraders`, so never publish from `templates/musician-site/` directly. `npm run pack-musician-site` (from the repo root, after `npm ci` at the root and in `templates/musician-site/`) builds and packs both packages into `.pack/`, pointing the template at the upgraders tarball. `npm run pack-musician-site -- --release` pins it to the published upgraders version instead, for a release. `npm run check:musician-site-package` installs the local tarballs into a minimal Next.js app with no lockfile, runs `next build`, and runs `stagecraft-site --help`. CI runs that check (`.github/workflows/musician-site-package.yml`) on every PR that touches either package or the scripts that pack them.
+
+### Publishing a release
+
+1. Bump `version` in both `package.json` files to the same new version, and merge.
+2. From the repo root, after `npm ci` at the root and in `templates/musician-site/`: `npm run pack-musician-site -- --release`. It prints the two tarball paths.
+3. Publish the upgraders tarball first: `npm publish .pack/jclaw-labs-content-upgraders-<version>.tgz --tag rc`.
+4. Then the template tarball: `npm publish .pack/jclaw-labs-musician-site-<version>.tgz --tag rc`.
+
+The order matters because the `--release` template tarball depends on the exact upgraders version from the registry. Published first, the template would fail to install until the upgraders exist, and anyone installing it in that window gets an error. Use `--tag rc` for release candidates, so `latest` doesn't move. Always publish the tarballs, never a directory: `templates/musician-site/` has a `prepublishOnly` guard that refuses its own `file:` dependency and `source` conditions.

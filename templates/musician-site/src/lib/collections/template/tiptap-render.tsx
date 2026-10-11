@@ -21,7 +21,7 @@
 
 import type { ReactNode } from "react";
 
-import type { TiptapJSON } from "../schema";
+import type { TiptapJSON } from "../schema.js";
 
 type TiptapNode = {
   type: string;

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { AppearanceStyles } from "./AppearanceStyles";
-import { DEFAULT_APPEARANCE } from "@/lib/site-config-types";
+import { AppearanceStyles } from "./AppearanceStyles.js";
+import { DEFAULT_APPEARANCE } from "#lib/site-config-types.js";
 
 function render(override: Partial<typeof DEFAULT_APPEARANCE> = {}) {
   const appearance = { ...DEFAULT_APPEARANCE, ...override };

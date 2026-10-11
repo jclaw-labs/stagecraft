@@ -12,8 +12,9 @@ packages/
   shared/           Cross-cutting types, enums, constants, utilities
   db/               Prisma schema + client
   queue/            Async job queue
+  content-upgraders/  Content schemaVersion upgrader chain (npm, per ADR-016)
 templates/
-  musician-site/         Next.js + Puck template (per ADR-007)
+  musician-site/         Next.js + Puck template; the @jclaw-labs/musician-site npm package (per ADR-007, ADR-016)
 claude/
   skills/           Repo-only tooling skills (crawl-artist-site)
 .claude/skills/     Agent skills vendored from local-config (do not edit here)

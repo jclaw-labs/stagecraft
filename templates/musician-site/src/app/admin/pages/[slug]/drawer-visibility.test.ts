@@ -12,7 +12,7 @@ import {
   isVisibilityDispatchTrivial,
   type CategoryConfig,
   type DrawerCategoryList,
-} from "./drawer-visibility";
+} from "./drawer-visibility.js";
 
 const CATEGORIES: Record<string, CategoryConfig> = {
   layout: {

@@ -8,22 +8,22 @@ const { getSessionMock, getDraftChangesMock, enrichItemLabelsMock, getRequestRea
     getRequestReadStoreMock: vi.fn(),
   }));
 
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
-vi.mock("@/lib/collections", async () => {
-  const actual = await vi.importActual<typeof import("../../../lib/collections")>(
-    "@/lib/collections",
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/collections/index.js", async () => {
+  const actual = await vi.importActual<typeof import("../../../lib/collections/index.js")>(
+    "#lib/collections/index.js",
   );
   return { ...actual, getRequestReadStore: getRequestReadStoreMock };
 });
-vi.mock("@/lib/draft-changes", async () => {
-  const actual = await vi.importActual<typeof import("../../../lib/draft-changes")>(
-    "@/lib/draft-changes",
+vi.mock("#lib/draft-changes.js", async () => {
+  const actual = await vi.importActual<typeof import("../../../lib/draft-changes.js")>(
+    "#lib/draft-changes.js",
   );
   return { ...actual, getDraftChanges: getDraftChangesMock, enrichItemLabels: enrichItemLabelsMock };
 });
 
-import { GET } from "./route";
-import { DraftChangesError } from "@/lib/draft-changes";
+import { GET } from "./route.js";
+import { DraftChangesError } from "#lib/draft-changes.js";
 
 /** Build the Request the route handler now reads its query params from. */
 function req(search = ""): Request {

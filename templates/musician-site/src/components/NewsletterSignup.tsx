@@ -13,7 +13,7 @@ import {
   parseMailchimpAudienceHoneypotName,
   type NewsletterAdditionalField,
   type NewsletterService,
-} from "./newsletter-types";
+} from "./newsletter-types.js";
 
 // Re-export for source-compat with callers (puck/config.tsx and the
 // existing test file) that imported these from this module before

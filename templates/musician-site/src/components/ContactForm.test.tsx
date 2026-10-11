@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ContactForm } from "./ContactForm";
+import { ContactForm } from "./ContactForm.js";
 
 /**
  * Static markup checks only — the submit handler runs in the browser

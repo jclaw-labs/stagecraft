@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { SaveStatus } from "./SaveBar";
-import { useBeforeUnloadIfDirty } from "./useBeforeUnloadIfDirty";
+import type { SaveStatus } from "./SaveBar.js";
+import { useBeforeUnloadIfDirty } from "./useBeforeUnloadIfDirty.js";
 
 /**
  * Hook that backs every custom singleton panel (Site Settings,
@@ -35,7 +35,7 @@ import { useBeforeUnloadIfDirty } from "./useBeforeUnloadIfDirty";
 // `Item["values"]` via the schema barrel — instead, derive the shape
 // from a type-only import of `FieldValue`. The runtime helper for
 // puckContent values comes from a node-import-free sibling module.
-import type { FieldValue } from "@/lib/collections/schema";
+import type { FieldValue } from "#lib/collections/schema.js";
 
 export type ItemValues = Record<string, FieldValue>;
 

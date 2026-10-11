@@ -13,18 +13,18 @@ import { Puck, type Data } from "@puckeditor/core";
 import "@puckeditor/core/puck.css";
 import { useCallback, useMemo, useState } from "react";
 
-import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
+import { AdminAccountButton } from "#components/admin/AdminAccountButton.js";
 import {
   PuckBackLink,
   PuckLabelPill,
   PuckSaveStatusPill,
   type PuckEditorSaveStatus,
-} from "@/components/admin/PuckEditorChrome";
-import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
-import { puckContentValue } from "@/lib/collections/puck-content-value";
-import { buildPuckConfig } from "@/puck/build-config";
+} from "#components/admin/PuckEditorChrome.js";
+import { useBeforeUnloadIfDirty } from "#components/admin/useBeforeUnloadIfDirty.js";
+import { puckContentValue } from "#lib/collections/puck-content-value.js";
+import { buildPuckConfig } from "#puck/build-config.js";
 
-import type { Item } from "@/lib/collections";
+import type { Item } from "#lib/collections/index.js";
 
 type Props = {
   collectionSlug: string;

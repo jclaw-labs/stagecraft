@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox";
+import { PhotoLightbox, type LightboxImage } from "./PhotoLightbox.js";
 
 const IMAGES: LightboxImage[] = [
   { url: "/images/uploads/a/1600.webp", alt: "First", caption: "Cap A", credit: "Photo by A", width: 1600, height: 1067 },

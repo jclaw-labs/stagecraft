@@ -55,7 +55,63 @@ export const TEMPLATE_SKIP_FILES = new Set([
   "playwright.config.ts",
   "CLAUDE.md",
   "EDITING.md",
+  "tsconfig.build.json",
 ]);
+
+/**
+ * Fields of the template's package.json that only the published npm
+ * package (`@jclaw-labs/musician-site`, ADR-016) uses. A site repo is an
+ * app, not a package, so they're dropped from its copy.
+ */
+const PACKAGE_ONLY_FIELDS = ["exports", "files", "bin", "repository", "description"];
+
+/** Scripts that only build or guard the published package. */
+const PACKAGE_ONLY_SCRIPTS = ["build:package", "prepublishOnly"];
+
+/** An exact semver version, as the package pins its runtime dependencies. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * The template's package.json as a site repo needs it. Until sites move
+ * onto the published package (ADR-016 §4, #422), each site is a full copy
+ * of the template and builds from source, so its package.json:
+ *
+ * - is a private app named `musician-site`, without the publish fields;
+ * - lists `next`, `react` and `react-dom` as dependencies, since hosts
+ *   detect Next.js from them and the package only declares them as peers;
+ * - drops `file:` dependencies, which point into the monorepo and can't
+ *   install anywhere else. Nothing the site runs imports them yet;
+ * - turns the package's exact runtime pins back into `^` ranges. Sites
+ *   have no lockfile and float to new patch and minor releases on each
+ *   host build, as they did before the package pinned them;
+ * - points each `imports` default target at `src/`, the `source` target,
+ *   since a site has no `dist/`.
+ *
+ * @param {string} content
+ * @returns {string}
+ */
+export function sitePackageJson(content) {
+  const pkg = JSON.parse(content);
+  for (const field of PACKAGE_ONLY_FIELDS) delete pkg[field];
+  for (const script of PACKAGE_ONLY_SCRIPTS) delete pkg.scripts?.[script];
+  for (const target of Object.values(pkg.imports ?? {})) {
+    if (target && typeof target === "object" && typeof target.source === "string") target.default = target.source;
+  }
+  const dependencies = Object.fromEntries(
+    Object.entries(pkg.dependencies ?? {})
+      .filter(([, spec]) => !String(spec).startsWith("file:"))
+      .map(([name, spec]) => [name, EXACT_VERSION.test(String(spec)) ? `^${spec}` : spec]),
+  );
+  for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+    dependencies[name] = pkg.devDependencies?.[name] ?? range;
+    delete pkg.devDependencies?.[name];
+  }
+  delete pkg.peerDependencies;
+  const { name: _name, private: _private, ...rest } = pkg;
+  const site = { name: "musician-site", private: true, ...rest };
+  site.dependencies = Object.fromEntries(Object.entries(dependencies).sort(([a], [b]) => (a < b ? -1 : 1)));
+  return JSON.stringify(site, null, 2) + "\n";
+}
 
 /**
  * Walk `templateDir` and return all non-binary, non-skipped text files,
@@ -81,7 +137,8 @@ export async function collectTemplateFiles(templateDir) {
       } else if (entry.isFile()) {
         if (TEMPLATE_SKIP_FILES.has(entry.name)) continue;
         if (BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
-        files.push({ path: relativePath, content: await fs.readFile(fullPath, "utf-8") });
+        const content = await fs.readFile(fullPath, "utf-8");
+        files.push({ path: relativePath, content: relativePath === "package.json" ? sitePackageJson(content) : content });
       }
     }
   }

@@ -26,23 +26,23 @@ import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { AdminAccountButton } from "@/components/admin/AdminAccountButton";
+import { AdminAccountButton } from "#components/admin/AdminAccountButton.js";
 import {
   PuckBackLink,
   PuckLabelPill,
   PuckSaveStatusPill,
   type PuckEditorSaveStatus,
-} from "@/components/admin/PuckEditorChrome";
-import { useBeforeUnloadIfDirty } from "@/components/admin/useBeforeUnloadIfDirty";
+} from "#components/admin/PuckEditorChrome.js";
+import { useBeforeUnloadIfDirty } from "#components/admin/useBeforeUnloadIfDirty.js";
 
-import type { CollectionDef, Item } from "@/lib/collections";
+import type { CollectionDef, Item } from "#lib/collections/index.js";
 import {
   resolveTemplate,
   type LoadedCollections,
-} from "@/lib/collections/template/renderer";
-import type { Template } from "@/lib/collections/template/types";
-import { buildPuckConfig } from "@/puck/build-config";
-import { buildRenderConfig } from "@/puck/render-config";
+} from "#lib/collections/template/renderer.js";
+import type { Template } from "#lib/collections/template/types.js";
+import { buildPuckConfig } from "#puck/build-config.js";
+import { buildRenderConfig } from "#puck/render-config.js";
 
 export type TemplateKind = "item" | "detail";
 

@@ -32,10 +32,10 @@ import {
   setClauseValues,
   type ClauseOp,
   unfilterableCurrentItemValue,
-} from "./filter-field-state";
-import type { CollectionDef, FieldDef } from "@/lib/collections";
-import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "@/lib/collections/field-ids";
-import type { Filter, FilterClause } from "@/lib/collections/filter-schema";
+} from "./filter-field-state.js";
+import type { CollectionDef, FieldDef } from "#lib/collections/index.js";
+import { POSTS_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "#lib/collections/field-ids.js";
+import type { Filter, FilterClause } from "#lib/collections/filter-schema.js";
 
 const FIELDS: FieldDef[] = [
   { id: "f_city", key: "city", type: "text", required: false },

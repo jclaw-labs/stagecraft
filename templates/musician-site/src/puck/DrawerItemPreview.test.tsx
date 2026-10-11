@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { DrawerItemPreview } from "./DrawerItemPreview";
+import { DrawerItemPreview } from "./DrawerItemPreview.js";
 
 /**
  * The override's contract: for any drawer item, render Puck's default

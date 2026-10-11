@@ -8,18 +8,18 @@ import {
   ColorField,
   Field,
   TextField,
-} from "@/components/admin/form";
-import { ImagePickerField } from "@/puck/ImagePickerField";
-import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "@/lib/theme-presets";
+} from "#components/admin/form.js";
+import { ImagePickerField } from "#puck/ImagePickerField.js";
+import { DEFAULT_THEME_ID, THEME_IDS, THEME_PRESETS } from "#lib/theme-presets.js";
 
-import { ThemeThumbnail } from "./ThemeThumbnail";
+import { ThemeThumbnail } from "./ThemeThumbnail.js";
 
 import {
   buildWelcomePayload,
   WELCOME_STEPS,
   type WelcomeFormValues,
   type WelcomeStep,
-} from "./welcome-steps";
+} from "./welcome-steps.js";
 
 type Props = {
   email: string;

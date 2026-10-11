@@ -18,7 +18,7 @@ import {
   NEWSLETTER_SERVICE_LABELS,
   NewsletterSignup,
   type NewsletterService,
-} from "./NewsletterSignup";
+} from "./NewsletterSignup.js";
 
 function renderForm(
   overrides: Partial<Parameters<typeof NewsletterSignup>[0]> = {},

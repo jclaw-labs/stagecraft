@@ -22,8 +22,8 @@
  * `field-ids.ts`.
  */
 
-import type { CollectionDef, Item } from "./schema";
-import { PHOTOS_COLLECTION_SLUG, PHOTOS_FIELD_IDS } from "./field-ids";
+import type { CollectionDef, Item } from "./schema.js";
+import { PHOTOS_COLLECTION_SLUG, PHOTOS_FIELD_IDS } from "./field-ids.js";
 
 const SLUG_MAX_LENGTH = 64;
 

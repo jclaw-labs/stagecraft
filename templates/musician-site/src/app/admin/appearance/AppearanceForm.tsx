@@ -2,17 +2,17 @@
 
 import type { CSSProperties } from "react";
 
-import { AdminPanel } from "@/components/admin/AdminPanel";
+import { AdminPanel } from "#components/admin/AdminPanel.js";
 import {
   ColorField,
   FieldGroup,
   SelectField,
-} from "@/components/admin/form";
-import { SaveBar } from "@/components/admin/SaveBar";
-import { useSettingsForm } from "@/components/admin/useSettingsForm";
-import { checkAppearanceContrast } from "@/lib/contrast";
-import { FontPickerField } from "./FontPickerField";
-import { appearanceToItemValues } from "@/lib/collections/migrate-from-legacy-values";
+} from "#components/admin/form.js";
+import { SaveBar } from "#components/admin/SaveBar.js";
+import { useSettingsForm } from "#components/admin/useSettingsForm.js";
+import { checkAppearanceContrast } from "#lib/contrast.js";
+import { FontPickerField } from "./FontPickerField.js";
+import { appearanceToItemValues } from "#lib/collections/migrate-from-legacy-values.js";
 import {
   ACCENT_MODES,
   BUTTON_FILLS,
@@ -40,7 +40,7 @@ import {
   type Design,
   type FontWeight,
   type HeadingMode,
-} from "@/lib/site-config-types";
+} from "#lib/site-config-types.js";
 
 type Props = {
   initial: Appearance;

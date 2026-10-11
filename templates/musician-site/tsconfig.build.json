@@ -1,0 +1,18 @@
+{
+  // Compiles `src/` to the per-file ESM in `dist/` that the published
+  // package ships (ADR-016 §1). No bundler, so each module keeps its
+  // `"use client"` directive. Run through `npm run build:package`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "declaration": true,
+    "allowJs": false,
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/content", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__snapshots__"]
+}

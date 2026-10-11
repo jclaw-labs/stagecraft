@@ -15,14 +15,14 @@ import { describe, expect, it } from "vitest";
 import {
   SLUG_SOURCE_COMPATIBLE_TYPES,
   SORTABLE_FIELD_TYPES,
-} from "./field-classification";
+} from "./field-classification.js";
 import {
   collectionDefSchema,
   CURRENT_COLLECTION_SCHEMA_VERSION,
   type CollectionDef,
   type FieldDef,
   type FieldType,
-} from "./schema";
+} from "./schema.js";
 
 /**
  * Every FieldType variant. TypeScript will complain if a new variant

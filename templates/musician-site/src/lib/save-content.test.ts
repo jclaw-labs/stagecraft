@@ -7,8 +7,8 @@ const { saveToDraftMock, publishMock } = vi.hoisted(() => ({
   saveToDraftMock: vi.fn(),
   publishMock: vi.fn(),
 }));
-vi.mock("./publish", async () => {
-  const actual = await vi.importActual<typeof import("./publish")>("./publish");
+vi.mock("./publish.js", async () => {
+  const actual = await vi.importActual<typeof import("./publish.js")>("./publish.js");
   return { ...actual, saveToDraft: saveToDraftMock, saveAndPublish: publishMock };
 });
 
@@ -17,10 +17,10 @@ import {
   saveContent,
   saveFailureResponse,
   saveFailureStatus,
-} from "./save-content";
-import { DraftSavedPublishError, PublishError, type Env } from "./publish";
-import { readItem, type Item } from "./collections";
-import { tourDateItem, tourDatesDef as makeTourDatesDef } from "./collections/test-fixtures";
+} from "./save-content.js";
+import { DraftSavedPublishError, PublishError, type Env } from "./publish.js";
+import { readItem, type Item } from "./collections/index.js";
+import { tourDateItem, tourDatesDef as makeTourDatesDef } from "./collections/test-fixtures.js";
 
 const tourDatesDef = makeTourDatesDef();
 

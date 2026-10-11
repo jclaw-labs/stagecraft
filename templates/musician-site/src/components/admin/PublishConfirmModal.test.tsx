@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { PublishConfirmModal, groupChanges } from "./PublishConfirmModal";
-import type { DraftChange } from "@/lib/draft-changes";
-import { __resetDraftChangesClientForTests } from "@/lib/draft-changes-client";
+import { PublishConfirmModal, groupChanges } from "./PublishConfirmModal.js";
+import type { DraftChange } from "#lib/draft-changes.js";
+import { __resetDraftChangesClientForTests } from "#lib/draft-changes-client.js";
 
 const fetchMock = vi.fn();
 

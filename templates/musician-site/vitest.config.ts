@@ -1,12 +1,19 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import path from "node:path";
+import { defaultClientConditions, defaultServerConditions } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  // `#lib/…`, `#components/…` and `#puck/…` resolve through the
+  // `imports` field in package.json. Its `source` condition maps them to
+  // `src/` so tests run against the source, not the `dist/` build.
+  // Setting `conditions` replaces Vite's defaults, so keep them.
   resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
+    conditions: [...defaultClientConditions, "source"],
+  },
+  ssr: {
+    resolve: {
+      conditions: [...defaultServerConditions, "source"],
     },
   },
   test: {

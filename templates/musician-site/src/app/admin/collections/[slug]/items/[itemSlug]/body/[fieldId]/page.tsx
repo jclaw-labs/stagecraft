@@ -11,16 +11,16 @@
 
 import { notFound } from "next/navigation";
 
-import { getSession } from "@/lib/auth";
+import { getSession } from "#lib/auth.js";
 import {
   findField,
   getRequestReadStore,
   itemSlugSchema,
   readItemOrSingletonDraft,
   slugSchema,
-} from "@/lib/collections";
+} from "#lib/collections/index.js";
 
-import { BodyEditorClient } from "./BodyEditorClient";
+import { BodyEditorClient } from "./BodyEditorClient.js";
 
 type Params = { slug: string; itemSlug: string; fieldId: string };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { AdminPanel } from "@/components/admin/AdminPanel";
+import { AdminPanel } from "#components/admin/AdminPanel.js";
 import {
   CheckboxField,
   ColorField,
@@ -8,11 +8,11 @@ import {
   FieldGroup,
   SelectField,
   TextField,
-} from "@/components/admin/form";
-import { SaveBar } from "@/components/admin/SaveBar";
-import { useSettingsForm } from "@/components/admin/useSettingsForm";
-import { headerConfigToItemValues } from "@/lib/collections/migrate-from-legacy-values";
-import { ImagePickerField } from "@/puck/ImagePickerField";
+} from "#components/admin/form.js";
+import { SaveBar } from "#components/admin/SaveBar.js";
+import { useSettingsForm } from "#components/admin/useSettingsForm.js";
+import { headerConfigToItemValues } from "#lib/collections/migrate-from-legacy-values.js";
+import { ImagePickerField } from "#puck/ImagePickerField.js";
 import {
   HEADER_BORDERS,
   HEADER_BORDER_LABELS,
@@ -30,7 +30,7 @@ import {
   type HeaderHeight,
   type HeaderLayout,
   type HeaderMode,
-} from "@/lib/site-config-types";
+} from "#lib/site-config-types.js";
 
 type Props = {
   initial: HeaderConfig;

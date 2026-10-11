@@ -6,7 +6,7 @@
  * block resolves its items from `loadedCollections`. Every array of nested
  * blocks (Section.children, Columns.col1, …) is walked the same way. The
  * result is a tree of plain literal props, which `<Render>` draws with the
- * render config from `@/puck/render-config` (`TemplateRenderer` there does
+ * render config from `#puck/render-config` (`TemplateRenderer` there does
  * both steps).
  *
  * Pages, templates and item bodies all go through this one walker and one
@@ -25,19 +25,19 @@
  * nothing or full-width rather than failing.
  */
 
-import { BLOCKS, SECTION_WIDTHS } from "@/puck/config";
+import { BLOCKS, SECTION_WIDTHS } from "#puck/config.js";
 
-import { BINDABLE_SLOTS, type BindableSlotKind } from "./bindable-slots";
+import { BINDABLE_SLOTS, type BindableSlotKind } from "./bindable-slots.js";
 import {
   isBindableRef,
   resolveBindable,
   resolveRichTextBindable,
   resolveStringBindable,
-} from "./binding";
-import { blockNameForCollection, resolveCollectionBlockProps } from "./collection-block";
-import type { BlockInstance, LoadedCollections, ResolveContext, Template } from "./types";
-import type { Bindable, CollectionDef, Item } from "../schema";
-import type { ImageMetadata } from "../../image-types";
+} from "./binding.js";
+import { blockNameForCollection, resolveCollectionBlockProps } from "./collection-block.js";
+import type { BlockInstance, LoadedCollections, ResolveContext, Template } from "./types.js";
+import type { Bindable, CollectionDef, Item } from "../schema.js";
+import type { ImageMetadata } from "../../image-types.js";
 
 export type { LoadedCollections, ResolveContext };
 

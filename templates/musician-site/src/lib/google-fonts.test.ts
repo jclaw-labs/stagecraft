@@ -7,7 +7,7 @@ import {
   fontCategoryForFamily,
   GOOGLE_FONTS,
   GOOGLE_FONTS_BY_FAMILY,
-} from "./google-fonts";
+} from "./google-fonts.js";
 
 describe("google-fonts curated data", () => {
   it("exposes the six picker categories with custom last", () => {

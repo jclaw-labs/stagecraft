@@ -26,7 +26,7 @@
 
 import type { Data as PuckData } from "@puckeditor/core";
 
-import type { ImageMetadata } from "../image-types";
+import type { ImageMetadata } from "../image-types.js";
 
 import type {
   CollectionDef,
@@ -37,7 +37,7 @@ import type {
   FileRef,
   Item,
   TiptapJSON,
-} from "./schema";
+} from "./schema.js";
 
 export class FieldAccessError extends Error {
   constructor(

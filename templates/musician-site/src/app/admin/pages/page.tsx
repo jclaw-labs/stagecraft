@@ -1,11 +1,11 @@
-import { getSession } from "@/lib/auth";
-import { getRequestReadStore } from "@/lib/collections";
-import { listPageSummaries } from "@/lib/content";
+import { getSession } from "#lib/auth.js";
+import { getRequestReadStore } from "#lib/collections/index.js";
+import { listPageSummaries } from "#lib/content.js";
 
-import { AdminPanel } from "@/components/admin/AdminPanel";
-import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminPanel } from "#components/admin/AdminPanel.js";
+import { AdminShell } from "#components/admin/AdminShell.js";
 
-import { PagesPanel } from "./PagesPanel";
+import { PagesPanel } from "./PagesPanel.js";
 
 export default async function AdminPagesIndex() {
   const [session, pages] = await Promise.all([

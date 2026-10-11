@@ -31,17 +31,17 @@ import {
   PublishError,
   readEnv,
   type Env,
-} from "./publish";
-import { resolveDraftBranchForRequest } from "./draft-branch";
+} from "./publish.js";
+import { resolveDraftBranchForRequest } from "./draft-branch.js";
 import {
   itemDisplayLabel,
   ORDER_FILE_NAME,
   SINGLETON_ITEM_SLUG,
   type CollectionDef,
   type ReadStore,
-} from "./collections";
-import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
-import { changeKey } from "./draft-changes-keys";
+} from "./collections/index.js";
+import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter.js";
+import { changeKey } from "./draft-changes-keys.js";
 
 /**
  * Normalized per-file change shape. Discriminated by `kind` so the

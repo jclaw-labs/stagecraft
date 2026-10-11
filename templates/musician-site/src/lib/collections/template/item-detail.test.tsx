@@ -8,12 +8,12 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { asImageId, type ImageMetadata } from "@/lib/image-types";
+import { asImageId, type ImageMetadata } from "#lib/image-types.js";
 
-import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids";
-import type { CollectionDef, Item } from "../schema";
-import { postsCollectionDef, releasesCollectionDef, tourDatesCollectionDef } from "../seeds";
-import { DefaultItemDetail, formatDetailDate, itemDetailSections } from "./item-detail";
+import { POSTS_FIELD_IDS, RELEASES_FIELD_IDS, TOUR_DATES_FIELD_IDS } from "../field-ids.js";
+import type { CollectionDef, Item } from "../schema.js";
+import { postsCollectionDef, releasesCollectionDef, tourDatesCollectionDef } from "../seeds.js";
+import { DefaultItemDetail, formatDetailDate, itemDetailSections } from "./item-detail.js";
 
 const TS = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z" };
 

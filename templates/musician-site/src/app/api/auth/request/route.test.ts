@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { sendMagicLinkMock } = vi.hoisted(() => ({ sendMagicLinkMock: vi.fn() }));
-vi.mock("@/lib/email", () => ({ sendMagicLink: sendMagicLinkMock }));
+vi.mock("#lib/email.js", () => ({ sendMagicLink: sendMagicLinkMock }));
 
-import { POST } from "./route";
+import { POST } from "./route.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -75,7 +75,7 @@ describe("POST /api/auth/request", () => {
       vi.stubEnv("NODE_ENV", "development");
       const warnSpy = vi.spyOn(console, "warn");
       vi.resetModules();
-      const { POST: devPost } = await import("./route");
+      const { POST: devPost } = await import("./route.js");
       await devPost(buildRequest("anything@example.com"));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("No editor allowlist set"));
       expect(sendMagicLinkMock).toHaveBeenCalledTimes(1);
@@ -87,7 +87,7 @@ describe("POST /api/auth/request", () => {
       process.env.ADMIN_EMAIL = "allowed@example.com";
       const warnSpy = vi.spyOn(console, "warn");
       vi.resetModules();
-      const { POST: devPost } = await import("./route");
+      const { POST: devPost } = await import("./route.js");
       await devPost(buildRequest("other@example.com"));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("not on the editor allowlist"));
       expect(sendMagicLinkMock).not.toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe("POST /api/auth/request", () => {
       vi.stubEnv("NODE_ENV", "production");
       const warnSpy = vi.spyOn(console, "warn");
       vi.resetModules();
-      const { POST: prodPost } = await import("./route");
+      const { POST: prodPost } = await import("./route.js");
       await prodPost(buildRequest("anything@example.com"));
       expect(warnSpy).not.toHaveBeenCalled();
       expect(sendMagicLinkMock).not.toHaveBeenCalled();

@@ -5,13 +5,13 @@ import {
   DEFAULT_HEADER_CONFIG,
   headerConfigSchema,
   type HeaderConfig,
-} from "./site-config-types";
+} from "./site-config-types.js";
 import {
   DEFAULT_THEME_ID,
   resolveTheme,
   THEME_IDS,
   THEME_PRESETS,
-} from "./theme-presets";
+} from "./theme-presets.js";
 
 describe("theme presets", () => {
   it("has exactly one preset per declared id (no drift)", () => {

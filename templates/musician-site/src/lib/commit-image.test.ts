@@ -15,13 +15,13 @@ const {
   fetchPublishTokenMock: vi.fn(),
 }));
 
-vi.mock("./git-commit", async () => {
+vi.mock("./git-commit.js", async () => {
   // Partial mock: stub the four side-effecting functions but pass
   // through the real `ConcurrentEditError` class, which publish.ts
   // uses for `instanceof` discrimination in its `commit to draft`
   // error mapping. Without this, the mock would shadow the class
   // with `undefined` and `instanceof` crashes at runtime.
-  const actual = await vi.importActual<typeof import("./git-commit")>("./git-commit");
+  const actual = await vi.importActual<typeof import("./git-commit.js")>("./git-commit.js");
   return {
     ...actual,
     commitFiles: commitFilesMock,
@@ -31,13 +31,13 @@ vi.mock("./git-commit", async () => {
   };
 });
 
-vi.mock("./publish", async () => {
-  const actual = await vi.importActual<typeof import("./publish")>("./publish");
+vi.mock("./publish.js", async () => {
+  const actual = await vi.importActual<typeof import("./publish.js")>("./publish.js");
   return { ...actual, fetchPublishToken: fetchPublishTokenMock };
 });
 
-import { commitUploadedImage } from "./commit-image";
-import { PublishError } from "./publish";
+import { commitUploadedImage } from "./commit-image.js";
+import { PublishError } from "./publish.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

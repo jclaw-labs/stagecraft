@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { type DraftChange } from "./draft-changes";
-import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter";
+import { type DraftChange } from "./draft-changes.js";
+import { hasPendingSingleton, pendingItemSlugs } from "./draft-changes-filter.js";
 
 describe("pendingItemSlugs", () => {
   it("collects item slugs for the requested collection only", () => {

@@ -55,19 +55,19 @@
 
 import { cache } from "react";
 
-import { DraftReadError, type DraftStoreContext } from "./draft-store";
-import * as draftStore from "./draft-store";
-import { generateItemId } from "./id-gen";
-import * as fsStore from "./store";
-import { isSingletonItem, SINGLETON_ITEM_SLUG } from "./schema";
-import type { CollectionDef, Item } from "./schema";
+import { DraftReadError, type DraftStoreContext } from "./draft-store.js";
+import * as draftStore from "./draft-store.js";
+import { generateItemId } from "./id-gen.js";
+import * as fsStore from "./store.js";
+import { isSingletonItem, SINGLETON_ITEM_SLUG } from "./schema.js";
+import type { CollectionDef, Item } from "./schema.js";
 import {
   fetchPublishToken,
   isPlatformConfigured,
   PublishError,
   readEnv,
-} from "../publish";
-import { resolveDraftBranchForRequest } from "../draft-branch";
+} from "../publish.js";
+import { resolveDraftBranchForRequest } from "../draft-branch.js";
 
 export type ReadStoreMode = "fs" | "draft+fs-fallback";
 

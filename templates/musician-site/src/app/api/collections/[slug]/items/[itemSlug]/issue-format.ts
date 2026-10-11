@@ -9,7 +9,7 @@
  * shape the schema editor's 409 uses for `item-invalid-under-new-
  * schema`. The clients (`NewItemClient`, `ItemEditorClient`, the page
  * editor) render the issue list with `saveErrorMessage` from
- * `@/lib/collections/save-error`, which owns the client-safe types.
+ * `#lib/collections/save-error`, which owns the client-safe types.
  *
  * Without this normalisation, the routes used to return
  * `{ ok: false, error: "Validation failed: ZodError: [...]" }` —
@@ -19,7 +19,7 @@
 
 import type { z } from "zod";
 
-import type { ItemRouteIssue } from "@/lib/collections/save-error";
+import type { ItemRouteIssue } from "#lib/collections/save-error.js";
 
 export function zodIssuesToStructured(
   issues: ReadonlyArray<z.ZodIssue>,

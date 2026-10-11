@@ -15,15 +15,15 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ getSession: getSessionMock }));
+vi.mock("#lib/auth.js", () => ({ getSession: getSessionMock }));
 
 const { publishMock } = vi.hoisted(() => ({ publishMock: vi.fn() }));
-vi.mock("@/lib/publish", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/publish")>("@/lib/publish");
+vi.mock("#lib/publish.js", async () => {
+  const actual = await vi.importActual<typeof import("#lib/publish.js")>("#lib/publish.js");
   return { ...actual, saveAndPublish: publishMock };
 });
 
-import { POST } from "./route";
+import { POST } from "./route.js";
 import {
   getRequestReadStore,
   readSingleton,
@@ -31,17 +31,17 @@ import {
   writeCollectionDef,
   writeItem,
   writeSingleton,
-} from "@/lib/collections";
-import { PREBAKED_COLLECTIONS, siteCollectionDef } from "@/lib/collections/seeds";
+} from "#lib/collections/index.js";
+import { PREBAKED_COLLECTIONS, siteCollectionDef } from "#lib/collections/seeds.js";
 import {
   siteConfigFromItem,
   siteConfigToItemValues,
-} from "@/lib/collections/migrate-from-legacy-values";
-import { pageDataToItem } from "@/lib/collections/migrate-from-legacy";
-import { generateItemId } from "@/lib/collections";
-import { DEFAULT_SITE_CONFIG } from "@/lib/site-config-types";
-import { upsertSingletonItem } from "../_shared";
-import { __resetBootstrapCacheForTests } from "@/lib/content";
+} from "#lib/collections/migrate-from-legacy-values.js";
+import { pageDataToItem } from "#lib/collections/migrate-from-legacy.js";
+import { generateItemId } from "#lib/collections/index.js";
+import { DEFAULT_SITE_CONFIG } from "#lib/site-config-types.js";
+import { upsertSingletonItem } from "../_shared.js";
+import { __resetBootstrapCacheForTests } from "#lib/content.js";
 
 let TMP_CONTENT_DIR: string;
 const ARTIST = "Sarah Chen";
@@ -204,7 +204,7 @@ describe("POST /api/welcome/reset — platform configured (issue #345)", () => {
   });
 
   it("returns 502 (never ok: true) when the commit fails", async () => {
-    const { PublishError } = await import("@/lib/publish");
+    const { PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(new PublishError("broker-rejected", "Token broker returned 401"));
 
     const res = await POST(jsonReq({ confirmArtistName: ARTIST }));
@@ -219,7 +219,7 @@ describe("POST /api/welcome/reset — platform configured (issue #345)", () => {
   });
 
   it("draft reset landed but publish to main failed: ok with publishWarning, not 'Save failed'", async () => {
-    const { DraftSavedPublishError, PublishError } = await import("@/lib/publish");
+    const { DraftSavedPublishError, PublishError } = await import("#lib/publish.js");
     publishMock.mockRejectedValue(
       new DraftSavedPublishError(
         "draft-sha",

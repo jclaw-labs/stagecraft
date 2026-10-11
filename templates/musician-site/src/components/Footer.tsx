@@ -4,7 +4,7 @@ import {
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABELS,
   type SiteConfig,
-} from "@/lib/site-config-types";
+} from "#lib/site-config-types.js";
 
 type Props = {
   site: SiteConfig;

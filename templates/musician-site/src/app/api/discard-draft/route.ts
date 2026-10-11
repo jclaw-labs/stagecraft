@@ -19,8 +19,8 @@
 
 import { NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
-import { discardDraft, PublishError } from "@/lib/publish";
+import { getSession } from "#lib/auth.js";
+import { discardDraft, PublishError } from "#lib/publish.js";
 
 function err(status: number, code: string, error: string) {
   return NextResponse.json({ ok: false, code, error }, { status });
