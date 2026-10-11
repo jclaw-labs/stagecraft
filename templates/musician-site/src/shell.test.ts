@@ -54,20 +54,46 @@ function shellCodeFiles(dir = SHELL_DIR): string[] {
 const read = (file: string) => fs.readFileSync(path.join(SHELL_DIR, file), "utf8");
 
 /**
- * This package's own app files, relative to it: `next.config.ts`, the
- * middleware, and the code files under `src/app`. The shell has one file
- * for each.
+ * The Next.js file conventions under `app/`: routes, layouts, boundaries
+ * and metadata files. A colocated helper, or anything in a `_private`
+ * folder, is none of these.
  */
-function packageAppFiles(): string[] {
-  const appFiles = fs
-    .readdirSync(path.join(SRC_DIR, "app"), { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name) && !/\.(?:test|spec)\./.test(entry.name))
-    .map((entry) => path.relative(PACKAGE_DIR, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"));
-  return ["next.config.ts", "src/middleware.ts", ...appFiles].sort();
+const APP_FILE =
+  /^(?:page|layout|template|default|route|not-found|global-not-found|forbidden|unauthorized|error|global-error|loading|sitemap|robots|manifest|favicon|icon|apple-icon|opengraph-image|twitter-image)\d*\.[a-z]+$/;
+
+/** An app's convention files under `src/app` (`APP_FILE`), relative to the app, sorted. */
+function appFiles(appRoot: string): string[] {
+  return fs
+    .readdirSync(path.join(appRoot, "src/app"), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && APP_FILE.test(entry.name))
+    .map((entry) => path.relative(appRoot, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"))
+    .filter((file) => !file.split("/").some((segment) => segment.startsWith("_")))
+    .sort();
 }
 
-/** Route segment config and the middleware `config`: what Next.js reads statically. */
-const STATIC_CONFIG = /export const (dynamic|dynamicParams|revalidate|fetchCache|runtime|preferredRegion|maxDuration|config) = [\s\S]*?;\n/g;
+/** The files Next.js reads from an app: `next.config.ts`, the middleware, and its `src/app` convention files. */
+const nextFiles = (appRoot: string) => ["next.config.ts", "src/middleware.ts", ...appFiles(appRoot)].sort();
+
+/** Route segment config and the middleware `config`: exports Next.js reads statically. */
+const STATIC_CONFIG_NAMES = [
+  "dynamic",
+  "dynamicParams",
+  "revalidate",
+  "fetchCache",
+  "runtime",
+  "preferredRegion",
+  "maxDuration",
+  "config",
+];
+
+/** Each static config `export const` in a source file, by name, with its value's whitespace collapsed. */
+function staticConfig(source: string): Map<string, string> {
+  const statement = new RegExp(
+    `export const (${STATIC_CONFIG_NAMES.join("|")})\\b(?:\\s*:[^=]*)?\\s*=\\s*([\\s\\S]*?);`,
+    "g",
+  );
+  return new Map([...source.matchAll(statement)].map(([, name, value]) => [name, squash(value)]));
+}
 
 /** The exports Next.js looks for in a route, layout, page or middleware module. */
 const ROUTE_EXPORTS = new Set([
@@ -85,6 +111,7 @@ const ROUTE_EXPORTS = new Set([
   "PATCH",
   "DELETE",
   "OPTIONS",
+  ...STATIC_CONFIG_NAMES,
 ]);
 
 const squash = (source: string) => source.replace(/\s+/g, " ").trim();
@@ -127,8 +154,8 @@ describe("the artist-repo shell", () => {
     expect(shellCodeFiles()).toEqual(SHELL_CODE_FILES);
   });
 
-  it("has a file for each of the package's own app files", () => {
-    expect(packageAppFiles()).toEqual(SHELL_CODE_FILES);
+  it("has a file for each file Next.js reads from the package's own app", () => {
+    expect(nextFiles(SHELL_DIR)).toEqual(nextFiles(PACKAGE_DIR));
   });
 
   it.each(SHELL_ROUTE_FILES)("%s exports every route export the package's own file has", async (file) => {
@@ -139,10 +166,10 @@ describe("the artist-repo shell", () => {
     for (const name of routeExports) expect(exported, name).toContain(name);
   });
 
-  it.each(SHELL_ROUTE_FILES)("%s carries the package's own static route config verbatim", (file) => {
-    const own = fs.readFileSync(path.join(PACKAGE_DIR, file), "utf8");
-    const shell = squash(read(file));
-    for (const [statement] of own.matchAll(STATIC_CONFIG)) expect(shell).toContain(squash(statement));
+  it.each(SHELL_ROUTE_FILES)("%s carries the package's own static route config as the same literals", (file) => {
+    const own = staticConfig(fs.readFileSync(path.join(PACKAGE_DIR, file), "utf8"));
+    const shell = staticConfig(read(file));
+    for (const [name, value] of own) expect(shell.get(name), name).toBe(value);
   });
 
   it.each(SHELL_CODE_FILES)("%s imports only what the package exports", async (file) => {
