@@ -328,6 +328,7 @@ interface CreatePullRequestOptions {
 export interface PullRequestResult {
   number: number;
   htmlUrl: string;
+  title: string;
   state: string;
 }
 
@@ -361,6 +362,7 @@ export async function createPullRequest(
   return {
     number: data.number as number,
     htmlUrl: data.html_url as string,
+    title: data.title as string,
     state: data.state as string,
   };
 }
@@ -552,8 +554,8 @@ export function lastPageFromLinkHeader(link: string | null): number | null {
   return null;
 }
 
-function toPullRequestResult(data: { number: number; html_url: string; state: string }): PullRequestResult {
-  return { number: data.number, htmlUrl: data.html_url, state: data.state };
+function toPullRequestResult(data: { number: number; html_url: string; title: string; state: string }): PullRequestResult {
+  return { number: data.number, htmlUrl: data.html_url, title: data.title, state: data.state };
 }
 
 /** A `GitHubRepoClient` for `owner/repo`, acting as `userId`. */
@@ -721,6 +723,7 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
       const pulls = (await githubApi(token, `${repoPath}/pulls?${query}`)) as Array<{
         number: number;
         html_url: string;
+        title: string;
         state: string;
       }>;
       return pulls[0] ? toPullRequestResult(pulls[0]) : null;

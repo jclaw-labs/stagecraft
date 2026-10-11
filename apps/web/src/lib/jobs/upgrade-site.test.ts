@@ -309,7 +309,7 @@ beforeEach(() => {
   mocks.createPullRequest.mockImplementation(async (_userId, _owner, _repo, options) => {
     const pr = { number: nextPrNumber++, htmlUrl: `https://github.com/jclaw/stagecraft-site-sarah/pull/${nextPrNumber - 1}`, state: "open", ...options };
     repo.pulls.push(pr);
-    return { number: pr.number, htmlUrl: pr.htmlUrl, state: pr.state };
+    return { number: pr.number, htmlUrl: pr.htmlUrl, title: pr.title, state: pr.state };
   });
 });
 
@@ -798,7 +798,18 @@ describe("the site page's version read agrees with handleUpgradeSite on package.
 
   it.each<[string, (() => Promise<void>) | null, string, Outcome]>([
     ["a full copy from before ADR-016", null, "1.0.0", "upgrade"],
+    // The job opened its pull request for 1.0.0, unmerged, and the platform's release moved on.
+    ["a full copy with an upgrade pull request for an older release", () => runJob().then(() => undefined), "1.1.0", "upgrade"],
     ["a site on the platform's release", () => migratedWith(pin("1.0.0")), "1.0.0", "up_to_date"],
+    [
+      "a site on the platform's release, with the upgrade pull request for it still open",
+      async () => {
+        await migratedWith(pin("1.0.0"));
+        repo.pulls[0].state = "open";
+      },
+      "1.0.0",
+      "up_to_date",
+    ],
     ["a site a patch behind it", () => migratedWith(pin("1.0.1")), "1.0.3", "upgrade"],
     ["a site past it", () => migratedWith(pin("1.2.0")), "1.1.0", "up_to_date"],
     ["a range admitting it", () => migratedWith(pin("^1.0.0")), "1.1.0", "up_to_date"],
@@ -861,8 +872,16 @@ describe("the site page's version read agrees with handleUpgradeSite on package.
     expect(page.target).toBe(target);
     expect(page.updateAvailable).toBe(outcome === "upgrade");
     expect(page.needsHandUpgrade).toBe(outcome === "customized");
-    // A Dependabot bump open beside the update isn't it: only the job's pull request moves the site to the target.
-    if (page.pullRequest?.kind === "dependabot") expect(page.pullRequest.reachesTarget).toBe(false);
+    // A pull request open beside the update (a Dependabot bump, or the job's
+    // own from an older release) isn't it: only the job's pull request for
+    // the target moves the site there, and the page reads it so once it runs.
+    if (outcome === "upgrade" && page.pullRequest) expect(page.pullRequest.reachesTarget).toBe(false);
+    // One for a release the site is already on doesn't update it.
+    if (outcome !== "upgrade" && page.pullRequest) expect(page.pullRequest.updatesSite).toBe(false);
+    if (outcome === "upgrade") {
+      const after = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+      expect(after.pullRequest).toMatchObject({ kind: "upgrade", reachesTarget: true, updatesSite: true });
+    }
   });
 
   it("doesn't see an edit to a source file, which the job stops on (the documented gap)", async () => {

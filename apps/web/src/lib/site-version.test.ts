@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { GitHubRepoClient, OpenPullRequest, PullRequestResult } from "./integrations/github";
+import { GitHubApiError, type GitHubRepoClient, type OpenPullRequest, type PullRequestResult } from "./integrations/github";
+import { gitBlobSha } from "./site-scaffold";
 import {
   dependabotBumpVersion,
   fetchLatestPackageVersion,
@@ -11,6 +12,7 @@ import {
   siteVersionInfo,
   versionSpecKind,
 } from "./site-version";
+import { upgradePullRequestTitle } from "./site-upgrade";
 
 const pkg = (spec?: string) =>
   JSON.stringify({ dependencies: { next: "^15.5.27", ...(spec ? { "@jclaw-labs/musician-site": spec } : {}) } });
@@ -26,7 +28,13 @@ const pull = (overrides: Partial<OpenPullRequest>): OpenPullRequest => ({
   headRef: "feature",
   ...overrides,
 });
-const upgradePull = (number = 7): PullRequestResult => ({ number, htmlUrl: `https://github.com/jclaw/site/pull/${number}`, state: "open" });
+/** The platform's upgrade pull request, opened for `version` (1.4.1, the default target). */
+const upgradePull = (number = 7, version = "1.4.1"): PullRequestResult => ({
+  number,
+  htmlUrl: `https://github.com/jclaw/site/pull/${number}`,
+  title: upgradePullRequestTitle(version),
+  state: "open",
+});
 
 /** `siteVersionInfo` with the platform's bundle and npm both on 1.4.1 unless overridden. */
 const info = (args: Partial<Parameters<typeof siteVersionInfo>[0]>) =>
@@ -175,7 +183,34 @@ describe("siteVersionInfo", () => {
       url: "https://github.com/jclaw/site/pull/7",
       kind: "upgrade",
       reachesTarget: true,
+      updatesSite: true,
     });
+  });
+
+  it("counts an upgrade pull request as the update only when the release in its title reaches the platform's release", () => {
+    // Opened for 1.4.1; the platform's release has since moved to 2.0.0.
+    expect(info({ packageJson: pkg("1.2.0"), target: "2.0.0", latest: published("2.0.0"), upgradePull: upgradePull(7, "1.4.1") })).toMatchObject({
+      updateAvailable: true,
+      pullRequest: { kind: "upgrade", reachesTarget: false, updatesSite: true },
+    });
+    expect(info({ packageJson: pkg("1.2.0"), upgradePull: upgradePull(7, "1.4.1") }).pullRequest).toMatchObject({ reachesTarget: true, updatesSite: true });
+    // An edited title names no release: the job rewrites it on its next run, so it's taken as the update.
+    const edited = { ...upgradePull(7), title: "Site code update (please review)" };
+    expect(info({ packageJson: pkg("1.2.0"), target: "2.0.0", upgradePull: edited }).pullRequest).toMatchObject({ reachesTarget: true, updatesSite: true });
+  });
+
+  it("doesn't count a pull request at or below the site's release as updating it", () => {
+    // Dependabot moved the site onto 1.4.1 while the old upgrade pull request stayed open.
+    expect(info({ packageJson: pkg("1.4.1"), upgradePull: upgradePull(7, "1.4.1") })).toMatchObject({
+      updateAvailable: false,
+      pullRequest: { kind: "upgrade", reachesTarget: true, updatesSite: false },
+    });
+    expect(info({ packageJson: pkg("1.4.1"), upgradePull: upgradePull(7, "1.3.0") }).pullRequest?.updatesSite).toBe(false);
+    const bump = [pull({ headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.3.0" })];
+    expect(info({ packageJson: pkg("1.4.1"), pulls: bump }).pullRequest).toMatchObject({ kind: "dependabot", updatesSite: false });
+    expect(info({ packageJson: pkg("1.2.0"), pulls: bump }).pullRequest?.updatesSite).toBe(true);
+    // A site naming no release (a full copy) is updated by any.
+    expect(info({ packageJson: pkg(), upgradePull: upgradePull(7, "1.4.1") }).pullRequest?.updatesSite).toBe(true);
   });
 
   it("counts a Dependabot bump as the update only when it reaches the platform's release", () => {
@@ -245,17 +280,18 @@ describe("isDependabotBump", () => {
 describe("findUpdatePullRequest", () => {
   it("prefers the platform's upgrade over a Dependabot bump", () => {
     const pulls = [pull({ number: 3, htmlUrl: "u3", headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1" })];
-    expect(findUpdatePullRequest({ number: 2, htmlUrl: "u2", state: "open" }, pulls, "1.4.1")).toEqual({
+    expect(findUpdatePullRequest({ number: 2, htmlUrl: "u2", title: upgradePullRequestTitle("1.4.1"), state: "open" }, pulls, "1.4.1")).toEqual({
       number: 2,
       url: "u2",
       kind: "upgrade",
       reachesTarget: true,
+      updatesSite: true,
     });
   });
 
   it("takes a Dependabot bump when there's no upgrade", () => {
     const pulls = [pull({}), pull({ number: 4, htmlUrl: "u4", headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1" })];
-    expect(findUpdatePullRequest(null, pulls, "1.4.1")).toEqual({ number: 4, url: "u4", kind: "dependabot", reachesTarget: true });
+    expect(findUpdatePullRequest(null, pulls, "1.4.1")).toEqual({ number: 4, url: "u4", kind: "dependabot", reachesTarget: true, updatesSite: true });
   });
 
   it("says a Dependabot bump reaches the target only at or past it, and never without one", () => {
@@ -267,6 +303,27 @@ describe("findUpdatePullRequest", () => {
     expect(at("1.5.0", "1.4.1")).toBe(true);
     expect(at("2.0.0-rc.0", "2.0.0")).toBe(false);
     expect(at("1.4.1", null)).toBe(false);
+  });
+
+  it("says an upgrade pull request reaches the target by the release in its title, or when its title names none", () => {
+    const at = (title: string, target: string | null) =>
+      findUpdatePullRequest({ ...upgradePull(), title }, [], target)?.reachesTarget;
+    expect(at(upgradePullRequestTitle("1.4.1"), "2.0.0")).toBe(false);
+    expect(at(upgradePullRequestTitle("1.4.1"), "1.4.1")).toBe(true);
+    expect(at(upgradePullRequestTitle("2.0.0-rc.0"), "2.0.0")).toBe(false);
+    expect(at(upgradePullRequestTitle("1.4.1"), null)).toBe(false);
+    expect(at("Upgrade the site", "2.0.0")).toBe(true);
+  });
+
+  it("says a pull request updates the site only past the release package.json names", () => {
+    const updates = (version: string, pinned: string | null) =>
+      findUpdatePullRequest(upgradePull(7, version), [], "1.4.1", pinned)?.updatesSite;
+    expect(updates("1.4.1", "1.2.0")).toBe(true);
+    expect(updates("1.4.1", "1.4.1")).toBe(false);
+    expect(updates("1.3.0", "1.4.1")).toBe(false);
+    expect(updates("1.4.1", "^1.4.0")).toBe(false);
+    expect(updates("1.4.1", null)).toBe(true);
+    expect(findUpdatePullRequest({ ...upgradePull(), title: "Edited" }, [], "1.4.1", "1.4.1")?.updatesSite).toBe(true);
   });
 
   it("is null when nothing updates the package", () => {
@@ -348,7 +405,7 @@ describe("readSiteVersion", () => {
       latest: "1.5.0",
       latestStatus: "published",
       newerRelease: "dependabot",
-      pullRequest: { number: 9, url: "u9", kind: "dependabot", reachesTarget: true },
+      pullRequest: { number: 9, url: "u9", kind: "dependabot", reachesTarget: true, updatesSite: true },
     });
     expect(repo.getFileText).toHaveBeenCalledWith("package.json", "trunk");
     expect(repo.getFileText).toHaveBeenCalledWith(".stagecraft-template.json", "trunk");
@@ -371,11 +428,47 @@ describe("readSiteVersion", () => {
     expect(added.info).toMatchObject({ needsHandUpgrade: true, updateAvailable: false });
   });
 
+  it("reads the manifest's package.json only when the job would compare it", async () => {
+    const baseline = JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.2.0" } });
+    const stampWith = (sha: string) => JSON.stringify({ packageVersion: "1.2.0", manifest: { "package.json": sha } });
+    const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
+    // package.json is the blob the manifest records: the job skips it as unchanged.
+    const same = client({ "package.json": baseline, ".stagecraft-template.json": stampWith(gitBlobSha(baseline)) });
+    expect(await readSiteVersion(same, "main", { fetchImpl, readTarget: target("1.4.1") })).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
+    expect(same.getBlobText).not.toHaveBeenCalled();
+    // No package.json: nothing to compare (the stamp alone says it needs upgrading by hand).
+    const none = client({ ".stagecraft-template.json": stampWith("b1") });
+    expect(await readSiteVersion(none, "main", { fetchImpl, readTarget: target("1.4.1") })).toMatchObject({ needsHandUpgrade: true });
+    expect(none.getBlobText).not.toHaveBeenCalled();
+  });
+
+  it("skips the comparison when GitHub won't return the manifest's package.json, but for a 401", async () => {
+    const withManifest = JSON.stringify({ packageVersion: "1.2.0", manifest: { "package.json": "missing" } });
+    const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
+    // The site's package.json adds a dependency: compared, it would need upgrading by hand.
+    const leftPad = JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.2.0", "left-pad": "1.3.0" } });
+    const failing = (status: number) => {
+      const repo = client({ "package.json": leftPad, ".stagecraft-template.json": withManifest });
+      repo.getBlobText.mockRejectedValue(new GitHubApiError(status, "nope"));
+      return readSiteVersion(repo, "main", { fetchImpl, readTarget: target("1.4.1") });
+    };
+    for (const status of [404, 403]) {
+      expect(await failing(status), String(status)).toMatchObject({ current: "1.2.0", needsHandUpgrade: false, updateAvailable: true });
+    }
+    await expect(failing(401)).rejects.toMatchObject({ status: 401 });
+  });
+
   it("looks the upgrade pull request up by its branch into the default branch", async () => {
     const repo = client({ "package.json": pkg("1.2.0") }, [], upgradePull(12));
     const fetchImpl = vi.fn(async () => jsonResponse({ version: "1.4.1" }));
     const read = await readSiteVersion(repo, "trunk", { fetchImpl, readTarget: target("1.4.1") });
-    expect(read.pullRequest).toEqual({ number: 12, url: "https://github.com/jclaw/site/pull/12", kind: "upgrade", reachesTarget: true });
+    expect(read.pullRequest).toEqual({
+      number: 12,
+      url: "https://github.com/jclaw/site/pull/12",
+      kind: "upgrade",
+      reachesTarget: true,
+      updatesSite: true,
+    });
     expect(repo.findOpenPullRequest).toHaveBeenCalledWith("stagecraft/upgrade", "trunk");
   });
 

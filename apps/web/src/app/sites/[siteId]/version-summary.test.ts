@@ -27,17 +27,17 @@ describe("versionSummary", () => {
 
   it("links an open update and says it's waiting to be merged", () => {
     const summary = versionSummary(
-      info({ pullRequest: { number: 4, url: "https://github.com/x/y/pull/4", kind: "dependabot", reachesTarget: true } }),
+      info({ pullRequest: { number: 4, url: "https://github.com/x/y/pull/4", kind: "dependabot", reachesTarget: true, updatesSite: true } }),
     );
     expect(summary.text).toBe("This site is on 1.2.0. The latest release is 1.4.1. An update is waiting for you to merge it.");
     expect(summary.pullRequest).toEqual({ url: "https://github.com/x/y/pull/4", label: "Review Dependabot's pull request" });
     expect(
-      versionSummary(info({ pullRequest: { number: 5, url: "u", kind: "upgrade", reachesTarget: true } })).pullRequest?.label,
+      versionSummary(info({ pullRequest: { number: 5, url: "u", kind: "upgrade", reachesTarget: true, updatesSite: true } })).pullRequest?.label,
     ).toBe("Review the upgrade pull request");
   });
 
   it("keeps offering the update when Dependabot's open bump doesn't reach it, and mentions the bump apart", () => {
-    const bump = { number: 4, url: "u4", kind: "dependabot", reachesTarget: false } as const;
+    const bump = { number: 4, url: "u4", kind: "dependabot", reachesTarget: false, updatesSite: true } as const;
     // A major on offer, with Dependabot's minor bump in the old major open.
     expect(versionSummary(info({ current: "1.4.1", target: "2.0.0", latest: "2.0.0", pullRequest: bump }))).toEqual({
       tone: "behind",
@@ -58,7 +58,7 @@ describe("versionSummary", () => {
 
   it("explains a pull request still open on a site with nothing to upgrade", () => {
     const summary = versionSummary(
-      info({ current: "1.4.1", updateAvailable: false, pullRequest: { number: 5, url: "u", kind: "upgrade", reachesTarget: true } }),
+      info({ current: "1.4.1", updateAvailable: false, pullRequest: { number: 5, url: "u", kind: "upgrade", reachesTarget: true, updatesSite: true } }),
     );
     expect(summary).toMatchObject({
       tone: "current",
@@ -73,13 +73,39 @@ describe("versionSummary", () => {
         currentKind: "other",
         needsHandUpgrade: true,
         updateAvailable: false,
-        pullRequest: { number: 5, url: "u5", kind: "upgrade", reachesTarget: true },
+        pullRequest: { number: 5, url: "u5", kind: "upgrade", reachesTarget: true, updatesSite: true },
       }),
     );
     expect(summary.text).toBe(
       "This site names Stagecraft's package as latest, not a release number. The latest release is 1.4.1. Stagecraft can only upgrade a site whose package.json names a release of its package, so this site needs upgrading by hand. An upgrade pull request from before is still open.",
     );
     expect(summary.pullRequest).toEqual({ url: "u5", label: "Review the upgrade pull request" });
+  });
+
+  it("keeps offering the update beside an upgrade pull request opened for an older release", () => {
+    const stale = { number: 5, url: "u5", kind: "upgrade", reachesTarget: false, updatesSite: true } as const;
+    expect(versionSummary(info({ target: "2.0.0", latest: "2.0.0", pullRequest: stale }))).toEqual({
+      tone: "behind",
+      text: "This site is on 1.2.0. The latest release is 2.0.0. An update to 2.0.0 is available. An older upgrade pull request is open; upgrading the site updates it.",
+      pullRequest: { url: "u5", label: "Review the upgrade pull request" },
+    });
+  });
+
+  it("doesn't say a pull request at or below the site's release updates it", () => {
+    // Dependabot moved the site onto the release the old upgrade pull request carries.
+    const oldUpgrade = { number: 5, url: "u5", kind: "upgrade", reachesTarget: true, updatesSite: false } as const;
+    expect(versionSummary(info({ current: "1.4.1", updateAvailable: false, pullRequest: oldUpgrade }))).toEqual({
+      tone: "current",
+      text: "This site is on 1.4.1. The latest release is 1.4.1. An upgrade pull request from before is still open.",
+      pullRequest: { url: "u5", label: "Review the upgrade pull request" },
+    });
+    // A Dependabot bump older than the site isn't what brings the newer release.
+    const oldBump = { number: 4, url: "u4", kind: "dependabot", reachesTarget: false, updatesSite: false } as const;
+    expect(
+      versionSummary(info({ current: "1.4.1", updateAvailable: false, latest: "1.5.0", newerRelease: "dependabot", pullRequest: oldBump })).text,
+    ).toBe(
+      "This site is on 1.4.1. The latest release is 1.5.0. Dependabot has a pull request open for an older release. Dependabot will update this site to 1.5.0.",
+    );
   });
 
   it("reads a site on the release Stagecraft upgrades to as current", () => {
@@ -103,7 +129,7 @@ describe("versionSummary", () => {
   });
 
   it("names Dependabot's open pull request as what brings the newer release", () => {
-    const dependabot = { number: 4, url: "u4", kind: "dependabot", reachesTarget: false } as const;
+    const dependabot = { number: 4, url: "u4", kind: "dependabot", reachesTarget: false, updatesSite: true } as const;
     expect(
       versionSummary(info({ current: "1.4.1", updateAvailable: false, latest: "1.5.0", newerRelease: "dependabot", pullRequest: dependabot })),
     ).toEqual({

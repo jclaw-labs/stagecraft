@@ -44,12 +44,13 @@ const HAND_UPGRADE_SENTENCE =
   " Stagecraft can only upgrade a site whose package.json names a release of its package, so this site needs upgrading by hand.";
 
 /**
- * Whether the open pull request is a Dependabot bump that isn't the update
- * on offer: one in the site's old major, or older than the platform's
- * release. It's mentioned, but "Upgrade site" is still the update.
+ * Whether the open pull request isn't the update on offer: a Dependabot
+ * bump in the site's old major or older than the platform's release, or an
+ * upgrade pull request opened for an older one. It's mentioned, but
+ * "Upgrade site" is still the update.
  */
-function isDependabotBesideUpdate(info: SiteVersionInfo): boolean {
-  return info.updateAvailable && info.pullRequest?.kind === "dependabot" && !info.pullRequest.reachesTarget;
+function isBesideUpdate(info: SiteVersionInfo): boolean {
+  return info.updateAvailable && info.pullRequest !== null && !info.pullRequest.reachesTarget;
 }
 
 /** How a newer release on npm reaches the site (ADR-016 §3). */
@@ -57,8 +58,8 @@ function newerSentence(info: SiteVersionInfo): string {
   switch (info.newerRelease) {
     case "dependabot":
       // An open Dependabot pull request is the one bringing it, said already,
-      // unless it's a bump beside the update on offer.
-      if (info.pullRequest?.kind === "dependabot" && !isDependabotBesideUpdate(info)) return "";
+      // unless it's a bump beside the update on offer or one the site is past.
+      if (info.pullRequest?.kind === "dependabot" && info.pullRequest.updatesSite && !isBesideUpdate(info)) return "";
       return info.updateAvailable
         ? ` After this update, Dependabot will update the site to ${info.latest}.`
         : ` Dependabot will update this site to ${info.latest}.`;
@@ -85,16 +86,25 @@ export function versionSummary(info: SiteVersionInfo): VersionSummary {
       ? " An update is waiting for you to merge it."
       : ` An update to ${info.target} is available.`;
   }
-  if (isDependabotBesideUpdate(info)) {
-    update += " Dependabot also has a pull request open.";
-  } else if (!info.updateAvailable && info.pullRequest) {
-    if (info.pullRequest.kind === "dependabot") {
-      update += " Dependabot has a pull request open that updates it.";
+  const pull = info.pullRequest;
+  if (pull && isBesideUpdate(info)) {
+    // The job rewrites its own pull request onto the new release when it runs again.
+    update +=
+      pull.kind === "dependabot"
+        ? " Dependabot also has a pull request open."
+        : " An older upgrade pull request is open; upgrading the site updates it.";
+  } else if (!info.updateAvailable && pull) {
+    if (pull.kind === "dependabot") {
+      update += pull.updatesSite
+        ? " Dependabot has a pull request open that updates it."
+        : " Dependabot has a pull request open for an older release.";
     } else {
-      // A site that needs upgrading by hand can't take the platform's upgrade.
-      update += info.needsHandUpgrade
-        ? " An upgrade pull request from before is still open."
-        : " A pull request that updates it is open.";
+      // A site that needs upgrading by hand can't take the platform's
+      // upgrade, and one already on its release doesn't need it.
+      update +=
+        info.needsHandUpgrade || !pull.updatesSite
+          ? " An upgrade pull request from before is still open."
+          : " A pull request that updates it is open.";
     }
   }
   const tone: VersionSummaryTone = info.updateAvailable

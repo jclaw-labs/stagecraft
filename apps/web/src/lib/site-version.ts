@@ -7,9 +7,9 @@ import type {
   SiteVersionSpecKind,
 } from "@stagecraft/shared";
 
-import type { GitHubRepoClient, OpenPullRequest, PullRequestResult } from "@/lib/integrations/github";
+import { GitHubApiError, type GitHubRepoClient, type OpenPullRequest, type PullRequestResult } from "@/lib/integrations/github";
 import { availableUpgradeVersion } from "@/lib/jobs/queue-upgrade";
-import { MUSICIAN_SITE_PACKAGE, TEMPLATE_STAMP_PATH } from "@/lib/site-scaffold";
+import { gitBlobSha, MUSICIAN_SITE_PACKAGE, TEMPLATE_STAMP_PATH } from "@/lib/site-scaffold";
 import {
   isOnOrPastRelease,
   isVersionSpec,
@@ -19,6 +19,7 @@ import {
   pinnedPackageVersion,
   readStamp,
   UPGRADE_BRANCH,
+  upgradePullRequestVersion,
 } from "@/lib/site-upgrade";
 
 /**
@@ -77,24 +78,42 @@ export function dependabotBumpVersion(pull: Pick<OpenPullRequest, "headRef">): s
   return version === undefined ? null : semver.valid(version);
 }
 
+/** Whether `version` is `target` or later (never without a target). */
+function isAtOrPast(version: string, target: string | null): boolean {
+  return target !== null && semver.valid(target) !== null && semver.gte(version, target);
+}
+
 /**
  * The open pull request that updates the package, the platform's upgrade
- * first, and whether merging it moves the site onto `target` or later. A
- * Dependabot bump only does when its release is `target` or later: it
- * never crosses a major (ADR-016 §3), and a bump whose build gate failed
- * stays open while the platform's release moves on.
+ * first, with whether merging it moves the site onto `target` or later and
+ * past `pinned` (the spec the site's package.json names, if any).
+ *
+ * Each reads the pull request's release: the upgrade's from its title
+ * (`upgradePullRequestVersion`), a Dependabot bump's from its branch. The
+ * upgrade pull request carries the release that was the target when the
+ * job last ran, so it goes stale when the platform's release moves on; a
+ * Dependabot bump never crosses a major (ADR-016 §3), and one whose build
+ * gate failed stays open while the platform's release moves on. A title
+ * that names no release (the artist edited it) is taken to reach both, as
+ * the job rewrites it on its next run; a bump's branch always names one.
  */
 export function findUpdatePullRequest(
   upgrade: PullRequestResult | null,
   pulls: readonly OpenPullRequest[],
   target: string | null,
+  pinned: string | null = null,
 ): SiteUpdatePullRequest | null {
-  if (upgrade) return { number: upgrade.number, url: upgrade.htmlUrl, kind: "upgrade", reachesTarget: true };
-  const bump = pulls.find(isDependabotBump);
-  if (!bump) return null;
-  const version = dependabotBumpVersion(bump);
-  const reachesTarget = version !== null && target !== null && semver.valid(target) !== null && semver.gte(version, target);
-  return { number: bump.number, url: bump.htmlUrl, kind: "dependabot", reachesTarget };
+  const bump = upgrade ? null : pulls.find(isDependabotBump);
+  const pull = upgrade ?? bump;
+  if (!pull) return null;
+  const version = upgrade ? upgradePullRequestVersion(upgrade.title) : dependabotBumpVersion(bump!);
+  return {
+    number: pull.number,
+    url: pull.htmlUrl,
+    kind: upgrade ? "upgrade" : "dependabot",
+    reachesTarget: version === null ? upgrade !== null : isAtOrPast(version, target),
+    updatesSite: version === null || !isOnOrPastRelease(pinned, version),
+  };
 }
 
 /**
@@ -199,14 +218,38 @@ export function siteVersionInfo(args: {
     latest,
     latestStatus: args.latest.status,
     newerRelease,
-    pullRequest: findUpdatePullRequest(args.upgradePull, args.pulls, args.target),
+    pullRequest: findUpdatePullRequest(args.upgradePull, args.pulls, args.target, pinned),
   };
+}
+
+/**
+ * The package.json the stamp's manifest records, when the job would compare
+ * the site's with it: there's a site package.json, and it isn't the same
+ * blob (`changedCodeFiles` skips an unchanged file). Null otherwise, and
+ * when GitHub won't return the blob (a manifest naming one the repo doesn't
+ * have, a rate limit): the comparison is skipped, as for a stamp without a
+ * manifest. A 401 is thrown, for the route to ask the artist to reconnect.
+ */
+async function readBaselinePackageJson(
+  client: GitHubRepoClient,
+  stamp: string | null,
+  packageJson: string | null,
+): Promise<string | null> {
+  const baselineSha = readStamp(stamp).manifest?.["package.json"];
+  if (!baselineSha || packageJson === null || gitBlobSha(packageJson) === baselineSha) return null;
+  try {
+    return await client.getBlobText(baselineSha);
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status !== 401) return null;
+    throw error;
+  }
 }
 
 /**
  * Read a site's version from its repo's `branch`, the platform's bundle and
  * npm. npm being unreachable leaves `latest` unknown rather than failing the
- * read; GitHub errors are thrown. When the stamp has a manifest, the
+ * read; GitHub errors are thrown, but for the manifest's package.json
+ * (`readBaselinePackageJson`). When the stamp has a manifest, the
  * package.json it records is read too, to tell other edits to package.json
  * from Dependabot's bumps as the job does. The upgrade pull request is
  * looked up by its branch, so it's found however many pull requests are
@@ -227,7 +270,6 @@ export async function readSiteVersion(
     fetchLatestPackageVersion(npm).catch((): LatestRelease => ({ status: "unreachable", version: null })),
     readTarget(),
   ]);
-  const baselineSha = readStamp(stamp).manifest?.["package.json"];
-  const baselinePackageJson = baselineSha ? await client.getBlobText(baselineSha) : null;
+  const baselinePackageJson = await readBaselinePackageJson(client, stamp, packageJson);
   return siteVersionInfo({ packageJson, baselinePackageJson, stamp, target, latest, upgradePull, pulls });
 }

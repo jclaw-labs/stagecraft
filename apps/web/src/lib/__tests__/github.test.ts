@@ -640,16 +640,17 @@ describe("githubRepoClient", () => {
   it("finds the open pull request from a branch, and updates it", async () => {
     const repo = await client();
     mockFetch
-      .mockResolvedValueOnce(headerResponse([{ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }]))
-      .mockResolvedValueOnce(headerResponse({ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }))
+      .mockResolvedValueOnce(headerResponse([{ number: 4, html_url: "https://github.com/jclaw/site/pull/4", title: "Upgrade", state: "open" }]))
+      .mockResolvedValueOnce(headerResponse({ number: 4, html_url: "https://github.com/jclaw/site/pull/4", title: "T", state: "open" }))
       .mockResolvedValueOnce(headerResponse([]));
 
     expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toEqual({
       number: 4,
       htmlUrl: "https://github.com/jclaw/site/pull/4",
+      title: "Upgrade",
       state: "open",
     });
-    await repo.updatePullRequest(4, { title: "T", body: "B" });
+    expect(await repo.updatePullRequest(4, { title: "T", body: "B" })).toMatchObject({ number: 4, title: "T" });
     expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toBeNull();
 
     const recorded = calls();
@@ -671,9 +672,9 @@ describe("createBranch and createPullRequest", () => {
   });
 
   it("opens a pull request", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ number: 7, html_url: "https://github.com/jclaw/site/pull/7", state: "open" }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ number: 7, html_url: "https://github.com/jclaw/site/pull/7", title: "T", state: "open" }));
     const pr = await createPullRequest("user-1", "jclaw", "site", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" });
-    expect(pr).toEqual({ number: 7, htmlUrl: "https://github.com/jclaw/site/pull/7", state: "open" });
+    expect(pr).toEqual({ number: 7, htmlUrl: "https://github.com/jclaw/site/pull/7", title: "T", state: "open" });
     expect(calls()[0]).toEqual(["POST", "/repos/jclaw/site/pulls", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" }]);
   });
 });

@@ -156,13 +156,22 @@ export interface SiteUpdatePullRequest {
   url: string;
   kind: SiteUpdatePullRequestKind;
   /**
-   * Whether merging it moves the site onto `target` or later: always for
-   * the platform's upgrade pull request; for a Dependabot bump, only when
-   * the release its branch names is `target` or later. Dependabot ignores
-   * major releases of the package (ADR-016 §3), so its bump is never the
-   * update to a new major.
+   * Whether merging it moves the site onto `target` or later: when the
+   * release it carries (the upgrade pull request's title, a Dependabot
+   * bump's branch) is `target` or later. The upgrade pull request carries
+   * the release that was the target when the job last ran, so it falls
+   * behind when the platform's release moves on; one whose title names no
+   * release counts as reaching it. Dependabot ignores major releases of the
+   * package (ADR-016 §3), so its bump is never the update to a new major.
    */
   reachesTarget: boolean;
+  /**
+   * Whether merging it moves the site past the release its package.json
+   * names: false for one at or below it, such as an upgrade pull request
+   * left open after Dependabot moved the site on. True when the pull
+   * request names no release, or package.json names none.
+   */
+  updatesSite: boolean;
 }
 
 /**
