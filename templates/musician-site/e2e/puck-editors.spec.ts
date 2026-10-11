@@ -4,7 +4,7 @@ import path from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { E2E_CONTENT_DIR } from "../playwright.config.js";
-import type { TemplateKind } from "../src/app/admin/collections/[slug]/template/TemplateEditorClient.js";
+import type { TemplateKind } from "../src/admin/collections/[slug]/template/TemplateEditorClient.js";
 import { POSTS_FIELD_IDS } from "../src/lib/collections/field-ids.js";
 import { BLOCK_DESCRIPTIONS } from "../src/puck/config.js";
 import { seedDemoContent } from "./setup/seed.js";
