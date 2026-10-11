@@ -587,6 +587,21 @@ Both publish under the `@jclaw-labs` npm **user** scope. The `stagecraft` and `j
 
 The two packages are versioned in lockstep, and the template depends on the exact upgraders version. In the monorepo that dependency is `file:../../packages/content-upgraders`, so never publish from `templates/musician-site/` directly. `npm run pack-musician-site` (from the repo root, after `npm ci` at the root and in `templates/musician-site/`) builds and packs both packages into `.pack/`, pointing the template at the upgraders tarball. `npm run pack-musician-site -- --release` pins it to the published upgraders version instead, for a release. `npm run check:musician-site-package` installs the local tarballs into a minimal Next.js app with no lockfile, runs `next build`, and runs `stagecraft-site --help`. CI runs that check (`.github/workflows/musician-site-package.yml`) on every PR that touches either package or the scripts that pack them.
 
+### Content schema versions
+
+`_collection.json` carries a `schemaVersion`. The template reads every
+version from `OLDEST_SCHEMA_VERSION` up to the current one, upgrading older
+files in memory through the `@jclaw-labs/content-upgraders` chain. The next
+save writes the current version back. The template refuses a version newer
+than it knows, and the error names the package to update (ADR-016 §3).
+
+To ship a new version:
+1. Append the step to `UPGRADERS` in `packages/content-upgraders/src/index.ts`. Steps are pure functions over parsed JSON and never change once released.
+2. Bump `stagecraft.schemaVersion` in the template's `package.json` and `CURRENT_COLLECTION_SCHEMA_VERSION`. Tests keep the two in step with the chain.
+3. Add `fixtures/v<N>/` with the new version's collections. Never edit a released version's fixtures.
+
+For a site handled by hand, run `npx stagecraft-site migrate-content` from the site's root. It upgrades every collection in place. Add `--check` to only list what would change.
+
 ### Publishing a release
 
 1. Bump `version` in both `package.json` files to the same new version, and merge.
