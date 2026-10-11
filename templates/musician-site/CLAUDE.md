@@ -95,32 +95,45 @@ src/
                             No root not-found.tsx: Next would put it in
                             every admin response's RSC payload.
     admin/
-      page.tsx              Redirects to /admin/pages
-      login/page.tsx        Magic-link sign-in form
-      pages/page.tsx        Pages list — add / delete / open in editor
-      pages/[slug]/page.tsx Puck editor for one page
-      settings/page.tsx     Site Settings form (artistName, social, footer)
-      navigation/page.tsx   Header & Nav form (mode, layout, subtitle).
+      [[...path]]/page.tsx  Every /admin URL: re-exports the admin router
+                            (src/admin/router.tsx), force-dynamic
+      not-found.tsx         Admin 404, for any path the router doesn't serve
+    api/
+      [...path]/route.ts    Every /api URL: re-exports the API router
+                            (src/api/router.ts)
+  admin/                    Admin page modules, mapped to paths by
+                            router.tsx (ADR-016 §1). Same tree as the
+                            URLs; not Next.js route files.
+    router.tsx              Path → page module; notFound() otherwise
+    lazy-editors.tsx        The Puck editors behind next/dynamic, so only
+                            editor pages load Puck
+    page.tsx                Redirects to /admin/pages
+    login/page.tsx          Magic-link sign-in form
+    pages/page.tsx          Pages list — add / delete / open in editor
+    pages/[slug]/page.tsx   Puck editor for one page
+    settings/page.tsx       Site Settings form (artistName, social, footer)
+    navigation/page.tsx     Header & Nav form (mode, layout, subtitle).
                             Nav order + per-page visibility live on the
                             Pages list (drag handle + eye toggle per row).
-      appearance/page.tsx   Colors + typography form
-    api/
-      auth/                 Magic-link request / verify, logout, dev login
-      publish-status/       Vercel/Netlify deploy state proxy
-      upload-image/         sharp-based image processor; commits to draft
-      collections/                          POST: create a collection
-      collections/[slug]/items/             generic CRUD for any collection
+    appearance/page.tsx     Colors + typography form
+  api/                      API handler modules, dispatched by router.ts
+                            on path and method (404 / 405 otherwise)
+    auth/                   Magic-link request / verify, logout, dev login
+    publish-status/         Vercel/Netlify deploy state proxy
+    upload-image/           sharp-based image processor; commits to draft
+    collections/                            POST: create a collection
+    collections/[slug]/items/               generic CRUD for any collection
                                             (pages included)
-      collections/[slug]/items/[itemSlug]/  per-item GET / PUT / PATCH / DELETE
-      collections/[slug]/order/             PUT: write `_order.json`
-      collections/[slug]/schema/            PUT: schema change + item migrations
-      collections/[slug]/template/[kind]/   PUT: item / detail template
-      draft-changes/        Pending changes on the editor's draft branch
-      publish-draft/        Publish the whole draft to main (ADR-010)
-      publish-selected/     Publish selected items to main (ADR-012)
-      discard-draft/        Drop pending changes
-      welcome/              First-run wizard: complete / reset
-      contact/              Public contact form (Resend)
+    collections/[slug]/items/[itemSlug]/    per-item GET / PUT / PATCH / DELETE
+    collections/[slug]/order/               PUT: write `_order.json`
+    collections/[slug]/schema/              PUT: schema change + item migrations
+    collections/[slug]/template/[kind]/     PUT: item / detail template
+    draft-changes/          Pending changes on the editor's draft branch
+    publish-draft/          Publish the whole draft to main (ADR-010)
+    publish-selected/       Publish selected items to main (ADR-012)
+    discard-draft/          Drop pending changes
+    welcome/                First-run wizard: complete / reset
+    contact/                Public contact form (Resend)
   components/
     Image.tsx               Public <picture> renderer for ImageMetadata
     Header.tsx              Public site header (artist name + nav)
@@ -287,7 +300,8 @@ Each singleton panel uses the same `useSettingsForm` hook + `SaveBar`
 component, posting to the generic
 `PUT /api/collections/<slug>/items/_singleton` endpoint — the same
 path the generic editor uses. One save API, two surfaces. Adding a
-new custom panel is a small file: route at `/admin/<name>`, an entry
+new custom panel is a small file: a page module under `src/admin/<name>/` with
+its pattern in `src/admin/router.tsx`, an entry
 in `admin-surfaces.ts`, a call to `useSettingsForm({ collectionSlug,
 toValues })`.
 
@@ -427,7 +441,7 @@ One or more allowed editor emails per site (the editor allowlist), gated by midd
 
 **Cookie:** `mc_session`, HttpOnly, SameSite=Lax, 7-day max age. `Secure` flag set in production.
 
-Middleware (`src/middleware.ts`) gates `/admin/*`, `/api/publish-status` and `/api/upload-image`; `/admin/login` is allowlisted. API routes return 401; pages redirect. Every other admin API route (collections, drafts, publish, welcome) checks `getSession()` itself, so a new admin route must too.
+Middleware (`src/middleware.ts`) gates all of `/admin` and `/api` except `PUBLIC_PATHS` (`/admin/login`, `/api/auth/*`, `/api/contact`). Gated API paths return 401; pages redirect. Admin API handlers also check `getSession()` themselves (defence in depth), and a new one should too. A new endpoint is a handler module under `src/api/` plus its pattern in `src/api/router.ts`.
 
 **Server-side session access:** `getSession()` from `#lib/auth` reads the cookie and verifies it. Use it in Server Components and route handlers.
 
@@ -445,7 +459,7 @@ Middleware (`src/middleware.ts`) gates `/admin/*`, `/api/publish-status` and `/a
 2. Computes a 16-char SHA-256 content hash → used as the image id.
 3. If the original already exists at the target path, skips processing (dedup; ADR-007 §6).
 4. **Raster only:** runs `sharp().rotate()` (EXIF-correct) and emits variants `400/800/1600` in **webp + avif**, plus a tiny inline-base64 LQIP placeholder.
-5. **Vector / icon (SVG, ICO):** bypasses sharp entirely. No variants and no LQIP (sharp can rasterise SVG but the output wouldn't drive the `<picture>` srcSet flow, and sharp can't parse ICO at all). `isVectorExt(originalExt)` is the predicate consumers use to skip variant lookups. **SVGs run through `sanitiseSvg` (DOMPurify, SVG profile) before they land on disk** — strips `<script>`, `<foreignObject>`, `on*` event handlers, and `javascript:` URLs. The dedup branch reads from disk on re-upload, so subsequent reads see sanitised content. ICO bytes are written byte-for-byte (binary; no JS-execution surface through `<link rel="icon">`). Defense-in-depth: `next.config.ts` sets `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff` on `/images/<slug>/<id>/original.svg` responses, so a direct top-level URL navigation to a raw SVG triggers a download dialog rather than inline render. Inline `<img src>` requests ignore the disposition, so the gallery flow is unaffected. ICO uploads (artist favicons) get the same `nosniff` + Content-Type pin but NOT the attachment disposition (would break the favicon use case).
+5. **Vector / icon (SVG, ICO):** bypasses sharp entirely. No variants and no LQIP (sharp can rasterise SVG but the output wouldn't drive the `<picture>` srcSet flow, and sharp can't parse ICO at all). `isVectorExt(originalExt)` is the predicate consumers use to skip variant lookups. **SVGs run through `sanitiseSvg` (DOMPurify, SVG profile) before they land on disk** — strips `<script>`, `<foreignObject>`, `on*` event handlers, and `javascript:` URLs. The dedup branch reads from disk on re-upload, so subsequent reads see sanitised content. ICO bytes are written byte-for-byte (binary; no JS-execution surface through `<link rel="icon">`). Defense-in-depth: `withStagecraft()` (`src/lib/with-stagecraft.ts`, applied in `next.config.ts`) sets `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff` on `/images/<slug>/<id>/original.svg` responses, so a direct top-level URL navigation to a raw SVG triggers a download dialog rather than inline render. Inline `<img src>` requests ignore the disposition, so the gallery flow is unaffected. ICO uploads (artist favicons) get the same `nosniff` + Content-Type pin but NOT the attachment disposition (would break the favicon use case).
 6. Returns `ImageMetadata` (zod-validated).
 
 **On disk:**
