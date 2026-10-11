@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import {
   isUpgradeSiteBlocker,
   type KnownJobFields,
+  type SiteVersionInfo,
   type UpgradeSiteResultData,
 } from "@stagecraft/shared";
 
 import { signInWithGitHubAgain } from "./actions";
 import { upgradeJobSummary, UPGRADE_FILE_LIST_LIMIT, type UpgradeSummaryTone } from "./upgrade-summary";
+import { versionSummary, type VersionSummaryTone } from "./version-summary";
 import styles from "./site-detail.module.css";
 
 const TONE_CLASS: Record<UpgradeSummaryTone, string | undefined> = {
@@ -17,6 +19,12 @@ const TONE_CLASS: Record<UpgradeSummaryTone, string | undefined> = {
   ok: styles.upgradeOk,
   warn: styles.upgradeWarn,
   error: styles.upgradeFailed,
+};
+
+const VERSION_TONE_CLASS: Record<VersionSummaryTone, string | undefined> = {
+  behind: styles.upgradeWarn,
+  current: styles.upgradeOk,
+  unknown: undefined,
 };
 
 /** An upgrade_site job as `GET /api/sites/[siteId]` returns it. */
@@ -29,10 +37,11 @@ export interface UpgradeJob extends KnownJobFields {
 }
 
 /**
- * The "Upgrade site" action on a live site's page (ADR-016 §4): queues an
- * upgrade_site job, then shows how the latest one went: the pull request it
- * opened or updated, or why it stopped (sign in again, changed files, drafts
- * to publish).
+ * The "Upgrade site" action on a live site's page (ADR-016 §4): shows the
+ * release the site is on against the one Stagecraft can upgrade it to and
+ * npm's latest, with any open update pull request; queues an upgrade_site job, then shows how the latest one went:
+ * the pull request it opened or updated, or why it stopped (sign in again,
+ * changed files, drafts to publish).
  */
 export default function UpgradePanel({
   siteId,
@@ -46,8 +55,46 @@ export default function UpgradePanel({
 }) {
   const [isRequesting, setIsRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [version, setVersion] = useState<SiteVersionInfo | null>(null);
+  const [versionError, setVersionError] = useState("");
+  const [versionReauth, setVersionReauth] = useState(false);
+
+  // Read again once an upgrade finishes: it may have opened a pull request.
+  const finishedJobId = job?.status === "completed" || job?.status === "failed" ? job.id : null;
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchVersion() {
+      try {
+        const res = await fetch(`/api/sites/${siteId}/version`);
+        const data = (await res.json()) as { version?: SiteVersionInfo; error?: string; reauthRequired?: boolean };
+        if (cancelled) return;
+        if (res.ok && data.version) {
+          setVersion(data.version);
+          setVersionError("");
+          setVersionReauth(false);
+        } else {
+          setVersionError(data.error || "Couldn't read which version this site runs");
+          setVersionReauth(data.reauthRequired === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setVersionError("Couldn't read which version this site runs");
+          setVersionReauth(false);
+        }
+      }
+    }
+    fetchVersion();
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId, finishedJobId]);
+
+  const versionLine = version ? versionSummary(version) : null;
 
   const summary = upgradeJobSummary(job);
+  // The job's summary links the pull request it opened; don't link it twice.
+  const versionPullRequest =
+    versionLine?.pullRequest && versionLine.pullRequest.url !== summary?.pullRequestUrl ? versionLine.pullRequest : null;
   const result = job?.resultPayload ?? null;
   const blocker = isUpgradeSiteBlocker(result?.blocker) ? result.blocker : null;
 
@@ -78,9 +125,34 @@ export default function UpgradePanel({
       </div>
       <div className={styles.panelBody}>
         <p className={styles.upgradeIntro}>
-          Move this site onto the latest release of Stagecraft&rsquo;s site code. Stagecraft opens a pull request on
-          your repository; nothing changes on your site until you merge it.
+          Move this site onto the newest release of the site code that Stagecraft can upgrade it to. Stagecraft opens
+          a pull request on your repository; nothing changes on your site until you merge it.
         </p>
+
+        {versionLine && (
+          <div className={`${styles.upgradeStatus} ${VERSION_TONE_CLASS[versionLine.tone] ?? ""}`} role="status">
+            <p className={styles.upgradeStatusText}>{versionLine.text}</p>
+            {versionPullRequest && (
+              <Button href={versionPullRequest.url} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
+                {versionPullRequest.label}
+              </Button>
+            )}
+          </div>
+        )}
+        {versionError && (
+          <div className={styles.versionError} role="status">
+            <p className={styles.versionErrorText}>
+              {versionLine ? `${versionError}. The line above may be out of date.` : versionError}
+            </p>
+            {versionReauth && (
+              <form action={signInWithGitHubAgain.bind(null, siteId)}>
+                <Button type="submit" size="sm" variant="secondary">
+                  Sign in with GitHub again
+                </Button>
+              </form>
+            )}
+          </div>
+        )}
 
         {summary && (
           <div className={`${styles.upgradeStatus} ${TONE_CLASS[summary.tone] ?? ""}`} role="status">
@@ -123,7 +195,13 @@ export default function UpgradePanel({
 
         {requestError && <p className={styles.upgradeError}>{requestError}</p>}
 
-        <Button onClick={handleUpgrade} isDisabled={isRequesting || summary?.inFlight === true}>
+        {/* Secondary once the page knows the job would find nothing to do; still
+            enabled, since the platform's release can change before the click. */}
+        <Button
+          onClick={handleUpgrade}
+          isDisabled={isRequesting || summary?.inFlight === true}
+          variant={version && !version.updateAvailable ? "secondary" : "primary"}
+        >
           {isRequesting || summary?.inFlight ? "Upgrading…" : "Upgrade site"}
         </Button>
       </div>

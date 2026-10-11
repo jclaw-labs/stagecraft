@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobContext } from "@stagecraft/queue";
+import type { UpgradeSiteResultData } from "@stagecraft/shared";
 
 import type { GitHubRepoClient, GitHubTokenCheck, PullRequestResult } from "../integrations/github";
 import { gitBlobSha, SITE_AUTOMERGE_WORKFLOW_PATH, TEMPLATE_STAMP_PATH } from "../site-scaffold";
@@ -47,6 +48,7 @@ vi.mock("@jclaw-labs/content-upgraders", () => ({
 }));
 
 const { handleUpgradeSite, REAUTH_MESSAGE } = await import("./upgrade-site");
+const { readSiteVersion } = await import("../site-version");
 const { GitHubApiError } = await import("../integrations/github");
 
 // ---------------------------------------------------------------------------
@@ -114,6 +116,10 @@ class FakeRepo {
       getTree: async (sha) => new Map(this.commits.get(sha)!.tree),
       getCommitMessage: async (sha) => this.commits.get(sha)!.message,
       getBlobText: async (sha) => this.blobs.get(sha)!,
+      getFileText: async (path, ref) => {
+        const sha = this.commits.get(this.branches.get(ref)!)!.tree.get(path);
+        return sha ? this.blobs.get(sha)! : null;
+      },
       findOldestCommitTouching: async (path, ref) =>
         this.ancestors(this.branches.get(ref)!).filter((sha) => this.touches(sha, path)).at(-1) ?? null,
       commitTouchesPath: async (sha, path) => this.commits.has(sha) && this.touches(sha, path),
@@ -145,6 +151,10 @@ class FakeRepo {
         Object.assign(pr, update);
         return pr;
       },
+      listOpenPullRequests: async () =>
+        this.pulls
+          .filter((pr) => pr.state === "open")
+          .map((pr) => ({ number: pr.number, htmlUrl: pr.htmlUrl, title: pr.title, headRef: pr.head })),
     };
   }
 }
@@ -299,7 +309,7 @@ beforeEach(() => {
   mocks.createPullRequest.mockImplementation(async (_userId, _owner, _repo, options) => {
     const pr = { number: nextPrNumber++, htmlUrl: `https://github.com/jclaw/stagecraft-site-sarah/pull/${nextPrNumber - 1}`, state: "open", ...options };
     repo.pulls.push(pr);
-    return { number: pr.number, htmlUrl: pr.htmlUrl, state: pr.state };
+    return { number: pr.number, htmlUrl: pr.htmlUrl, title: pr.title, state: pr.state };
   });
 });
 
@@ -755,5 +765,135 @@ describe("handleUpgradeSite — credentials and preconditions", () => {
     expect(result).toMatchObject({ success: true, data: { pullRequest: { action: "opened" } } });
     // commitUpgrade finished on the first run and isn't repeated.
     expect(repo.commits.size).toBe(commitsBefore);
+  });
+});
+
+/*
+ * The page reads package.json, the stamp and (on a site whose stamp has a
+ * manifest) the manifest's package.json, so it agrees with the job on
+ * package.json. It doesn't read the rest of the tree: an edit to any other
+ * file of ours (`src/` code, `next.config.ts`) is seen only by the job, and
+ * the last case pins that gap.
+ */
+describe("the site page's version read agrees with handleUpgradeSite on package.json", () => {
+  type Outcome = "upgrade" | "up_to_date" | "customized";
+  type PackageJson = { dependencies: Record<string, string>; devDependencies?: Record<string, string> };
+
+  /** Migrate to 1.0.0 and merge it, then edit the site's package.json (null deletes it). */
+  async function migratedWith(edit: (pkg: PackageJson) => PackageJson | null) {
+    await runJob();
+    repo.branches.set("main", repo.branches.get("stagecraft/upgrade")!);
+    repo.pulls[0].state = "closed";
+    const pkg = edit(JSON.parse(repo.files("main")["package.json"]) as PackageJson);
+    repo.commitOn("main", { "package.json": pkg === null ? null : JSON.stringify(pkg, null, 2) + "\n" });
+  }
+  const pin = (spec: string) => (pkg: PackageJson) => {
+    pkg.dependencies["@jclaw-labs/musician-site"] = spec;
+    return pkg;
+  };
+  const drop = (pkg: PackageJson) => {
+    delete pkg.dependencies["@jclaw-labs/musician-site"];
+    return pkg;
+  };
+
+  it.each<[string, (() => Promise<void>) | null, string, Outcome]>([
+    ["a full copy from before ADR-016", null, "1.0.0", "upgrade"],
+    // The job opened its pull request for 1.0.0, unmerged, and the platform's release moved on.
+    ["a full copy with an upgrade pull request for an older release", () => runJob().then(() => undefined), "1.1.0", "upgrade"],
+    ["a site on the platform's release", () => migratedWith(pin("1.0.0")), "1.0.0", "up_to_date"],
+    [
+      "a site on the platform's release, with the upgrade pull request for it still open",
+      async () => {
+        await migratedWith(pin("1.0.0"));
+        repo.pulls[0].state = "open";
+      },
+      "1.0.0",
+      "up_to_date",
+    ],
+    ["a site a patch behind it", () => migratedWith(pin("1.0.1")), "1.0.3", "upgrade"],
+    ["a site past it", () => migratedWith(pin("1.2.0")), "1.1.0", "up_to_date"],
+    ["a range admitting it", () => migratedWith(pin("^1.0.0")), "1.1.0", "up_to_date"],
+    ["a range below it", () => migratedWith(pin("~1.0.0")), "1.1.0", "upgrade"],
+    ["any release (*) against a stable release", () => migratedWith(pin("*")), "1.1.0", "up_to_date"],
+    ["any release (*) against a prerelease", () => migratedWith(pin("*")), "1.1.0-rc.0", "upgrade"],
+    ["a dist-tag", () => migratedWith(pin("latest")), "1.1.0", "customized"],
+    ["a GitHub spec", () => migratedWith(pin("github:jclaw-labs/musician-site")), "1.1.0", "customized"],
+    ["a file spec", () => migratedWith(pin("file:../musician-site")), "1.1.0", "customized"],
+    ["a dropped dependency (stamp only)", () => migratedWith(drop), "1.1.0", "customized"],
+    [
+      "a dependency moved to devDependencies",
+      () => migratedWith((pkg) => ({ ...drop(pkg), devDependencies: { "@jclaw-labs/musician-site": "1.0.0" } })),
+      "1.1.0",
+      "customized",
+    ],
+    ["a deleted package.json", () => migratedWith(() => null), "1.1.0", "customized"],
+    [
+      "an added dependency",
+      () => migratedWith((pkg) => ({ ...pkg, dependencies: { ...pkg.dependencies, "left-pad": "1.3.0" } })),
+      "1.1.0",
+      "customized",
+    ],
+    [
+      "a major on offer, with Dependabot's minor bump open",
+      async () => {
+        await migratedWith(pin("1.0.0"));
+        repo.pulls.push({
+          number: 90,
+          htmlUrl: "https://github.com/jclaw/stagecraft-site-sarah/pull/90",
+          state: "open",
+          head: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.0.1",
+          base: "main",
+          title: "Bump @jclaw-labs/musician-site from 1.0.0 to 1.0.1",
+          body: "",
+        });
+      },
+      "2.0.0",
+      "upgrade",
+    ],
+  ])("%s", async (_label, setup, target, expected) => {
+    if (setup) await setup();
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle(target));
+    mocks.createPullRequest.mockClear();
+    const npm = vi.fn(async () => new Response(JSON.stringify({ version: target }), { status: 200 })) as unknown as typeof fetch;
+
+    // The page reads first: the job only ever moves stagecraft/upgrade.
+    const page = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+    const result = await runJob();
+    const data = (result.data ?? {}) as UpgradeSiteResultData;
+    const outcome: Outcome | "other" = data.pullRequest
+      ? "upgrade"
+      : data.upToDate
+        ? "up_to_date"
+        : data.blocker === "customized"
+          ? "customized"
+          : "other";
+
+    expect(outcome).toBe(expected);
+    expect(page.target).toBe(target);
+    expect(page.updateAvailable).toBe(outcome === "upgrade");
+    expect(page.needsHandUpgrade).toBe(outcome === "customized");
+    // A pull request open beside the update (a Dependabot bump, or the job's
+    // own from an older release) isn't it: only the job's pull request for
+    // the target moves the site there, and the page reads it so once it runs.
+    if (outcome === "upgrade" && page.pullRequest) expect(page.pullRequest.reachesTarget).toBe(false);
+    // One for a release the site is already on doesn't update it.
+    if (outcome !== "upgrade" && page.pullRequest) expect(page.pullRequest.updatesSite).toBe(false);
+    if (outcome === "upgrade") {
+      const after = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+      expect(after.pullRequest).toMatchObject({ kind: "upgrade", reachesTarget: true, updatesSite: true });
+    }
+  });
+
+  it("doesn't see an edit to a source file, which the job stops on (the documented gap)", async () => {
+    await migratedWith(pin("1.0.0"));
+    repo.commitOn("main", { "src/lib/site-content.ts": "// changed by the artist\n" });
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+    const npm = vi.fn(async () => new Response(JSON.stringify({ version: "1.1.0" }), { status: 200 })) as unknown as typeof fetch;
+
+    const page = await readSiteVersion(repo.client(), "main", { fetchImpl: npm });
+    const data = ((await runJob()).data ?? {}) as UpgradeSiteResultData;
+
+    expect(data.blocker).toBe("customized");
+    expect(page).toMatchObject({ needsHandUpgrade: false, updateAvailable: true });
   });
 });

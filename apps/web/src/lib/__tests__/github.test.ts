@@ -466,6 +466,88 @@ describe("githubRepoClient", () => {
     expect(await repo.getBlobText("b1")).toBe("héllo");
   });
 
+  describe("getFileText", () => {
+    const fileBody = (text: string) => {
+      // GitHub wraps base64 content at 60 characters.
+      const content = Buffer.from(text).toString("base64").replace(/(.{60})/g, "$1\n");
+      return { type: "file", sha: "f1", encoding: "base64", content };
+    };
+
+    it("decodes a file's base64 content, newlines and all, as UTF-8", async () => {
+      const repo = await client();
+      const text = `${JSON.stringify({ name: "sarah-site", description: "Chansons à écouter".repeat(4) }, null, 2)}\n`;
+      mockFetch.mockResolvedValueOnce(headerResponse(fileBody(text)));
+      expect(fileBody(text).content).toContain("\n");
+      expect(await repo.getFileText("package.json", "main")).toBe(text);
+    });
+
+    it("asks for a nested path and a ref with a slash, encoded", async () => {
+      const repo = await client();
+      mockFetch.mockResolvedValueOnce(headerResponse(fileBody("x")));
+      await repo.getFileText("src/content/a b#1.json", "stagecraft/upgrade");
+      expect(calls()[0]).toEqual(["GET", "/repos/jclaw/site/contents/src/content/a%20b%231.json?ref=stagecraft%2Fupgrade", undefined]);
+    });
+
+    it("returns null for a missing file", async () => {
+      const repo = await client();
+      mockFetch.mockResolvedValueOnce(headerResponse({ message: "Not Found" }, {}, 404));
+      expect(await repo.getFileText(".stagecraft-template.json", "main")).toBeNull();
+    });
+
+    it("throws other errors", async () => {
+      const repo = await client();
+      mockFetch.mockResolvedValueOnce(headerResponse({ message: "Server Error" }, {}, 500));
+      const read = repo.getFileText("package.json", "main");
+      await expect(read).rejects.toBeInstanceOf(GitHubApiError);
+      await expect(read).rejects.toMatchObject({ status: 500 });
+    });
+
+    it("returns null for a directory, a symlink or a submodule", async () => {
+      const repo = await client();
+      mockFetch
+        .mockResolvedValueOnce(headerResponse([{ type: "file", name: "a.json", path: "src/a.json" }]))
+        .mockResolvedValueOnce(headerResponse({ type: "symlink", target: "../x", content: "" }))
+        .mockResolvedValueOnce(headerResponse({ type: "submodule", submodule_git_url: "https://github.com/x/y.git" }));
+      expect(await repo.getFileText("src", "main")).toBeNull();
+      expect(await repo.getFileText("link.json", "main")).toBeNull();
+      expect(await repo.getFileText("vendor", "main")).toBeNull();
+    });
+
+    it("reads a file past 1 MB, which the contents API leaves empty, from its blob", async () => {
+      const repo = await client();
+      mockFetch
+        .mockResolvedValueOnce(headerResponse({ type: "file", sha: "big1", encoding: "none", content: "" }))
+        .mockResolvedValueOnce(headerResponse({ content: Buffer.from("héllo big").toString("base64"), encoding: "base64" }));
+      expect(await repo.getFileText("package.json", "main")).toBe("héllo big");
+      expect(calls()[1][1]).toBe("/repos/jclaw/site/git/blobs/big1");
+    });
+  });
+
+  it("lists open pull requests with their head branches", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(
+      headerResponse([
+        {
+          number: 9,
+          html_url: "https://github.com/jclaw/site/pull/9",
+          title: "Bump @jclaw-labs/musician-site from 1.2.0 to 1.4.1",
+          head: { ref: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1", sha: "h9" },
+          base: { ref: "main" },
+          state: "open",
+        },
+      ]),
+    );
+    expect(await repo.listOpenPullRequests()).toEqual([
+      {
+        number: 9,
+        htmlUrl: "https://github.com/jclaw/site/pull/9",
+        title: "Bump @jclaw-labs/musician-site from 1.2.0 to 1.4.1",
+        headRef: "dependabot/npm_and_yarn/jclaw-labs/musician-site-1.4.1",
+      },
+    ]);
+    expect(calls()[0]).toEqual(["GET", "/repos/jclaw/site/pulls?state=open&per_page=100", undefined]);
+  });
+
   it("finds the oldest commit touching a path from the last page", async () => {
     const repo = await client();
     mockFetch
@@ -558,16 +640,17 @@ describe("githubRepoClient", () => {
   it("finds the open pull request from a branch, and updates it", async () => {
     const repo = await client();
     mockFetch
-      .mockResolvedValueOnce(headerResponse([{ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }]))
-      .mockResolvedValueOnce(headerResponse({ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }))
+      .mockResolvedValueOnce(headerResponse([{ number: 4, html_url: "https://github.com/jclaw/site/pull/4", title: "Upgrade", state: "open" }]))
+      .mockResolvedValueOnce(headerResponse({ number: 4, html_url: "https://github.com/jclaw/site/pull/4", title: "T", state: "open" }))
       .mockResolvedValueOnce(headerResponse([]));
 
     expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toEqual({
       number: 4,
       htmlUrl: "https://github.com/jclaw/site/pull/4",
+      title: "Upgrade",
       state: "open",
     });
-    await repo.updatePullRequest(4, { title: "T", body: "B" });
+    expect(await repo.updatePullRequest(4, { title: "T", body: "B" })).toMatchObject({ number: 4, title: "T" });
     expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toBeNull();
 
     const recorded = calls();
@@ -589,9 +672,9 @@ describe("createBranch and createPullRequest", () => {
   });
 
   it("opens a pull request", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ number: 7, html_url: "https://github.com/jclaw/site/pull/7", state: "open" }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ number: 7, html_url: "https://github.com/jclaw/site/pull/7", title: "T", state: "open" }));
     const pr = await createPullRequest("user-1", "jclaw", "site", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" });
-    expect(pr).toEqual({ number: 7, htmlUrl: "https://github.com/jclaw/site/pull/7", state: "open" });
+    expect(pr).toEqual({ number: 7, htmlUrl: "https://github.com/jclaw/site/pull/7", title: "T", state: "open" });
     expect(calls()[0]).toEqual(["POST", "/repos/jclaw/site/pulls", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" }]);
   });
 });

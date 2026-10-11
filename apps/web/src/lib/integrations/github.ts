@@ -328,7 +328,17 @@ interface CreatePullRequestOptions {
 export interface PullRequestResult {
   number: number;
   htmlUrl: string;
+  title: string;
   state: string;
+}
+
+/** An open pull request as `GitHubRepoClient.listOpenPullRequests` lists it. */
+export interface OpenPullRequest {
+  number: number;
+  htmlUrl: string;
+  title: string;
+  /** The branch it merges from. */
+  headRef: string;
 }
 
 export async function createPullRequest(
@@ -352,6 +362,7 @@ export async function createPullRequest(
   return {
     number: data.number as number,
     htmlUrl: data.html_url as string,
+    title: data.title as string,
     state: data.state as string,
   };
 }
@@ -501,6 +512,8 @@ export interface GitHubRepoClient {
   getCommitMessage(commitSha: string): Promise<string>;
   /** A blob's content as UTF-8 text. */
   getBlobText(blobSha: string): Promise<string>;
+  /** A file's content as UTF-8 text on `ref`, or null when there's no such file. */
+  getFileText(path: string, ref: string): Promise<string | null>;
   /** The oldest commit on `ref` that touches `path`, or null when none does. */
   findOldestCommitTouching(path: string, ref: string): Promise<string | null>;
   /** Whether `commitSha` itself changes anything under `path`. */
@@ -519,6 +532,11 @@ export interface GitHubRepoClient {
   /** The open pull request from `head` (a branch in this repo) into `base`, if any. */
   findOpenPullRequest(head: string, base: string): Promise<PullRequestResult | null>;
   updatePullRequest(number: number, update: PullRequestUpdate): Promise<PullRequestResult>;
+  /**
+   * The repo's open pull requests, newest first: the first 100 only, so an
+   * older one can be missed (`findOpenPullRequest` looks one up by branch).
+   */
+  listOpenPullRequests(): Promise<OpenPullRequest[]>;
 }
 
 /** Commits listed per page when reading history. */
@@ -536,8 +554,8 @@ export function lastPageFromLinkHeader(link: string | null): number | null {
   return null;
 }
 
-function toPullRequestResult(data: { number: number; html_url: string; state: string }): PullRequestResult {
-  return { number: data.number, htmlUrl: data.html_url, state: data.state };
+function toPullRequestResult(data: { number: number; html_url: string; title: string; state: string }): PullRequestResult {
+  return { number: data.number, htmlUrl: data.html_url, title: data.title, state: data.state };
 }
 
 /** A `GitHubRepoClient` for `owner/repo`, acting as `userId`. */
@@ -549,6 +567,11 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
     const query = new URLSearchParams({ path, sha: ref, per_page: String(perPage), page: String(page) });
     const res = await githubFetch(token, `${repoPath}/commits?${query}`);
     return { commits: (await res.json()) as Array<{ sha: string }>, link: res.headers.get("link") };
+  }
+
+  async function blobText(blobSha: string) {
+    const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
+    return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
   }
 
   return {
@@ -582,9 +605,28 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
       return new Map(tree.tree.filter((entry) => entry.type === "blob").map((entry) => [entry.path, entry.sha]));
     },
 
-    async getBlobText(blobSha) {
-      const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
-      return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
+    getBlobText: blobText,
+
+    async getFileText(path, ref) {
+      const query = new URLSearchParams({ ref });
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      try {
+        const file = (await githubApi(token, `${repoPath}/contents/${encodedPath}?${query}`)) as {
+          type?: string;
+          sha?: string;
+          content?: string;
+          encoding?: string;
+        };
+        if (file.type !== "file" || typeof file.content !== "string") return null;
+        if (file.encoding === "base64") return Buffer.from(file.content, "base64").toString("utf8");
+        // Past 1 MB the contents API leaves `content` empty (`encoding:
+        // "none"`); the blobs API still returns it.
+        if (file.encoding === "none" && file.sha) return blobText(file.sha);
+        return file.content;
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return null;
+        throw error;
+      }
     },
 
     async findOldestCommitTouching(path, ref) {
@@ -681,6 +723,7 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
       const pulls = (await githubApi(token, `${repoPath}/pulls?${query}`)) as Array<{
         number: number;
         html_url: string;
+        title: string;
         state: string;
       }>;
       return pulls[0] ? toPullRequestResult(pulls[0]) : null;
@@ -692,6 +735,17 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
         body: JSON.stringify({ title: update.title, body: update.body }),
       });
       return toPullRequestResult(data);
+    },
+
+    async listOpenPullRequests() {
+      const query = new URLSearchParams({ state: "open", per_page: "100" });
+      const pulls = (await githubApi(token, `${repoPath}/pulls?${query}`)) as Array<{
+        number: number;
+        html_url: string;
+        title: string;
+        head: { ref: string };
+      }>;
+      return pulls.map((pull) => ({ number: pull.number, htmlUrl: pull.html_url, title: pull.title, headRef: pull.head.ref }));
     },
   };
 }

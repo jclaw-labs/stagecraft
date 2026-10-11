@@ -424,6 +424,11 @@ export function migrateCollections(files: readonly TemplateFile[], target: numbe
 /** The npm registry the target release's metadata is read from. */
 export const NPM_REGISTRY = "https://registry.npmjs.org";
 
+/** The registry's metadata URL for a version or dist-tag of the package. */
+export function packageMetadataUrl(versionOrTag: string, registry = NPM_REGISTRY): string {
+  return `${registry}/${MUSICIAN_SITE_PACKAGE.replace("/", "%2f")}/${encodeURIComponent(versionOrTag)}`;
+}
+
 /**
  * The collection `schemaVersion` a release of the package reads: its
  * package.json's `stagecraft.schemaVersion`, from the registry's metadata
@@ -434,7 +439,7 @@ export async function fetchTargetSchemaVersion(
   packageVersion: string,
   { fetchImpl = fetch, registry = NPM_REGISTRY }: { fetchImpl?: typeof fetch; registry?: string } = {},
 ): Promise<number> {
-  const url = `${registry}/${MUSICIAN_SITE_PACKAGE.replace("/", "%2f")}/${encodeURIComponent(packageVersion)}`;
+  const url = packageMetadataUrl(packageVersion, registry);
   const res = await fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Reading ${MUSICIAN_SITE_PACKAGE}@${packageVersion} from ${url} failed with HTTP ${res.status}`);
   const manifest = (await res.json()) as { stagecraft?: { schemaVersion?: unknown } };
@@ -456,8 +461,20 @@ export function isUpgradeCommitMessage(message: string): boolean {
   return message.startsWith(UPGRADE_COMMIT_PREFIX) && !message.slice(UPGRADE_COMMIT_PREFIX.length).includes("\n");
 }
 
+const UPGRADE_TITLE_PREFIX = `Upgrade to ${MUSICIAN_SITE_PACKAGE} `;
+
 export function upgradePullRequestTitle(packageVersion: string): string {
-  return `Upgrade to ${MUSICIAN_SITE_PACKAGE} ${packageVersion}`;
+  return `${UPGRADE_TITLE_PREFIX}${packageVersion}`;
+}
+
+/**
+ * The release an upgrade pull request moves the site to, from a title
+ * `upgradePullRequestTitle` wrote, or null when the title isn't one (the
+ * artist may have edited it) or names no valid release.
+ */
+export function upgradePullRequestVersion(title: string): string | null {
+  if (!title.startsWith(UPGRADE_TITLE_PREFIX)) return null;
+  return semver.valid(title.slice(UPGRADE_TITLE_PREFIX.length));
 }
 
 /**

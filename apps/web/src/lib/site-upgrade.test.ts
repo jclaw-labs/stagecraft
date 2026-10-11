@@ -25,6 +25,7 @@ import {
   upgradeDeletions,
   upgradePullRequestBody,
   upgradePullRequestTitle,
+  upgradePullRequestVersion,
 } from "./site-upgrade";
 
 const tree = (files: Record<string, string>) =>
@@ -425,6 +426,20 @@ describe("the pull request", () => {
 
   it("names the release in the title", () => {
     expect(upgradePullRequestTitle("1.4.0")).toBe("Upgrade to @jclaw-labs/musician-site 1.4.0");
+  });
+
+  it("reads the release back from a title it wrote, and nothing from any other", () => {
+    for (const version of ["1.4.0", "2.0.0-rc.1"]) expect(upgradePullRequestVersion(upgradePullRequestTitle(version))).toBe(version);
+    for (const title of [
+      "Upgrade to @jclaw-labs/musician-site",
+      "Upgrade to @jclaw-labs/musician-site 1.4",
+      "Upgrade to @jclaw-labs/musician-site 1.4.0 (edited)",
+      "Upgrade to @jclaw-labs/musician-site-shell 1.4.0",
+      "Upgrade the site to 1.4.0",
+      "",
+    ]) {
+      expect(upgradePullRequestVersion(title), title).toBeNull();
+    }
   });
 
   it("describes a shell-only upgrade without asking about drafts", () => {

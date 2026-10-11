@@ -123,3 +123,112 @@ export interface UpgradeSiteResultData {
   /** `drafts_pending`: the draft branches holding edits to rewritten files. */
   draftBranches?: string[];
 }
+
+/** Where a site's current package version was read from. */
+export type SiteVersionSource = "package_json" | "stamp";
+
+/**
+ * What kind of spec a site's version is: an exact release (`1.2.0`), a
+ * range (`^1.2.0`), any release at all (`*`), or something that isn't a
+ * release number (a dist-tag, a git or file spec).
+ */
+export type SiteVersionSpecKind = "version" | "range" | "any" | "other";
+
+/**
+ * How reading npm's `latest` release went: read, not published yet (the
+ * registry has no such package), or not reachable.
+ */
+export type SiteLatestReleaseStatus = "published" | "not_published" | "unreachable";
+
+/**
+ * How a newer release on npm reaches a site: Dependabot, for a patch or
+ * minor in the site's major, or the platform's upgrade once the platform
+ * bundles it, for a new major (ADR-016 §3).
+ */
+export type SiteNewerReleaseRoute = "dependabot" | "platform";
+
+/** Who opened a pull request that moves a site onto a newer release. */
+export type SiteUpdatePullRequestKind = "upgrade" | "dependabot";
+
+/** An open pull request that moves a site onto a newer release of the package. */
+export interface SiteUpdatePullRequest {
+  number: number;
+  url: string;
+  kind: SiteUpdatePullRequestKind;
+  /**
+   * Whether merging it moves the site onto `target` or later: when the
+   * release it carries (the upgrade pull request's title, a Dependabot
+   * bump's branch) is `target` or later. The upgrade pull request carries
+   * the release that was the target when the job last ran, so it falls
+   * behind when the platform's release moves on; one whose title names no
+   * release counts as reaching it. Dependabot ignores major releases of the
+   * package (ADR-016 §3), so its bump is never the update to a new major.
+   */
+  reachesTarget: boolean;
+  /**
+   * Whether merging it moves the site past the release its package.json
+   * names: false for one at or below it, such as an upgrade pull request
+   * left open after Dependabot moved the site on. True when the pull
+   * request names no release, or package.json names none.
+   */
+  updatesSite: boolean;
+}
+
+/**
+ * What `GET /api/sites/[siteId]/version` returns: the
+ * `@jclaw-labs/musician-site` release a site is on, the release the
+ * platform's "Upgrade site" would move it to, the latest one on npm, and an
+ * open pull request that would update it (ADR-016 Consequences).
+ */
+export interface SiteVersionInfo {
+  /**
+   * The version or range the site's package.json pins the package at, or
+   * the stamp's `packageVersion` (the release the site was created on) when
+   * package.json doesn't name it. Null for a full copy of the template (a
+   * site from before ADR-016).
+   */
+  current: string | null;
+  /** What kind of spec `current` is; null when `current` is. */
+  currentKind: SiteVersionSpecKind | null;
+  source: SiteVersionSource | null;
+  /**
+   * The release `upgrade_site` upgrades to: the one bundled with the
+   * platform, which moves only when the platform is deployed. Null when
+   * the platform bundles no release.
+   */
+  target: string | null;
+  /**
+   * Whether `upgrade_site` would stop with `customized` over package.json:
+   * it no longer names the package as a dependency (the version comes from
+   * the stamp, or there's none), or names it by a spec that isn't a version
+   * or range (a dist-tag, a git, file or URL spec), or, on a site whose
+   * stamp has a manifest, differs from the manifest's package.json in
+   * anything but dependency versions (an added or removed dependency, a
+   * changed script or field: `packageJsonChangedBeyondVersions`). Never true
+   * for a full copy of the template from before ADR-016, which the job
+   * migrates. Not seen: changes to any other file of ours (`src/` code,
+   * `next.config.ts`, …), and package.json edits beyond the package's spec
+   * on a site whose stamp predates the manifest, which the job measures
+   * from the template push in the repo's history.
+   */
+  needsHandUpgrade: boolean;
+  /**
+   * Whether `upgrade_site` would move the site onto `target`, by the same
+   * test the job runs: false when there's no target, the site needs
+   * upgrading by hand (`needsHandUpgrade`), or package.json pins `target`
+   * or later.
+   */
+  updateAvailable: boolean;
+  /** npm's `latest` release of the package, or null when `latestStatus` isn't `published`. */
+  latest: string | null;
+  latestStatus: SiteLatestReleaseStatus;
+  /**
+   * When npm's `latest` is a stable release past `target` (or there's no
+   * target) that the site isn't already on, how it reaches the site:
+   * `dependabot` when it's in the major the site is on (or moves onto with
+   * the update on offer), `platform` for a new major. Null otherwise, and on
+   * a site that needs upgrading by hand. A prerelease never counts.
+   */
+  newerRelease: SiteNewerReleaseRoute | null;
+  pullRequest: SiteUpdatePullRequest | null;
+}
