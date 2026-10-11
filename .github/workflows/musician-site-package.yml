@@ -3,7 +3,10 @@ name: Template package
 # Packs @jclaw-labs/content-upgraders and @jclaw-labs/musician-site,
 # installs the tarballs into a minimal Next.js app with no lockfile (as
 # Netlify and Vercel build a site), runs `next build`, and runs the
-# `stagecraft-site` CLI under plain node (ADR-016 §2).
+# `stagecraft-site` CLI under plain node (ADR-016 §2). Then runs the
+# release workflow's pre-publish check, which builds a clean copy of the
+# artist-repo shell on the same kind of tarballs, so a PR finds out before
+# a release does.
 #
 # Its own workflow so it can run only when the packages or the scripts
 # that pack them change. It isn't a required check. The minimal app
@@ -14,8 +17,11 @@ on:
     paths:
       - "templates/musician-site/**"
       - "packages/content-upgraders/**"
+      - "templates/musician-site-shell/**"
       - "scripts/pack-musician-site*"
       - "scripts/check-musician-site-package*"
+      - "scripts/check-musician-site-shell*"
+      - "scripts/install-musician-site-shell*"
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
@@ -25,8 +31,11 @@ on:
     paths:
       - "templates/musician-site/**"
       - "packages/content-upgraders/**"
+      - "templates/musician-site-shell/**"
       - "scripts/pack-musician-site*"
       - "scripts/check-musician-site-package*"
+      - "scripts/check-musician-site-shell*"
+      - "scripts/install-musician-site-shell*"
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
@@ -40,7 +49,7 @@ jobs:
   musician-site-package:
     name: Template package (pack and build)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -58,3 +67,6 @@ jobs:
         working-directory: templates/musician-site
 
       - run: npm run check:musician-site-package
+
+      - name: Pre-publish check (the shell on the tarballs)
+        run: npm run check:musician-site-shell

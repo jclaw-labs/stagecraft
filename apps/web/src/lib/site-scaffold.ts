@@ -1,12 +1,18 @@
 /**
  * Files the platform injects into every generated artist-site repo, on top
- * of the template copy. A site is a one-time copy of the template (see
- * create-site.ts / migrate-site.ts) and never tracks it again, so without
- * these its dependencies would drift forever and never receive security
- * patches. We inject:
- *   - `.github/dependabot.yml` — ongoing npm updates (7-day cooldown)
- *   - `.stagecraft-template.json` — source template + version at creation,
- *     so the platform can later detect drift.
+ * of the bundled site files (see create-site.ts / migrate-site.ts). A site
+ * is either the artist-repo shell on an exact `@jclaw-labs/musician-site`
+ * release, or (until a release is on npm's `latest`) a one-time copy of the
+ * template that never tracks it again (ADR-016). Either way, without these
+ * its dependencies would drift and never receive security patches. We
+ * inject:
+ *   - `.github/dependabot.yml` — ongoing npm updates (7-day cooldown, which
+ *     our own package skips; majors of the package and the framework are
+ *     left to a platform upgrade PR)
+ *   - `.stagecraft-template.json` — source template, the package version
+ *     and a manifest of our code paths at creation (ADR-016 §4), so the
+ *     platform can later tell which version a site runs and whether the
+ *     artist changed our files.
  *   - (pushed separately) `.github/workflows/dependabot-auto-merge.yml` —
  *     builds the site and auto-merges Dependabot's passing patch/minor PRs.
  *
@@ -17,6 +23,8 @@
  * the caller pushes it best-effort, so a token issued before we requested
  * that scope still creates the site — just without the workflow.
  */
+import { createHash } from "node:crypto";
+
 import type { TemplateFile } from "@/lib/template-reader";
 
 /** Which on-disk template a generated site was scaffolded from. */
@@ -34,18 +42,70 @@ export const SITE_DEPENDABOT_PATH = ".github/dependabot.yml";
 export const SITE_AUTOMERGE_WORKFLOW_PATH = ".github/workflows/dependabot-auto-merge.yml";
 export const TEMPLATE_STAMP_PATH = ".stagecraft-template.json";
 
+/**
+ * The npm package a site on the shell depends on (ADR-016 §2). It must
+ * match `name` in `templates/musician-site/package.json`, which the bundle
+ * generator reads; a test keeps the two equal.
+ */
+export const MUSICIAN_SITE_PACKAGE = "@jclaw-labs/musician-site";
+
+/**
+ * Dependencies whose major updates Dependabot never proposes on a site. A
+ * major of the package or the framework needs shell or code changes, so it
+ * arrives as a platform upgrade PR instead (ADR-016 §3), and the artist
+ * never sees a Dependabot PR that can't build.
+ */
+export const SITE_MAJOR_UPDATES_IGNORED = [MUSICIAN_SITE_PACKAGE, "next", "react", "react-dom"] as const;
+
+/**
+ * Paths that are the artist's, not ours: the content the CMS writes and
+ * the images it uploads. Everything else the bundle pushes is our code and
+ * goes in the stamp's manifest.
+ */
+const ARTIST_PATH_PREFIXES = ["src/content/", "public/"] as const;
+
+/** Path → git blob SHA of each of our files a site was created with. */
+export type CodePathManifest = Record<string, string>;
+
+/** The `.stagecraft-template.json` stamp. */
+export interface TemplateStamp {
+  template: ArtistTemplate;
+  /** `version` in the site's package.json when it was created. */
+  templateVersion: string;
+  /**
+   * The exact `@jclaw-labs/musician-site` version a shell site was created
+   * on, or null for a full copy of the template.
+   */
+  packageVersion: string | null;
+  /**
+   * Our files at creation (every pushed file outside `ARTIST_PATH_PREFIXES`),
+   * with their git blob SHAs: the baseline `upgrade_site` compares a site
+   * against to find files the artist changed (ADR-016 §4).
+   */
+  manifest: CodePathManifest;
+  createdAt: string;
+}
+
 interface TemplateStampInput {
   template: ArtistTemplate;
-  templateVersion: string;
+  /** The site's files as pushed (bundle plus any content overlay), without the scaffold. */
+  files: TemplateFile[];
   createdAt?: Date;
 }
 
 function buildDependabotYml(): string {
+  const ignored = SITE_MAJOR_UPDATES_IGNORED.map(
+    (name) => `      - dependency-name: "${name}"
+        update-types: ["version-update:semver-major"]`,
+  ).join("\n");
   return `# Managed by Stagecraft — keeps this site's npm dependencies current.
 # Version updates wait ${SITE_DEPENDENCY_COOLDOWN_DAYS} days after a release is published, so a
 # freshly-published (and occasionally compromised) version ages before it
 # is proposed here. Dependabot security updates are separate and are not
-# delayed by this cooldown.
+# delayed by this cooldown. ${MUSICIAN_SITE_PACKAGE} skips the cooldown:
+# it's Stagecraft's own package, and a cooldown would only hold back its
+# fixes. Major updates of it and of Next.js and React come as a Stagecraft
+# upgrade pull request instead, since they can need changes to this repo.
 version: 2
 updates:
   - package-ecosystem: "npm"
@@ -54,22 +114,57 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: ${SITE_DEPENDENCY_COOLDOWN_DAYS}
+      exclude:
+        - "${MUSICIAN_SITE_PACKAGE}"
+    ignore:
+${ignored}
     open-pull-requests-limit: 5
 `;
 }
 
-function buildTemplateStamp({
-  template,
-  templateVersion,
-  createdAt = new Date(),
-}: TemplateStampInput): string {
-  return (
-    JSON.stringify(
-      { template, templateVersion, createdAt: createdAt.toISOString() },
-      null,
-      2,
-    ) + "\n"
-  );
+/** The git blob SHA of `content` (UTF-8), as GitHub reports it for the file. */
+export function gitBlobSha(content: string): string {
+  const body = Buffer.from(content, "utf8");
+  return createHash("sha1").update(`blob ${body.length}\0`).update(body).digest("hex");
+}
+
+/** Our files among `files` (`ARTIST_PATH_PREFIXES` left out), by path, with their blob SHAs. */
+export function codePathManifest(files: TemplateFile[]): CodePathManifest {
+  const ours = files
+    .filter((f) => !ARTIST_PATH_PREFIXES.some((prefix) => f.path.startsWith(prefix)))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return Object.fromEntries(ours.map((f) => [f.path, gitBlobSha(f.content)]));
+}
+
+/** An exact release or prerelease version, as the bundle pins the package. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * The exact `@jclaw-labs/musician-site` version the site's package.json
+ * depends on, or null when it doesn't depend on the package at an exact
+ * version (a full copy of the template), or the file is absent or
+ * unparseable.
+ */
+export function packageVersionFromFiles(files: TemplateFile[]): string | null {
+  const pkg = files.find((f) => f.path === "package.json");
+  if (!pkg) return null;
+  try {
+    const parsed = JSON.parse(pkg.content) as { dependencies?: Record<string, unknown> };
+    const spec = parsed.dependencies?.[MUSICIAN_SITE_PACKAGE];
+    return typeof spec === "string" && EXACT_VERSION.test(spec) ? spec : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildTemplateStamp({ template, files, createdAt = new Date() }: TemplateStampInput): TemplateStamp {
+  return {
+    template,
+    templateVersion: templateVersionFromFiles(files),
+    packageVersion: packageVersionFromFiles(files),
+    manifest: codePathManifest(files),
+    createdAt: createdAt.toISOString(),
+  };
 }
 
 /**
@@ -91,13 +186,13 @@ export function templateVersionFromFiles(files: TemplateFile[]): string {
 /**
  * The non-template files injected into a generated site repo:
  *  - `.github/dependabot.yml` — ongoing npm updates with the cooldown
- *  - `.stagecraft-template.json` — source template + version at creation,
- *    so the platform can later detect drift from the current template.
+ *  - `.stagecraft-template.json` — the stamp (`TemplateStamp`), recorded
+ *    from `input.files`, the site's files as pushed.
  */
 export function buildSiteScaffoldFiles(input: TemplateStampInput): TemplateFile[] {
   return [
     { path: SITE_DEPENDABOT_PATH, content: buildDependabotYml() },
-    { path: TEMPLATE_STAMP_PATH, content: buildTemplateStamp(input) },
+    { path: TEMPLATE_STAMP_PATH, content: JSON.stringify(buildTemplateStamp(input), null, 2) + "\n" },
   ];
 }
 

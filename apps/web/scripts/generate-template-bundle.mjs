@@ -1,6 +1,17 @@
 /**
- * Build step: bundle the musician-site template's text files into a JSON
+ * Build step: bundle the files a new artist site starts with into a JSON
  * module the create_site and migrate_site jobs import.
+ *
+ * Which files depends on npm (ADR-016 §1, §2). Once a release of
+ * `@jclaw-labs/musician-site` is on the `latest` dist-tag, the bundle is the
+ * artist-repo shell (`templates/musician-site-shell`), with its `file:`
+ * dependency on the package rewritten to that exact version. Until then,
+ * or while `latest` points at a prerelease (the registry puts a package's
+ * first version on `latest` even when it's published with `--tag rc`), it
+ * is a full copy of the
+ * template plus the shell's starter content. A generated shell never pins a
+ * prerelease: Dependabot keeps offering prereleases to a dependency pinned
+ * to one.
  *
  * The jobs used to walk `templates/musician-site` with `fs` at runtime,
  * which only worked because next.config.ts copied the template into the
@@ -11,6 +22,11 @@
  * loader, before `next build`, `tsc`, and `vitest`.
  *
  * Usage: node scripts/generate-template-bundle.mjs
+ *
+ * It reads `latest` from the npm registry on every run, and fails rather
+ * than guess when the registry can't be reached. Set
+ * STAGECRAFT_SITE_PACKAGE_LATEST to skip the lookup: to a version to use it
+ * as `latest`, or empty to bundle the full template.
  */
 
 import fs from "node:fs/promises";
@@ -26,10 +42,31 @@ export const TEMPLATE_DIR = path.resolve(SCRIPT_DIR, "../../../templates/musicia
 /**
  * The starter content a new site starts with. It lives in the artist-repo
  * shell, `templates/musician-site-shell` (ADR-016 §1), since content is the
- * artist's, not the package's. Until sites move onto the shell (#422), the
- * bundle is the template plus this content under `src/content/`.
+ * artist's, not the package's. While new sites get a full copy of the
+ * template (nothing on `latest`, see above), the bundle is the template
+ * plus this content under `src/content/`.
  */
 export const STARTER_CONTENT_DIR = path.resolve(SCRIPT_DIR, "../../../templates/musician-site-shell/src/content");
+
+/** The artist-repo shell (ADR-016 §1): what a site on the package holds. */
+export const SHELL_DIR = path.resolve(SCRIPT_DIR, "../../../templates/musician-site-shell");
+
+/**
+ * Shell files that exist only so the shell runs from this checkout
+ * (`templates/musician-site-shell/CLAUDE.md`). `CLAUDE.md` and
+ * `package-lock.json` are in `TEMPLATE_SKIP_FILES` already.
+ */
+export const SHELL_SKIP_FILES = new Set([".npmrc"]);
+
+/** The registry the shell's package version is looked up on. */
+export const NPM_REGISTRY = "https://registry.npmjs.org";
+
+/**
+ * Set to the version on `latest` to skip the registry lookup (offline
+ * work, or to try the shell bundle before a release). Set it empty to
+ * bundle the full template as if nothing were on `latest`.
+ */
+export const LATEST_OVERRIDE_ENV = "STAGECRAFT_SITE_PACKAGE_LATEST";
 
 /** Where a site keeps its content, relative to the repo root. */
 export const SITE_CONTENT_PREFIX = "src/content";
@@ -68,6 +105,9 @@ export const TEMPLATE_SKIP_DIRS = new Set([
 /** Individual files to skip when reading the template. */
 export const TEMPLATE_SKIP_FILES = new Set([
   "package-lock.json",
+  // The package's release notes and npm readme (ADR-016 §2, §3).
+  "CHANGELOG.md",
+  "README.md",
   "playwright.config.ts",
   "CLAUDE.md",
   "EDITING.md",
@@ -126,9 +166,9 @@ export const TEST_ONLY_DEV_DEPENDENCIES = [
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
- * The template's package.json as a site repo needs it. Until sites move
- * onto the published package (ADR-016 §4, #422), each site is a full copy
- * of the template and builds from source, so its package.json:
+ * The template's package.json as a site repo needs it. While new sites
+ * get a full copy of the template (until a release is on `latest`), each
+ * builds from source, so its package.json:
  *
  * - is a private app named `musician-site`, without the publish fields;
  * - drops the test scripts and test-only dev dependencies, since the
@@ -192,8 +232,8 @@ function siteDependencySpec(spec) {
 /**
  * The files that vendor the monorepo packages the template depends on
  * through `file:` into a site copy, under `vendor/<directory name>/`.
- * Until those packages are published (ADR-016 §2, #422), a site installs
- * them from its own repo. Each gets its `src/` (tests left out) and a
+ * A full copy of the template installs them from its own repo, since it
+ * builds from source rather than from the published package. Each gets its `src/` (tests left out) and a
  * package.json whose only export is the TypeScript entry: the site
  * builds it from source, as the template does (`transpilePackages` and
  * the alias in the template's `next.config.ts`).
@@ -230,43 +270,67 @@ export async function vendoredPackageFiles(templateDir, templatePackageJson) {
 }
 
 /**
+ * Walk `dir` and return all non-binary, non-skipped text files, sorted by
+ * path, as they sit on disk.
+ *
+ * @param {string} dir
+ * @param {Set<string>} [extraSkipFiles] file names skipped on top of `TEMPLATE_SKIP_FILES`
+ * @returns {Promise<Array<{ path: string; content: string }>>}
+ */
+async function walkTextFiles(dir, extraSkipFiles = new Set()) {
+  /** @type {Array<{ path: string; content: string }>} */
+  const files = [];
+
+  /** @param {string} current @param {string} prefix */
+  async function walk(current, prefix) {
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      if (TEMPLATE_SKIP_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(current, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        await walk(fullPath, relativePath);
+      } else if (entry.isFile()) {
+        if (TEMPLATE_SKIP_FILES.has(entry.name) || extraSkipFiles.has(entry.name) || TEST_FILE.test(entry.name)) continue;
+        if (BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+        files.push({ path: relativePath, content: await fs.readFile(fullPath, "utf-8") });
+      }
+    }
+  }
+
+  await walk(dir, "");
+  return sortByPath(files);
+}
+
+/**
+ * @template {{ path: string }} T
+ * @param {T[]} files
+ * @returns {T[]}
+ */
+function sortByPath(files) {
+  return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/**
  * Walk `templateDir` and return all non-binary, non-skipped text files,
- * plus the vendored `file:` packages (`vendoredPackageFiles`), sorted by
- * path so the generated bundle is deterministic.
+ * with the root package.json made a site's (`sitePackageJson`), plus the
+ * vendored `file:` packages (`vendoredPackageFiles`), sorted by path so
+ * the generated bundle is deterministic.
  *
  * @param {string} templateDir
  * @param {{ vendor?: boolean }} [options]
  * @returns {Promise<Array<{ path: string; content: string }>>}
  */
 export async function collectTemplateFiles(templateDir, { vendor = true } = {}) {
-  /** @type {Array<{ path: string; content: string }>} */
-  const files = [];
-
-  /** @param {string} dir @param {string} prefix */
-  async function walk(dir, prefix) {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (TEMPLATE_SKIP_DIRS.has(entry.name)) continue;
-      const fullPath = path.join(dir, entry.name);
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-
-      if (entry.isDirectory()) {
-        await walk(fullPath, relativePath);
-      } else if (entry.isFile()) {
-        if (TEMPLATE_SKIP_FILES.has(entry.name) || TEST_FILE.test(entry.name)) continue;
-        if (BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
-        const content = await fs.readFile(fullPath, "utf-8");
-        files.push({ path: relativePath, content: relativePath === "package.json" ? sitePackageJson(content) : content });
-      }
-    }
-  }
-
-  await walk(templateDir, "");
+  const files = (await walkTextFiles(templateDir)).map((f) =>
+    f.path === "package.json" ? { path: f.path, content: sitePackageJson(f.content) } : f,
+  );
   if (vendor) {
     const packageJson = await fs.readFile(path.join(templateDir, "package.json"), "utf-8").catch(() => null);
     if (packageJson !== null) files.push(...(await vendoredPackageFiles(templateDir, packageJson)));
   }
-  return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return sortByPath(files);
 }
 
 /**
@@ -295,23 +359,144 @@ export async function collectSiteFiles(templateDir, contentDir) {
     content: f.content,
   }));
   if (content.length === 0) throw new Error(`No starter content found under ${contentDir}`);
-  return [...template, ...content].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return sortByPath([...template, ...content]);
+}
+
+/** A release version: exact, with no prerelease or build suffix. */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
+/**
+ * The shell's package.json as a site repo needs it: the package pinned to
+ * `version` exactly (ADR-016 §3: sites have no lockfile, so a range would
+ * skip the Dependabot build gate), and no `overrides`, which only point the
+ * package's own `file:` upgraders dependency at the monorepo copy.
+ * Refuses a prerelease, and a shell that doesn't depend on the package
+ * through `file:`.
+ *
+ * @param {string} content
+ * @param {string} packageName
+ * @param {string} version
+ * @returns {string}
+ */
+export function shellSitePackageJson(content, packageName, version) {
+  if (!RELEASE_VERSION.test(version)) {
+    throw new Error(`Refusing to pin ${packageName} to ${version}: a generated site only pins a release, never a prerelease.`);
+  }
+  const pkg = JSON.parse(content);
+  const spec = pkg.dependencies?.[packageName];
+  if (typeof spec !== "string" || !spec.startsWith("file:")) {
+    throw new Error(`The shell's package.json must depend on ${packageName} through file:, not ${JSON.stringify(spec)}.`);
+  }
+  pkg.dependencies[packageName] = version;
+  delete pkg.overrides;
+  return JSON.stringify(pkg, null, 2) + "\n";
 }
 
 /**
- * Collect the site's files (`collectSiteFiles`) and write them to
- * `outFile` as a JSON array of `{ path, content }`. Returns the file
- * count and raw / gzipped sizes.
+ * The files of a site on the package: the shell's, without its
+ * monorepo-only files, and with its package.json pinned to `version`
+ * (`shellSitePackageJson`). The starter content is already in the shell's
+ * `src/content/`. Refuses a shell without a package.json or starter content.
  *
- * @param {{ templateDir?: string; contentDir?: string; outFile?: string }} [options]
+ * @param {string} shellDir
+ * @param {string} packageName
+ * @param {string} version
+ * @returns {Promise<Array<{ path: string; content: string }>>}
+ */
+export async function collectShellFiles(shellDir, packageName, version) {
+  const files = await walkTextFiles(shellDir, SHELL_SKIP_FILES);
+  const pkg = files.find((f) => f.path === "package.json");
+  if (!pkg) throw new Error(`No package.json found under ${shellDir}`);
+  pkg.content = shellSitePackageJson(pkg.content, packageName, version);
+  if (!files.some((f) => f.path.startsWith(`${SITE_CONTENT_PREFIX}/`))) {
+    throw new Error(`No starter content found under ${path.join(shellDir, SITE_CONTENT_PREFIX)}`);
+  }
+  return files;
+}
+
+/**
+ * The version on the package's `latest` dist-tag, or null when the package
+ * isn't on the registry or has no `latest`.
+ *
+ * @param {string} packageName
+ * @param {{ fetchImpl?: typeof fetch; registry?: string }} [options]
+ * @returns {Promise<string | null>}
+ */
+export async function fetchLatestVersion(packageName, { fetchImpl = fetch, registry = NPM_REGISTRY } = {}) {
+  // The abbreviated packument: the registry answers 404 for a package it
+  // doesn't have here, where the dist-tags endpoint answers 401.
+  const url = `${registry}/${packageName.replace("/", "%2f")}`;
+  const res = await fetchImpl(url, {
+    headers: { accept: "application/vnd.npm.install-v1+json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `Reading ${packageName}'s dist-tags from ${url} failed with HTTP ${res.status}. ` +
+        `Set ${LATEST_OVERRIDE_ENV} to bundle without the registry.`,
+    );
+  }
+  const latest = (await res.json())?.["dist-tags"]?.latest;
+  return typeof latest === "string" ? latest : null;
+}
+
+/**
+ * Which version of the package new sites pin, given what's on `latest`:
+ * that version when it's a release, or null (bundle the full template)
+ * when nothing is on `latest` or it's a prerelease.
+ *
+ * @param {string} packageName
+ * @param {string | null} latest
+ * @returns {{ version: string | null; reason: string }}
+ */
+export function sitePackageVersion(packageName, latest) {
+  if (!latest) return { version: null, reason: `no ${packageName} release is on latest` };
+  if (!RELEASE_VERSION.test(latest)) {
+    return { version: null, reason: `refusing ${packageName}@${latest} on latest: it's a prerelease` };
+  }
+  return { version: latest, reason: `${packageName}@${latest} is on latest` };
+}
+
+/**
+ * Resolve the version new sites pin: from `LATEST_OVERRIDE_ENV` when set,
+ * otherwise the registry's `latest` dist-tag (`fetchLatestVersion`).
+ *
+ * @param {{ templateDir?: string; env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }} [options]
+ * @returns {Promise<{ packageName: string; version: string | null; reason: string }>}
+ */
+export async function resolveSitePackageVersion({ templateDir = TEMPLATE_DIR, env = process.env, fetchImpl } = {}) {
+  const { name: packageName } = JSON.parse(await fs.readFile(path.join(templateDir, "package.json"), "utf-8"));
+  const override = env[LATEST_OVERRIDE_ENV];
+  const latest = override !== undefined ? override.trim() || null : await fetchLatestVersion(packageName, { fetchImpl });
+  return { packageName, ...sitePackageVersion(packageName, latest) };
+}
+
+/**
+ * Collect the site's files and write them to `outFile` as a JSON array of
+ * `{ path, content }`: the shell pinned to `sitePackage.version`
+ * (`collectShellFiles`) when there is one, otherwise the full template
+ * (`collectSiteFiles`). Returns the file count and raw / gzipped sizes.
+ *
+ * @param {{
+ *   templateDir?: string;
+ *   contentDir?: string;
+ *   shellDir?: string;
+ *   outFile?: string;
+ *   sitePackage?: { packageName: string; version: string | null };
+ * }} [options]
  * @returns {Promise<{ fileCount: number; bytes: number; gzipBytes: number }>}
  */
 export async function generateTemplateBundle({
   templateDir = TEMPLATE_DIR,
   contentDir = STARTER_CONTENT_DIR,
+  shellDir = SHELL_DIR,
   outFile = TEMPLATE_BUNDLE_FILE,
+  sitePackage = { packageName: "", version: null },
 } = {}) {
-  const files = await collectSiteFiles(templateDir, contentDir);
+  const files = sitePackage.version
+    ? await collectShellFiles(shellDir, sitePackage.packageName, sitePackage.version)
+    : await collectSiteFiles(templateDir, contentDir);
   const json = JSON.stringify(files);
   await fs.mkdir(path.dirname(outFile), { recursive: true });
   // Write then rename, so a build reading the bundle never sees a half-written file.
@@ -324,9 +509,11 @@ export async function generateTemplateBundle({
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
-  const { fileCount, bytes, gzipBytes } = await generateTemplateBundle();
+  const sitePackage = await resolveSitePackageVersion();
+  const { fileCount, bytes, gzipBytes } = await generateTemplateBundle({ sitePackage });
   const kb = (/** @type {number} */ n) => `${(n / 1024).toFixed(1)} KB`;
+  const source = sitePackage.version ? `the shell on ${sitePackage.packageName}@${sitePackage.version}` : "the full template";
   console.log(
-    `template bundle: ${fileCount} files, ${kb(bytes)} raw, ${kb(gzipBytes)} gzipped → ${path.relative(process.cwd(), TEMPLATE_BUNDLE_FILE)}`,
+    `template bundle: ${source} (${sitePackage.reason}), ${fileCount} files, ${kb(bytes)} raw, ${kb(gzipBytes)} gzipped → ${path.relative(process.cwd(), TEMPLATE_BUNDLE_FILE)}`,
   );
 }

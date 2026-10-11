@@ -42,7 +42,6 @@ import {
   buildSiteScaffoldFiles,
   buildDependabotAutoMergeWorkflow,
   SITE_AUTOMERGE_WORKFLOW_PATH,
-  templateVersionFromFiles,
 } from "@/lib/site-scaffold";
 
 /**
@@ -461,14 +460,11 @@ export async function provisionSite(args: ProvisionSiteArgs): Promise<Provisione
   await runner.run("pushTemplate", async () => {
     const templateFiles = await readTemplateFiles();
     const overlayPaths = new Set(contentOverlay.map((f) => f.path));
-    const files = [
+    const siteFiles = [
       ...templateFiles.filter((f) => !overlayPaths.has(f.path)),
       ...contentOverlay.map((f) => ({ path: f.path, content: f.content })),
-      ...buildSiteScaffoldFiles({
-        template: "musician-site",
-        templateVersion: templateVersionFromFiles(templateFiles),
-      }),
     ];
+    const files = [...siteFiles, ...buildSiteScaffoldFiles({ template: "musician-site", files: siteFiles })];
     const { commitSha } = await pushFiles(
       userId,
       repo.owner,

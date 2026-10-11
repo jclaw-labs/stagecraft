@@ -585,7 +585,7 @@ The musician-site template ships as two npm packages (ADR-016):
 
 Both publish under the `@jclaw-labs` npm **user** scope. The `stagecraft` and `jclaw-labs` org names were already taken on npm (#418). Jackson owns the scope, with 2FA required for both sign-in and writes. A second maintainer is added after the first publish.
 
-The two packages are versioned in lockstep, and the template depends on the exact upgraders version. In the monorepo that dependency is `file:../../packages/content-upgraders`, so never publish from `templates/musician-site/` directly. `npm run pack-musician-site` (from the repo root, after `npm ci` at the root and in `templates/musician-site/`) builds and packs both packages into `.pack/`, pointing the template at the upgraders tarball. `npm run pack-musician-site -- --release` pins it to the published upgraders version instead, for a release. `npm run check:musician-site-package` installs the local tarballs into a minimal Next.js app with no lockfile, runs `next build`, and runs `stagecraft-site --help`. CI runs that check (`.github/workflows/musician-site-package.yml`) on every PR that touches either package or the scripts that pack them.
+The two packages are versioned in lockstep, and the template depends on the exact upgraders version. In the monorepo that dependency is `file:../../packages/content-upgraders`, so never publish from `templates/musician-site/` directly. `npm run pack-musician-site` (from the repo root, after `npm ci` at the root and in `templates/musician-site/`) builds and packs both packages into `.pack/`, pointing the template at the upgraders tarball. `npm run pack-musician-site -- --release` pins it to the published upgraders version instead, for a release. `npm run check:musician-site-package` installs the local tarballs into a minimal Next.js app with no lockfile, runs `next build`, and runs `stagecraft-site --help`. `npm run check:musician-site-shell` installs them into a clean copy of the artist-repo shell instead, as the release workflow does before it publishes. CI runs both checks (`.github/workflows/musician-site-package.yml`) on every PR that touches either package, the shell or the scripts that pack them, and the `changelog` job in `ci.yml` fails a PR that changes `templates/musician-site/src` (tests aside) without a `CHANGELOG.md` entry marked patch, minor or major.
 
 ### Content schema versions
 
@@ -606,7 +606,7 @@ To ship a new version N+1:
 5. Migrate the starter content's collections (`templates/musician-site-shell/src/content/collections/*/_collection.json`) to the new version, matching the step's expected outputs, and update `src/lib/collections/seeds.ts` to the new shape. `src/cli/run.test.ts` runs `migrate-content --check` over the starter content and fails while any collection is behind.
 6. Add `fixtures/v<N+1>/` with the template's collections as the new version writes them. Never edit a released version's fixtures or step outputs.
 
-To upgrade every collection at once without the CMS, run `migrate-content`. It ships only in the published `@jclaw-labs/musician-site` package (`bin` is dropped from site copies), so it works only in a site that depends on that package, after #422. From the site's root, run `npx --no-install stagecraft-site migrate-content` (add `--check` to only list what would change). `--no-install` stops npx falling back to the unrelated, unscoped `stagecraft-site` registry name. Outside a site, pin the package instead: `npm exec --package=@jclaw-labs/musician-site@<version> -- stagecraft-site migrate-content`.
+To upgrade every collection at once without the CMS, run `migrate-content`. It ships only in the published `@jclaw-labs/musician-site` package (`bin` is dropped from site copies), so it works only in a site that depends on that package (a site on the shell, see below). From the site's root, run `npx --no-install stagecraft-site migrate-content` (add `--check` to only list what would change). `--no-install` stops npx falling back to the unrelated, unscoped `stagecraft-site` registry name. Outside a site, pin the package instead: `npm exec --package=@jclaw-labs/musician-site@<version> -- stagecraft-site migrate-content`.
 
 A site that is a copy of the template (every site today) has no CLI. Its CMS upgrades each collection on read and writes it back at the current version on the next save, so nothing needs running by hand.
 
@@ -614,9 +614,67 @@ A site that is a copy of the template (every site today) has no CLI. Its CMS upg
 
 ### Publishing a release
 
-1. Bump `version` in both `package.json` files to the same new version, and merge.
-2. From the repo root, after `npm ci` at the root and in `templates/musician-site/`: `npm run pack-musician-site -- --release`. It prints the two tarball paths.
-3. Publish the upgraders tarball first: `npm publish .pack/jclaw-labs-content-upgraders-<version>.tgz --tag rc`.
-4. Then the template tarball: `npm publish .pack/jclaw-labs-musician-site-<version>.tgz --tag rc`.
+Releases go out from GitHub Actions (`.github/workflows/release-musician-site.yml`) with npm trusted publishing, so nobody needs an npm token.
 
-The order matters because the `--release` template tarball depends on the exact upgraders version from the registry. Published first, the template would fail to install until the upgraders exist, and anyone installing it in that window gets an error. Use `--tag rc` for release candidates, so `latest` doesn't move. Always publish the tarballs, never a directory: `templates/musician-site/` has a `prepublishOnly` guard that refuses its own `file:` dependency and `source` conditions.
+1. In one pull request: bump `version` in `templates/musician-site/package.json` and `packages/content-upgraders/package.json` to the same new version, and in `templates/musician-site/CHANGELOG.md` move the `## Unreleased` lines under a `## <version>` heading. Pick the version from the highest level among those lines (the semver rules are in `templates/musician-site/README.md`). Run `npm install` in `templates/musician-site/` so its lockfile records the new upgraders version.
+2. Merge it. On `main`, the workflow sees a template version that isn't on npm and:
+   - builds a clean copy of the shell on locally packed tarballs, with no lockfile (`npm run check:musician-site-shell`, the pre-publish check);
+   - packs both packages with `pack-musician-site --release`, which pins the template to the exact upgraders version;
+   - publishes `@jclaw-labs/content-upgraders`, unless that version is already on npm, in which case it checks that the published files match this commit's pack and fails if they don't;
+   - publishes `@jclaw-labs/musician-site`;
+   - pushes the tag `musician-site@<version>`.
+3. A prerelease (`1.1.0-rc.0`) goes to the `rc` dist-tag, anything else to `latest`.
+
+Pushes that change either `package.json` without a version bump run the workflow too, and it stops at "Plan the release" because the version is already on npm.
+
+**A failed release.** Rerun the workflow from the Actions tab (it also has a manual "Run workflow" button on `main`). A rerun skips the upgraders if they went out and match. If the template publish succeeded but the tag push failed, tag by hand: `git tag musician-site@<version> <merge commit> && git push origin musician-site@<version>`.
+
+**A bad release.** Released versions never change and npm doesn't allow re-publishing a version. Ship a fixed patch release. Until it's out, point `latest` back at the previous release so new sites and Dependabot don't pick up the bad one: `npm dist-tag add @jclaw-labs/musician-site@<previous> latest` (by hand, with 2FA). Deprecate the bad version with `npm deprecate @jclaw-labs/musician-site@<bad> "<reason>"`.
+
+### New sites and the shell
+
+The bundle generator (`apps/web/scripts/generate-template-bundle.mjs`) asks the npm registry for `@jclaw-labs/musician-site`'s `latest` dist-tag on every run (`npm run generate`, which `dev`, `build`, `test` and `typecheck` in `apps/web` run first):
+
+- **A release on `latest`:** new sites get the artist-repo shell (`templates/musician-site-shell`, without `.npmrc` and `CLAUDE.md`), with `package.json` pinned to that exact version and its monorepo-only `overrides` dropped.
+- **Nothing on `latest`, or a prerelease there:** new sites get a full copy of the template, as before. npm puts a package's first version on `latest` even when it's published with `--tag rc`, so this is the state after the first publish below. The log line says which (`template bundle: the shell on …` or `the full template (…)`).
+
+The generator fails, rather than guess, when the registry can't be reached. To work offline, or to try the shell bundle before a release, set `STAGECRAFT_SITE_PACKAGE_LATEST`: to a version to use it as `latest`, or empty for the full template.
+
+So a site moves onto the shell when the platform is next built after a release reaches `latest`. Every new site's `.stagecraft-template.json` records `packageVersion` (the pinned version, or `null` for a full copy) and `manifest`, the git blob SHA of each of our files it was created with (everything outside `src/content/` and `public/`), which `upgrade_site` compares against (ADR-016 §4). Its `.github/dependabot.yml` exempts `@jclaw-labs/musician-site` from the 7-day cooldown and ignores major updates of it, `next`, `react` and `react-dom` (ADR-016 §3).
+
+### First publish and npm setup (owner, one time)
+
+npm only lets a package that exists configure a trusted publisher, so the first version goes out by hand. Jackson does this once, with 2FA:
+
+1. From the repo root on an up-to-date `main`, after `npm ci` at the root and in `templates/musician-site/`, run the pre-publish check: `npm run check:musician-site-shell`. It must end with `Done.`
+2. `npm run pack-musician-site -- --release`. It prints the two tarball paths, in `.pack/`.
+3. `npm login` (2FA), then publish the upgraders first, then the template, both to `rc`:
+   ```bash
+   npm publish .pack/jclaw-labs-content-upgraders-1.0.0-rc.0.tgz --tag rc --access public
+   npm publish .pack/jclaw-labs-musician-site-1.0.0-rc.0.tgz --tag rc --access public
+   ```
+   The order matters: the template tarball depends on the exact upgraders version from the registry. Always publish the tarballs, never a directory (`templates/musician-site/` has a `prepublishOnly` guard that refuses its `file:` dependency and `source` conditions).
+4. Tag the commit you packed: `git tag musician-site@1.0.0-rc.0 && git push origin musician-site@1.0.0-rc.0`.
+5. On npmjs.com, for **each** package (`@jclaw-labs/content-upgraders` and `@jclaw-labs/musician-site`): Settings → Trusted publishing → GitHub Actions, with organization or user `jclaw-labs`, repository `stagecraft`, workflow filename `release-musician-site.yml`, and no environment. Save.
+6. On the same Settings page for each package, under Publishing access, choose "Require two-factor authentication and disallow tokens", and save. Trusted publishing keeps working; a leaked token can't publish.
+7. Add the second maintainer to the `@jclaw-labs` scope (see above).
+
+After this, every release goes through the workflow. `latest` holds `1.0.0-rc.0` until the first release, and the generator refuses it (above), so new sites stay on the full template until then.
+
+### Required review for the package and its release (owner)
+
+A bad merge to `main` under the package, or to the release workflow, ships to every auto-merging site within a week, since `@jclaw-labs/musician-site` skips the Dependabot cooldown (ADR-016 §3). Require review for those paths:
+
+1. Add `.github/CODEOWNERS`:
+   ```
+   /templates/musician-site/                      @jclaw
+   /packages/content-upgraders/                   @jclaw
+   /.github/workflows/release-musician-site.yml   @jclaw
+   /scripts/pack-musician-site.mjs                @jclaw
+   /scripts/release-musician-site.mjs             @jclaw
+   /scripts/check-musician-site-shell.mjs         @jclaw
+   /.github/CODEOWNERS                            @jclaw
+   ```
+   Here `@jclaw` is the owner's GitHub account; a team or a second account can share review. The scripts are listed because the workflow runs them.
+2. Settings → Rules → Rulesets → New branch ruleset: target the default branch, enable "Require a pull request before merging" with "Required approvals" at 0 and "Require review from Code Owners" on, so only pull requests touching the paths above need an approval, and enable "Block force pushes". Leave the bypass list empty, or add only the owner.
+3. GitHub doesn't let an author approve their own pull request, so a code owner has to review changes to these paths opened from the owner's own account (agent pull requests included). If that's every pull request, add a second code owner, or put the owner on the ruleset's bypass list and treat a bypass as the review.

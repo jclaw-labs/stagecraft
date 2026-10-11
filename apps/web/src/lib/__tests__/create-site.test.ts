@@ -993,7 +993,12 @@ describe("handleCreateSite — site scaffold (dependency hygiene)", () => {
     expect(JSON.parse(stamp!.content)).toMatchObject({
       template: "musician-site",
       templateVersion: "9.9.9",
+      packageVersion: null,
     });
+    // The manifest covers the site's files as pushed, not the scaffold itself.
+    const { manifest } = JSON.parse(stamp!.content) as { manifest: Record<string, string> };
+    expect(Object.keys(manifest)).toContain("package.json");
+    expect(Object.keys(manifest).some((p) => p.startsWith(".github/") || p === ".stagecraft-template.json")).toBe(false);
 
     const workflowPaths = (mockPushFiles.mock.calls[1][4] as Array<{ path: string }>).map((f) => f.path);
     expect(workflowPaths).toEqual([".github/workflows/dependabot-auto-merge.yml"]);
