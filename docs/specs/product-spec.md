@@ -322,7 +322,6 @@ provisioning skips (§10.1). Abridged:
       /collections
   /public
     /images         added by image uploads
-  /e2e
   /.github
     /workflows      added at provisioning
 ```
@@ -337,13 +336,16 @@ provisioning skips (§10.1). Abridged:
 6. `public/images/` holds uploaded images and their generated variants.
 7. In the template, unit tests sit next to the code (`*.test.ts`) and `e2e/` holds Playwright tests. Generated repos don't get them.
 
-Provisioning leaves out the template's tests and the files only they or
-the template's own tooling need (`TEMPLATE_SKIP_FILES`, `TEMPLATE_SKIP_DIRS` and `TEST_FILE` in
+Provisioning leaves out the template's tests and a few files that only the
+monorepo or the published package uses (`TEMPLATE_SKIP_FILES`, `TEMPLATE_SKIP_DIRS` and `TEST_FILE` in
 `apps/web/scripts/generate-template-bundle.mjs`). It leaves out:
 - the template's `CLAUDE.md`, which stays in this monorepo as the template's documentation;
 - `package-lock.json` and `scripts/`;
 - `EDITING.md` and `tsconfig.build.json`, which only the published package uses;
 - every test: `*.test.*` and `*.spec.*` files, `test-fixtures.ts`, `__snapshots__/`, `e2e/` and `capture/`, along with their Vitest and Playwright configs.
+
+The template's `design/` and `docs/` folders still ship as reference material,
+including tooling under `design/` that a site copy can't run.
 
 The site's `package.json` also drops the test scripts and test-only dev
 dependencies. Hosts run only `next build`, and nothing runs the template's
