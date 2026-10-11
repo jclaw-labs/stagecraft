@@ -64,6 +64,7 @@ describe("collectTemplateFiles", () => {
       "CLAUDE.md",
       "EDITING.md",
       "tsconfig.build.json",
+      "test-fixtures.ts",
     ]) {
       await write(file);
       await write(`docs/${file}`);
@@ -75,7 +76,9 @@ describe("collectTemplateFiles", () => {
   it("skips test files wherever they sit", async () => {
     await write("keep.ts");
     await write("src/testing.ts");
-    for (const file of ["a.test.ts", "src/b.test.tsx", "src/lib/c.test.mjs", "next.config.test.ts"]) await write(file);
+    for (const file of ["a.test.ts", "src/b.test.tsx", "src/lib/c.test.mjs", "next.config.test.ts", "src/d.spec.ts"]) {
+      await write(file);
+    }
 
     expect((await collectTemplateFiles(root)).map((f) => f.path)).toEqual(["keep.ts", "src/testing.ts"]);
   });
@@ -174,10 +177,20 @@ describe("sitePackageJson", () => {
   it("copies no file that imports a dropped test-only dev dependency", async () => {
     const files = await collectTemplateFiles(REAL_TEMPLATE_DIR);
     const importsDropped = new RegExp(
-      `from\\s+["'](?:${TEST_ONLY_DEV_DEPENDENCIES.map((n) => n.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")).join("|")})(?:/[^"']*)?["']`,
+      `(?:from\\s+|import\\s*\\(?\\s*|require\\s*\\(\\s*|types=)["'](?:${TEST_ONLY_DEV_DEPENDENCIES.map((n) => n.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")).join("|")})(?:/[^"']*)?["']`,
     );
     expect(files.filter((f) => importsDropped.test(f.content)).map((f) => f.path)).toEqual([]);
     expect(files.some((f) => /(?:^|\/)(?:e2e|capture)\//.test(f.path))).toBe(false);
+  });
+
+  it("ships the real site without test tooling in its dev dependencies", async () => {
+    // Literal patterns, not TEST_ONLY_DEV_DEPENDENCIES, so a name dropped from
+    // that list, or new test tooling added to the template, fails here (#473).
+    const files = await collectTemplateFiles(REAL_TEMPLATE_DIR);
+    const pkg = JSON.parse(files.find((f) => f.path === "package.json")!.content);
+    const testTooling =
+      /^(?:vitest|@vitest\/.+|vite|@vitejs\/.+|@playwright\/test|playwright|jsdom|happy-dom|msw|@testing-library\/.+)$/;
+    expect(Object.keys(pkg.devDependencies ?? {}).filter((name) => testTooling.test(name))).toEqual([]);
   });
 
   it("keeps every script the site's package.json lists runnable from the copied files", async () => {

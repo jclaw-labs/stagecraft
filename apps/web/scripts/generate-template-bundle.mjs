@@ -64,14 +64,16 @@ export const TEMPLATE_SKIP_FILES = new Set([
   "playwright.capture.config.ts",
   "vitest.config.ts",
   "vitest.setup.ts",
+  // Fixtures that only the template's unit tests import.
+  "test-fixtures.ts",
 ]);
 
 /**
- * Test files, skipped wherever they sit. They import the test tooling that
+ * Test and spec files, skipped wherever they sit. They import the test tooling that
  * site copies drop (see `TEST_ONLY_DEV_DEPENDENCIES`), and a site's
  * `next build` type-checks every `.ts` file it has.
  */
-export const TEST_FILE = /\.test\.(?:[cm]?[jt]s|[jt]sx)$/;
+export const TEST_FILE = /\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 
 /**
  * Fields of the template's package.json that only the published npm

@@ -337,15 +337,17 @@ provisioning skips (§10.1). Abridged:
 6. `public/images/` holds uploaded images and their generated variants.
 7. In the template, unit tests sit next to the code (`*.test.ts`) and `e2e/` holds Playwright tests. Generated repos don't get them.
 
-Provisioning copies only what a site needs to build and run
-(`TEMPLATE_SKIP_FILES`, `TEMPLATE_SKIP_DIRS` and `TEST_FILE` in
+Provisioning leaves out the template's tests and the files only they or
+the template's own tooling need (`TEMPLATE_SKIP_FILES`, `TEMPLATE_SKIP_DIRS` and `TEST_FILE` in
 `apps/web/scripts/generate-template-bundle.mjs`). It leaves out:
 - the template's `CLAUDE.md`, which stays in this monorepo as the template's documentation;
 - `package-lock.json` and `scripts/`;
-- every test: `*.test.*` files, `__snapshots__/`, `e2e/` and `capture/`, along with their Vitest and Playwright configs.
+- `EDITING.md` and `tsconfig.build.json`, which only the published package uses;
+- every test: `*.test.*` and `*.spec.*` files, `test-fixtures.ts`, `__snapshots__/`, `e2e/` and `capture/`, along with their Vitest and Playwright configs.
 
 The site's `package.json` also drops the test scripts and test-only dev
-dependencies. A generated repo runs `next build` and nothing else. Without
+dependencies. Hosts run only `next build`, and nothing runs the template's
+tests in a generated repo. Without
 a lockfile, npm 10.9 (Netlify's npm on Node 22) crashes resolving Vitest's
 peers (#473).
 
