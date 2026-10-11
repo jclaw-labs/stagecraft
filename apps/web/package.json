@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "node scripts/generate-template-bundle.mjs",
+    "generate": "npm run build --workspace=@jclaw-labs/content-upgraders && node scripts/generate-template-bundle.mjs",
     "dev": "npm run generate && sh -c 'set -a && . ./.op.env && exec next dev --turbopack'",
     "build": "npm run generate && next build",
     "start": "next start",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
     "@fontsource-variable/inter": "^5.2.8",
+    "@jclaw-labs/content-upgraders": "*",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
     "@stagecraft/db": "*",

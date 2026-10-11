@@ -4,7 +4,7 @@ const { authMock, prismaMock, setRepoArchivedMock, vercelDeleteMock, netlifyDele
   authMock: vi.fn(),
   prismaMock: {
     site: { findFirst: vi.fn(), delete: vi.fn() },
-    siteJob: { deleteMany: vi.fn() },
+    siteJob: { deleteMany: vi.fn(), findFirst: vi.fn() },
   },
   setRepoArchivedMock: vi.fn(),
   vercelDeleteMock: vi.fn(),
@@ -28,6 +28,7 @@ import { DELETE, GET } from "../route";
 beforeEach(() => {
   authMock.mockReset();
   prismaMock.site.findFirst.mockReset();
+  prismaMock.siteJob.findFirst.mockReset().mockResolvedValue(null);
 });
 
 function fakeArgs(siteId: string) {
@@ -74,6 +75,42 @@ describe("GET /api/sites/[siteId] response shape", () => {
       { id: "j2", type: null, status: null, failureCategory: "unknown", errorMessage: "old" },
       { id: "j1", type: "create_site", status: "completed", failureCategory: null, errorMessage: null },
     ]);
+  });
+
+  it("returns the latest upgrade job apart from the provisioning jobs", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue({ id: "s1", userId: "u1", brokerSecretHash: null, jobs: [] });
+    prismaMock.siteJob.findFirst.mockResolvedValue({
+      id: "j9",
+      type: "upgrade_site",
+      status: "completed",
+      failureCategory: null,
+      errorMessage: null,
+    });
+    const res = await GET(new Request("http://t/x") as never, fakeArgs("s1"));
+    const body = (await res.json()) as { site: { upgradeJob: unknown } };
+    expect(body.site.upgradeJob).toEqual({
+      id: "j9",
+      type: "upgrade_site",
+      status: "completed",
+      failureCategory: null,
+      errorMessage: null,
+    });
+    expect(prismaMock.site.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { jobs: expect.objectContaining({ where: { type: { not: "upgrade_site" } } }) },
+      }),
+    );
+    expect(prismaMock.siteJob.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { siteId: "s1", type: "upgrade_site" } }),
+    );
+  });
+
+  it("returns a null upgradeJob for a site never upgraded", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1" } });
+    prismaMock.site.findFirst.mockResolvedValue({ id: "s1", userId: "u1", brokerSecretHash: null, jobs: [] });
+    const res = await GET(new Request("http://t/x") as never, fakeArgs("s1"));
+    expect(((await res.json()) as { site: { upgradeJob: unknown } }).site.upgradeJob).toBeNull();
   });
 
   it("404 when no site matches the user", async () => {

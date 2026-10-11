@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@stagecraft/db";
+import { narrowJobFields } from "@stagecraft/shared";
 import { toClientSite } from "@/lib/client-site";
+import { UPGRADE_SITE } from "@/lib/jobs/queue-upgrade";
 import { setRepoArchived } from "@/lib/integrations/github";
 import { deleteSiteResources } from "@/lib/site-cleanup";
 
@@ -16,10 +18,14 @@ export async function GET(
 
   const { siteId } = await params;
 
+  // Upgrade jobs come back on their own: the page reads the latest
+  // provisioning job as the site's setup state, and repeated upgrades
+  // mustn't push the migration report's job out of the list.
   const site = await prisma.site.findFirst({
     where: { id: siteId, userId: session.user.id },
     include: {
       jobs: {
+        where: { type: { not: UPGRADE_SITE } },
         orderBy: { createdAt: "desc" },
         take: 5,
       },
@@ -30,7 +36,14 @@ export async function GET(
     return NextResponse.json({ error: "Site not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ site: toClientSite(site) });
+  const upgradeJob = await prisma.siteJob.findFirst({
+    where: { siteId, type: UPGRADE_SITE },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json({
+    site: { ...toClientSite(site), upgradeJob: upgradeJob ? narrowJobFields(upgradeJob) : null },
+  });
 }
 
 export async function PATCH(

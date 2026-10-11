@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from "next/constants";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
@@ -16,6 +17,14 @@ export default function config(phase: string): NextConfig {
   // Next loads this config in several processes per build; the env flag, inherited by the later ones, keeps generation to one run.
   const isBuildOrDev = phase === PHASE_PRODUCTION_BUILD || phase === PHASE_DEVELOPMENT_SERVER;
   if (isBuildOrDev && !process.env.STAGECRAFT_TEMPLATE_BUNDLED) {
+    // The upgrade_site job imports `@jclaw-labs/content-upgraders`, whose
+    // package exports name its `dist/` build. Build it here too, so a bare
+    // `next build` (no `npm run generate` first) still resolves it.
+    execFileSync(
+      process.execPath,
+      [createRequire(import.meta.url).resolve("typescript/bin/tsc"), "-p", "../../packages/content-upgraders/tsconfig.build.json"],
+      { cwd: import.meta.dirname, stdio: "inherit" },
+    );
     execFileSync(process.execPath, ["scripts/generate-template-bundle.mjs"], {
       cwd: import.meta.dirname,
       stdio: "inherit",

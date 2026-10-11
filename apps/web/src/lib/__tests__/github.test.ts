@@ -13,7 +13,12 @@ vi.stubGlobal("fetch", mockFetch);
 
 const {
   BLOB_UPLOAD_CONCURRENCY,
+  checkGitHubToken,
+  createBranch,
+  createPullRequest,
   createRepo,
+  githubRepoClient,
+  lastPageFromLinkHeader,
   getAuthenticatedUser,
   getOwnRepo,
   GitHubApiError,
@@ -326,5 +331,262 @@ describe("GitHub integration", () => {
       ).rejects.toThrow("GitHub API error (422)");
       expect(mockFetch.mock.calls.some(([url]) => (url as string).endsWith("/git/commits"))).toBe(false);
     });
+  });
+});
+
+/** A fetch response with headers, for the calls that read them. */
+function headerResponse(body: unknown, headers: Record<string, string> = {}, status = 200) {
+  return { ...jsonResponse(body, status), headers: new Headers(headers) };
+}
+
+/** The [method, path, parsed body] of every fetch call so far. */
+function calls(): Array<[string, string, unknown]> {
+  return mockFetch.mock.calls.map(([url, init]) => [
+    (init as RequestInit | undefined)?.method ?? "GET",
+    (url as string).replace("https://api.github.com", ""),
+    (init as RequestInit | undefined)?.body ? JSON.parse((init as RequestInit).body as string) : undefined,
+  ]);
+}
+
+describe("checkGitHubToken", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({ accessToken: "gh-token-123" });
+  });
+
+  it("is ok when the token has every required scope", async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse({ login: "jclaw" }, { "x-oauth-scopes": "read:user, repo, user:email, workflow" }));
+    expect(await checkGitHubToken("user-1", ["repo", "workflow"])).toEqual({
+      status: "ok",
+      scopes: ["read:user", "repo", "user:email", "workflow"],
+    });
+  });
+
+  it("names the scopes a token was granted without", async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse({ login: "jclaw" }, { "x-oauth-scopes": "read:user, repo" }));
+    expect(await checkGitHubToken("user-1", ["repo", "workflow"])).toEqual({
+      status: "missing_scopes",
+      missingScopes: ["workflow"],
+    });
+  });
+
+  it("is stale when GitHub answers 401", async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse({ message: "Bad credentials" }, {}, 401));
+    expect(await checkGitHubToken("user-1", ["repo"])).toEqual({ status: "stale" });
+  });
+
+  it("is missing when no GitHub account is connected", async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    expect(await checkGitHubToken("user-1", ["repo"])).toEqual({ status: "missing" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("takes a token without a scopes header as having them", async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse({ login: "jclaw" }));
+    expect(await checkGitHubToken("user-1", ["repo", "workflow"])).toEqual({ status: "ok", scopes: ["repo", "workflow"] });
+  });
+
+  it("throws other GitHub errors", async () => {
+    mockFetch.mockResolvedValueOnce(headerResponse({ message: "oops" }, {}, 502));
+    await expect(checkGitHubToken("user-1", ["repo"])).rejects.toThrow("GitHub API error (502)");
+  });
+});
+
+describe("lastPageFromLinkHeader", () => {
+  it("reads the last page", () => {
+    expect(
+      lastPageFromLinkHeader(
+        '<https://api.github.com/repos/a/b/commits?per_page=1&page=2>; rel="next", <https://api.github.com/repos/a/b/commits?per_page=1&page=57>; rel="last"',
+      ),
+    ).toBe(57);
+  });
+
+  it("is null without a last link", () => {
+    expect(lastPageFromLinkHeader(null)).toBeNull();
+    expect(lastPageFromLinkHeader('<https://api.github.com/x?page=1>; rel="prev"')).toBeNull();
+  });
+});
+
+describe("githubRepoClient", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({ accessToken: "gh-token-123" });
+  });
+
+  const client = () => githubRepoClient("user-1", "jclaw", "site");
+
+  it("reads the token once for all its calls", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValue(headerResponse({ object: { sha: "abc" } }));
+    await repo.getBranchHead("main");
+    await repo.getBranchHead("draft");
+    expect(mockFindUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null for a missing branch", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(headerResponse({ message: "Not Found" }, {}, 404));
+    expect(await repo.getBranchHead("stagecraft/upgrade")).toBeNull();
+    expect(calls()[0][1]).toBe("/repos/jclaw/site/git/ref/heads/stagecraft/upgrade");
+  });
+
+  it("lists a commit's files, blobs only", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(headerResponse({ tree: { sha: "tree-1" } }))
+      .mockResolvedValueOnce(
+        headerResponse({
+          truncated: false,
+          tree: [
+            { path: "src", type: "tree", sha: "t" },
+            { path: "src/a.ts", type: "blob", sha: "b1" },
+          ],
+        }),
+      );
+    expect([...(await repo.getTree("c1"))]).toEqual([["src/a.ts", "b1"]]);
+    expect(calls()[1][1]).toBe("/repos/jclaw/site/git/trees/tree-1?recursive=1");
+  });
+
+  it("refuses a truncated tree", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(headerResponse({ tree: { sha: "tree-1" } }))
+      .mockResolvedValueOnce(headerResponse({ truncated: true, tree: [] }));
+    await expect(repo.getTree("c1")).rejects.toThrow("too large");
+  });
+
+  it("decodes a base64 blob", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(headerResponse({ content: Buffer.from("héllo").toString("base64"), encoding: "base64" }));
+    expect(await repo.getBlobText("b1")).toBe("héllo");
+  });
+
+  it("finds the oldest commit touching a path from the last page", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(
+        headerResponse([{ sha: "newest" }], {
+          link: '<https://api.github.com/repos/jclaw/site/commits?path=src%2Flib&sha=main&per_page=1&page=3>; rel="last"',
+        }),
+      )
+      .mockResolvedValueOnce(headerResponse([{ sha: "oldest" }]));
+    expect(await repo.findOldestCommitTouching("src/lib", "main")).toBe("oldest");
+    expect(calls()[1][1]).toBe("/repos/jclaw/site/commits?path=src%2Flib&sha=main&per_page=1&page=3");
+  });
+
+  it("takes the only commit when there's one page, and null when there's none", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(headerResponse([{ sha: "only" }])).mockResolvedValueOnce(headerResponse([]));
+    expect(await repo.findOldestCommitTouching("src/lib", "main")).toBe("only");
+    expect(await repo.findOldestCommitTouching("src/lib", "main")).toBeNull();
+  });
+
+  it("tells whether a commit touches a path", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(headerResponse([{ sha: "c1" }]))
+      .mockResolvedValueOnce(headerResponse([{ sha: "c0" }]))
+      .mockResolvedValueOnce(headerResponse({ message: "No commit found" }, {}, 422));
+    expect(await repo.commitTouchesPath("c1", "src/lib")).toBe(true);
+    expect(await repo.commitTouchesPath("c2", "src/lib")).toBe(false);
+    expect(await repo.commitTouchesPath("gone", "src/lib")).toBe(false);
+  });
+
+  it("pages through branches", async () => {
+    const repo = await client();
+    const page = (n: number, offset: number) => Array.from({ length: n }, (_, i) => ({ name: `b${offset + i}` }));
+    mockFetch.mockResolvedValueOnce(headerResponse(page(100, 0))).mockResolvedValueOnce(headerResponse(page(2, 100)));
+    expect(await repo.listBranches()).toHaveLength(102);
+    expect(calls().map(([, path]) => path)).toEqual([
+      "/repos/jclaw/site/branches?per_page=100&page=1",
+      "/repos/jclaw/site/branches?per_page=100&page=2",
+    ]);
+  });
+
+  it("lists the files a branch changed, both names of a rename", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(
+      headerResponse({ files: [{ filename: "a.json" }, { filename: "b.json", previous_filename: "old.json" }] }),
+    );
+    expect(await repo.changedFilesSince("main", "draft-x")).toEqual(["a.json", "b.json", "old.json"]);
+    expect(calls()[0][1]).toBe("/repos/jclaw/site/compare/main...draft-x");
+  });
+
+  it("creates a commit that writes and deletes files, without moving a branch", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(headerResponse({ tree: { sha: "base-tree" } }))
+      .mockResolvedValueOnce(headerResponse({ sha: "new-tree" }))
+      .mockResolvedValueOnce(headerResponse({ sha: "new-commit" }));
+
+    const sha = await repo.createCommit({
+      parentSha: "parent",
+      files: [{ path: "package.json", content: "{}" }],
+      deletePaths: ["src/lib/a.ts"],
+      message: "Upgrade",
+    });
+
+    expect(sha).toBe("new-commit");
+    const recorded = calls();
+    expect(recorded[1]).toEqual([
+      "POST",
+      "/repos/jclaw/site/git/trees",
+      {
+        base_tree: "base-tree",
+        tree: [
+          { path: "package.json", mode: "100644", type: "blob", content: "{}" },
+          { path: "src/lib/a.ts", mode: "100644", type: "blob", sha: null },
+        ],
+      },
+    ]);
+    expect(recorded[2]).toEqual(["POST", "/repos/jclaw/site/git/commits", { message: "Upgrade", tree: "new-tree", parents: ["parent"] }]);
+    expect(recorded).toHaveLength(3);
+  });
+
+  it("force-moves a branch", async () => {
+    const repo = await client();
+    mockFetch.mockResolvedValueOnce(headerResponse({}));
+    await repo.setBranchHead("stagecraft/upgrade", "c9");
+    expect(calls()[0]).toEqual(["PATCH", "/repos/jclaw/site/git/refs/heads/stagecraft/upgrade", { sha: "c9", force: true }]);
+  });
+
+  it("finds the open pull request from a branch, and updates it", async () => {
+    const repo = await client();
+    mockFetch
+      .mockResolvedValueOnce(headerResponse([{ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }]))
+      .mockResolvedValueOnce(headerResponse({ number: 4, html_url: "https://github.com/jclaw/site/pull/4", state: "open" }))
+      .mockResolvedValueOnce(headerResponse([]));
+
+    expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toEqual({
+      number: 4,
+      htmlUrl: "https://github.com/jclaw/site/pull/4",
+      state: "open",
+    });
+    await repo.updatePullRequest(4, { title: "T", body: "B" });
+    expect(await repo.findOpenPullRequest("stagecraft/upgrade", "main")).toBeNull();
+
+    const recorded = calls();
+    expect(recorded[0][1]).toBe("/repos/jclaw/site/pulls?head=jclaw%3Astagecraft%2Fupgrade&base=main&state=open");
+    expect(recorded[1]).toEqual(["PATCH", "/repos/jclaw/site/pulls/4", { title: "T", body: "B" }]);
+  });
+});
+
+describe("createBranch and createPullRequest", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUnique.mockResolvedValue({ accessToken: "gh-token-123" });
+  });
+
+  it("creates a branch at the base branch's head", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ object: { sha: "head" } })).mockResolvedValueOnce(jsonResponse({}));
+    await createBranch("user-1", "jclaw", "site", "main", "stagecraft/upgrade");
+    expect(calls()[1]).toEqual(["POST", "/repos/jclaw/site/git/refs", { ref: "refs/heads/stagecraft/upgrade", sha: "head" }]);
+  });
+
+  it("opens a pull request", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ number: 7, html_url: "https://github.com/jclaw/site/pull/7", state: "open" }));
+    const pr = await createPullRequest("user-1", "jclaw", "site", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" });
+    expect(pr).toEqual({ number: 7, htmlUrl: "https://github.com/jclaw/site/pull/7", state: "open" });
+    expect(calls()[0]).toEqual(["POST", "/repos/jclaw/site/pulls", { title: "T", body: "B", head: "stagecraft/upgrade", base: "main" }]);
   });
 });

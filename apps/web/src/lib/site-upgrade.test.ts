@@ -1,0 +1,291 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { gitBlobSha, TEMPLATE_STAMP_PATH } from "./site-scaffold";
+import {
+  changedCodeFiles,
+  fetchTargetSchemaVersion,
+  isArtistPath,
+  isCodePath,
+  isCollectionFile,
+  isDraftBranch,
+  isIgnoredPath,
+  isOnRelease,
+  manifestBaseline,
+  migrateCollections,
+  packageJsonChangedBeyondVersions,
+  readStamp,
+  targetShell,
+  templatePushBaseline,
+  UnsupportedSchemaVersionError,
+  upgradeDeletions,
+  upgradePullRequestBody,
+  upgradePullRequestTitle,
+} from "./site-upgrade";
+
+const tree = (files: Record<string, string>) =>
+  new Map(Object.entries(files).map(([path, content]) => [path, gitBlobSha(content)]));
+
+describe("path classes", () => {
+  it.each(["src/lib/a.ts", "src/components/x/Y.tsx", "src/puck/config.tsx", "src/app/page.tsx", "src/middleware.ts", "next.config.ts"])(
+    "%s is our code",
+    (path) => expect(isCodePath(path)).toBe(true),
+  );
+
+  it.each(["src/content/pages/home.json", "src/librarian.ts", "package.json", "tsconfig.json", "src/middleware.tsx"])(
+    "%s isn't a code path",
+    (path) => expect(isCodePath(path)).toBe(false),
+  );
+
+  it("treats src/content/ and public/ as the artist's", () => {
+    expect(isArtistPath("src/content/a.json")).toBe(true);
+    expect(isArtistPath("public/images/a.webp")).toBe(true);
+    expect(isArtistPath("public/robots.txt")).toBe(true);
+    expect(isArtistPath("src/lib/a.ts")).toBe(false);
+  });
+
+  it("ignores .github/, the stamp and lockfiles", () => {
+    expect(isIgnoredPath(".github/dependabot.yml")).toBe(true);
+    expect(isIgnoredPath(TEMPLATE_STAMP_PATH)).toBe(true);
+    for (const lockfile of ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"]) {
+      expect(isIgnoredPath(lockfile)).toBe(true);
+    }
+    expect(isIgnoredPath("package.json")).toBe(false);
+  });
+
+  it("recognizes draft branches and collection files", () => {
+    expect(isDraftBranch("draft")).toBe(true);
+    expect(isDraftBranch("draft-abc123")).toBe(true);
+    expect(isDraftBranch("drafts")).toBe(false);
+    expect(isDraftBranch("main")).toBe(false);
+    expect(isCollectionFile("src/content/_collection.json")).toBe(true);
+    expect(isCollectionFile("src/content/shows/_collection.json")).toBe(true);
+    expect(isCollectionFile("src/content/shows/item.json")).toBe(false);
+    expect(isCollectionFile("src/lib/_collection.json")).toBe(false);
+  });
+});
+
+describe("readStamp", () => {
+  it("reads a stamp with a manifest", () => {
+    const stamp = readStamp(
+      JSON.stringify({ packageVersion: "1.2.3", manifest: { "a.ts": "abc" }, createdAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    expect(stamp).toEqual({ manifest: { "a.ts": "abc" }, packageVersion: "1.2.3", createdAt: "2026-01-01T00:00:00.000Z" });
+  });
+
+  it.each([
+    ["no stamp", null],
+    ["unparseable JSON", "{"],
+    ["a stamp from before the manifest", '{"template":"musician-site","templateVersion":"0.0.1"}'],
+    ["an empty manifest", '{"manifest":{}}'],
+    ["a manifest with non-string SHAs", '{"manifest":{"a.ts":1}}'],
+    ["a non-object", '"stamp"'],
+  ])("reads %s as having no manifest", (_label, content) => {
+    expect(readStamp(content).manifest).toBeNull();
+  });
+});
+
+describe("packageJsonChangedBeyondVersions", () => {
+  const base = JSON.stringify({ name: "s", scripts: { build: "next build" }, dependencies: { next: "^15.0.0", react: "^19.0.0" } });
+
+  it("ignores version bumps and key order", () => {
+    const bumped = JSON.stringify({ dependencies: { react: "^19.1.0", next: "^15.5.27" }, scripts: { build: "next build" }, name: "s" });
+    expect(packageJsonChangedBeyondVersions(base, bumped)).toBe(false);
+  });
+
+  it("counts an added dependency, a changed script and a new field", () => {
+    const parsed = JSON.parse(base);
+    expect(packageJsonChangedBeyondVersions(base, JSON.stringify({ ...parsed, dependencies: { ...parsed.dependencies, lodash: "1" } }))).toBe(true);
+    expect(packageJsonChangedBeyondVersions(base, JSON.stringify({ ...parsed, scripts: { build: "next build && x" } }))).toBe(true);
+    expect(packageJsonChangedBeyondVersions(base, JSON.stringify({ ...parsed, engines: { node: ">=22" } }))).toBe(true);
+  });
+
+  it("compares unparseable text as is", () => {
+    expect(packageJsonChangedBeyondVersions("{", "{")).toBe(false);
+    expect(packageJsonChangedBeyondVersions("{", "{ ")).toBe(true);
+  });
+});
+
+describe("changedCodeFiles", () => {
+  const blobs = new Map<string, string>();
+  const read = async (sha: string) => blobs.get(sha)!;
+  const remember = (files: Record<string, string>) => {
+    for (const content of Object.values(files)) blobs.set(gitBlobSha(content), content);
+    return tree(files);
+  };
+
+  it("reports changed, deleted and added code files, sorted", async () => {
+    const push = remember({ "src/lib/a.ts": "a", "src/lib/b.ts": "b", "next.config.ts": "n", "README.md": "r" });
+    const current = remember({ "src/lib/a.ts": "a2", "next.config.ts": "n", "src/app/new/page.tsx": "p", "README.md": "edited" });
+    const changed = await changedCodeFiles(templatePushBaseline(push, current), current, read);
+    expect(changed).toEqual(["src/app/new/page.tsx", "src/lib/a.ts", "src/lib/b.ts"]);
+  });
+
+  it("checks every manifest file, but never the artist's or ignored paths", async () => {
+    const current = remember({
+      "tsconfig.json": "edited",
+      "src/content/x.json": "content",
+      ".github/dependabot.yml": "edited",
+    });
+    const baseline = manifestBaseline({
+      "tsconfig.json": gitBlobSha("{}"),
+      ".github/dependabot.yml": gitBlobSha("v"),
+      "public/robots.txt": gitBlobSha("r"),
+    });
+    expect(await changedCodeFiles(baseline, current, read)).toEqual(["tsconfig.json"]);
+  });
+
+  it("reads package.json only when its SHA changed", async () => {
+    const pkg = JSON.stringify({ dependencies: { next: "^15.0.0" } });
+    const bumped = JSON.stringify({ dependencies: { next: "^15.5.27" } });
+    const push = remember({ "package.json": pkg });
+    const current = remember({ "package.json": bumped });
+    const spy = vi.fn(read);
+    expect(await changedCodeFiles(templatePushBaseline(push, current), current, spy)).toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("templatePushBaseline", () => {
+  it("keeps code paths and package.json, plus other pushed files the artist hasn't changed", () => {
+    const push = tree({
+      "src/lib/a.ts": "a",
+      "package.json": "{}",
+      "eslint.config.mjs": "e",
+      "tsconfig.json": "t",
+      "README.md": "r",
+      "src/content/x.json": "x",
+      ".github/dependabot.yml": "d",
+    });
+    const current = tree({ "src/lib/a.ts": "changed", "package.json": "{}", "eslint.config.mjs": "e", "tsconfig.json": "mine" });
+    const baseline = templatePushBaseline(push, current);
+    expect(Object.keys(baseline.files).sort()).toEqual(["eslint.config.mjs", "package.json", "src/lib/a.ts"]);
+    expect(baseline.inScope("eslint.config.mjs")).toBe(false);
+    expect(baseline.inScope("src/puck/x.ts")).toBe(true);
+    expect(baseline.inScope("package.json")).toBe(true);
+  });
+});
+
+describe("upgradeDeletions", () => {
+  it("deletes code paths, lockfiles and baseline files the upgrade doesn't write back", () => {
+    const current = tree({
+      "src/lib/a.ts": "a",
+      "src/app/layout.tsx": "old",
+      "src/app/admin/page.tsx": "admin",
+      "eslint.config.mjs": "e",
+      "package-lock.json": "{}",
+      "README.md": "r",
+      "src/content/x.json": "x",
+      "public/images/a.txt": "i",
+      ".github/dependabot.yml": "d",
+      "notes.md": "mine",
+    });
+    const baseline = manifestBaseline({ "eslint.config.mjs": gitBlobSha("e"), ".github/dependabot.yml": gitBlobSha("d") });
+    const writes = [{ path: "src/app/layout.tsx", content: "shell" }];
+    expect(upgradeDeletions(current, baseline, writes)).toEqual([
+      "eslint.config.mjs",
+      "package-lock.json",
+      "src/app/admin/page.tsx",
+      "src/lib/a.ts",
+    ]);
+  });
+});
+
+describe("targetShell and isOnRelease", () => {
+  const shellPackage = JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.4.0" } });
+
+  it("is the bundle without its starter content when the bundle pins the package", () => {
+    const shell = targetShell([
+      { path: "package.json", content: shellPackage },
+      { path: "src/app/layout.tsx", content: "l" },
+      { path: "src/content/home.json", content: "{}" },
+    ]);
+    expect(shell?.packageVersion).toBe("1.4.0");
+    expect(shell?.files.map((f) => f.path)).toEqual(["package.json", "src/app/layout.tsx"]);
+  });
+
+  it("is null for a full copy of the template", () => {
+    expect(targetShell([{ path: "package.json", content: JSON.stringify({ dependencies: { next: "^15.5.27" } }) }])).toBeNull();
+  });
+
+  it("is on the release only when package.json and the stamp both record it", () => {
+    const stamp = { manifest: null, packageVersion: "1.4.0", createdAt: null };
+    expect(isOnRelease(shellPackage, stamp, "1.4.0")).toBe(true);
+    expect(isOnRelease(shellPackage, { ...stamp, packageVersion: "1.3.0" }, "1.4.0")).toBe(false);
+    expect(isOnRelease(shellPackage, stamp, "2.0.0")).toBe(false);
+    expect(isOnRelease(null, stamp, "1.4.0")).toBe(false);
+  });
+});
+
+describe("migrateCollections", () => {
+  // The real chain is empty (every collection is on version 1), so only
+  // target 1 is reachable: nothing is rewritten.
+  it("rewrites nothing when the target is the version the content is on", () => {
+    expect(
+      migrateCollections([{ path: "src/content/pages/_collection.json", content: '{"schemaVersion":1}' }], 1),
+    ).toEqual([]);
+  });
+
+  it("skips files that aren't collections or don't parse", () => {
+    expect(
+      migrateCollections(
+        [
+          { path: "src/content/pages/home.json", content: '{"schemaVersion":0}' },
+          { path: "src/content/pages/_collection.json", content: "{" },
+        ],
+        1,
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([0, 99, 1.5])("refuses target %s outside the chain", (target) => {
+    expect(() => migrateCollections([], target)).toThrow(UnsupportedSchemaVersionError);
+  });
+});
+
+describe("fetchTargetSchemaVersion", () => {
+  it("reads stagecraft.schemaVersion from the release's registry metadata", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ stagecraft: { schemaVersion: 3 } })));
+    expect(await fetchTargetSchemaVersion("1.4.0", { fetchImpl: fetchImpl as unknown as typeof fetch, registry: "https://r.test" })).toBe(3);
+    expect(fetchImpl).toHaveBeenCalledWith("https://r.test/@jclaw-labs%2fmusician-site/1.4.0", expect.anything());
+  });
+
+  it("throws when the release carries no schemaVersion", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ version: "1.4.0" })));
+    await expect(fetchTargetSchemaVersion("1.4.0", { fetchImpl: fetchImpl as unknown as typeof fetch })).rejects.toThrow(
+      "no stagecraft.schemaVersion",
+    );
+  });
+
+  it("throws when the registry answers an error", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 503 }));
+    await expect(fetchTargetSchemaVersion("1.4.0", { fetchImpl: fetchImpl as unknown as typeof fetch })).rejects.toThrow("HTTP 503");
+  });
+});
+
+describe("the pull request", () => {
+  it("names the release in the title", () => {
+    expect(upgradePullRequestTitle("1.4.0")).toBe("Upgrade to @jclaw-labs/musician-site 1.4.0");
+  });
+
+  it("describes a shell-only upgrade without asking about drafts", () => {
+    const body = upgradePullRequestBody({ packageVersion: "1.4.0", deletedCount: 1, migratedFiles: [], addsWorkflow: false, removesLockfile: false });
+    expect(body).toContain("1 file of Stagecraft's code is deleted");
+    expect(body).not.toContain("Before you merge");
+    expect(body).not.toContain("lockfile");
+  });
+
+  it("lists rewritten content and asks for pending edits to be published first", () => {
+    const body = upgradePullRequestBody({
+      packageVersion: "2.0.0",
+      deletedCount: 120,
+      migratedFiles: ["src/content/shows/_collection.json"],
+      addsWorkflow: true,
+      removesLockfile: true,
+    });
+    expect(body).toContain("120 files of Stagecraft's code are deleted");
+    expect(body).toContain("- `src/content/shows/_collection.json`");
+    expect(body).toContain("**Before you merge, publish or discard any edits");
+    expect(body).toContain("which your repository didn't have");
+    expect(body).toContain("lockfile is deleted");
+  });
+});
