@@ -36,7 +36,7 @@ export const UPGRADE_BLOCKER_TEXT: Record<UpgradeSiteBlocker, string> = {
   unsupported_schema:
     "This release needs a newer version of Stagecraft to upgrade your content. Try again later.",
   upgrade_branch_changed:
-    "Someone pushed changes to the upgrade pull request's branch (stagecraft/upgrade), so Stagecraft didn't replace them. Merge or close that pull request and delete the branch, then run the upgrade again.",
+    "The upgrade pull request's branch (stagecraft/upgrade) has commits Stagecraft didn't make, such as a push or GitHub's \"Update branch\", so Stagecraft didn't replace them. Merge or close that pull request and delete the branch, then run the upgrade again.",
 };
 
 /**

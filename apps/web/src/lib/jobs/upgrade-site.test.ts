@@ -400,6 +400,15 @@ describe("handleUpgradeSite — a site Dependabot moved", () => {
     expect(mocks.createPullRequest).not.toHaveBeenCalled();
   });
 
+  it("upgrades a site one patch behind the platform's release, without listing its bumped package.json", async () => {
+    await migratedThenBumped("1.0.1");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.0.3"));
+
+    expect(await runJob()).toMatchObject({ success: true, data: { packageVersion: "1.0.3", pullRequest: { action: "opened" } } });
+    expect(JSON.parse(repo.files("stagecraft/upgrade")["package.json"]).dependencies["@jclaw-labs/musician-site"]).toBe("1.0.3");
+    expect(repo.pulls.at(-1)!.body).not.toContain("changed in your repository");
+  });
+
   it("still opens a pull request for a release past the site's", async () => {
     await migratedThenBumped("1.0.1");
     mocks.readTemplateFiles.mockResolvedValue(shellBundle("2.0.0"));

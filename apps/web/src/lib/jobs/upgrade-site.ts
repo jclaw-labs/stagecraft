@@ -275,7 +275,7 @@ async function assertUpgradeBranchIsOurs(client: GitHubRepoClient, branch: strin
   if ((await client.changedFilesSince(branch, UPGRADE_BRANCH)).length === 0) return;
   throw new UpgradeBlockedError(
     "upgrade_branch_changed",
-    `Someone pushed to ${UPGRADE_BRANCH}, and the upgrade would discard their commits. Merge or close its pull request and delete the branch, then run the upgrade again.`,
+    `${UPGRADE_BRANCH} has commits the upgrade didn't make (a push, or GitHub's "Update branch"), and moving it would discard them. Merge or close its pull request and delete the branch, then run the upgrade again.`,
   );
 }
 

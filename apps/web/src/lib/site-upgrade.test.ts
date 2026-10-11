@@ -258,14 +258,26 @@ describe("targetShell and isOnOrPastRelease", () => {
     expect(isOnOrPastRelease("1.10.0", "1.9.0")).toBe(true);
     expect(isOnOrPastRelease("2.0.0", "1.9.9")).toBe(true);
     expect(isOnOrPastRelease("1.3.9", "1.4.0")).toBe(false);
+    expect(isOnOrPastRelease("1.4.0", "1.4.3")).toBe(false);
+    expect(isOnOrPastRelease("1.4.0", "1.5.0")).toBe(false);
     expect(isOnOrPastRelease("1.4.0", "2.0.0")).toBe(false);
     expect(isOnOrPastRelease(null, "1.4.0")).toBe(false);
   });
 
-  it("matches a pin that isn't an exact release only to itself", () => {
+  it("reads a range by its lower bound, and a prerelease as behind its release", () => {
+    expect(isOnOrPastRelease("^1.4.0", "1.4.0")).toBe(true);
+    expect(isOnOrPastRelease("^1.2.0", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("~1.2.0", "1.3.0")).toBe(false);
+    expect(isOnOrPastRelease("2.0.0-rc.1", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0")).toBe(false);
+    expect(isOnOrPastRelease("2.0.0", "2.0.0-rc.1")).toBe(true);
     expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.1")).toBe(true);
-    expect(isOnOrPastRelease("2.0.0-rc.1", "1.0.0")).toBe(false);
-    expect(isOnOrPastRelease("^1.4.0", "1.4.0")).toBe(false);
+    expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.2")).toBe(false);
+  });
+
+  it("matches a pin that isn't a release only to itself", () => {
+    expect(isOnOrPastRelease("latest", "1.4.0")).toBe(false);
+    expect(isOnOrPastRelease("github:a/b", "1.4.0")).toBe(false);
   });
 });
 
@@ -321,11 +333,20 @@ describe("overwrittenFiles", () => {
     { path: "src/app/layout.tsx", content: "layout" },
     { path: ".gitignore", content: "node_modules\n" },
     { path: "CLAUDE.md", content: "new" },
+    { path: "package.json", content: "{}" },
   ];
 
   it("lists shell files written over a file that isn't ours as the baseline left it", () => {
-    const current = tree({ "tsconfig.json": "artist's", "src/app/layout.tsx": "old", ".gitignore": "node_modules\n", "CLAUDE.md": "notes" });
-    // tsconfig.json was ours and the artist changed it; CLAUDE.md is the artist's own.
+    const current = tree({
+      "tsconfig.json": "artist's",
+      "src/app/layout.tsx": "old",
+      ".gitignore": "node_modules\n",
+      "CLAUDE.md": "notes",
+      "package.json": '{"bumped":true}',
+    });
+    // tsconfig.json was ours and the artist changed it; CLAUDE.md is the
+    // artist's own. package.json is never listed: a change beyond versions
+    // stops the upgrade, and a version bump is what the shell replaces.
     const baseline = templatePushBaseline(tree({ "tsconfig.json": "{}", "src/app/layout.tsx": "old" }), current);
     expect(overwrittenFiles(current, baseline, shell)).toEqual(["CLAUDE.md", "tsconfig.json"]);
   });

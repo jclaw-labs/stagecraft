@@ -272,10 +272,15 @@ export function targetShell(bundle: TemplateFile[]): TargetShell | null {
   return { packageVersion, files: bundle.filter((f) => !isArtistPath(f.path)) };
 }
 
-/** `major.minor.patch` of an exact release, or null for anything else (a range, a prerelease). */
-function releaseParts(version: string): [number, number, number] | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+/**
+ * A pin's release: `major.minor.patch`, and whether it's a prerelease. A
+ * range's lower bound counts (`^1.2.0` reads as 1.2.0). Null for anything
+ * else (a tag, a git spec).
+ */
+function releaseParts(version: string): { core: [number, number, number]; prerelease: boolean } | null {
+  const match = /^(?:[\^~]|[<>]=?|=)?\s*v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/.exec(version.trim());
+  if (!match) return null;
+  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] !== undefined };
 }
 
 /**
@@ -293,7 +298,9 @@ export function pinnedPackageVersion(packageJson: string | null): string | null 
  * patch and minor releases on its own and the platform's bundle only moves
  * when it's deployed, so a site can be ahead of the bundle; moving it to
  * `target` would be a downgrade. The stamp isn't read: Dependabot never
- * updates it. A pin that isn't an exact release only matches itself.
+ * updates it. A range pin counts by its lower bound, and a prerelease is
+ * behind the release it precedes. A pin that isn't a release at all only
+ * matches itself.
  */
 export function isOnOrPastRelease(pinned: string | null, target: string): boolean {
   if (pinned === null) return false;
@@ -301,9 +308,10 @@ export function isOnOrPastRelease(pinned: string | null, target: string): boolea
   const b = releaseParts(target);
   if (!a || !b) return pinned.trim() === target;
   for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i];
+    if (a.core[i] !== b.core[i]) return a.core[i] > b.core[i];
   }
-  return true;
+  if (a.prerelease && b.prerelease) return pinned.trim() === target;
+  return !a.prerelease || b.prerelease;
 }
 
 /**
@@ -341,7 +349,10 @@ export function overwrittenFiles(
   return shellFiles
     .filter((file) => {
       const sha = current.get(file.path);
-      return sha !== undefined && !isIgnoredPath(file.path) && sha !== gitBlobSha(file.content) && sha !== baseline.files[file.path];
+      // package.json either changed beyond versions (a customization, so no
+      // upgrade) or only by Dependabot's bumps, which the shell's pins replace.
+      if (file.path === PACKAGE_JSON || isIgnoredPath(file.path)) return false;
+      return sha !== undefined && sha !== gitBlobSha(file.content) && sha !== baseline.files[file.path];
     })
     .map((file) => file.path)
     .sort();
