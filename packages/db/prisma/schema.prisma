@@ -93,7 +93,7 @@ model Site {
   name                String
   slug                String   @unique
   status              String   @default("creating") // creating | active | error | archived
-  blueprintType       String   @default("solo-artist") @ignore // unused (#445). @ignore: the client neither selects nor writes it; the DB default fills it on insert. The column drop is the next step
+  blueprintType       String   @default("solo-artist") @ignore // unused (#445). @ignore: the client neither selects nor writes it; the DB default fills it on insert. The column drop is the next step. Keep the @default until then: removing it makes migrate emit DROP DEFAULT, and every Site insert then fails NOT NULL
   githubRepoOwner       String?
   githubRepoName        String?
   githubDefaultBranch   String   @default("main")
