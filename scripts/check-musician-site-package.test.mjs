@@ -28,4 +28,16 @@ describe("minimalAppFiles", () => {
     expect(header).toMatch(/from "#components\/[^"]+\.js"/);
     expect(header).toMatch(/from "#lib\/[^"]+\.js"/);
   });
+
+  it("uses a module that resolves #puck imports inside dist/", () => {
+    expect(files["app/page.tsx"]).toContain(
+      'import { resolveTemplate } from "@jclaw-labs/musician-site/lib/collections/template/renderer";',
+    );
+    expect(files["app/page.tsx"]).toContain("{typeof resolveTemplate}");
+    const renderer = fs.readFileSync(
+      new URL("../templates/musician-site/src/lib/collections/template/renderer.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(renderer).toMatch(/from "#puck\/[^"]+\.js"/);
+  });
 });

@@ -17,6 +17,8 @@ on:
       - "scripts/pack-musician-site*"
       - "scripts/check-musician-site-package*"
       - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
       - ".github/workflows/musician-site-package.yml"
   push:
     branches: [main]
@@ -26,6 +28,8 @@ on:
       - "scripts/pack-musician-site*"
       - "scripts/check-musician-site-package*"
       - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
       - ".github/workflows/musician-site-package.yml"
 
 concurrency:

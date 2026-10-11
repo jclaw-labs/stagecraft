@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import * as entry from "./index.js";
 import {
   LATEST_SCHEMA_VERSION,
   OLDEST_SCHEMA_VERSION,
-  runChain,
   UPGRADERS,
   upgradeCollection,
   type CollectionJson,
   type Upgrader,
 } from "./index.js";
+import { runChain } from "./run-chain.js";
 
 describe("upgrader chain", () => {
   it("starts empty at schemaVersion 1", () => {
@@ -100,5 +101,19 @@ describe("runChain", () => {
 
   it("throws on a gap in the chain rather than calling a missing step", () => {
     expect(() => runChain({ 2: step(2) }, { schemaVersion: 1 }, 3)).toThrow(/No upgrader from schemaVersion 1/);
+  });
+});
+
+describe("package surface", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8")) as {
+    exports: Record<string, Record<string, string> | string>;
+  };
+
+  it("lists the source condition before types, so in-monorepo tsc resolves src/ rather than a stale dist/", () => {
+    expect(Object.keys(pkg.exports["."] as Record<string, string>)[0]).toBe("source");
+  });
+
+  it("keeps runChain out of the entry point", () => {
+    expect(Object.keys(entry)).not.toContain("runChain");
   });
 });

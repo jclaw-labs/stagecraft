@@ -12,6 +12,8 @@
  * The chain is empty while every collection is on version 1.
  */
 
+import { runChain } from "./run-chain.js";
+
 /** A parsed `_collection.json`. */
 export type CollectionJson = { schemaVersion?: unknown; [key: string]: unknown };
 
@@ -58,23 +60,3 @@ export function upgradeCollection(
   return runChain(UPGRADERS, collection, target);
 }
 
-/**
- * Run `chain` on `collection` from its `schemaVersion` up to `target`,
- * one step at a time. Internal: `upgradeCollection` validates the input
- * and calls it with `UPGRADERS`; tests call it with a fake chain.
- *
- * @internal
- */
-export function runChain(
-  chain: Readonly<Record<number, Upgrader>>,
-  collection: CollectionJson,
-  target: number,
-): CollectionJson {
-  let upgraded = collection;
-  for (let version = collection.schemaVersion as number; version < target; version++) {
-    const step = chain[version];
-    if (!step) throw new RangeError(`No upgrader from schemaVersion ${version}.`);
-    upgraded = step(upgraded);
-  }
-  return upgraded;
-}
