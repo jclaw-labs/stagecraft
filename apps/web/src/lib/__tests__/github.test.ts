@@ -381,6 +381,11 @@ describe("checkGitHubToken", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("throws when the stored token can't be read, rather than asking for a sign-in", async () => {
+    mockFindUnique.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(checkGitHubToken("user-1", ["repo"])).rejects.toThrow("connection refused");
+  });
+
   it("takes a token without a scopes header as having them", async () => {
     mockFetch.mockResolvedValueOnce(headerResponse({ login: "jclaw" }));
     expect(await checkGitHubToken("user-1", ["repo", "workflow"])).toEqual({ status: "ok", scopes: ["repo", "workflow"] });

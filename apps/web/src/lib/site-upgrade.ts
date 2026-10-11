@@ -18,7 +18,9 @@ import {
 } from "@jclaw-labs/content-upgraders";
 
 import {
+  ARTIST_PATH_PREFIXES,
   codePathManifest,
+  gitBlobSha,
   MUSICIAN_SITE_PACKAGE,
   packageVersionFromFiles,
   SITE_AUTOMERGE_WORKFLOW_PATH,
@@ -40,18 +42,20 @@ export const TEMPLATE_PUSH_MARKER_PATH = "src/lib";
 /**
  * Our code in a site, by directory, before it moves onto the package
  * (ADR-016 §4). A file added under one of these counts as a change too.
+ * `src/admin/` and `src/api/` hold the routed modules the template has
+ * shipped since #479, before stamps carried a manifest (#482).
  */
-export const CODE_PATH_PREFIXES = ["src/lib/", "src/components/", "src/puck/", "src/app/"] as const;
+export const CODE_PATH_PREFIXES = [
+  "src/lib/",
+  "src/components/",
+  "src/puck/",
+  "src/app/",
+  "src/admin/",
+  "src/api/",
+] as const;
 
 /** Our code in a site, as single files at fixed paths. */
 export const CODE_PATH_FILES = ["src/middleware.ts", "next.config.ts"] as const;
-
-/**
- * The artist's paths: the content the CMS writes and everything under
- * `public/`. The upgrade never writes or deletes here, apart from content
- * the target release's upgrader chain rewrites.
- */
-const ARTIST_PATH_PREFIXES = ["src/content/", "public/"] as const;
 
 /** Lockfiles: never a customization, and the upgrade deletes them (sites ship none). */
 export const LOCKFILE_NAMES = ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"] as const;
@@ -75,6 +79,12 @@ export function isCodePath(path: string): boolean {
   );
 }
 
+/**
+ * The artist's paths (`ARTIST_PATH_PREFIXES`, the same ones the stamp's
+ * manifest leaves out): the content the CMS writes and their images. The
+ * upgrade never writes or deletes here, apart from content the target
+ * release's upgrader chain rewrites.
+ */
 export function isArtistPath(path: string): boolean {
   return ARTIST_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
@@ -131,8 +141,9 @@ export function readStamp(content: string | null): StampSummary {
 /**
  * Whether two package.json texts differ in anything but dependency
  * versions. Merged Dependabot PRs bump versions, which isn't a
- * customization; adding or removing a dependency, or changing a script or
- * any other field, is. Text that doesn't parse is compared as is.
+ * customization; adding or removing a dependency, changing where one comes
+ * from (a git, file, URL or alias spec, or a dist-tag), or changing a script
+ * or any other field, is. Text that doesn't parse is compared as is.
  */
 export function packageJsonChangedBeyondVersions(baseline: string, current: string): boolean {
   let a: unknown;
@@ -146,7 +157,25 @@ export function packageJsonChangedBeyondVersions(baseline: string, current: stri
   return JSON.stringify(withoutDependencyVersions(a)) !== JSON.stringify(withoutDependencyVersions(b));
 }
 
-/** `pkg` with each dependency map reduced to its sorted names, and keys sorted. */
+/**
+ * Whether a dependency spec is a registry version or range (`1.2.3`,
+ * `^15.2.0`, `~4.0`, `>=1 <2`, `1.x`, `*`), the kind Dependabot bumps,
+ * rather than a git, file, URL or `npm:` alias spec, or a dist-tag.
+ */
+export function isVersionSpec(spec: unknown): boolean {
+  if (typeof spec !== "string") return false;
+  const trimmed = spec.trim();
+  if (trimmed === "*" || trimmed === "") return true;
+  return !/[:/#]/.test(trimmed) && /^(?:[\^~]|[<>]=?|=)?\s*v?\d/.test(trimmed);
+}
+
+/** A placeholder for a version spec, so a bump compares equal to the original. */
+const VERSION_SPEC = "<version>";
+
+/**
+ * `pkg` with each dependency map's version specs replaced by a placeholder
+ * (other specs kept as they are), and keys sorted.
+ */
 function withoutDependencyVersions(pkg: unknown): unknown {
   if (typeof pkg !== "object" || pkg === null || Array.isArray(pkg)) return pkg;
   const out: Record<string, unknown> = {};
@@ -154,7 +183,12 @@ function withoutDependencyVersions(pkg: unknown): unknown {
     const value = (pkg as Record<string, unknown>)[key];
     out[key] =
       (DEPENDENCY_FIELDS as readonly string[]).includes(key) && typeof value === "object" && value !== null
-        ? Object.keys(value).sort()
+        ? Object.keys(value)
+            .sort()
+            .map((name) => {
+              const spec = (value as Record<string, unknown>)[name];
+              return [name, isVersionSpec(spec) ? VERSION_SPEC : spec];
+            })
         : value;
   }
   return out;
@@ -238,10 +272,38 @@ export function targetShell(bundle: TemplateFile[]): TargetShell | null {
   return { packageVersion, files: bundle.filter((f) => !isArtistPath(f.path)) };
 }
 
-/** Whether the site already runs `packageVersion` and its stamp records it. */
-export function isOnRelease(packageJson: string | null, stamp: StampSummary, packageVersion: string): boolean {
-  if (stamp.packageVersion !== packageVersion || packageJson === null) return false;
-  return packageVersionFromFiles([{ path: PACKAGE_JSON, content: packageJson }]) === packageVersion;
+/** `major.minor.patch` of an exact release, or null for anything else (a range, a prerelease). */
+function releaseParts(version: string): [number, number, number] | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/**
+ * The release of the package the site's package.json pins, or null when it
+ * doesn't depend on the package (a site from before ADR-016).
+ */
+export function pinnedPackageVersion(packageJson: string | null): string | null {
+  if (packageJson === null) return null;
+  return packageVersionFromFiles([{ path: PACKAGE_JSON, content: packageJson }]);
+}
+
+/**
+ * Whether a site pinned to `pinned` is already on `target` or a later
+ * release, so an upgrade to `target` has nothing to do. Dependabot merges
+ * patch and minor releases on its own and the platform's bundle only moves
+ * when it's deployed, so a site can be ahead of the bundle; moving it to
+ * `target` would be a downgrade. The stamp isn't read: Dependabot never
+ * updates it. A pin that isn't an exact release only matches itself.
+ */
+export function isOnOrPastRelease(pinned: string | null, target: string): boolean {
+  if (pinned === null) return false;
+  const a = releaseParts(pinned);
+  const b = releaseParts(target);
+  if (!a || !b) return pinned.trim() === target;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return true;
 }
 
 /**
@@ -261,6 +323,27 @@ export function upgradeDeletions(
       (path) =>
         isCodePath(path) || isLockfile(path) || (path in baseline.files && !isIgnoredPath(path)),
     )
+    .sort();
+}
+
+/**
+ * The shell files an upgrade writes over a file the site has and that isn't
+ * ours as the baseline left it: the artist edited it (on a site without a
+ * manifest only code paths and package.json are checked, ADR-016 §4), or
+ * added it. The pull request lists them, so the artist can carry their
+ * change over. Sorted by path.
+ */
+export function overwrittenFiles(
+  current: ReadonlyMap<string, string>,
+  baseline: Baseline,
+  shellFiles: readonly TemplateFile[],
+): string[] {
+  return shellFiles
+    .filter((file) => {
+      const sha = current.get(file.path);
+      return sha !== undefined && !isIgnoredPath(file.path) && sha !== gitBlobSha(file.content) && sha !== baseline.files[file.path];
+    })
+    .map((file) => file.path)
     .sort();
 }
 
@@ -342,8 +425,15 @@ export async function fetchTargetSchemaVersion(
   return schemaVersion;
 }
 
+const UPGRADE_COMMIT_PREFIX = `Move this site onto ${MUSICIAN_SITE_PACKAGE}@`;
+
 export function upgradeCommitMessage(packageVersion: string): string {
-  return `Move this site onto ${MUSICIAN_SITE_PACKAGE}@${packageVersion}`;
+  return `${UPGRADE_COMMIT_PREFIX}${packageVersion}`;
+}
+
+/** Whether a commit message is one `upgradeCommitMessage` wrote. */
+export function isUpgradeCommitMessage(message: string): boolean {
+  return message.startsWith(UPGRADE_COMMIT_PREFIX) && !message.slice(UPGRADE_COMMIT_PREFIX.length).includes("\n");
 }
 
 export function upgradePullRequestTitle(packageVersion: string): string {
@@ -362,6 +452,7 @@ export function upgradePullRequestBody(args: {
   migratedFiles: readonly string[];
   addsWorkflow: boolean;
   removesLockfile: boolean;
+  overwrittenFiles?: readonly string[];
 }): string {
   const lines = [
     `This pull request moves your site onto **${MUSICIAN_SITE_PACKAGE} ${args.packageVersion}**, the package that now holds the site's code. Stagecraft opened it; nothing merges until you do.`,
@@ -375,7 +466,16 @@ export function upgradePullRequestBody(args: {
   if (args.removesLockfile) {
     lines.push("- The committed lockfile is deleted, so the site builds the same way as every new Stagecraft site.");
   }
-  lines.push("- Your content (`src/content/`) and images (`public/`) stay as they are.");
+  lines.push("- Your content (`src/content/`) and images (`public/images/`) stay as they are.");
+  const overwritten = args.overwrittenFiles ?? [];
+  if (overwritten.length > 0) {
+    lines.push(
+      "",
+      `${overwritten.length === 1 ? "This file was" : "These files were"} changed in your repository, and the package's version replaces ${overwritten.length === 1 ? "it" : "them"}. If you still need your change, add it back on this branch before you merge:`,
+      "",
+      ...overwritten.map((path) => `- \`${path}\``),
+    );
+  }
   if (args.migratedFiles.length > 0) {
     lines.push(
       "",

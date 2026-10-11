@@ -59,13 +59,13 @@ class FakeRepo {
   readonly owner = "jclaw";
   readonly repo = "stagecraft-site-sarah";
   branches = new Map<string, string>();
-  commits = new Map<string, { tree: Tree; parent: string | null }>();
+  commits = new Map<string, { tree: Tree; parent: string | null; message: string }>();
   blobs = new Map<string, string>();
   pulls: Array<PullRequestResult & { head: string; base: string; title: string; body: string }> = [];
   private nextCommit = 1;
 
   /** Commit `files` (null deletes) on `parent`, returning the new commit's SHA. */
-  commit(parent: string | null, files: Record<string, string | null>): string {
+  commit(parent: string | null, files: Record<string, string | null>, message = "Edit"): string {
     const tree = new Map(parent ? this.commits.get(parent)!.tree : []);
     for (const [path, content] of Object.entries(files)) {
       if (content === null) {
@@ -77,7 +77,7 @@ class FakeRepo {
       }
     }
     const sha = `c${String(this.nextCommit++).padStart(39, "0")}`;
-    this.commits.set(sha, { tree, parent });
+    this.commits.set(sha, { tree, parent, message });
     return sha;
   }
 
@@ -112,6 +112,7 @@ class FakeRepo {
       repo: this.repo,
       getBranchHead: async (branch) => this.branches.get(branch) ?? null,
       getTree: async (sha) => new Map(this.commits.get(sha)!.tree),
+      getCommitMessage: async (sha) => this.commits.get(sha)!.message,
       getBlobText: async (sha) => this.blobs.get(sha)!,
       findOldestCommitTouching: async (path, ref) =>
         this.ancestors(this.branches.get(ref)!).filter((sha) => this.touches(sha, path)).at(-1) ?? null,
@@ -124,11 +125,15 @@ class FakeRepo {
         const to = this.commits.get(this.branches.get(head)!)!.tree;
         return [...new Set([...from.keys(), ...to.keys()])].filter((p) => from.get(p) !== to.get(p));
       },
-      createCommit: async ({ parentSha, files, deletePaths }) =>
-        this.commit(parentSha, {
-          ...Object.fromEntries(files.map((f) => [f.path, f.content])),
-          ...Object.fromEntries(deletePaths.map((p) => [p, null])),
-        }),
+      createCommit: async ({ parentSha, files, deletePaths, message }) =>
+        this.commit(
+          parentSha,
+          {
+            ...Object.fromEntries(files.map((f) => [f.path, f.content])),
+            ...Object.fromEntries(deletePaths.map((p) => [p, null])),
+          },
+          message,
+        ),
       setBranchHead: async (branch, sha) => {
         if (!this.branches.has(branch)) throw new GitHubApiError(422, "Reference does not exist");
         this.branches.set(branch, sha);
@@ -362,6 +367,47 @@ describe("handleUpgradeSite — a clean site", () => {
   });
 });
 
+describe("handleUpgradeSite — a site Dependabot moved", () => {
+  /** Migrate to 1.0.0, merge it, then let Dependabot pin the package at `pin`. */
+  async function migratedThenBumped(pin: string) {
+    await runJob();
+    repo.branches.set("main", repo.branches.get("stagecraft/upgrade")!);
+    repo.pulls[0].state = "closed";
+    const pkg = JSON.parse(repo.files("main")["package.json"]);
+    pkg.dependencies["@jclaw-labs/musician-site"] = pin;
+    repo.commitOn("main", { "package.json": JSON.stringify(pkg, null, 2) + "\n" });
+    mocks.createPullRequest.mockClear();
+  }
+
+  it("doesn't downgrade a site already past the platform's release", async () => {
+    await migratedThenBumped("1.2.0");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+    const before = repo.branches.get("stagecraft/upgrade");
+
+    const result = await runJob();
+
+    expect(result).toMatchObject({ success: true, data: { packageVersion: "1.1.0", upToDate: true, currentVersion: "1.2.0" } });
+    expect(mocks.createPullRequest).not.toHaveBeenCalled();
+    expect(repo.branches.get("stagecraft/upgrade")).toBe(before);
+  });
+
+  it("reports a site on the platform's release as up to date even though its stamp lags", async () => {
+    await migratedThenBumped("1.0.1");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.0.1"));
+    expect(JSON.parse(repo.files("main")[TEMPLATE_STAMP_PATH]).packageVersion).toBe("1.0.0");
+
+    expect(await runJob()).toMatchObject({ success: true, data: { upToDate: true, currentVersion: "1.0.1" } });
+    expect(mocks.createPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("still opens a pull request for a release past the site's", async () => {
+    await migratedThenBumped("1.0.1");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("2.0.0"));
+
+    expect(await runJob()).toMatchObject({ success: true, data: { packageVersion: "2.0.0", pullRequest: { action: "opened" } } });
+  });
+});
+
 describe("handleUpgradeSite — customizations", () => {
   it("stops on a customized site and reports the changed files, opening no pull request", async () => {
     repo.commitOn("main", {
@@ -405,6 +451,27 @@ describe("handleUpgradeSite — customizations", () => {
     const result = await runJob();
 
     expect(result).toMatchObject({ success: false, data: { blocker: "customized", changedFiles: ["package.json"] } });
+  });
+
+  it("counts a dependency moved to a git spec as a customization", async () => {
+    const forked = JSON.parse(OLD_PACKAGE_JSON);
+    forked.dependencies.next = "github:sarah/next#patched";
+    repo.commitOn("main", { "package.json": JSON.stringify(forked, null, 2) });
+
+    expect(await runJob()).toMatchObject({ success: false, data: { blocker: "customized", changedFiles: ["package.json"] } });
+  });
+
+  it("lists a shell file it writes over the artist's edit in the pull request", async () => {
+    repo.commitOn("main", { "tsconfig.json": '{ "compilerOptions": { "strict": true } }\n' });
+
+    expect((await runJob()).success).toBe(true);
+    expect(repo.files("stagecraft/upgrade")["tsconfig.json"]).toBe('{ "compilerOptions": {} }\n');
+    expect(repo.pulls[0].body).toContain("- `tsconfig.json`");
+  });
+
+  it("doesn't list a shell file the artist never changed", async () => {
+    await runJob();
+    expect(repo.pulls[0].body).not.toContain("changed in your repository");
   });
 
   it("ignores changes to .github/, the stamp and lockfiles", async () => {
@@ -485,6 +552,25 @@ describe("handleUpgradeSite — re-runs and later majors", () => {
     expect(mocks.createBranch).toHaveBeenCalledTimes(1);
     expect(repo.branches.get("stagecraft/upgrade")).not.toBe(firstCommit);
     expect(repo.files("stagecraft/upgrade")["src/content/pages/home.json"]).toBe('{"title":"Home, edited"}\n');
+  });
+
+  it("stops rather than discard commits someone pushed to stagecraft/upgrade", async () => {
+    await runJob();
+    repo.commitOn("stagecraft/upgrade", { "src/content/pages/fix.json": "{}\n" });
+    const pushed = repo.branches.get("stagecraft/upgrade");
+
+    const result = await runJob();
+
+    expect(result).toMatchObject({ success: false, failureCategory: "validation_error", data: { blocker: "upgrade_branch_changed" } });
+    expect(repo.branches.get("stagecraft/upgrade")).toBe(pushed);
+    expect(repo.pulls[0].state).toBe("open");
+  });
+
+  it("moves a branch that holds nothing of its own (a run that stopped after creating it)", async () => {
+    repo.branches.set("stagecraft/upgrade", repo.branches.get("main")!);
+
+    expect(await runJob()).toMatchObject({ success: true, data: { pullRequest: { action: "opened" } } });
+    expect(repo.files("stagecraft/upgrade")["src/middleware.ts"]).toContain("@jclaw-labs/musician-site/middleware");
   });
 
   it("opens a new pull request for the next major once the first upgrade is merged", async () => {

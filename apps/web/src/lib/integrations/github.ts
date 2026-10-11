@@ -57,13 +57,21 @@ export const MAX_TREE_CONTENT_BYTES = 2 * 1024 * 1024;
 /** Attempts (2s apart) to read the branch head right after repo creation. */
 const BRANCH_HEAD_ATTEMPTS = 5;
 
+/** The user has no GitHub token stored: they never connected, or disconnected. */
+export class GitHubNotConnectedError extends Error {
+  constructor() {
+    super("GitHub account not connected");
+    this.name = "GitHubNotConnectedError";
+  }
+}
+
 async function getGitHubToken(userId: string): Promise<string> {
   const integration = await prisma.integrationAccount.findUnique({
     where: { userId_provider: { userId, provider: "github" } },
   });
 
   if (!integration?.accessToken) {
-    throw new Error("GitHub account not connected");
+    throw new GitHubNotConnectedError();
   }
 
   return decryptCredential(
@@ -443,8 +451,11 @@ export async function checkGitHubToken(userId: string, requiredScopes: readonly 
   let token: string;
   try {
     token = await getGitHubToken(userId);
-  } catch {
-    return { status: "missing" };
+  } catch (error) {
+    // Only a missing token asks for a sign-in; a database or decryption
+    // failure isn't fixed by one, so it goes back to the caller.
+    if (error instanceof GitHubNotConnectedError) return { status: "missing" };
+    throw error;
   }
   let res: Response;
   try {
@@ -486,6 +497,8 @@ export interface GitHubRepoClient {
   getBranchHead(branch: string): Promise<string | null>;
   /** Every file in a commit's tree, by path. Throws if GitHub truncates the tree. */
   getTree(commitSha: string): Promise<RepoTree>;
+  /** A commit's message. */
+  getCommitMessage(commitSha: string): Promise<string>;
   /** A blob's content as UTF-8 text. */
   getBlobText(blobSha: string): Promise<string>;
   /** The oldest commit on `ref` that touches `path`, or null when none does. */
@@ -550,6 +563,11 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
         if (error instanceof GitHubApiError && error.status === 404) return null;
         throw error;
       }
+    },
+
+    async getCommitMessage(commitSha) {
+      const commit = await githubApi(token, `${repoPath}/git/commits/${commitSha}`);
+      return commit.message as string;
     },
 
     async getTree(commitSha) {

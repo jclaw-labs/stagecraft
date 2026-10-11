@@ -35,6 +35,8 @@ export const UPGRADE_BLOCKER_TEXT: Record<UpgradeSiteBlocker, string> = {
     "This upgrade rewrites content that has unpublished edits in your site's editor. Publish or discard those edits, then run the upgrade again. Drafts with edits:",
   unsupported_schema:
     "This release needs a newer version of Stagecraft to upgrade your content. Try again later.",
+  upgrade_branch_changed:
+    "Someone pushed changes to the upgrade pull request's branch (stagecraft/upgrade), so Stagecraft didn't replace them. Merge or close that pull request and delete the branch, then run the upgrade again.",
 };
 
 /**
@@ -60,7 +62,8 @@ export function upgradeJobSummary(job: UpgradeJobFields | null): UpgradeSummary 
         };
       }
       if (result?.upToDate) {
-        const version = result.packageVersion ? ` (${result.packageVersion})` : "";
+        const current = result.currentVersion ?? result.packageVersion;
+        const version = current ? ` (${current})` : "";
         return { tone: "ok", text: `This site is on the latest release${version}.`, inFlight: false };
       }
       return { tone: "ok", text: "The last upgrade finished.", inFlight: false };

@@ -33,6 +33,12 @@ describe("upgradeJobSummary", () => {
     expect(upgradeJobSummary({ status: "completed", resultPayload: null })?.text).toBe("The last upgrade finished.");
   });
 
+  it("names the release a site ahead of the platform's runs", () => {
+    expect(
+      upgradeJobSummary({ status: "completed", resultPayload: { packageVersion: "1.2.0", upToDate: true, currentVersion: "1.3.1" } })?.text,
+    ).toBe("This site is on the latest release (1.3.1).");
+  });
+
   it.each(UPGRADE_SITE_BLOCKERS)("explains a %s stop as a warning", (blocker) => {
     expect(upgradeJobSummary({ status: "failed", resultPayload: { blocker } })).toEqual({
       tone: "warn",

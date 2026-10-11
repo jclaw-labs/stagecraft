@@ -20,6 +20,8 @@ export type UpgradeQueueRefusal = "not_active" | "no_repo" | "in_flight";
 export interface UpgradableSite {
   id: string;
   userId: string;
+  name: string;
+  /** `Site.status` as Prisma reads it (a string column); compared against `SiteStatus` values. */
   status: string;
   githubRepoOwner: string | null;
   githubRepoName: string | null;

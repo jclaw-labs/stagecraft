@@ -80,6 +80,8 @@ export type PreviewStatus =
  *   also changed; the artist publishes or discards those edits first.
  * - `unsupported_schema`: the target release reads a content schemaVersion
  *   the platform's upgrader chain can't produce yet.
+ * - `upgrade_branch_changed`: someone pushed to the `stagecraft/upgrade`
+ *   branch; a re-run would discard their commits.
  */
 export const UPGRADE_SITE_BLOCKERS = [
   "no_release",
@@ -88,6 +90,7 @@ export const UPGRADE_SITE_BLOCKERS = [
   "baseline_mismatch",
   "drafts_pending",
   "unsupported_schema",
+  "upgrade_branch_changed",
 ] as const;
 
 /** Why an `upgrade_site` job opened no pull request. */
@@ -110,8 +113,10 @@ export interface UpgradeSiteResultData {
   /** The `@jclaw-labs/musician-site` release the upgrade targets. */
   packageVersion?: string;
   pullRequest?: { number: number; url: string; action: UpgradePullRequestAction };
-  /** True when the site already runs `packageVersion`: no pull request. */
+  /** True when the site already runs `packageVersion` or a later release: no pull request. */
   upToDate?: boolean;
+  /** With `upToDate`: the release the site's package.json pins. */
+  currentVersion?: string;
   blocker?: UpgradeSiteBlocker;
   /** `customized`: our files the artist changed, by path. */
   changedFiles?: string[];

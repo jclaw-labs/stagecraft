@@ -9,14 +9,19 @@ import {
   isCollectionFile,
   isDraftBranch,
   isIgnoredPath,
-  isOnRelease,
+  isOnOrPastRelease,
+  isUpgradeCommitMessage,
+  isVersionSpec,
   manifestBaseline,
   migrateCollections,
+  overwrittenFiles,
   packageJsonChangedBeyondVersions,
+  pinnedPackageVersion,
   readStamp,
   targetShell,
   templatePushBaseline,
   UnsupportedSchemaVersionError,
+  upgradeCommitMessage,
   upgradeDeletions,
   upgradePullRequestBody,
   upgradePullRequestTitle,
@@ -26,7 +31,16 @@ const tree = (files: Record<string, string>) =>
   new Map(Object.entries(files).map(([path, content]) => [path, gitBlobSha(content)]));
 
 describe("path classes", () => {
-  it.each(["src/lib/a.ts", "src/components/x/Y.tsx", "src/puck/config.tsx", "src/app/page.tsx", "src/middleware.ts", "next.config.ts"])(
+  it.each([
+    "src/lib/a.ts",
+    "src/components/x/Y.tsx",
+    "src/puck/config.tsx",
+    "src/app/page.tsx",
+    "src/admin/pages/page.tsx",
+    "src/api/collections/route.ts",
+    "src/middleware.ts",
+    "next.config.ts",
+  ])(
     "%s is our code",
     (path) => expect(isCodePath(path)).toBe(true),
   );
@@ -36,10 +50,10 @@ describe("path classes", () => {
     (path) => expect(isCodePath(path)).toBe(false),
   );
 
-  it("treats src/content/ and public/ as the artist's", () => {
+  it("treats src/content/ and public/images/ as the artist's, as the stamp's manifest does", () => {
     expect(isArtistPath("src/content/a.json")).toBe(true);
     expect(isArtistPath("public/images/a.webp")).toBe(true);
-    expect(isArtistPath("public/robots.txt")).toBe(true);
+    expect(isArtistPath("public/robots.txt")).toBe(false);
     expect(isArtistPath("src/lib/a.ts")).toBe(false);
   });
 
@@ -99,10 +113,34 @@ describe("packageJsonChangedBeyondVersions", () => {
     expect(packageJsonChangedBeyondVersions(base, JSON.stringify({ ...parsed, engines: { node: ">=22" } }))).toBe(true);
   });
 
+  it("counts a dependency moved to a git, file, alias or URL spec, or a dist-tag", () => {
+    const parsed = JSON.parse(base);
+    for (const spec of [
+      "github:artist/next#patched",
+      "npm:@artist/next-fork@15.2.0",
+      "file:./vendor/next",
+      "https://example.com/next.tgz",
+      "canary",
+    ]) {
+      const forked = JSON.stringify({ ...parsed, dependencies: { ...parsed.dependencies, next: spec } });
+      expect(packageJsonChangedBeyondVersions(base, forked), spec).toBe(true);
+    }
+  });
+
   it("compares unparseable text as is", () => {
     expect(packageJsonChangedBeyondVersions("{", "{")).toBe(false);
     expect(packageJsonChangedBeyondVersions("{", "{ ")).toBe(true);
   });
+});
+
+describe("isVersionSpec", () => {
+  it.each(["1.2.3", "^15.2.0", "~4.0", ">=1 <2", "1.x", "*", "v1.0.0", "=2.0.0"])("%s is a version", (spec) =>
+    expect(isVersionSpec(spec)).toBe(true),
+  );
+
+  it.each(["github:a/b", "npm:x@1.0.0", "file:../x", "git+https://x/y.git", "latest", "a/b#c", 1])("%s isn't", (spec) =>
+    expect(isVersionSpec(spec)).toBe(false),
+  );
 });
 
 describe("changedCodeFiles", () => {
@@ -129,7 +167,7 @@ describe("changedCodeFiles", () => {
     const baseline = manifestBaseline({
       "tsconfig.json": gitBlobSha("{}"),
       ".github/dependabot.yml": gitBlobSha("v"),
-      "public/robots.txt": gitBlobSha("r"),
+      "public/images/a.webp": gitBlobSha("r"),
     });
     expect(await changedCodeFiles(baseline, current, read)).toEqual(["tsconfig.json"]);
   });
@@ -190,7 +228,7 @@ describe("upgradeDeletions", () => {
   });
 });
 
-describe("targetShell and isOnRelease", () => {
+describe("targetShell and isOnOrPastRelease", () => {
   const shellPackage = JSON.stringify({ dependencies: { "@jclaw-labs/musician-site": "1.4.0" } });
 
   it("is the bundle without its starter content when the bundle pins the package", () => {
@@ -207,12 +245,27 @@ describe("targetShell and isOnRelease", () => {
     expect(targetShell([{ path: "package.json", content: JSON.stringify({ dependencies: { next: "^15.5.27" } }) }])).toBeNull();
   });
 
-  it("is on the release only when package.json and the stamp both record it", () => {
-    const stamp = { manifest: null, packageVersion: "1.4.0", createdAt: null };
-    expect(isOnRelease(shellPackage, stamp, "1.4.0")).toBe(true);
-    expect(isOnRelease(shellPackage, { ...stamp, packageVersion: "1.3.0" }, "1.4.0")).toBe(false);
-    expect(isOnRelease(shellPackage, stamp, "2.0.0")).toBe(false);
-    expect(isOnRelease(null, stamp, "1.4.0")).toBe(false);
+  it("reads the pinned release from package.json", () => {
+    expect(pinnedPackageVersion(shellPackage)).toBe("1.4.0");
+    expect(pinnedPackageVersion(JSON.stringify({ dependencies: { next: "^15.5.27" } }))).toBeNull();
+    expect(pinnedPackageVersion(null)).toBeNull();
+  });
+
+  it("is up to date on the target or a later release, and never downgrades", () => {
+    expect(isOnOrPastRelease("1.4.0", "1.4.0")).toBe(true);
+    // Dependabot moved the site past the platform's bundle.
+    expect(isOnOrPastRelease("1.4.3", "1.4.0")).toBe(true);
+    expect(isOnOrPastRelease("1.10.0", "1.9.0")).toBe(true);
+    expect(isOnOrPastRelease("2.0.0", "1.9.9")).toBe(true);
+    expect(isOnOrPastRelease("1.3.9", "1.4.0")).toBe(false);
+    expect(isOnOrPastRelease("1.4.0", "2.0.0")).toBe(false);
+    expect(isOnOrPastRelease(null, "1.4.0")).toBe(false);
+  });
+
+  it("matches a pin that isn't an exact release only to itself", () => {
+    expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.1")).toBe(true);
+    expect(isOnOrPastRelease("2.0.0-rc.1", "1.0.0")).toBe(false);
+    expect(isOnOrPastRelease("^1.4.0", "1.4.0")).toBe(false);
   });
 });
 
@@ -262,7 +315,48 @@ describe("fetchTargetSchemaVersion", () => {
   });
 });
 
+describe("overwrittenFiles", () => {
+  const shell = [
+    { path: "tsconfig.json", content: "shell" },
+    { path: "src/app/layout.tsx", content: "layout" },
+    { path: ".gitignore", content: "node_modules\n" },
+    { path: "CLAUDE.md", content: "new" },
+  ];
+
+  it("lists shell files written over a file that isn't ours as the baseline left it", () => {
+    const current = tree({ "tsconfig.json": "artist's", "src/app/layout.tsx": "old", ".gitignore": "node_modules\n", "CLAUDE.md": "notes" });
+    // tsconfig.json was ours and the artist changed it; CLAUDE.md is the artist's own.
+    const baseline = templatePushBaseline(tree({ "tsconfig.json": "{}", "src/app/layout.tsx": "old" }), current);
+    expect(overwrittenFiles(current, baseline, shell)).toEqual(["CLAUDE.md", "tsconfig.json"]);
+  });
+
+  it("is empty when every written file is ours unchanged, identical, or new", () => {
+    const current = tree({ "tsconfig.json": "{}", ".gitignore": "node_modules\n" });
+    const baseline = templatePushBaseline(tree({ "tsconfig.json": "{}" }), current);
+    expect(overwrittenFiles(current, baseline, shell)).toEqual([]);
+  });
+});
+
 describe("the pull request", () => {
+  it("recognizes its own commit message", () => {
+    expect(isUpgradeCommitMessage(upgradeCommitMessage("1.4.0"))).toBe(true);
+    expect(isUpgradeCommitMessage("Fix the build")).toBe(false);
+    expect(isUpgradeCommitMessage(`${upgradeCommitMessage("1.4.0")}\n\nplus my fix`)).toBe(false);
+  });
+
+  it("lists shell files that replace the artist's changes", () => {
+    const body = upgradePullRequestBody({
+      packageVersion: "1.4.0",
+      deletedCount: 1,
+      migratedFiles: [],
+      addsWorkflow: false,
+      removesLockfile: false,
+      overwrittenFiles: ["tsconfig.json"],
+    });
+    expect(body).toContain("This file was changed in your repository");
+    expect(body).toContain("- `tsconfig.json`");
+  });
+
   it("names the release in the title", () => {
     expect(upgradePullRequestTitle("1.4.0")).toBe("Upgrade to @jclaw-labs/musician-site 1.4.0");
   });
@@ -272,6 +366,7 @@ describe("the pull request", () => {
     expect(body).toContain("1 file of Stagecraft's code is deleted");
     expect(body).not.toContain("Before you merge");
     expect(body).not.toContain("lockfile");
+    expect(body).not.toContain("changed in your repository");
   });
 
   it("lists rewritten content and asks for pending edits to be published first", () => {

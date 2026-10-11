@@ -6,7 +6,12 @@ import {
   type JobResult,
   type StepRunner,
 } from "@stagecraft/queue";
-import type { JobType, UpgradeSiteBlocker, UpgradeSiteResultData } from "@stagecraft/shared";
+import type {
+  JobType,
+  UpgradePullRequestAction,
+  UpgradeSiteBlocker,
+  UpgradeSiteResultData,
+} from "@stagecraft/shared";
 
 import {
   checkGitHubToken,
@@ -29,9 +34,12 @@ import {
   isCollectionFile,
   isDraftBranch,
   isLockfile,
-  isOnRelease,
+  isOnOrPastRelease,
+  isUpgradeCommitMessage,
   manifestBaseline,
   migrateCollections,
+  overwrittenFiles,
+  pinnedPackageVersion,
   readStamp,
   targetShell,
   templatePushBaseline,
@@ -100,12 +108,22 @@ type BaselineResult = {
   baseline: "manifest" | "template_push";
   /** The template push commit, for a site without a manifest. */
   baselineSha: string | null;
+  /** The release the site's package.json pins, if it depends on the package. */
+  currentVersion: string | null;
   upToDate: boolean;
 };
 
-type CommitResult = { commitSha: string; deletedCount: number; migratedFiles: string[]; addsWorkflow: boolean; removesLockfile: boolean };
+type CommitResult = {
+  commitSha: string;
+  deletedCount: number;
+  migratedFiles: string[];
+  addsWorkflow: boolean;
+  removesLockfile: boolean;
+  /** Shell files written over the artist's changes (absent on a record from before it was kept). */
+  overwrittenFiles?: string[];
+};
 
-type PullRequestStepResult = { number: number; url: string; action: "opened" | "updated" };
+type PullRequestStepResult = { number: number; url: string; action: UpgradePullRequestAction };
 
 /** The `pushTemplate` commit the site's provisioning job recorded, if any (#375). */
 async function recordedTemplatePush(siteId: string): Promise<string | null> {
@@ -190,11 +208,13 @@ async function checkBaseline(
       { changedFiles },
     );
   }
+  const currentVersion = pinnedPackageVersion(packageJson);
   return {
     headSha,
     baseline: stamp.manifest ? "manifest" : "template_push",
     baselineSha,
-    upToDate: isOnRelease(packageJson, stamp, shell.packageVersion),
+    currentVersion,
+    upToDate: isOnOrPastRelease(currentVersion, shell.packageVersion),
   };
 }
 
@@ -244,6 +264,21 @@ async function migrateContent(
   return migrated;
 }
 
+/**
+ * Moving `stagecraft/upgrade` is forced, so before it moves, check that
+ * nobody else committed there: its head is an upgrade commit, or the branch
+ * holds nothing of its own (`createBranch` made it, and the run stopped
+ * before moving it). Otherwise stop rather than discard their commits.
+ */
+async function assertUpgradeBranchIsOurs(client: GitHubRepoClient, branch: string, upgradeHead: string): Promise<void> {
+  if (isUpgradeCommitMessage(await client.getCommitMessage(upgradeHead))) return;
+  if ((await client.changedFilesSince(branch, UPGRADE_BRANCH)).length === 0) return;
+  throw new UpgradeBlockedError(
+    "upgrade_branch_changed",
+    `Someone pushed to ${UPGRADE_BRANCH}, and the upgrade would discard their commits. Merge or close its pull request and delete the branch, then run the upgrade again.`,
+  );
+}
+
 async function commitUpgrade(
   client: GitHubRepoClient,
   args: { userId: string; branch: string; checked: BaselineResult; shell: TargetShell; fetchImpl?: typeof fetch },
@@ -272,8 +307,11 @@ async function commitUpgrade(
 
   // One branch for every run: a re-run moves it to the new commit, so its
   // open pull request shows the latest upgrade instead of a second one.
-  if ((await client.getBranchHead(UPGRADE_BRANCH)) === null) {
+  const upgradeHead = await client.getBranchHead(UPGRADE_BRANCH);
+  if (upgradeHead === null) {
     await createBranch(userId, client.owner, client.repo, branch, UPGRADE_BRANCH);
+  } else {
+    await assertUpgradeBranchIsOurs(client, branch, upgradeHead);
   }
   await client.setBranchHead(UPGRADE_BRANCH, commitSha);
 
@@ -283,6 +321,7 @@ async function commitUpgrade(
     migratedFiles: migrated.map((f) => f.path),
     addsWorkflow: !tree.has(SITE_AUTOMERGE_WORKFLOW_PATH),
     removesLockfile: deletePaths.some(isLockfile),
+    overwrittenFiles: overwrittenFiles(tree, baseline, shell.files),
   };
 }
 
@@ -298,6 +337,7 @@ async function openPullRequest(
     migratedFiles: commit.migratedFiles,
     addsWorkflow: commit.addsWorkflow,
     removesLockfile: commit.removesLockfile,
+    overwrittenFiles: commit.overwrittenFiles ?? [],
   });
   const existing = await client.findOpenPullRequest(UPGRADE_BRANCH, branch);
   if (existing) {
@@ -363,7 +403,11 @@ export async function handleUpgradeSite(ctx: JobContext, options: UpgradeSiteOpt
 
     const checked = await steps.run<BaselineResult>("checkBaseline", () => checkBaseline(client, siteId, branch, target));
     if (checked.upToDate) {
-      const data: UpgradeSiteResultData = { packageVersion: target.packageVersion, upToDate: true };
+      const data: UpgradeSiteResultData = {
+        packageVersion: target.packageVersion,
+        upToDate: true,
+        ...(checked.currentVersion ? { currentVersion: checked.currentVersion } : {}),
+      };
       return { success: true, data: { ...data, steps: steps.progress() } };
     }
 
