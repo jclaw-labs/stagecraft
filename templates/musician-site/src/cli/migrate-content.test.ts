@@ -4,14 +4,19 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// A fake chain where version 0 stores the plural name as `plural`.
-vi.mock("@jclaw-labs/content-upgraders", () => ({
+// A fake chain from version 0, where version 0 stores the plural name as
+// `plural`. A version 0 file with `boom` makes the step throw.
+vi.mock("@jclaw-labs/content-upgraders", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@jclaw-labs/content-upgraders")>()),
+  OLDEST_SCHEMA_VERSION: 0,
   upgradeCollection: (collection: Record<string, unknown>, target: number) => {
-    if (collection.schemaVersion === -5) throw new RangeError("schemaVersion -5 is older than 0, the oldest supported.");
+    if (collection.boom) throw new TypeError("step boom");
     const { plural, ...rest } = collection;
     return target === 1 && collection.schemaVersion === 0 ? { ...rest, pluralName: plural, schemaVersion: 1 } : collection;
   },
 }));
+
+import { newerSchemaVersionMessage, olderSchemaVersionMessage } from "@jclaw-labs/content-upgraders";
 
 import { migrateContent, MIGRATE_CONTENT_USAGE, packageSchemaVersion } from "./migrate-content.js";
 import { run } from "./run.js";
@@ -82,19 +87,48 @@ describe("migrate-content", () => {
     writeDef("shows", { schemaVersion: 0, plural: "shows" });
     const result = migrate();
     expect(result.code).toBe(1);
-    expect(result.err).toContain("schemaVersion 2 is newer than the 1 this package reads");
-    expect(result.err).toContain("Update @jclaw-labs/musician-site");
+    expect(result.err).toContain(`future/_collection.json: ${newerSchemaVersionMessage(2, 1)}`);
     expect(readDef("future").schemaVersion).toBe(2);
     expect(readDef("shows").schemaVersion).toBe(1);
   });
 
-  it("fails on invalid JSON and on a step that throws", () => {
-    writeDef("broken", "{nope");
+  it("fails closed on a collection older than the chain, naming the floor", () => {
     writeDef("ancient", { schemaVersion: -5 });
     const result = migrate();
     expect(result.code).toBe(1);
+    expect(result.err).toBe(`src/content/collections/ancient/_collection.json: ${olderSchemaVersionMessage(-5, 0)}\n`);
+    expect(readDef("ancient").schemaVersion).toBe(-5);
+  });
+
+  it("fails on invalid JSON and on a step that throws", () => {
+    writeDef("broken", "{nope");
+    writeDef("boom", { schemaVersion: 0, boom: true });
+    const result = migrate();
+    expect(result.code).toBe(1);
     expect(result.err).toContain("broken/_collection.json: not valid JSON");
-    expect(result.err).toContain("ancient/_collection.json: schemaVersion -5 is older than 0");
+    expect(result.err).toContain("boom/_collection.json: step boom");
+  });
+
+  it("reports JSON that isn't an object per file, and still upgrades the rest", () => {
+    writeDef("a-null", "null");
+    writeDef("b-array", "[]");
+    writeDef("c-string", '"x"');
+    writeDef("shows", { schemaVersion: 0, plural: "shows" });
+    const result = migrate();
+    expect(result.code).toBe(1);
+    for (const slug of ["a-null", "b-array", "c-string"]) {
+      expect(result.err).toContain(`${slug}/_collection.json: not a JSON object`);
+    }
+    expect(readDef("shows").schemaVersion).toBe(1);
+  });
+
+  it("replaces each file atomically, through a temporary file it doesn't leave behind", () => {
+    writeDef("shows", { schemaVersion: 0, plural: "shows" });
+    const inode = fs.statSync(defPath("shows")).ino;
+    expect(migrate().code).toBe(0);
+    // A rename puts a new inode at the path; writing in place keeps the old one.
+    expect(fs.statSync(defPath("shows")).ino).not.toBe(inode);
+    expect(fs.readdirSync(path.dirname(defPath("shows")))).toEqual(["_collection.json"]);
   });
 
   it("fails when there are no collections", () => {

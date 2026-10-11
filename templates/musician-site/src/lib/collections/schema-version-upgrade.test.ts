@@ -12,12 +12,13 @@ import path from "node:path";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@jclaw-labs/content-upgraders", async () => {
+vi.mock("@jclaw-labs/content-upgraders", async (importOriginal) => {
   type Json = { schemaVersion?: unknown; [key: string]: unknown };
   const steps: Record<number, (c: Json) => Json> = {
     0: ({ plural, ...rest }) => ({ ...rest, pluralName: plural, schemaVersion: 1 }),
   };
   return {
+    ...(await importOriginal<typeof import("@jclaw-labs/content-upgraders")>()),
     OLDEST_SCHEMA_VERSION: 0,
     LATEST_SCHEMA_VERSION: 1,
     UPGRADERS: steps,
@@ -29,12 +30,16 @@ vi.mock("@jclaw-labs/content-upgraders", async () => {
   };
 });
 
-import { upgradeCollection } from "@jclaw-labs/content-upgraders";
+import {
+  newerSchemaVersionMessage,
+  olderSchemaVersionMessage,
+  upgradeCollection,
+} from "@jclaw-labs/content-upgraders";
+import { ZodError } from "zod";
 
 import {
   collectionDefSchema,
   CURRENT_COLLECTION_SCHEMA_VERSION,
-  newerSchemaVersionMessage,
   OLDEST_COLLECTION_SCHEMA_VERSION,
 } from "./schema.js";
 import { readCollectionDef, writeCollectionDef } from "./store.js";
@@ -89,10 +94,32 @@ describe("collectionDefSchema upgrade-on-read", () => {
     const result = collectionDefSchema.safeParse({ ...tourDatesDef(), schemaVersion: 2 });
     expect(result.success).toBe(false);
     expect(result.error?.issues).toEqual([
-      expect.objectContaining({ path: ["schemaVersion"], message: newerSchemaVersionMessage(2) }),
+      expect.objectContaining({ path: ["schemaVersion"], message: newerSchemaVersionMessage(2, 1) }),
     ]);
-    expect(newerSchemaVersionMessage(2)).toMatch(/schemaVersion 2.*reads up to 1.*Update @jclaw-labs\/musician-site/);
     expect(upgradeCollection).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on a version older than the chain, naming the floor", () => {
+    const result = collectionDefSchema.safeParse({ ...tourDatesDef(), schemaVersion: -1 });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ path: ["schemaVersion"], message: olderSchemaVersionMessage(-1, 0) }),
+    ]);
+    expect(upgradeCollection).not.toHaveBeenCalled();
+  });
+
+  it("turns a step that throws into a schemaVersion issue rather than throwing", () => {
+    vi.mocked(upgradeCollection).mockImplementationOnce(() => {
+      throw new TypeError("step boom");
+    });
+    const result = collectionDefSchema.safeParse(versionZero());
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ["schemaVersion"],
+        message: "could not upgrade from schemaVersion 0: step boom",
+      }),
+    ]);
   });
 
   it("rejects a version older than the chain, or none, without running it", () => {
@@ -126,6 +153,16 @@ describe("store", () => {
 
   it("refuses to read a newer file", async () => {
     await writeRaw({ ...tourDatesDef(), schemaVersion: 2 });
-    await expect(readCollectionDef("tour-dates")).rejects.toThrow(newerSchemaVersionMessage(2));
+    await expect(readCollectionDef("tour-dates")).rejects.toThrow(newerSchemaVersionMessage(2, 1));
+  });
+
+  it("rejects a file whose upgrade step throws with a ZodError, not the step's error", async () => {
+    await writeRaw(versionZero());
+    vi.mocked(upgradeCollection).mockImplementationOnce(() => {
+      throw new TypeError("step boom");
+    });
+    const read = readCollectionDef("tour-dates");
+    await expect(read).rejects.toBeInstanceOf(ZodError);
+    await expect(read).rejects.toThrow(/could not upgrade from schemaVersion 0: step boom/);
   });
 });

@@ -26,7 +26,13 @@
  * are silently stripped on read.
  */
 
-import { OLDEST_SCHEMA_VERSION, upgradeCollection, type CollectionJson } from "@jclaw-labs/content-upgraders";
+import {
+  newerSchemaVersionMessage,
+  OLDEST_SCHEMA_VERSION,
+  olderSchemaVersionMessage,
+  upgradeCollection,
+  type CollectionJson,
+} from "@jclaw-labs/content-upgraders";
 import type { Data as PuckData } from "@puckeditor/core";
 import { z, type ZodTypeAny } from "zod";
 
@@ -558,35 +564,36 @@ export const CURRENT_COLLECTION_SCHEMA_VERSION = 1;
 /** The oldest `schemaVersion` the reader accepts, upgrading it on read. */
 export const OLDEST_COLLECTION_SCHEMA_VERSION = OLDEST_SCHEMA_VERSION;
 
-/** Why a `_collection.json` too new for this reader fails to parse. */
-export function newerSchemaVersionMessage(schemaVersion: number): string {
-  return (
-    `_collection.json has schemaVersion ${schemaVersion}, but this site reads up to ` +
-    `${CURRENT_COLLECTION_SCHEMA_VERSION}. Update @jclaw-labs/musician-site to a release that ` +
-    `reads schemaVersion ${schemaVersion}.`
-  );
-}
-
 /**
  * Upgrade-on-read (ADR-016 §3): a `_collection.json` from any supported
  * older `schemaVersion` is upgraded in memory to the current one, and the
  * next save writes it back at the current version. A version newer than
- * this reader knows fails closed. Anything else (not an object, no
- * integer `schemaVersion`, older than the chain) passes through for the
- * schema below to reject.
+ * this reader knows, or older than the oldest it upgrades from, fails
+ * closed with an issue on `schemaVersion`, and so does a step that
+ * throws: `safeParse` returns a failure rather than throwing. Anything
+ * else (not an object, no integer `schemaVersion`) passes through for
+ * the schema below to reject.
  */
 function upgradeOnRead(value: unknown, ctx: z.RefinementCtx): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
   const { schemaVersion } = value as CollectionJson;
   if (typeof schemaVersion !== "number" || !Number.isInteger(schemaVersion)) return value;
-  if (schemaVersion > CURRENT_COLLECTION_SCHEMA_VERSION) {
-    ctx.addIssue({ code: "custom", path: ["schemaVersion"], message: newerSchemaVersionMessage(schemaVersion) });
+  const fail = (message: string) => {
+    ctx.addIssue({ code: "custom", path: ["schemaVersion"], message });
     return z.NEVER;
+  };
+  if (schemaVersion > CURRENT_COLLECTION_SCHEMA_VERSION) {
+    return fail(newerSchemaVersionMessage(schemaVersion, CURRENT_COLLECTION_SCHEMA_VERSION));
   }
-  if (schemaVersion < OLDEST_COLLECTION_SCHEMA_VERSION || schemaVersion === CURRENT_COLLECTION_SCHEMA_VERSION) {
-    return value;
+  if (schemaVersion < OLDEST_COLLECTION_SCHEMA_VERSION) {
+    return fail(olderSchemaVersionMessage(schemaVersion, OLDEST_COLLECTION_SCHEMA_VERSION));
   }
-  return upgradeCollection(value as CollectionJson, CURRENT_COLLECTION_SCHEMA_VERSION);
+  if (schemaVersion === CURRENT_COLLECTION_SCHEMA_VERSION) return value;
+  try {
+    return upgradeCollection(value as CollectionJson, CURRENT_COLLECTION_SCHEMA_VERSION);
+  } catch (error) {
+    return fail(`could not upgrade from schemaVersion ${schemaVersion}: ${(error as Error).message}`);
+  }
 }
 
 /**

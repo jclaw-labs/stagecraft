@@ -9,6 +9,7 @@ import {
   collectTemplateFiles,
   generateTemplateBundle,
   sitePackageJson,
+  TEST_FILE,
   TEST_ONLY_DEV_DEPENDENCIES,
 } from "./generate-template-bundle.mjs";
 
@@ -218,6 +219,33 @@ describe("sitePackageJson", () => {
 });
 
 describe("vendoredPackageFiles", () => {
+  it("vendors every non-test source file of the real template's file: packages", async () => {
+    const files = await collectTemplateFiles(REAL_TEMPLATE_DIR);
+    const { dependencies } = JSON.parse(await fs.readFile(path.join(REAL_TEMPLATE_DIR, "package.json"), "utf-8"));
+    const fileDeps = Object.values(dependencies as Record<string, string>).filter((spec) => spec.startsWith("file:"));
+    expect(fileDeps.length).toBeGreaterThan(0);
+    for (const spec of fileDeps) {
+      const srcDir = path.join(path.resolve(REAL_TEMPLATE_DIR, spec.slice("file:".length)), "src");
+      const sources = (await fs.readdir(srcDir, { recursive: true, withFileTypes: true }))
+        .filter((entry) => entry.isFile() && !TEST_FILE.test(entry.name))
+        .map((entry) => path.relative(srcDir, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"))
+        .sort();
+      expect(sources.length).toBeGreaterThan(0);
+      const prefix = `vendor/${path.basename(spec)}/src/`;
+      const vendored = files.filter((f) => f.path.startsWith(prefix)).map((f) => f.path.slice(prefix.length));
+      expect(vendored).toEqual(sources);
+    }
+  });
+
+  it("refuses two file: packages that would vendor to the same directory", async () => {
+    for (const dir of ["a/up", "b/up"]) {
+      await write(`${dir}/package.json`, JSON.stringify({ name: `@x/${dir.replace("/", "-")}`, exports: { ".": { source: "./src/index.ts" } } }));
+      await write(`${dir}/src/index.ts`, "export {};");
+    }
+    await write("template/package.json", JSON.stringify({ dependencies: { "@x/a": "file:../a/up", "@x/b": "file:../b/up" } }));
+    await expect(collectTemplateFiles(path.join(root, "template"))).rejects.toThrow(/both vendor to vendor\/up/);
+  });
+
   it("vendors each file: package's src/ and a source-only package.json, without tests", async () => {
     await write("packages/up/package.json", JSON.stringify({
       name: "@x/up",

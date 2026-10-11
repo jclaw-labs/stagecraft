@@ -195,8 +195,13 @@ export async function vendoredPackageFiles(templateDir, templatePackageJson) {
   const { dependencies = {} } = JSON.parse(templatePackageJson);
   /** @type {Array<{ path: string; content: string }>} */
   const files = [];
+  /** @type {Map<string, string>} vendor directory -> the spec that claimed it */
+  const claimed = new Map();
   for (const spec of Object.values(dependencies).map(String)) {
     if (!spec.startsWith("file:")) continue;
+    const dir = vendorPath(spec);
+    if (claimed.has(dir)) throw new Error(`"${claimed.get(dir)}" and "${spec}" both vendor to ${dir}/.`);
+    claimed.set(dir, spec);
     const packageDir = path.resolve(templateDir, spec.slice("file:".length));
     const pkg = JSON.parse(await fs.readFile(path.join(packageDir, "package.json"), "utf-8"));
     const source = pkg.exports?.["."]?.source;
