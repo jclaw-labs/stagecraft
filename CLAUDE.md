@@ -15,6 +15,7 @@ packages/
   content-upgraders/  Content schemaVersion upgrader chain (npm, per ADR-016)
 templates/
   musician-site/         Next.js + Puck template; the @jclaw-labs/musician-site npm package (per ADR-007, ADR-016)
+  musician-site-shell/   Artist-repo shell over that package, plus the starter content (ADR-016)
 claude/
   skills/           Repo-only tooling skills (crawl-artist-site)
 .claude/skills/     Agent skills vendored from local-config (do not edit here)

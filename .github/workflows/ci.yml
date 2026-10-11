@@ -113,7 +113,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: templates/musician-site/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            templates/musician-site/package-lock.json
 
       - run: npm ci
 
@@ -123,7 +125,25 @@ jobs:
 
       - run: npm run test
 
+      # The template still builds as an app, which is what provisioning
+      # copies into new sites until they move onto the shell (#422). Its
+      # starter content lives in the shell.
       - run: npm run build
+        env:
+          STAGECRAFT_CONTENT_DIR: ${{ github.workspace }}/templates/musician-site-shell/src/content
+
+      # The artist-repo shell (ADR-016 §1) on an installed copy of the
+      # package, as an artist site runs it. The root install brings the
+      # tooling that builds @jclaw-labs/content-upgraders.
+      - name: Install the package into the shell
+        working-directory: .
+        run: |
+          npm ci
+          npm run shell:install
+
+      - name: Build the shell
+        working-directory: templates/musician-site-shell
+        run: npm run build
 
       # Cache the Playwright browser binaries — saves ~30-60s per run
       # once warm. Keyed off package-lock so a Playwright version bump
@@ -145,6 +165,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
+      # Runs against the shell (playwright.config.ts).
       - run: npm run test:e2e
 
       - name: Upload Playwright report on failure

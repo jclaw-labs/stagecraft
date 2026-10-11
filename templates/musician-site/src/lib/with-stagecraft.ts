@@ -37,6 +37,60 @@ export function detectMonorepoRoot(appRoot: string = process.cwd()): string | un
   }
 }
 
+/** The package's npm name, as an artist repo's shell depends on it. */
+export const PACKAGE_NAME = "@jclaw-labs/musician-site";
+
+/**
+ * The oldest artist-repo shell this release of the package works with
+ * (ADR-016 §3). The shell records its own in its package.json, as
+ * `stagecraft.shellVersion`. Raise this, in a major release, whenever
+ * the shell has to change: a new or renamed shell file, a changed
+ * export, or a new literal route config or middleware matcher.
+ */
+export const REQUIRED_SHELL_VERSION = 1;
+
+/**
+ * Why the app at `appRoot` can't build with this release of the package,
+ * or null when it can.
+ *
+ * Only an artist-repo shell is checked: an app whose package.json
+ * depends on the package, as a dependency or a dev dependency (a build
+ * works either way, so either way gets checked). A site that is a full copy of the template,
+ * and the template itself, have no shell to check. A shell older than
+ * `REQUIRED_SHELL_VERSION`, or one without a version, fails, so a
+ * package release that needs a new shell fails the site's build (and the
+ * Dependabot auto-merge gate) rather than the live site.
+ */
+export function shellVersionError(appRoot: string = process.cwd()): string | null {
+  let pkg: {
+    dependencies?: Record<string, unknown>;
+    devDependencies?: Record<string, unknown>;
+    stagecraft?: { shellVersion?: unknown };
+  };
+  try {
+    pkg = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!pkg.dependencies?.[PACKAGE_NAME] && !pkg.devDependencies?.[PACKAGE_NAME]) return null;
+  const version = pkg.stagecraft?.shellVersion;
+  const upgrade =
+    "Merge the site's Stagecraft upgrade pull request, which updates the shell and the package together.";
+  if (typeof version !== "number" || !Number.isInteger(version)) {
+    return (
+      `This site's package.json has no stagecraft.shellVersion, and ${PACKAGE_NAME} needs ` +
+      `shell version ${REQUIRED_SHELL_VERSION} or later. ${upgrade}`
+    );
+  }
+  if (version < REQUIRED_SHELL_VERSION) {
+    return (
+      `This site's shell is version ${version} (stagecraft.shellVersion in package.json), but ` +
+      `${PACKAGE_NAME} needs shell version ${REQUIRED_SHELL_VERSION} or later. ${upgrade}`
+    );
+  }
+  return null;
+}
+
 type HeaderRules = Awaited<ReturnType<NonNullable<NextConfig["headers"]>>>;
 
 /**
@@ -95,8 +149,13 @@ export const STAGECRAFT_HEADERS: HeaderRules = [
  * `config` with the Stagecraft settings applied. The site's own
  * `headers()` rules follow the Stagecraft ones, and its `experimental`
  * flags are kept alongside `globalNotFound`.
+ *
+ * Throws when the site's shell is too old for this release of the
+ * package (`shellVersionError`), which fails `next build` and `next dev`.
  */
 export function withStagecraft(config: NextConfig = {}, appRoot: string = process.cwd()): NextConfig {
+  const shellError = shellVersionError(appRoot);
+  if (shellError) throw new Error(shellError);
   const monorepoRoot = detectMonorepoRoot(appRoot);
   const siteHeaders = config.headers;
   return {

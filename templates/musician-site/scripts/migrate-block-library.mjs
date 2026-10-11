@@ -9,7 +9,8 @@
  *
  *   node scripts/migrate-block-library.mjs [contentDir] [--check]
  *
- * `contentDir` defaults to `$STAGECRAFT_CONTENT_DIR`, then `src/content`.
+ * `contentDir` defaults to `$STAGECRAFT_CONTENT_DIR`, then the starter content
+ * in `templates/musician-site-shell/src/content`.
  * `--check` writes nothing and exits 1 if any file would change.
  * Idempotent: a second run changes nothing.
  */
@@ -29,7 +30,7 @@ const isCheck = args.includes("--check");
 const contentDir =
   args.find((a) => !a.startsWith("--")) ??
   process.env.STAGECRAFT_CONTENT_DIR ??
-  join(here, "..", "src", "content");
+  join(here, "..", "..", "musician-site-shell", "src", "content");
 
 async function listJson(dir) {
   try {

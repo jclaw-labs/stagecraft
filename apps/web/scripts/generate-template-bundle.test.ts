@@ -6,8 +6,10 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  collectSiteFiles,
   collectTemplateFiles,
   generateTemplateBundle,
+  STARTER_CONTENT_DIR,
   sitePackageJson,
   TEST_FILE,
   TEST_ONLY_DEV_DEPENDENCIES,
@@ -284,21 +286,73 @@ describe("vendoredPackageFiles", () => {
   });
 });
 
+describe("collectSiteFiles", () => {
+  it("adds the starter content under src/content/, sorted with the template's files", async () => {
+    await write("template/package.json", '{"name":"t"}');
+    await write("template/src/page.tsx", "export default 1;");
+    await write("content/collections/pages/items/home.json", "{}");
+    await write("content/collections/pages/items/home.test.ts", "skipped");
+
+    expect(await collectSiteFiles(path.join(root, "template"), path.join(root, "content"))).toEqual([
+      { path: "package.json", content: sitePackageJson('{"name":"t"}') },
+      { path: "src/content/collections/pages/items/home.json", content: "{}" },
+      { path: "src/page.tsx", content: "export default 1;" },
+    ]);
+  });
+
+  it("refuses a template with content of its own", async () => {
+    await write("template/src/content/collections/pages/_collection.json", "{}");
+    await write("content/collections/pages/_collection.json", "{}");
+
+    await expect(collectSiteFiles(path.join(root, "template"), path.join(root, "content"))).rejects.toThrow(
+      /has src\/content\/collections\/pages\/_collection\.json; starter content belongs in .*set STAGECRAFT_CONTENT_DIR/,
+    );
+  });
+
+  it("refuses missing or empty starter content", async () => {
+    await write("template/package.json", '{"name":"t"}');
+    await expect(collectSiteFiles(path.join(root, "template"), path.join(root, "missing"))).rejects.toThrow();
+    await fs.mkdir(path.join(root, "content"));
+    await expect(collectSiteFiles(path.join(root, "template"), path.join(root, "content"))).rejects.toThrow(
+      /No starter content/,
+    );
+  });
+
+  it("ships the shell's starter content with the real template", async () => {
+    const files = await collectSiteFiles(REAL_TEMPLATE_DIR, STARTER_CONTENT_DIR);
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain("src/content/collections/pages/_collection.json");
+    expect(paths).toContain("src/content/collections/pages/items/home.json");
+    expect(STARTER_CONTENT_DIR).toBe(path.resolve(__dirname, "../../../templates/musician-site-shell/src/content"));
+  });
+});
+
 describe("generateTemplateBundle", () => {
+  async function content() {
+    await write("content/collections/pages/items/home.json", "{}");
+    return path.join(root, "content");
+  }
+  const HOME = { path: "src/content/collections/pages/items/home.json", content: "{}" };
+
   it("writes the collected files as JSON and reports sizes", async () => {
     await write("template/package.json", '{"name":"t"}');
     await write("template/src/page.tsx", "export default 1;");
     const outFile = path.join(root, "out/nested/bundle.json");
 
-    const result = await generateTemplateBundle({ templateDir: path.join(root, "template"), outFile });
+    const result = await generateTemplateBundle({
+      templateDir: path.join(root, "template"),
+      contentDir: await content(),
+      outFile,
+    });
 
     const written = await fs.readFile(outFile, "utf-8");
     expect(JSON.parse(written)).toEqual([
       { path: "package.json", content: sitePackageJson('{"name":"t"}') },
+      HOME,
       { path: "src/page.tsx", content: "export default 1;" },
     ]);
     expect(result).toEqual({
-      fileCount: 2,
+      fileCount: 3,
       bytes: Buffer.byteLength(written),
       gzipBytes: gzipSync(Buffer.from(written)).length,
     });
@@ -310,11 +364,12 @@ describe("generateTemplateBundle", () => {
     await write("out/bundle.json", "stale");
     const staleInode = (await fs.stat(outFile)).ino;
 
-    await generateTemplateBundle({ templateDir: path.join(root, "template"), outFile });
+    await generateTemplateBundle({ templateDir: path.join(root, "template"), contentDir: await content(), outFile });
 
     expect((await fs.stat(outFile)).ino).not.toBe(staleInode);
     expect(JSON.parse(await fs.readFile(outFile, "utf-8"))).toEqual([
       { path: "package.json", content: sitePackageJson('{"name":"t"}') },
+      HOME,
     ]);
     expect(await fs.readdir(path.dirname(outFile))).toEqual(["bundle.json"]);
   });
@@ -324,7 +379,7 @@ describe("generateTemplateBundle", () => {
     const outFile = path.join(root, "bundle.json");
 
     await expect(
-      generateTemplateBundle({ templateDir: path.join(root, "template"), outFile }),
+      generateTemplateBundle({ templateDir: path.join(root, "template"), contentDir: await content(), outFile }),
     ).rejects.toThrow(/No template files/);
     await expect(fs.access(outFile)).rejects.toThrow();
   });

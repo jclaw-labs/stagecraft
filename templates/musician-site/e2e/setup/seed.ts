@@ -25,6 +25,7 @@ import {
   VIDEOS_FIELD_IDS,
 } from "../../src/lib/collections/field-ids.js";
 import type { FieldValue } from "../../src/lib/collections/schema.js";
+import { STARTER_CONTENT_DIR } from "../../src/lib/collections/test-fixtures.js";
 import { asImageId, type ImageMetadata } from "../../src/lib/image-types.js";
 import { E2E_CONTENT_DIR } from "../../playwright.config.js";
 
@@ -149,16 +150,15 @@ export async function seedCompletedSite(
 }
 
 /**
- * Replace the content dir with the template's checked-in demo site
- * (`src/content/`), so public-page specs render the same pages a fresh
+ * Replace the content dir with the checked-in demo site (the shell's
+ * starter content), so public-page specs render the same pages a fresh
  * artist site ships with.
  */
 export async function seedDemoContent(
   contentDir: string = E2E_CONTENT_DIR,
 ): Promise<void> {
-  const source = path.join(process.cwd(), "src", "content");
   await fs.rm(contentDir, { recursive: true, force: true });
-  await fs.cp(source, contentDir, { recursive: true });
+  await fs.cp(STARTER_CONTENT_DIR, contentDir, { recursive: true });
 }
 
 /**

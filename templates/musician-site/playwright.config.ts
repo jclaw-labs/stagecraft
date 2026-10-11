@@ -17,6 +17,12 @@ import { captureLaunchOptions } from "./capture/chromium.js";
  * each other. Workers is pinned to 1 — multi-worker would race on
  * the single content dir.
  *
+ * Shell: the dev server is the artist-repo shell
+ * (`../musician-site-shell`, ADR-016 §1) running on an installed copy
+ * of this package, the shape an artist site runs. `npm run
+ * shell:install` at the repo root builds the package and installs it
+ * there; re-run it after changing the package.
+ *
  * Auth: a global setup signs in once via `/api/auth/dev-login` (the
  * existing dev-only escape hatch from the magic-link flow) and
  * stashes the session cookie at `e2e/.auth/storage-state.json`.
@@ -26,6 +32,9 @@ import { captureLaunchOptions } from "./capture/chromium.js";
 
 const PORT = 3030;
 const BASE_URL = `http://localhost:${PORT}`;
+
+/** The artist-repo shell the dev server runs in. */
+export const SHELL_DIR = path.resolve(import.meta.dirname, "../musician-site-shell");
 
 // One e2e content dir per test run. CI gets a fresh runner each time,
 // so the tmpdir name only needs to be stable WITHIN one run.
@@ -54,7 +63,8 @@ export default defineConfig({
   },
   globalSetup: "./e2e/setup/global-setup.ts",
   webServer: {
-    command: `next dev --port ${PORT}`,
+    command: `npm run dev -- --port ${PORT}`,
+    cwd: SHELL_DIR,
     // Probe `/admin/login` for readiness, not the catch-all root. The
     // public catch-all returns 404 against an empty content dir —
     // which is precisely the state e2e specs start from — and
@@ -68,7 +78,7 @@ export default defineConfig({
     env: {
       // STAGECRAFT_CONTENT_DIR isolates the dev server's filesystem
       // reads/writes — anything the wizard or reset writes lands in
-      // this tmpdir instead of the checked-in src/content/. Wiping
+      // this tmpdir instead of the shell's checked-in src/content/. Wiping
       // between tests is therefore safe. `next dev` already pins
       // NODE_ENV=development so /api/auth/dev-login is reachable.
       STAGECRAFT_CONTENT_DIR: E2E_CONTENT_DIR,

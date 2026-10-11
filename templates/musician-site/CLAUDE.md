@@ -7,7 +7,9 @@ Conventions for the musician-site template per ADR-007.
 - Next.js 15 (App Router)
 - React 19
 - Puck (`@puckeditor/core`) — visual block editor at `/admin`
-- Files only; no database. Content lives in `src/content/`.
+- Files only; no database. Content lives in the site's `src/content/`;
+  the starter content new sites get is in the shell,
+  `../musician-site-shell/src/content/`.
 
 ## Imports and the npm package
 
@@ -47,12 +49,46 @@ apart from `cli/` still needs a bundler (it imports `next/*` and CSS), so:
   `next/*`. `npm run typecheck` checks it under Node's own
   resolution (`tsconfig.cli.json`).
 
+## The artist-repo shell
+
+`../musician-site-shell/` is what an artist repo holds besides its
+content (ADR-016 §1): about ten files under `src/app/`, `src/middleware.ts`
+and `next.config.ts`, each re-exporting from this package, plus the route
+config Next.js reads statically (`dynamic`, `dynamicParams`, the
+middleware `matcher`) as literals, and the starter content in
+`src/content/`. It depends on this package through `file:../musician-site`;
+its `.npmrc` (`install-links`) makes npm install a packed copy of `dist/`
+with the package's dependencies beside it, as a site installs from npm.
+
+- Run the shell: `npm run shell:install` at the repo root (builds
+  `@jclaw-labs/content-upgraders` and this package, then installs them
+  into the shell), then `npm run dev` in the shell. The installed copy is
+  a snapshot, so re-run `shell:install` after changing the package.
+- The e2e suite and screenshot capture run against the shell.
+- The template still runs as an app (provisioning copies it, plus the
+  shell's starter content, into new sites until #422). Its own
+  `next dev` / `next build` need the content:
+  `STAGECRAFT_CONTENT_DIR=../musician-site-shell/src/content`.
+- Changing the shell (a file added, renamed or removed, a changed export,
+  new literal route config) is a major release: raise
+  `REQUIRED_SHELL_VERSION` in `src/lib/with-stagecraft.ts` and the
+  shell's `stagecraft.shellVersion` together, and update
+  `SHELL_CODE_FILES` in `src/shell.test.ts`. `withStagecraft()` fails
+  the build of a shell older than `REQUIRED_SHELL_VERSION`.
+- `src/shell.test.ts` checks that every module and export the shell
+  names exists here.
+- The shell's `file:` dependency, its `overrides` (which point the
+  package's own `file:` upgraders dependency at the monorepo copy) and
+  its `.npmrc` are monorepo-only. The bundle generator replaces or drops
+  them when it starts reading the shell (#422).
+
 `next`, `react` and `react-dom` are peer dependencies, and every other
 runtime dependency is pinned exact. Never `npm publish` from this
 directory (a `prepublishOnly` guard refuses it); see `docs/runbook.md`
 §11. Until sites move onto the package, provisioning still copies this
 directory into the site repo, and
-`apps/web/scripts/generate-template-bundle.mjs` turns its `package.json`
+`apps/web/scripts/generate-template-bundle.mjs` adds the shell's starter
+content under `src/content/` and turns its `package.json`
 back into an app's (`sitePackageJson`): `^` ranges instead of exact pins,
 and `imports` defaults pointing at `src/`.
 
@@ -232,7 +268,9 @@ src/
     auth.ts                 JWT signing/verifying for magic links +
                             sessions (jose, Edge-runtime safe)
     image*.ts               sharp pipeline + ImageMetadata schema
-  content/
+  content/                  A site's content. Not in this directory: the
+                            starter content is in
+                            ../musician-site-shell/src/content/
     collections/<slug>/     One directory per collection (ADR-009 §7)
       _collection.json        CollectionDef: fields, templates, routing,
                               sort
@@ -405,7 +443,7 @@ server against an isolated content directory.
 
 | Path                          | Purpose                                                      |
 | ----------------------------- | ------------------------------------------------------------ |
-| `playwright.config.ts`        | Test runner config. Pins `STAGECRAFT_CONTENT_DIR` to a tmpdir so specs can wipe/seed without touching `src/content/`. Single worker — serial specs against one content dir. |
+| `playwright.config.ts`        | Test runner config. Runs the dev server in the shell (`../musician-site-shell`; `npm run shell:install` first) and pins `STAGECRAFT_CONTENT_DIR` to a tmpdir so specs can wipe/seed without touching the starter content. Single worker — serial specs against one content dir. |
 | `e2e/setup/global-setup.ts`   | Signs in once via `/api/auth/dev-login`, saves `storageState.json`. Every spec arrives authenticated. |
 | `e2e/setup/seed.ts`           | `wipeContentDir` (fresh-site state), `seedCompletedSite` (post-wizard state), `seedDemoContent` (checked-in demo site) and `seedDetailPageFixtures` (one item per unlinked detail-page collection). Specs call these from `beforeEach` / `beforeAll`. |
 | `e2e/welcome.spec.ts`         | Walks the 4-step wizard end-to-end; asserts the redirect to `/admin/pages` + the seeded Home page. Plus: a completed site bypasses the wizard. |

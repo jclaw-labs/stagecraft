@@ -24,13 +24,14 @@ import { pagesCollectionDef } from "#lib/collections/seeds.js";
 import { loadCollectionsForTemplate } from "#lib/collections/template/load-collections.js";
 import { resolveTemplate } from "#lib/collections/template/renderer.js";
 import type { Template } from "#lib/collections/template/types.js";
+import { STARTER_CONTENT_DIR } from "#lib/collections/test-fixtures.js";
 import { readPageOrNull } from "#lib/content.js";
 import { buildFirstRunSeed } from "#lib/first-run-seeds.js";
 
 import { buildRenderConfig } from "./render-config.js";
 
 const PINNED_NOW = new Date("2026-06-01T12:00:00Z");
-const PAGES_DIR = path.join(process.cwd(), "src/content/collections/pages/items");
+const PAGES_DIR = path.join(STARTER_CONTENT_DIR, "collections/pages/items");
 const SNAPSHOT_DIR = path.join(import.meta.dirname, "__snapshots__", "render-parity");
 
 async function renderPageBody(slug: string, data: Template): Promise<string> {
@@ -63,10 +64,13 @@ const seed = buildFirstRunSeed("Ada Lovelace", "Home", PINNED_NOW);
 const seedPages = [seed.homePage, ...seed.starterPages];
 
 beforeAll(() => {
+  // The store reads the starter content, which lives in the shell.
+  vi.stubEnv("STAGECRAFT_CONTENT_DIR", STARTER_CONTENT_DIR);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(PINNED_NOW);
 });
 afterAll(() => {
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 

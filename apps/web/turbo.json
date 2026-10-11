@@ -3,10 +3,10 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/templates/musician-site/**"]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/templates/musician-site/**", "$TURBO_ROOT$/templates/musician-site-shell/src/content/**"]
     },
     "test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/templates/musician-site/**"]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/templates/musician-site/**", "$TURBO_ROOT$/templates/musician-site-shell/src/content/**"]
     }
   }
 }

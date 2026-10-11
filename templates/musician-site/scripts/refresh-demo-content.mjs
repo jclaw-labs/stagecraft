@@ -16,7 +16,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tourItemsDir = join(here, "..", "src", "content", "collections", "tour-dates", "items");
+// The demo content is the starter content in the artist-repo shell.
+const tourItemsDir = join(here, "..", "..", "musician-site-shell", "src", "content", "collections", "tour-dates", "items");
 
 /** now + `months`, normalised to 20:00 UTC (matches first-run-seeds `addMonths`). */
 function monthsOut(months) {

@@ -31,7 +31,7 @@ npm run db:migrate
 npm run dev
 ```
 
-To work on the template on its own, run `npm install` and `npm run dev` in `templates/musician-site`; without platform credentials it saves to local disk. See `templates/musician-site/CLAUDE.md`.
+To work on the template on its own, run `npm install` in `templates/musician-site`, then `npm run shell:install` at the repo root and `npm run dev` in `templates/musician-site-shell`, the artist-repo shell that runs the template's package; without platform credentials it saves to local disk. See `templates/musician-site/CLAUDE.md`.
 
 ## Project Structure
 
@@ -43,7 +43,8 @@ packages/
   queue/                # Job queue
   shared/               # Shared types
 templates/
-  musician-site/        # Next.js + Puck artist-site template
+  musician-site/        # Next.js + Puck artist-site template (the npm package's source)
+  musician-site-shell/  # Artist-repo shell over the package, with starter content
 docs/
   specs/                # Product and technical specs
   adr/                  # Architecture decision records

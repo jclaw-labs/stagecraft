@@ -10,7 +10,19 @@
  * leaking state into sibling tests.
  */
 
+import path from "node:path";
+
 import { CURRENT_COLLECTION_SCHEMA_VERSION, type CollectionDef, type Item } from "./schema.js";
+
+/** The artist-repo shell (`templates/musician-site-shell`, ADR-016 §1). */
+export const SHELL_DIR = path.resolve(import.meta.dirname, "../../../../musician-site-shell");
+
+/**
+ * The starter content a new site starts from. It lives in the artist-repo
+ * shell (ADR-016 §1), since content is the artist's and not part of the
+ * package.
+ */
+export const STARTER_CONTENT_DIR = path.join(SHELL_DIR, "src/content");
 
 /**
  * A representative tour-dates collection. Five fields covering most

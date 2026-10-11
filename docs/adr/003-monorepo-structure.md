@@ -21,6 +21,7 @@ Use a **monorepo with npm workspaces and Turborepo** for build orchestration.
   templates/
     musician-site-legacy/  # Legacy Astro template (superseded by ADR-007)
     musician-site/         # Current Next.js + Puck template (per ADR-007)
+    musician-site-shell/   # Artist-repo shell over the template's package, plus starter content (ADR-016)
   docs/
     specs/            # Product and technical specs
     adr/              # Architecture decision records

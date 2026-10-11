@@ -1,6 +1,6 @@
 /**
- * Drift guard: every `_collection.json` committed under
- * `src/content/collections/` must deep-equal its counterpart in
+ * Drift guard: every `_collection.json` committed under the shell's
+ * starter content (`templates/musician-site-shell/src/content/collections/`) must deep-equal its counterpart in
  * `PREBAKED_COLLECTIONS`.
  *
  * The committed seed files exist so new artist sites start with the
@@ -22,14 +22,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { PREBAKED_COLLECTIONS } from "./seeds.js";
+import { STARTER_CONTENT_DIR } from "./test-fixtures.js";
 
-const SEED_ROOT = path.resolve(
-  __dirname,
-  "..",
-  "..",
-  "content",
-  "collections",
-);
+const SEED_ROOT = path.join(STARTER_CONTENT_DIR, "collections");
 
 describe("committed seed _collection.json files", () => {
   it.each(Object.entries(PREBAKED_COLLECTIONS))(
