@@ -426,50 +426,75 @@ export async function fetchLatestVersion(packageName, { fetchImpl = fetch, regis
   // The abbreviated packument: the registry answers 404 for a package it
   // doesn't have here, where the dist-tags endpoint answers 401.
   const url = `${registry}/${packageName.replace("/", "%2f")}`;
-  const res = await fetchImpl(url, {
-    headers: { accept: "application/vnd.npm.install-v1+json" },
-    signal: AbortSignal.timeout(15_000),
-  });
+  const hint = `Set ${LATEST_OVERRIDE_ENV} to bundle without the registry.`;
+  let res;
+  try {
+    res = await fetchImpl(url, {
+      headers: { accept: "application/vnd.npm.install-v1+json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    throw new Error(`Reading ${packageName}'s dist-tags from ${url} failed: ${err instanceof Error ? err.message : err}. ${hint}`, {
+      cause: err,
+    });
+  }
   if (res.status === 404) return null;
   if (!res.ok) {
-    throw new Error(
-      `Reading ${packageName}'s dist-tags from ${url} failed with HTTP ${res.status}. ` +
-        `Set ${LATEST_OVERRIDE_ENV} to bundle without the registry.`,
-    );
+    throw new Error(`Reading ${packageName}'s dist-tags from ${url} failed with HTTP ${res.status}. ${hint}`);
   }
   const latest = (await res.json())?.["dist-tags"]?.latest;
   return typeof latest === "string" ? latest : null;
 }
 
 /**
- * Which version of the package new sites pin, given what's on `latest`:
- * that version when it's a release, or null (bundle the full template)
- * when nothing is on `latest` or it's a prerelease.
+ * Which version of the package new sites pin, given what's on `latest` and
+ * the template version in this checkout: that version when it's a release
+ * and it's the checkout's, or null (bundle the full template) otherwise.
+ * The shell comes from this checkout, and the package checks that the
+ * shell is the one it was released with (`stagecraft.shellVersion`), so a
+ * shell is only ever paired with the release made from the same tree.
+ * While main is ahead of `latest` (a bump merged but not yet published, a
+ * release candidate period) or `latest` was moved back, new sites get the
+ * full template until the platform is built on a matching checkout.
  *
  * @param {string} packageName
  * @param {string | null} latest
+ * @param {string} checkoutVersion
  * @returns {{ version: string | null; reason: string }}
  */
-export function sitePackageVersion(packageName, latest) {
+export function sitePackageVersion(packageName, latest, checkoutVersion) {
   if (!latest) return { version: null, reason: `no ${packageName} release is on latest` };
   if (!RELEASE_VERSION.test(latest)) {
     return { version: null, reason: `refusing ${packageName}@${latest} on latest: it's a prerelease` };
+  }
+  if (latest !== checkoutVersion) {
+    return {
+      version: null,
+      reason: `${packageName}@${latest} is on latest, but this checkout's shell is for ${checkoutVersion}`,
+    };
   }
   return { version: latest, reason: `${packageName}@${latest} is on latest` };
 }
 
 /**
- * Resolve the version new sites pin: from `LATEST_OVERRIDE_ENV` when set,
- * otherwise the registry's `latest` dist-tag (`fetchLatestVersion`).
+ * Resolve the version new sites pin (`sitePackageVersion`): `latest` from
+ * `LATEST_OVERRIDE_ENV` when set, otherwise the registry's `latest`
+ * dist-tag (`fetchLatestVersion`). Refuses an override that isn't a
+ * version.
  *
  * @param {{ templateDir?: string; env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }} [options]
  * @returns {Promise<{ packageName: string; version: string | null; reason: string }>}
  */
 export async function resolveSitePackageVersion({ templateDir = TEMPLATE_DIR, env = process.env, fetchImpl } = {}) {
-  const { name: packageName } = JSON.parse(await fs.readFile(path.join(templateDir, "package.json"), "utf-8"));
-  const override = env[LATEST_OVERRIDE_ENV];
-  const latest = override !== undefined ? override.trim() || null : await fetchLatestVersion(packageName, { fetchImpl });
-  return { packageName, ...sitePackageVersion(packageName, latest) };
+  const { name: packageName, version: checkoutVersion } = JSON.parse(
+    await fs.readFile(path.join(templateDir, "package.json"), "utf-8"),
+  );
+  const override = env[LATEST_OVERRIDE_ENV]?.trim();
+  if (override && !EXACT_VERSION.test(override)) {
+    throw new Error(`${LATEST_OVERRIDE_ENV} must be a version like 1.2.3 (or empty for nothing on latest), not ${JSON.stringify(override)}.`);
+  }
+  const latest = override !== undefined ? override || null : await fetchLatestVersion(packageName, { fetchImpl });
+  return { packageName, ...sitePackageVersion(packageName, latest, checkoutVersion) };
 }
 
 /**

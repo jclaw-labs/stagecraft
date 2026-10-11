@@ -62,7 +62,7 @@ export const SITE_MAJOR_UPDATES_IGNORED = [MUSICIAN_SITE_PACKAGE, "next", "react
  * the images it uploads. Everything else the bundle pushes is our code and
  * goes in the stamp's manifest.
  */
-const ARTIST_PATH_PREFIXES = ["src/content/", "public/"] as const;
+const ARTIST_PATH_PREFIXES = ["src/content/", "public/images/"] as const;
 
 /** Path → git blob SHA of each of our files a site was created with. */
 export type CodePathManifest = Record<string, string>;
@@ -70,7 +70,11 @@ export type CodePathManifest = Record<string, string>;
 /** The `.stagecraft-template.json` stamp. */
 export interface TemplateStamp {
   template: ArtistTemplate;
-  /** `version` in the site's package.json when it was created. */
+  /**
+   * `version` in the site's package.json when it was created: the
+   * template's version for a full copy, but the shell's own version for a
+   * site on the package, whose release is `packageVersion`.
+   */
   templateVersion: string;
   /**
    * The exact `@jclaw-labs/musician-site` version a shell site was created

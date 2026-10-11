@@ -149,19 +149,20 @@ describe("buildDependabotAutoMergeWorkflow", () => {
 });
 
 describe("codePathManifest", () => {
-  it("leaves out the artist's content and images, and sorts by path", () => {
+  it("leaves out the artist's content and images, keeps our other public files, and sorts by path", () => {
     expect(
       Object.keys(
         codePathManifest([
           { path: "src/lib/b.ts", content: "b" },
           { path: "src/content/site.json", content: "{}" },
           { path: "public/images/x/meta.json", content: "{}" },
+          { path: "public/robots.txt", content: "User-agent: *" },
           { path: "src/contentish.ts", content: "ours" },
           { path: "vendor/content-upgraders/src/index.ts", content: "v" },
           { path: ".gitignore", content: "node_modules" },
         ]),
       ),
-    ).toEqual([".gitignore", "src/contentish.ts", "src/lib/b.ts", "vendor/content-upgraders/src/index.ts"]);
+    ).toEqual([".gitignore", "public/robots.txt", "src/contentish.ts", "src/lib/b.ts", "vendor/content-upgraders/src/index.ts"]);
   });
 });
 

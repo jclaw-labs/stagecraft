@@ -29,9 +29,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { NPM_REGISTRY } from "../apps/web/scripts/generate-template-bundle.mjs";
 import { assertLockstep, TEMPLATE_DIR, UPGRADERS_DIR, UPGRADERS_NAME } from "./pack-musician-site.mjs";
 
-export const NPM_REGISTRY = "https://registry.npmjs.org";
+export { NPM_REGISTRY };
 
 /** The dist-tag a release candidate (any prerelease) goes to, so `latest` doesn't move. */
 export const PRERELEASE_DIST_TAG = "rc";

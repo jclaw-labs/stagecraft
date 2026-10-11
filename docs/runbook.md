@@ -616,31 +616,31 @@ A site that is a copy of the template (every site today) has no CLI. Its CMS upg
 
 Releases go out from GitHub Actions (`.github/workflows/release-musician-site.yml`) with npm trusted publishing, so nobody needs an npm token.
 
-1. In one pull request: bump `version` in `templates/musician-site/package.json` and `packages/content-upgraders/package.json` to the same new version, and in `templates/musician-site/CHANGELOG.md` move the `## Unreleased` lines under a `## <version>` heading. Pick the version from the highest level among those lines (the semver rules are in `templates/musician-site/README.md`). Run `npm install` in `templates/musician-site/` so its lockfile records the new upgraders version.
-2. Merge it. On `main`, the workflow sees a template version that isn't on npm and:
+1. In one pull request: bump `version` in `templates/musician-site/package.json` and `packages/content-upgraders/package.json` to the same new version, and in `templates/musician-site/CHANGELOG.md` move the `## Unreleased` lines under a `## <version>` heading. Keep source changes out of this pull request: the changelog check wants a new `## Unreleased` line for any change under `templates/musician-site/src`, and here the lines move away. Pick the version from the highest level among those lines (the semver rules are in `templates/musician-site/README.md`). Run `npm install` in `templates/musician-site/` so its lockfile records the new upgraders version.
+2. Merge it. On `main`, the workflow sees a template version that isn't on npm and, in its `verify` job (read-only permissions, all installs and builds):
    - builds a clean copy of the shell on locally packed tarballs, with no lockfile (`npm run check:musician-site-shell`, the pre-publish check);
    - packs both packages with `pack-musician-site --release`, which pins the template to the exact upgraders version;
-   - publishes `@jclaw-labs/content-upgraders`, unless that version is already on npm, in which case it checks that the published files match this commit's pack and fails if they don't;
-   - publishes `@jclaw-labs/musician-site`;
-   - pushes the tag `musician-site@<version>`.
+   - if that version of `@jclaw-labs/content-upgraders` is already on npm, checks that the published files match this commit's pack and fails if they don't.
+
+   Then its `publish` job, the only one with the npm credential, downloads the two tarballs and, with no checkout or install, publishes `@jclaw-labs/content-upgraders` (unless it's already on npm) and `@jclaw-labs/musician-site`. Last, its `tag` job creates the tag `musician-site@<version>` through the GitHub API.
 3. A prerelease (`1.1.0-rc.0`) goes to the `rc` dist-tag, anything else to `latest`.
 
 Pushes that change either `package.json` without a version bump run the workflow too, and it stops at "Plan the release" because the version is already on npm.
 
-**A failed release.** Rerun the workflow from the Actions tab (it also has a manual "Run workflow" button on `main`). A rerun skips the upgraders if they went out and match. If the template publish succeeded but the tag push failed, tag by hand: `git tag musician-site@<version> <merge commit> && git push origin musician-site@<version>`.
+**A failed release.** Rerun the workflow from the Actions tab with "Re-run all jobs", or the manual "Run workflow" button on `main` ("Re-run failed jobs" replays the old plan, which may say the upgraders still need publishing). A rerun skips the upgraders if they went out and match. If the template publish succeeded but the tag job failed, tag by hand: `git tag musician-site@<version> <merge commit> && git push origin musician-site@<version>`.
 
-**A bad release.** Released versions never change and npm doesn't allow re-publishing a version. Ship a fixed patch release. Until it's out, point `latest` back at the previous release so new sites and Dependabot don't pick up the bad one: `npm dist-tag add @jclaw-labs/musician-site@<previous> latest` (by hand, with 2FA). Deprecate the bad version with `npm deprecate @jclaw-labs/musician-site@<bad> "<reason>"`.
+**A bad release.** Released versions never change and npm doesn't allow re-publishing a version. Ship a fixed patch release. Until it's out, point `latest` back at the previous release so new sites and Dependabot don't pick up the bad one: `npm dist-tag add @jclaw-labs/musician-site@<previous> latest` (by hand, with 2FA). Deprecate the bad version with `npm deprecate @jclaw-labs/musician-site@<bad> "<reason>"`. The platform reads `latest` only when it's built, so trigger a deploy of the platform afterwards (Netlify → Deploys → Trigger deploy): once `latest` no longer matches the template version on `main`, new sites get the full template (below) until the fixed release is out and the platform is built again.
 
 ### New sites and the shell
 
 The bundle generator (`apps/web/scripts/generate-template-bundle.mjs`) asks the npm registry for `@jclaw-labs/musician-site`'s `latest` dist-tag on every run (`npm run generate`, which `dev`, `build`, `test` and `typecheck` in `apps/web` run first):
 
-- **A release on `latest`:** new sites get the artist-repo shell (`templates/musician-site-shell`, without `.npmrc` and `CLAUDE.md`), with `package.json` pinned to that exact version and its monorepo-only `overrides` dropped.
-- **Nothing on `latest`, or a prerelease there:** new sites get a full copy of the template, as before. npm puts a package's first version on `latest` even when it's published with `--tag rc`, so this is the state after the first publish below. The log line says which (`template bundle: the shell on …` or `the full template (…)`).
+- **A release on `latest` that is the template version in the checkout being built:** new sites get the artist-repo shell (`templates/musician-site-shell`, without `.npmrc` and `CLAUDE.md`), with `package.json` pinned to that exact version and its monorepo-only `overrides` dropped. The shell comes from the same checkout, and the package refuses a shell it wasn't released with (`stagecraft.shellVersion`), so the two must be from the same release.
+- **Nothing on `latest`, a prerelease there, or a release that isn't the checkout's version:** new sites get a full copy of the template, as before. The last case covers `main` ahead of `latest` (a version bump merged but not yet published, or a release candidate period) and `latest` moved back after a bad release. npm puts a package's first version on `latest` even when it's published with `--tag rc`, so this is the state after the first publish below. The log line says which (`template bundle: the shell on …` or `the full template (…)`).
 
-The generator fails, rather than guess, when the registry can't be reached. To work offline, or to try the shell bundle before a release, set `STAGECRAFT_SITE_PACKAGE_LATEST`: to a version to use it as `latest`, or empty for the full template.
+The generator fails, rather than guess, when the registry can't be reached. To work offline, or to try the shell bundle before a release, set `STAGECRAFT_SITE_PACKAGE_LATEST`: to a version to use it as `latest`, or empty for the full template. Anything else fails the run.
 
-So a site moves onto the shell when the platform is next built after a release reaches `latest`. Every new site's `.stagecraft-template.json` records `packageVersion` (the pinned version, or `null` for a full copy) and `manifest`, the git blob SHA of each of our files it was created with (everything outside `src/content/` and `public/`), which `upgrade_site` compares against (ADR-016 §4). Its `.github/dependabot.yml` exempts `@jclaw-labs/musician-site` from the 7-day cooldown and ignores major updates of it, `next`, `react` and `react-dom` (ADR-016 §3).
+So new sites move onto the shell when the platform is next built after a release reaches `latest`. The release pull request's own platform deploy usually runs before the publish, so trigger a deploy of the platform once the release workflow is done (Netlify → Deploys → Trigger deploy). Every new site's `.stagecraft-template.json` records `packageVersion` (the pinned version, or `null` for a full copy) and `manifest`, the git blob SHA of each of our files it was created with (everything outside `src/content/` and `public/images/`), which `upgrade_site` compares against (ADR-016 §4). Its `.github/dependabot.yml` exempts `@jclaw-labs/musician-site` from the 7-day cooldown and ignores major updates of it, `next`, `react` and `react-dom` (ADR-016 §3).
 
 ### First publish and npm setup (owner, one time)
 
@@ -673,8 +673,13 @@ A bad merge to `main` under the package, or to the release workflow, ships to ev
    /scripts/pack-musician-site.mjs                @jclaw
    /scripts/release-musician-site.mjs             @jclaw
    /scripts/check-musician-site-shell.mjs         @jclaw
+   /scripts/install-musician-site-shell.mjs       @jclaw
+   /apps/web/scripts/generate-template-bundle.mjs @jclaw
+   /templates/musician-site-shell/                @jclaw
+   /package.json                                  @jclaw
+   /package-lock.json                             @jclaw
    /.github/CODEOWNERS                            @jclaw
    ```
-   Here `@jclaw` is the owner's GitHub account; a team or a second account can share review. The scripts are listed because the workflow runs them.
+   Here `@jclaw` is the owner's GitHub account; a team or a second account can share review. The scripts (the release scripts import the bundle generator), the shell and the root `package.json` and lockfile are listed because the workflow's `verify` job runs or installs them; that job has no write or publish permission, but it builds the tarballs that get published.
 2. Settings → Rules → Rulesets → New branch ruleset: target the default branch, enable "Require a pull request before merging" with "Required approvals" at 0 and "Require review from Code Owners" on, so only pull requests touching the paths above need an approval, and enable "Block force pushes". Leave the bypass list empty, or add only the owner.
 3. GitHub doesn't let an author approve their own pull request, so a code owner has to review changes to these paths opened from the owner's own account (agent pull requests included). If that's every pull request, add a second code owner, or put the owner on the ruleset's bypass list and treat a bypass as the review.

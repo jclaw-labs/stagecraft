@@ -15,7 +15,9 @@ Every pull request that changes `src/` (tests aside) adds a line under
 CI (`scripts/check-changelog.mjs`) fails a pull request that changes `src/`
 without adding one. To release, move the Unreleased lines under a heading
 for the new version, bumping by the highest level among them, in the same
-pull request that bumps `version` (docs/runbook.md §11).
+pull request that bumps `version` (docs/runbook.md §11). Keep `src/` changes
+out of that pull request: the lines move away from Unreleased, so the check
+finds no new one.
 
 ## Unreleased
 

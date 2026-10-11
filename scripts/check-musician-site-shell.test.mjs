@@ -1,10 +1,13 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { collectShellFiles } from "../apps/web/scripts/generate-template-bundle.mjs";
 import { cleanShellPackageJson, copiesIntoCleanShell, copyCleanShell } from "./check-musician-site-shell.mjs";
+import { SHELL_DIR } from "./install-musician-site-shell.mjs";
 
 const PACKAGE = "@jclaw-labs/musician-site";
 const SHELL_PACKAGE = {
@@ -59,5 +62,13 @@ describe("copyCleanShell", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(dest, "package.json"), "utf8"));
     expect(pkg.dependencies[PACKAGE]).toBe("file:/p/t.tgz");
     expect(pkg).not.toHaveProperty("overrides");
+  });
+});
+
+describe("the clean shell copy and the shell new sites get", () => {
+  it("hold the same files, so the check builds what the bundle generator ships", async () => {
+    const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: SHELL_DIR, encoding: "utf8" }).split("\0").filter(Boolean);
+    const shipped = (await collectShellFiles(SHELL_DIR, PACKAGE, "1.0.0")).map((f) => f.path);
+    expect(tracked.filter(copiesIntoCleanShell).sort()).toEqual([...shipped].sort());
   });
 });

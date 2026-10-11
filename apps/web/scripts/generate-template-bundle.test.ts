@@ -481,19 +481,30 @@ describe("collectShellFiles", () => {
 });
 
 describe("sitePackageVersion", () => {
-  it("pins the release on latest", () => {
-    expect(sitePackageVersion(PACKAGE, "1.4.0")).toEqual({ version: "1.4.0", reason: `${PACKAGE}@1.4.0 is on latest` });
+  it("pins the release on latest when it's this checkout's version", () => {
+    expect(sitePackageVersion(PACKAGE, "1.4.0", "1.4.0")).toEqual({ version: "1.4.0", reason: `${PACKAGE}@1.4.0 is on latest` });
   });
 
   it("refuses a prerelease, even on latest", () => {
-    expect(sitePackageVersion(PACKAGE, "1.0.0-rc.0")).toEqual({
+    expect(sitePackageVersion(PACKAGE, "1.0.0-rc.0", "1.0.0-rc.0")).toEqual({
       version: null,
       reason: `refusing ${PACKAGE}@1.0.0-rc.0 on latest: it's a prerelease`,
     });
   });
 
   it("bundles the full template when nothing is on latest", () => {
-    expect(sitePackageVersion(PACKAGE, null).version).toBeNull();
+    expect(sitePackageVersion(PACKAGE, null, "1.0.0").version).toBeNull();
+  });
+
+  it("bundles the full template when latest isn't the release this checkout's shell is for", () => {
+    // main ahead of latest: a bump merged but not yet published, or an rc period.
+    expect(sitePackageVersion(PACKAGE, "1.4.0", "2.0.0")).toEqual({
+      version: null,
+      reason: `${PACKAGE}@1.4.0 is on latest, but this checkout's shell is for 2.0.0`,
+    });
+    expect(sitePackageVersion(PACKAGE, "1.4.0", "2.0.0-rc.1").version).toBeNull();
+    // latest moved back after a bad release.
+    expect(sitePackageVersion(PACKAGE, "1.3.0", "1.4.0").version).toBeNull();
   });
 });
 
@@ -525,6 +536,15 @@ describe("fetchLatestVersion", () => {
       new RegExp(`HTTP 503.*${LATEST_OVERRIDE_ENV}`),
     );
   });
+
+  it("fails when the registry can't be reached, naming the override", async () => {
+    const offline = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    await expect(fetchLatestVersion(PACKAGE, { fetchImpl: offline })).rejects.toThrow(
+      new RegExp(`fetch failed.*${LATEST_OVERRIDE_ENV}`),
+    );
+  });
 });
 
 describe("resolveSitePackageVersion", () => {
@@ -532,14 +552,34 @@ describe("resolveSitePackageVersion", () => {
     throw new Error("fetch called");
   }) as unknown as typeof fetch;
 
+  async function template(version: string) {
+    await write("template/package.json", JSON.stringify({ name: PACKAGE, version }));
+    return path.join(root, "template");
+  }
+
   it("takes latest from the override without asking the registry", async () => {
     expect(
-      await resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: "2.0.0" }, fetchImpl: noFetch }),
+      await resolveSitePackageVersion({ templateDir: await template("2.0.0"), env: { [LATEST_OVERRIDE_ENV]: "2.0.0" }, fetchImpl: noFetch }),
     ).toEqual({ packageName: PACKAGE, version: "2.0.0", reason: `${PACKAGE}@2.0.0 is on latest` });
+  });
+
+  it("bundles the full template when latest isn't the checkout's version", async () => {
+    const resolved = await resolveSitePackageVersion({
+      templateDir: await template("2.0.0"),
+      env: { [LATEST_OVERRIDE_ENV]: "1.4.0" },
+      fetchImpl: noFetch,
+    });
+    expect(resolved.version).toBeNull();
   });
 
   it("treats an empty override as nothing on latest", async () => {
     expect((await resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: " " }, fetchImpl: noFetch })).version).toBeNull();
+  });
+
+  it("refuses an override that isn't a version", async () => {
+    await expect(resolveSitePackageVersion({ env: { [LATEST_OVERRIDE_ENV]: "v1.0.0" }, fetchImpl: noFetch })).rejects.toThrow(
+      new RegExp(`${LATEST_OVERRIDE_ENV} must be a version`),
+    );
   });
 
   it("asks the registry for the template package's latest, and refuses a prerelease there", async () => {
