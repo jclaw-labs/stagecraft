@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import {
   isUpgradeSiteBlocker,
   type KnownJobFields,
+  type SiteVersionInfo,
   type UpgradeSiteResultData,
 } from "@stagecraft/shared";
 
 import { signInWithGitHubAgain } from "./actions";
 import { upgradeJobSummary, UPGRADE_FILE_LIST_LIMIT, type UpgradeSummaryTone } from "./upgrade-summary";
+import { versionSummary, type VersionSummaryTone } from "./version-summary";
 import styles from "./site-detail.module.css";
 
 const TONE_CLASS: Record<UpgradeSummaryTone, string | undefined> = {
@@ -17,6 +19,12 @@ const TONE_CLASS: Record<UpgradeSummaryTone, string | undefined> = {
   ok: styles.upgradeOk,
   warn: styles.upgradeWarn,
   error: styles.upgradeFailed,
+};
+
+const VERSION_TONE_CLASS: Record<VersionSummaryTone, string | undefined> = {
+  behind: styles.upgradeWarn,
+  current: styles.upgradeOk,
+  unknown: undefined,
 };
 
 /** An upgrade_site job as `GET /api/sites/[siteId]` returns it. */
@@ -29,10 +37,11 @@ export interface UpgradeJob extends KnownJobFields {
 }
 
 /**
- * The "Upgrade site" action on a live site's page (ADR-016 §4): queues an
- * upgrade_site job, then shows how the latest one went: the pull request it
- * opened or updated, or why it stopped (sign in again, changed files, drafts
- * to publish).
+ * The "Upgrade site" action on a live site's page (ADR-016 §4): shows the
+ * release the site is on against the latest one, with any open update pull
+ * request; queues an upgrade_site job, then shows how the latest one went:
+ * the pull request it opened or updated, or why it stopped (sign in again,
+ * changed files, drafts to publish).
  */
 export default function UpgradePanel({
   siteId,
@@ -46,6 +55,35 @@ export default function UpgradePanel({
 }) {
   const [isRequesting, setIsRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [version, setVersion] = useState<SiteVersionInfo | null>(null);
+  const [versionError, setVersionError] = useState("");
+
+  // Read again once an upgrade finishes: it may have opened a pull request.
+  const finishedJobId = job?.status === "completed" || job?.status === "failed" ? job.id : null;
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchVersion() {
+      try {
+        const res = await fetch(`/api/sites/${siteId}/version`);
+        const data = (await res.json()) as { version?: SiteVersionInfo; error?: string };
+        if (cancelled) return;
+        if (res.ok && data.version) {
+          setVersion(data.version);
+          setVersionError("");
+        } else {
+          setVersionError(data.error || "Couldn't read which version this site runs");
+        }
+      } catch {
+        if (!cancelled) setVersionError("Couldn't read which version this site runs");
+      }
+    }
+    fetchVersion();
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId, finishedJobId]);
+
+  const versionLine = version ? versionSummary(version) : null;
 
   const summary = upgradeJobSummary(job);
   const result = job?.resultPayload ?? null;
@@ -81,6 +119,18 @@ export default function UpgradePanel({
           Move this site onto the latest release of Stagecraft&rsquo;s site code. Stagecraft opens a pull request on
           your repository; nothing changes on your site until you merge it.
         </p>
+
+        {versionLine && (
+          <div className={`${styles.upgradeStatus} ${VERSION_TONE_CLASS[versionLine.tone] ?? ""}`}>
+            <p className={styles.upgradeStatusText}>{versionLine.text}</p>
+            {versionLine.pullRequest && (
+              <Button href={versionLine.pullRequest.url} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
+                {versionLine.pullRequest.label}
+              </Button>
+            )}
+          </div>
+        )}
+        {!versionLine && versionError && <p className={styles.versionError}>{versionError}</p>}
 
         {summary && (
           <div className={`${styles.upgradeStatus} ${TONE_CLASS[summary.tone] ?? ""}`} role="status">

@@ -114,6 +114,10 @@ class FakeRepo {
       getTree: async (sha) => new Map(this.commits.get(sha)!.tree),
       getCommitMessage: async (sha) => this.commits.get(sha)!.message,
       getBlobText: async (sha) => this.blobs.get(sha)!,
+      getFileText: async (path, ref) => {
+        const sha = this.commits.get(this.branches.get(ref)!)!.tree.get(path);
+        return sha ? this.blobs.get(sha)! : null;
+      },
       findOldestCommitTouching: async (path, ref) =>
         this.ancestors(this.branches.get(ref)!).filter((sha) => this.touches(sha, path)).at(-1) ?? null,
       commitTouchesPath: async (sha, path) => this.commits.has(sha) && this.touches(sha, path),
@@ -145,6 +149,10 @@ class FakeRepo {
         Object.assign(pr, update);
         return pr;
       },
+      listOpenPullRequests: async () =>
+        this.pulls
+          .filter((pr) => pr.state === "open")
+          .map((pr) => ({ number: pr.number, htmlUrl: pr.htmlUrl, title: pr.title, headRef: pr.head })),
     };
   }
 }

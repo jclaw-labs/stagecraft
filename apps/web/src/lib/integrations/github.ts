@@ -331,6 +331,15 @@ export interface PullRequestResult {
   state: string;
 }
 
+/** An open pull request as `GitHubRepoClient.listOpenPullRequests` lists it. */
+export interface OpenPullRequest {
+  number: number;
+  htmlUrl: string;
+  title: string;
+  /** The branch it merges from. */
+  headRef: string;
+}
+
 export async function createPullRequest(
   userId: string,
   owner: string,
@@ -501,6 +510,8 @@ export interface GitHubRepoClient {
   getCommitMessage(commitSha: string): Promise<string>;
   /** A blob's content as UTF-8 text. */
   getBlobText(blobSha: string): Promise<string>;
+  /** A file's content as UTF-8 text on `ref`, or null when there's no such file. */
+  getFileText(path: string, ref: string): Promise<string | null>;
   /** The oldest commit on `ref` that touches `path`, or null when none does. */
   findOldestCommitTouching(path: string, ref: string): Promise<string | null>;
   /** Whether `commitSha` itself changes anything under `path`. */
@@ -519,6 +530,8 @@ export interface GitHubRepoClient {
   /** The open pull request from `head` (a branch in this repo) into `base`, if any. */
   findOpenPullRequest(head: string, base: string): Promise<PullRequestResult | null>;
   updatePullRequest(number: number, update: PullRequestUpdate): Promise<PullRequestResult>;
+  /** The repo's open pull requests, newest first (the first 100). */
+  listOpenPullRequests(): Promise<OpenPullRequest[]>;
 }
 
 /** Commits listed per page when reading history. */
@@ -585,6 +598,23 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
     async getBlobText(blobSha) {
       const blob = (await githubApi(token, `${repoPath}/git/blobs/${blobSha}`)) as { content: string; encoding: string };
       return blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
+    },
+
+    async getFileText(path, ref) {
+      const query = new URLSearchParams({ ref });
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      try {
+        const file = (await githubApi(token, `${repoPath}/contents/${encodedPath}?${query}`)) as {
+          type?: string;
+          content?: string;
+          encoding?: string;
+        };
+        if (file.type !== "file" || typeof file.content !== "string") return null;
+        return file.encoding === "base64" ? Buffer.from(file.content, "base64").toString("utf8") : file.content;
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return null;
+        throw error;
+      }
     },
 
     async findOldestCommitTouching(path, ref) {
@@ -692,6 +722,17 @@ export async function githubRepoClient(userId: string, owner: string, repo: stri
         body: JSON.stringify({ title: update.title, body: update.body }),
       });
       return toPullRequestResult(data);
+    },
+
+    async listOpenPullRequests() {
+      const query = new URLSearchParams({ state: "open", per_page: "100" });
+      const pulls = (await githubApi(token, `${repoPath}/pulls?${query}`)) as Array<{
+        number: number;
+        html_url: string;
+        title: string;
+        head: { ref: string };
+      }>;
+      return pulls.map((pull) => ({ number: pull.number, htmlUrl: pull.html_url, title: pull.title, headRef: pull.head.ref }));
     },
   };
 }

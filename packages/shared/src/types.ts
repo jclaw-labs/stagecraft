@@ -123,3 +123,29 @@ export interface UpgradeSiteResultData {
   /** `drafts_pending`: the draft branches holding edits to rewritten files. */
   draftBranches?: string[];
 }
+
+/** Where a site's current package version was read from. */
+export type SiteVersionSource = "package_json" | "stamp";
+
+/** Who opened a pull request that moves a site onto a newer release. */
+export type SiteUpdatePullRequestKind = "upgrade" | "dependabot";
+
+/**
+ * What `GET /api/sites/[siteId]/version` returns: the
+ * `@jclaw-labs/musician-site` release a site is on, the latest one on npm,
+ * and an open pull request that would update it (ADR-016 Consequences).
+ */
+export interface SiteVersionInfo {
+  /**
+   * The version or range the site's package.json pins the package at, or
+   * the stamp's `packageVersion` when package.json doesn't name it. Null
+   * for a full copy of the template (a site from before ADR-016).
+   */
+  current: string | null;
+  source: SiteVersionSource | null;
+  /** npm's `latest` release of the package, or null when it couldn't be read. */
+  latest: string | null;
+  /** Whether `latest` is newer than what the site may run; null when `latest` is unknown. */
+  updateAvailable: boolean | null;
+  pullRequest: { number: number; url: string; kind: SiteUpdatePullRequestKind } | null;
+}
