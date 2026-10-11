@@ -298,30 +298,35 @@ const PUCK_EDITORS = [
   path.join(SRC, "admin", "collections", "[slug]", "items", "[itemSlug]", "body", "[fieldId]", "BodyEditorClient.tsx"),
 ];
 
-/** Puck's main entry, or one of its stylesheets. */
-const isPuckClientImport = (specifier: string): boolean =>
-  specifier === PUCK_MAIN_ENTRY || /^@puckeditor\/core\/.*\.css$/.test(specifier);
+/** One of Puck's stylesheets. */
+const isPuckStylesheet = (specifier: string): boolean => /^@puckeditor\/core\/.*\.css$/.test(specifier);
 
 /**
- * The chain of static value imports from `entry` to a Puck editor, or to a
- * module that imports Puck's main entry or stylesheet, or null.
+ * The chain of static value imports from `entry` to a Puck editor, to a
+ * module that imports a Puck stylesheet, or to a client module (or one it
+ * imports) that value-imports Puck's main entry; else null. A server
+ * module may import the main entry, which resolves to the `/rsc` build
+ * there (see the top of this file), so a server `<Render>` preview is fine.
  */
 function staticPathToPuck(entry: string): string[] | null {
   const seen = new Set<string>();
-  const visit = (file: string): string[] | null => {
+  const visit = (file: string, inClient: boolean): string[] | null => {
     if (PUCK_EDITORS.includes(file)) return [file];
-    if (seen.has(file)) return null;
-    seen.add(file);
-    const imports = valueImports(fs.readFileSync(file, "utf-8"), file, { dynamic: false });
-    if (imports.some(isPuckClientImport)) return [file];
+    const source = fs.readFileSync(file, "utf-8");
+    const client = inClient || isClientModule(source);
+    const key = `${client}:${file}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const imports = valueImports(source, file, { dynamic: false });
+    if (imports.some(isPuckStylesheet) || (client && imports.includes(PUCK_MAIN_ENTRY))) return [file];
     for (const specifier of imports) {
       const next = resolveLocal(specifier, file);
-      const chain = next ? visit(next) : null;
+      const chain = next ? visit(next, client) : null;
       if (chain) return [file, ...chain];
     }
     return null;
   };
-  return visit(entry);
+  return visit(entry, false);
 }
 
 const adminRouteFiles = sourceFiles(path.join(SRC, "app", "admin")).filter((file) => /\.(ts|tsx)$/.test(file));
@@ -353,12 +358,15 @@ describe("lazy Puck editor boundary", () => {
     expect(dynamicTargets.sort()).toEqual([...PUCK_EDITORS].sort());
   });
 
-  it("stops at a module that imports Puck or its stylesheet", () => {
-    expect(isPuckClientImport(PUCK_MAIN_ENTRY)).toBe(true);
-    expect(isPuckClientImport("@puckeditor/core/puck.css")).toBe(true);
-    expect(isPuckClientImport("@puckeditor/core/rsc")).toBe(false);
+  it("stops at a Puck stylesheet anywhere, and at Puck's main entry below a client module", () => {
+    expect(isPuckStylesheet("@puckeditor/core/puck.css")).toBe(true);
+    expect(isPuckStylesheet(PUCK_MAIN_ENTRY)).toBe(false);
+    // render-config is a server module: its `<Render>` import is the /rsc build.
     const renderConfig = path.join(SRC, "puck", "render-config.tsx");
-    expect(staticPathToPuck(renderConfig)).toEqual([renderConfig]);
+    expect(staticPathToPuck(renderConfig)).toBeNull();
+    // lazy-editors is a client module, but it reaches the editors only
+    // through `import()`.
+    expect(staticPathToPuck(path.join(SRC, "admin", "lazy-editors.tsx"))).toBeNull();
   });
 
   it("skips dynamic imports only when asked", () => {
