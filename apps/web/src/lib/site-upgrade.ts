@@ -16,6 +16,7 @@ import {
   upgradeCollection,
   type CollectionJson,
 } from "@jclaw-labs/content-upgraders";
+import semver from "semver";
 
 import {
   ARTIST_PATH_PREFIXES,
@@ -273,17 +274,6 @@ export function targetShell(bundle: TemplateFile[]): TargetShell | null {
 }
 
 /**
- * A pin's release: `major.minor.patch`, and whether it's a prerelease. A
- * range's lower bound counts (`^1.2.0` reads as 1.2.0). Null for anything
- * else (a tag, a git spec).
- */
-function releaseParts(version: string): { core: [number, number, number]; prerelease: boolean } | null {
-  const match = /^(?:[\^~]|>=?|=)?\s*v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/.exec(version.trim());
-  if (!match) return null;
-  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] !== undefined };
-}
-
-/**
  * The spec the site's package.json pins the package at, as written (an exact
  * release, a range, or anything else npm accepts), or null when it doesn't
  * depend on the package (a site from before ADR-016) or the file is absent or
@@ -302,25 +292,26 @@ export function pinnedPackageVersion(packageJson: string | null): string | null 
 }
 
 /**
- * Whether a site pinned to `pinned` is already on `target` or a later
- * release, so an upgrade to `target` has nothing to do. Dependabot merges
- * patch and minor releases on its own and the platform's bundle only moves
- * when it's deployed, so a site can be ahead of the bundle; moving it to
- * `target` would be a downgrade. The stamp isn't read: Dependabot never
- * updates it. A range pin counts by its lower bound, and a prerelease is
- * behind the release it precedes. A pin that isn't a release at all only
- * matches itself.
+ * Whether a site pinned to `pinned` may already run `target` or a later
+ * release, so an upgrade to `target` could move it back and is skipped.
+ * Dependabot merges patch and minor releases on its own and the platform's
+ * bundle only moves when it's deployed, so a site can be ahead of the
+ * bundle. The stamp isn't read: Dependabot never updates it.
+ *
+ * A range counts when it admits `target` or anything later (`^1.0.0`
+ * against 1.1.0 does): without a lockfile the host installs the newest
+ * release the range admits, which `target`, being published, bounds from
+ * below; with one, the site may still run an older release, and the
+ * upgrade waits for Dependabot rather than risk a downgrade. Compound and
+ * partial ranges (`>=1.2.0 <2.0.0`, `1.2.x`, `^1.2`) read the same way. A
+ * prerelease is behind the release it precedes. A pin that isn't a version
+ * or range (a dist-tag, a git spec) only matches itself.
  */
 export function isOnOrPastRelease(pinned: string | null, target: string): boolean {
   if (pinned === null) return false;
-  const a = releaseParts(pinned);
-  const b = releaseParts(target);
-  if (!a || !b) return pinned.trim() === target;
-  for (let i = 0; i < 3; i++) {
-    if (a.core[i] !== b.core[i]) return a.core[i] > b.core[i];
-  }
-  if (a.prerelease && b.prerelease) return pinned.trim() === target;
-  return !a.prerelease || b.prerelease;
+  const range = semver.validRange(pinned);
+  if (range === null || semver.valid(target) === null) return pinned.trim() === target;
+  return semver.intersects(range, `>=${target}`, { includePrerelease: true });
 }
 
 /**
