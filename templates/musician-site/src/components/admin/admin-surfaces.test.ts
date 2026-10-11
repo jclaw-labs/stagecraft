@@ -1,7 +1,7 @@
 /**
  * Tests for the custom-admin-surfaces registry. Focused on the lookup
  * contract that the per-collection-item redirect (in
- * `app/admin/collections/[slug]/items/[itemSlug]/page.tsx`) and the
+ * `admin/collections/[slug]/items/[itemSlug]/page.tsx`) and the
  * AdminShell sidebar both depend on.
  */
 

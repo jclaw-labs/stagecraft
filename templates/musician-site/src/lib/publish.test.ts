@@ -64,7 +64,7 @@ import { FIXTURE_TIMESTAMP, tourDatesDef } from "./collections/test-fixtures.js"
  * save/publish layer (broker token, draft branch choice, commit
  * message, error mapping); a pages item is just a convenient payload.
  * The page editor's actual save path (the item route's PUT) is covered
- * in `app/api/collections/[slug]/items/route.test.ts`.
+ * in `api/collections/[slug]/items/route.test.ts`.
  */
 async function saveItem(args: {
   itemSlug: string;

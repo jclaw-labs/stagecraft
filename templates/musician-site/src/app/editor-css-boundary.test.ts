@@ -19,7 +19,7 @@
  * entries don't reach that chunk. Server components are safe either way:
  * the main entry's `react-server` condition resolves to the `/rsc` build.
  * So the second suite below flags any `"use client"` module outside
- * `src/app/admin/` that reaches a value import of the main entry, directly
+ * the admin app (`src/admin/` and `src/app/admin/`) that reaches a value import of the main entry, directly
  * or through local modules it value-imports (#432).
  *
  * Static source scan rather than a render test: the import is a side
@@ -32,7 +32,9 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = path.resolve(import.meta.dirname, "..");
-const ADMIN = path.join(SRC, "app", "admin") + path.sep;
+/** The admin app: its page modules, and the routes that serve them. */
+const ADMIN_DIRS = [path.join(SRC, "admin") + path.sep, path.join(SRC, "app", "admin") + path.sep];
+const isAdmin = (file: string): boolean => ADMIN_DIRS.some((dir) => file.startsWith(dir));
 
 const PUCK_CSS_IMPORT =
   /(?:\bimport\b[^"';]*|require\()\s*["']@puckeditor\/core\/(?:puck\.css|no-external\.css|dist\/[^"']+\.css)["']/;
@@ -53,7 +55,7 @@ const importers = sourceFiles(SRC)
 
 describe("puck.css import boundary", () => {
   it("is imported only by admin modules", () => {
-    const outsideAdmin = importers.filter((rel) => !path.join(SRC, rel).startsWith(ADMIN));
+    const outsideAdmin = importers.filter((rel) => !isAdmin(path.join(SRC, rel)));
     expect(outsideAdmin).toEqual([]);
   });
 
@@ -64,10 +66,9 @@ describe("puck.css import boundary", () => {
   it("is still imported by every Puck editor", () => {
     expect(importers).toEqual(
       expect.arrayContaining([
-        path.join("app", "admin", "pages", "[slug]", "Editor.tsx"),
-        path.join("app", "admin", "collections", "[slug]", "template", "TemplateEditorClient.tsx"),
+        path.join("admin", "pages", "[slug]", "Editor.tsx"),
+        path.join("admin", "collections", "[slug]", "template", "TemplateEditorClient.tsx"),
         path.join(
-          "app",
           "admin",
           "collections",
           "[slug]",
@@ -192,7 +193,7 @@ function pathToPuckMainEntry(entry: string): string[] | null {
 }
 
 const publicClientModules = sourceFiles(SRC)
-  .filter((file) => /\.(ts|tsx)$/.test(file) && !file.startsWith(ADMIN))
+  .filter((file) => /\.(ts|tsx)$/.test(file) && !isAdmin(file))
   .filter((file) => isClientModule(fs.readFileSync(file, "utf-8")));
 
 describe("@puckeditor/core value-import boundary", () => {
@@ -205,13 +206,14 @@ describe("@puckeditor/core value-import boundary", () => {
   });
 
   it("still finds the admin editors' value imports", () => {
-    const editor = path.join(ADMIN, "pages", "[slug]", "Editor.tsx");
+    const editor = path.join(SRC, "admin", "pages", "[slug]", "Editor.tsx");
     expect(pathToPuckMainEntry(editor)).toEqual([editor]);
   });
 
   it("follows local value imports to the module that imports Puck", () => {
     const templateEditor = path.join(
-      ADMIN,
+      SRC,
+      "admin",
       "collections",
       "[slug]",
       "template",

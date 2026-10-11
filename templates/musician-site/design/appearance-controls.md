@@ -1,7 +1,7 @@
 # Appearance controls: fonts, contrast, theme previews
 
 ## Curated font picker
-`FontPickerField` (`src/app/admin/appearance/`) pairs a category select with a
+`FontPickerField` (`src/admin/appearance/`) pairs a category select with a
 family select, backed by the node-import-free `src/lib/google-fonts.ts`
 (curated families per category + `buildFontStack` for CSS-generic fallbacks).
 A **Custom** category is a free-text escape hatch for any Google Font; the

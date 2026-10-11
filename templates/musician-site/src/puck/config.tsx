@@ -1013,7 +1013,7 @@ const cardSizeLabelStyle: CSSProperties = {
  * selected. Aimed at non-technical artists — what the block does and
  * the most common knob, not a comprehensive feature list. Wired into
  * the editor via Puck's `overrides.fields` (see
- * `app/admin/pages/[slug]/Editor.tsx`).
+ * `admin/pages/[slug]/Editor.tsx`).
  *
  * `Record<keyof BlockProps, string>` is intentional: adding a new
  * block to `BlockProps` without writing a description fails
