@@ -138,7 +138,7 @@ describe("isVersionSpec", () => {
     expect(isVersionSpec(spec)).toBe(true),
   );
 
-  it.each(["github:a/b", "npm:x@1.0.0", "file:../x", "git+https://x/y.git", "latest", "a/b#c", 1])("%s isn't", (spec) =>
+  it.each(["github:a/b", "npm:x@1.0.0", "file:../x", "git+https://x/y.git", "latest", "a/b#c", ">=1.2.0 <2 foo", 1])("%s isn't", (spec) =>
     expect(isVersionSpec(spec)).toBe(false),
   );
 });
@@ -272,10 +272,7 @@ describe("targetShell and isOnOrPastRelease", () => {
     expect(isOnOrPastRelease(null, "1.4.0")).toBe(false);
   });
 
-  it("reads a range by its lower bound, and a prerelease as behind its release", () => {
-    expect(isOnOrPastRelease("^1.4.0", "1.4.0")).toBe(true);
-    expect(isOnOrPastRelease("^1.2.0", "1.1.0")).toBe(true);
-    expect(isOnOrPastRelease("~1.2.0", "1.3.0")).toBe(false);
+  it("reads a prerelease as behind its release", () => {
     expect(isOnOrPastRelease("2.0.0-rc.1", "1.1.0")).toBe(true);
     expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0")).toBe(false);
     expect(isOnOrPastRelease("2.0.0", "2.0.0-rc.1")).toBe(true);
@@ -283,9 +280,44 @@ describe("targetShell and isOnOrPastRelease", () => {
     expect(isOnOrPastRelease("2.0.0-rc.1", "2.0.0-rc.2")).toBe(false);
   });
 
-  it("doesn't read an upper bound as a lower one", () => {
-    expect(isOnOrPastRelease("<2.0.0", "1.1.0")).toBe(false);
-    expect(isOnOrPastRelease("<=1.2.0", "1.1.0")).toBe(false);
+  it("counts a range that admits the target or a later release", () => {
+    expect(isOnOrPastRelease("^1.4.0", "1.4.0")).toBe(true);
+    expect(isOnOrPastRelease("^1.2.0", "1.1.0")).toBe(true);
+    // The host installs the newest 1.x, which is 1.1.0 or later: pinning
+    // exactly 1.1.0 could move the site back.
+    expect(isOnOrPastRelease("^1.0.0", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("<2.0.0", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("*", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("~1.2.0", "1.3.0")).toBe(false);
+    expect(isOnOrPastRelease("<1.1.0", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("^0.2.0", "0.3.0")).toBe(false);
+  });
+
+  it("reads compound and partial ranges", () => {
+    expect(isOnOrPastRelease(">=1.2.0 <2.0.0", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease(">=1.0.0 <1.1.0", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("1.0.0 - 1.0.9", "1.1.0")).toBe(false);
+    // A gap around the target: the host installs 1.0.0 until a 2.0.0 is out.
+    expect(isOnOrPastRelease("1.0.0 || 2.0.0", "1.5.0")).toBe(false);
+    expect(isOnOrPastRelease("<1.1.0 || >=3.0.0", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("1.0.x || 9.x", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("1.0.0 || >=1.1.0", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("1.2.x", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("1.0.x", "1.1.0")).toBe(false);
+    expect(isOnOrPastRelease("^1.2", "1.1.0")).toBe(true);
+    expect(isOnOrPastRelease("v1.4.0", "1.4.0")).toBe(true);
+  });
+
+  it("reads a range npm wouldn't resolve to a prerelease target as behind", () => {
+    expect(isOnOrPastRelease("*", "1.0.0-rc.0")).toBe(false);
+    expect(isOnOrPastRelease("<1.0.0", "1.0.0-rc.0")).toBe(false);
+    expect(isOnOrPastRelease(">=0.5.0 <1.0.0", "1.0.0-rc.0")).toBe(false);
+    expect(isOnOrPastRelease("^1.0.0", "1.1.0-rc.0")).toBe(false);
+    expect(isOnOrPastRelease("~1.0.0", "1.0.1-rc.0")).toBe(false);
+    expect(isOnOrPastRelease("<2.0.0", "2.0.0-rc.1")).toBe(false);
+    // Ranges that do admit the prerelease, or start past it.
+    expect(isOnOrPastRelease("^1.0.0-rc.0", "1.0.0-rc.1")).toBe(true);
+    expect(isOnOrPastRelease("^1.2.0", "1.1.0-rc.0")).toBe(true);
   });
 
   it("matches a pin that isn't a release only to itself", () => {

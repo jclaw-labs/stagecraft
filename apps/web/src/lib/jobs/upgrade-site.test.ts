@@ -417,6 +417,21 @@ describe("handleUpgradeSite — a site Dependabot moved", () => {
     expect(mocks.createPullRequest).not.toHaveBeenCalled();
   });
 
+  it("doesn't pin a range that may already resolve past the platform's release back to it", async () => {
+    await migratedThenBumped("^1.0.0");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+
+    expect(await runJob()).toMatchObject({ success: true, data: { upToDate: true, currentVersion: "^1.0.0" } });
+    expect(mocks.createPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("reads a compound range, and upgrades a site it holds below the platform's release", async () => {
+    await migratedThenBumped(">=1.0.0 <1.1.0");
+    mocks.readTemplateFiles.mockResolvedValue(shellBundle("1.1.0"));
+
+    expect(await runJob()).toMatchObject({ success: true, data: { packageVersion: "1.1.0", pullRequest: { action: "opened" } } });
+  });
+
   it("still opens a pull request for a release past the site's", async () => {
     await migratedThenBumped("1.0.1");
     mocks.readTemplateFiles.mockResolvedValue(shellBundle("2.0.0"));
