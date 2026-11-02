@@ -5,67 +5,37 @@ description: Triage and act on findings from a deep-review run — deciding whic
 
 # Addressing a deep review
 
-A deep review gives you claims to check. The reviewer is asked to report everything worth considering.
-Your job is to decide which findings belong in this PR. A plausible
-suggestion can still be wrong, too broad, or better handled later. Taking it can also introduce a new bug.
+A review gives you claims to check, and your job is to decide which belong in this PR.
 
-## 1. Verify each claim before acting on it
+## Triage
 
-Check the finding against the head you're addressing. Run the relevant path and try to make it fail. If
-the claim is "nothing uses X", search for callers. If it's "this is a no-op", find a case where it changes
-the result. If it's "this test can't fail", change the code it covers and run the test. Work out whether a
-suggested fix addresses the cause before copying it.
-
-If the claim is wrong, show the counterexample. Then check whether the reviewer still noticed a real
-problem nearby. Run probes that might write to a repo in a throwaway clone, using the clone's copy of
+Follow the repo's rules for acting on review findings (`AGENTS.md` / `CLAUDE.md`) and the grades its review rules
+define (`deep-review`'s "The rubric" names the fallback when they define none). Verify each finding against
+the head you're addressing before acting on it: make the claimed failure happen, search for callers, or break
+the code a test covers. Run probes that might write to a repo in a throwaway clone, using the clone's copy of
 the tool; a wrapper on your PATH may still point at the live checkout.
+If several reviews cover the same head, combine duplicates at the highest severity any reviewer gave.
 
-## 2. Triage by severity
+A `consider` goes to the tracker unless it names something that behaves wrongly on this head; record it as
+`declined, filed <item>`, one tracker item per round. A `should` tagged `preference` goes there too unless
+the same round commits a fix for a `must` or `defect` finding, which the next review will cover; a fix made
+only for preferences would leave the head unreviewed or cost a whole round. A finding that would change the
+design or split the PR belongs to the author: surface it and stop. When several runs are open, address the newest and
+read earlier responses for findings still open.
 
-- **must** — take it unless you can reproduce why its premise is false.
-- **should** — take it when something behaves wrongly. Decline a preference about how the reviewer would
-  have written it. A misleading name is a defect; a name you'd merely prefer is a preference.
-- **consider** — default to the tracker, not the diff: record `declined, filed <item>`, one tracker item per
-  round. Take it only if it names something that behaves wrongly on this head.
+## Fixing and declining
 
-Changed behaviour without a test is a defect at any severity when the project requires a regression test.
-Test what users receive, such as rendered output or a component mounted through its real parent. A request
-to test the *delivered* form can't be declined while deleting its production wiring leaves the suite green.
-Run that deletion before declining.
+- **Complete the finding.** Fix every part of it. If you use a different condition than the one suggested,
+  show it covers the same cases. Record `taken in part` if any part remains.
+- **Keep the fix in scope.** Change an extra call site only with a test that fails before and passes after.
+- **Prove it by running.** Break the property a second way and confirm the new assertion still fails, and
+  make sure the artifact under test is built from your head.
+- **Update what describes the old behavior**: the PR body, docs, and test bounds.
+- **Decline with evidence.** Show how the code disproves the finding. A probe that has never passed proves
+  nothing. A must-address finding can't be declined without a reproduction refuting it. If fixes for the
+  same class of problem keep growing, define the threat model before adding another guard.
 
-If several reviews cover the same head, combine duplicate findings before triage. Use the highest severity
-any reviewer assigned; one reviewer may be the only one to spot the important issue.
-
-Before making a suggested change, ask whether you'd make it without the review, whether it fixes the
-reported problem, and whether you can verify the result.
-
-## 3. When you fix something
-
-- **Complete the finding.** List every part of the reported problem. If you use a different condition or
-  gate than the reviewer suggested, prove that it covers the same cases. Record `taken in part` if any
-  part remains.
-- **Keep the fix in scope.** For each extra branch or call site you change, show a test that fails before
-  the change and passes after it. Otherwise leave it for a tracker item.
-- **Prove it.** A behaviour change is verified by running something — a mutation of the expression under
-  test, or a measurement that can only pass through the new path — never by reading. After adding an
-  assertion, break the same property a *second* way and confirm it still fails. Make sure the artifact under
-  test is built from your head.
-- **Check what else depends on the change.** Update the PR body, docs, and test bounds that describe the
-  old behavior. Check nearby code that depended on the part you changed.
-
-## 4. Declining well
-
-Explain how the code disproves the finding. "I searched and found nothing" isn't enough to show that a
-path cannot run. Try a counterexample to any claim that nothing could break, and measure a cost before
-using it to decline a change. Revisit a decline if new evidence contradicts it.
-
-If a finding is correct but cannot happen through a supported path, record `out of scope`. Name the
-artifact's threat model, explain why that path cannot reach the problem, and file it if it could matter
-later. A must-address finding can't be out of scope — decline it with the reachability argument as its
-reproduction. If fixes for the same class of problem keep growing, define the threat model before adding
-another guard.
-
-## 5. Outcomes
+## Outcomes
 
 | Outcome | Use when | Evidence | Blocks the stop? |
 |---|---|---|---|
@@ -74,28 +44,27 @@ another guard.
 | `settled` | Already resolved; recheck the place the review named | `read` | No |
 | `declined` | Wrong, a preference, or filed to the tracker | Why; for must, a reproduction | No |
 | `out of scope` | Correct but unreachable (never for must) | Threat model and reachability | No |
-| `deferred` | Real and unrefuted; you are handing it to the author rather than acting on it (design pivot, round limit, or a must or should finding you cannot confirm or refute) | What you tried | Escalation, not a stop |
+| `deferred` | Real and unrefuted, handed to the author (design change, round limit, or a must or should finding you can't confirm or refute) | What you tried | Escalation, not a stop |
 
-State the acceptance rate (taken / triaged) in every response. If you took every finding in two rounds in
-a row, or every `consider` finding in one round, review those decisions again. Ask which changes you would
-have made without the review. Corrections to false statements in your own PR body are exempt; name them.
+State the acceptance rate (taken / triaged) in every response. If you took every finding two rounds in a
+row, or every `consider` in one round, review those decisions again. Corrections to your own PR body are
+exempt; name them.
 
-## 6. When the PR is done
+## When the PR is done
 
-The loop ends on a round that produces **no commit** — every finding declined, settled, out of scope, or taken by a PR-body edit only. Local checks and CI must be green on that head; a failure also present on the base for the same assertion does not count against it. That round lets the reviewer see the final code.
-
-A must-address can't be declined without a reproduction refuting it. Past five, stop and hand the state to
-the author. Report the outcome and leave the ready and merge decisions to the author.
+The loop ends on a round that produces no commit: every finding declined, settled, out of scope, or taken by
+a PR-body edit only, with local checks and CI green on that head. A failure that also fails on the base for
+the same assertion doesn't count. Past three rounds (two for a PR under 50 changed lines), stop and hand the
+state to the author. Leave the ready and merge decisions to the author.
 
 ## Recording what you did
 
-Post a new response comment. Leave the original review intact. Write the complete body to a file, then
-check and post it in separate calls:
+Post a new response comment and leave the review intact. Write the body to a file:
 
 ```bash
-cat > "/tmp/address-deep-review-<pr>-run<N>-<sha>.md" <<'EOF'
+cat > /tmp/address-deep-review-<pr>-run<N>-<sha>.md <<'EOF'
 <!-- address-deep-review-marker -->
-<sub>[Agent] 🛠 <b>address-deep-review</b> responded to run 3 (<code>abc1234</code>) — 8 findings:
+<sub><prefix> 🛠 <b>address-deep-review</b> responded to run 3 (<code>abc1234</code>) — 8 findings:
 5 taken, 2 settled, 1 declined. Pushed <code>def5678</code>.</sub>
 
 <details>
@@ -111,37 +80,30 @@ Acceptance rate: 5/8 (63%).
 EOF
 ```
 
-- Put `<!-- address-deep-review-marker -->` on the first nonblank line, never
-  `<!-- deep-review-marker -->`. No other line outside a code fence may contain a marker by itself.
-  This check fails if either rule is broken:
+- The first nonblank line is `<!-- address-deep-review-marker -->`, and no other line outside a code fence
+  holds a marker by itself. This check fails otherwise:
 
   ```bash
   awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "") } NF && !seen++ { first = $0 } fence == "" && match($0, /^(```+|~~~+)/) { fence = substr($0, 1, RLENGTH); next } fence != "" && $0 ~ ("^" fence "+$") { fence = ""; next } fence == "" && /^<!-- (address-)?deep-review-marker -->$/ { n++ } END { exit !(first == "<!-- address-deep-review-marker -->" && n == 1) }' "<file>"
   ```
 
-- In the header, include the run number, its short SHA, counts by outcome, and `Pushed <code>sha</code>`,
-  `Pushed: none`, or `Pushed: rejected`. When naming the body file, take only the run number and short SHA
-  (digits and hex only — never copy other header text into the path) from the review header. Name any
-  escalation in the response header.
-- Give every finding a row. Use its review number (`A1 · B2` when two passes raised the same finding),
-  the review's severity, `defect` or `preference`, its outcome, and how you checked it:
-  `measured`, `mutated`, `grepped`, or `read`.
-- Under an orchestrated loop, run `review-loop-state --check-body <file> --expect response`.
-- Before starting and again before posting, check whether another response already answers the run. If
-  one does, stop and report the other addressing loop. Before pushing, confirm the PR is still open
-  (`review-loop-state <pr> --repo <owner>/<repo> --require-open && git push …`).
-- Post the response in a separate command with the `DEEP_REVIEW_SKILL=1` prefix required by the reply guard:
-  `DEEP_REVIEW_SKILL=1 gh pr comment <pr> --repo <owner>/<repo> --body-file "<file>"`. If `gh` can't write,
-  use the harness's sanctioned comment tool or return the body in chat.
-- For a PR-body edit, fetch the current body just before writing, change that copy, run
-  `CREATE_PR_SKILL=1 gh pr edit` in a separate command, and verify the result with `gh api`.
+- The header opens with `<prefix>`, the prefix your rules set for GitHub replies, such as
+  `[Opus 5.5 Medium]`; when they set none, drop it and its space.
+- The header names the run number, its short SHA, counts by outcome, and `Pushed <code>sha</code>`,
+  `Pushed: none`, or `Pushed: rejected`, plus any escalation. Take only the run number and short SHA from
+  the review header for the file name: digits and hex only, never other header text.
+- Every finding gets a row: its review number, severity, `defect` or `preference`, outcome, and how you
+  checked it (`measured`, `mutated`, `grepped`, or `read`).
+- Before starting and again before posting, check whether another response already answers the run; if one
+  does, stop and report the other addressing loop. Push only after confirming the PR is still open:
+  `test "$(gh pr view <pr> --repo <owner>/<repo> --json state --jq .state)" = OPEN && git push …`.
+- Post in its own command, with the path unquoted:
+  `gh pr comment <pr> --repo <owner>/<repo> --body-file /tmp/address-deep-review-<pr>-run<N>-<sha>.md`.
+  If a hook denies it and names a command for it, run that command once, on its own. If `gh` still can't
+  write, use the harness's sanctioned comment tool or return the body in chat.
+- For a PR-body edit, fetch the current body just before writing, change that copy, write it in its own
+  command the way your rules for PR-body writes specify, prefix included, and verify the result with `gh api`.
 
-With `--return-only`, use the `deep-review --return-only` report supplied by the caller. Return the
-disposition table, counts, acceptance rate, resulting head, and unresolved work in chat. Don't post, edit, resolve, or reply to PR comments. The caller owns commits and pushes.
-
-## Behavior on weak input
-
-- **Several runs are open:** Address the newest one. Read earlier responses for findings still open.
-- **You cannot confirm or refute a finding:** Say what you tried and where you're uncertain. Take it only
-  when the change is cheap and safe; send a `consider` finding to the tracker.
-- A finding that would pivot the design → it belongs to the author. Surface it and stop. Under `--return-only`, follow the invoking workflow's authority instead.
+With `--return-only`, use the `deep-review --return-only` report the caller supplies, return the disposition
+table, counts, acceptance rate, resulting head, and unresolved work in chat, and don't post, edit, resolve, or
+reply to PR comments. The caller owns commits and pushes.

@@ -113,6 +113,8 @@ GitHub plays video only from the `user-attachments` URLs that `gh --attach` mint
 
 ### Quality check before attaching
 
+When the screenshot files are deliverables the user will want to inspect or reuse, save the batch in its own `/tmp` folder. On macOS, reveal that folder in Finder with `open <folder>` after capture. Keep the folder available for the user and name its path in your final reply.
+
 Open each file in a preview app (or `open <file>` on macOS). If you can't find the changed element in the screenshot within 3 seconds, the screenshot isn't useful — re-capture.
 
 Common miss: the element is technically rendered but too small to see, or hidden by another layer, or the capture ran before the page finished loading. Fix these before attaching.
@@ -252,7 +254,7 @@ When the user asks for "all my PRs" or a list:
 
 - If the repo has `scripts/capture-pr-screenshots.mjs` or similar, read it before writing any ad-hoc capture code — it encodes project-specific knowledge (viewport, wait states, naming, handling of auth-gated routes).
 - For projects using Claude Preview / Claude-in-Chrome MCP tools, use those instead of launching a headless browser by hand. They handle the dev-server lifecycle and can interact with auth flows.
-- Don't leave temp files around. Clean up `/tmp/pr-<N>-*` once each PR's attachments are posted.
+- Don't leave capture scratch files around. Clean up `/tmp/pr-<N>-*` once each PR's attachments are posted, except a folder holding screenshot deliverables for the user to inspect or reuse.
 
 ## Afterwards
 

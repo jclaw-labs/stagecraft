@@ -1,6 +1,6 @@
 ---
 name: review-end-decision
-description: Decide for yourself what happens to a PR when a deep-review loop ends without a clean stop: at the round cap with an unreviewed head, with a must-address declined or deferred, on a pivot verdict, on a must- or should-address finding you can neither reproduce nor refute, on red CI outside the diff, on a peer loop, or on running out of context. Use whenever deep-review-orchestrate or review-task-queue escalates, or whenever you are unsure what to do at the end of a review.
+description: Decide for yourself what happens to a PR when a deep-review loop ends without a clean stop: at the round cap with an unreviewed head, with a must-address declined or deferred, on a pivot or split verdict, on a must- or should-address finding you can neither reproduce nor refute, on red CI outside the diff, on a peer loop, or on running out of context. Use whenever deep-review-orchestrate or review-task-queue escalates, or whenever you are unsure what to do at the end of a review.
 ---
 
 # Deciding how a review ends
@@ -19,31 +19,42 @@ places:
   recommendation to close that you record and report ("Close and re-scope", below);
 - one of the few blockers only a person can clear ("What still needs a person", below).
 
-When a caller follows this skill, it overrides three lines in `address-deep-review`: guard 2's
-"Past five, stop and hand the state to the author", its definition of `deferred` as a finding
-"you are handing it to the author rather than acting on it", and "A finding that would pivot the
-design → it belongs to the author. Surface it and stop." A `deferred` row still marks a finding as
-real and unrefuted, but this skill decides what happens to it, and a pivot goes through "Pivot
-verdicts" below. `address-deep-review` is shared with Substack and can't name
-this skill, so the override is stated here.
+When a caller follows this skill, it overrides three lines in `address-deep-review`: "Past three
+rounds (two for a PR under 50 changed lines), stop and hand the state to the author", its
+definition of `deferred` as a finding "handed to the author", and "A finding that would change the design or split the PR belongs to the author:
+surface it and stop." A `deferred` row still marks a finding as real and unrefuted, but this skill decides what
+happens to it, and a design finding goes through "Pivot verdicts" below. It also overrides four of
+`deep-review-orchestrate`'s stopping rules: where it
+says "Those require the author's ruling", this skill's `Decision:` record is that ruling;
+"Stop and hand back on …" routes each listed condition here before anything goes to a person;
+"At the round cap, stop" allows this skill's one extension round; and "only if the author
+explicitly asks for certification" is also met by this skill's certify route or the queue's
+`certification` comment. `address-deep-review` and `deep-review-orchestrate` are shared with
+Substack and can't name this skill, so the override is stated here.
 
 ## Record every decision on the PR
 
 Each decision goes at the end of that round's response comment, as prose under a line that reads
-`Decision:`. Never use a `|` row; `address-deep-review` says why. If the round's response is
-already up, put the decision in a new top-level comment instead. Write it as a few sentences:
+`Decision:`. Never use a `|` row, which would read as another finding. If the round's response is
+already up, put the decision in a new top-level comment instead. Open that comment with
+`<!-- address-deep-review-marker -->`, then this header on one line:
+`<sub><prefix> responded to run <N> (<code><sha></code>) — Decision</sub>`, where `<prefix>` is your model shorthand from `agent-provenance prefix` and `<N>` is the
+newest run that already has a posted response, or 0 if none does. `review-loop-state` stops on a
+response marker without `responded to run N`, and naming a run nobody answered makes it look
+answered. Write it as a few sentences:
 
 - what fired;
 - which branch of this skill you took;
 - the evidence that chose it;
 - what happens next.
 
-That record is the ruling `deep-review-orchestrate` looks for when it asks whether an escalation
-has been answered. The next session reads it instead of re-deciding, so a decision without one
+That record is the ruling `deep-review-orchestrate` reads before it asks for the author's ruling
+on an escalation. The next session reads it instead of re-deciding, so a decision without one
 gets made twice.
 
 A record that makes no decision, such as running out of context or standing down to a peer loop,
-goes under a line that reads `Handover:` instead, in the same place and the same prose form. A
+goes under a line that reads `Handover:` instead, in the same place and the same prose form, with
+`— Handover` in a standalone comment's header. A
 `Handover:` record rules on nothing, so it never answers an escalation. Only a `Decision:` record
 does.
 
@@ -76,18 +87,16 @@ Also read the finding counts across the PR's rounds. Then take the first branch 
    still gets certified; it simply has less to find.
 
 3. **What a certification result means.** Before you treat any result as clean, run
-   `deep-review-orchestrate` step 4's CI comparison on the certified head against the base's
+   `deep-review-orchestrate`'s CI comparison on the certified head against the base's
    failing set. A failure that is red on the base too doesn't block. A failure that is the
    head's counts as a must-address finding below. A job the profile's CI exception covers takes
    the local fallback under "Red CI outside the diff" instead.
    - **Clean:** the head is reviewed and goes to `Ready to merge` as usual.
    - **Findings, none of them must-address:** certification has still reviewed that head, so this
      is a clean stop. File each finding in the tracker as `address-deep-review` routes it. Their
-     rows in the certification response stay `deferred`, as `deep-review-orchestrate` records
-     them before this skill runs. The `Decision:` record names the filed item for each and says
-     the stop is clean. The head may then go to `Ready to merge`. `review-loop-state` still
-     reports `stopped_clean: false` for a certification response with finding rows, so the
-     `Decision:` record is what answers it.
+     rows in the certification response are `deferred`, since certification records every
+     finding without fixing it. The `Decision:` record names the filed item for each and says
+     the stop is clean. The head may then go to `Ready to merge`.
    - **A must-address finding,** from certification or from the CI comparison: take the extension
      round below if it is available, and close and re-scope if it isn't.
 
@@ -169,7 +178,7 @@ Act on its ruling:
 
 ## Pivot verdicts
 
-A reviewer's pivot verdict is a claim like any other finding. Verify the mechanism it rests on
+A pivot verdict, an approach finding under the repo's "Judge the approach before the details" rule, is a claim like any other finding. Verify the mechanism it rests on
 before acting on it, as `deep-review-orchestrate` already says. Run the tests below as soon as the
 verdict lands, before `deep-review-orchestrate` stops without addressing and before it records
 any finding as `deferred`. In PR #238 the reviewer said to defer the pivot and run another round,
@@ -202,6 +211,18 @@ the pivot rests on held, file the pivot in the tracker and record it as declined
 so the next change can still take it. Among pivot verdicts, only a real one stops the round
 without addressing it.
 
+A pivot raised in round 1 has no rounds to repeat and usually names no invariant, so test it on its
+own terms instead. It is real when the simpler or
+different change it sketches meets the issue's acceptance criteria, or the PR description's stated
+requirements when there is no issue, and you confirm that against the code. When you can't tell,
+it is not real: file it in the tracker with what you tried, so the author still sees it, and let
+round 1 decline it with that item.
+
+A split finding, under the root `REVIEW.md`'s split threshold, is real when the hand-written change is past ~400 lines and has a
+clean seam to split along: refactor and feature, or data model, backend, and UI. On a real split,
+close and re-scope into a stack held to `stacked-pr-rules`, as for a real pivot. A seam in a smaller
+PR is not a reason to close: round 1 declines the split with the measured size.
+
 ## A finding you can neither reproduce nor refute
 
 This covers a must- or should-address finding. A `consider` finding you can neither reproduce
@@ -231,7 +252,7 @@ Compare the whole failing set against the base's latest run, job by job.
 - **Every failure also fails on the base:** this is the clean stop `deep-review-orchestrate`
   already allows. Name the base run you compared against.
 - **Not on the base:** any failure that isn't red on the base is the head's, as
-  `deep-review-orchestrate` step 4 says, even when the head also fixes one of the base's. Re-run
+  `deep-review-orchestrate`'s stopping rules say, even when the head also fixes one of the base's. Re-run
   once. If it fails again, file it or add a sighting to the open issue, and treat it as this
   head's must-address finding: it goes back through the loop. At the cap it is the must-address
   that step 3's CI comparison finds, so it takes the extension round if that is available, and

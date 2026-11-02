@@ -249,14 +249,16 @@ EDGES='{}'
 resolve_edges() {
   EDGES="$(jq -c --argjson rec "$RECORD" '
     . as $nodes
-    | (reduce $nodes[] as $x ({};
-        .[$x.headRefName] =
-          (if (.[$x.headRefName] // null) == null then $x.number
-           else ([.[$x.headRefName], $x.number] | min) end))) as $byhead
+    | ($nodes
+        | group_by(.headRefName)
+        | map({ key: .[0].headRefName,
+                value: (sort_by((if .state == "OPEN" then 0 else 1 end), .number) | .[0].number) })
+        | from_entries) as $byhead
     | (reduce $nodes[] as $x ({}; .[$x.number | tostring] = $x.state)) as $state
     | reduce $nodes[] as $x ({};
         (($byhead[$x.baseRefName] // 0) as $live
-         | if $live != 0 and $live != $x.number then $live
+         | if $x.state == "MERGED" and ($rec | has($x.number | tostring)) then $rec[$x.number | tostring]
+           elif $live != 0 and $live != $x.number then $live
            else (($rec[$x.number | tostring] // 0) as $r
                  | if $r != 0 and ($state[$r | tostring] // "OPEN") != "OPEN" then $r else 0 end)
            end) as $p

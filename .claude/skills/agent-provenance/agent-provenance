@@ -13,6 +13,16 @@ import unicodedata
 
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 TARGETS = ("cloud", "local", "either", "both")
+EFFORT_SHORTHAND = {
+    "none": "None",
+    "minimal": "Minimal",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "XHigh",
+    "max": "Max",
+}
+FALLBACK_PREFIX = "[Agent]"
 EFFORT_RE = re.compile(
     rf"-(?P<effort>{'|'.join(EFFORTS)})(?:-fast)?$"
 )
@@ -867,7 +877,7 @@ def cursor_state_path(conversation: str, environ: dict[str, str]) -> str:
     )
 
 
-def cursor_current_record(
+def current_cursor_state(
     conversation: str | None,
     environ: dict[str, str],
 ) -> dict[str, object]:
@@ -882,9 +892,25 @@ def cursor_current_record(
     state = load_cursor_state(cursor_state_path(conversation, environ))
     if state is None:
         raise ProvenanceError("no Cursor provenance state for this conversation")
-    history = state["history"]
+    return state
+
+
+def cursor_current_record(
+    conversation: str | None,
+    environ: dict[str, str],
+) -> dict[str, object]:
+    history = current_cursor_state(conversation, environ)["history"]
     assert isinstance(history, list)
     return normalized_history(history, "local")
+
+
+def cursor_prefix(
+    conversation: str | None,
+    environ: dict[str, str],
+) -> str:
+    active = current_cursor_state(conversation, environ)["active"]
+    assert isinstance(active, dict)
+    return model_shorthand(active["model"])
 
 
 def cursor_hook(
@@ -1069,11 +1095,7 @@ def claude_code_environment(environ: dict[str, str]) -> str:
     return "cloud" if environ.get("CLAUDE_CODE_REMOTE") == "true" else "local"
 
 
-def claude_code_record(
-    transcript_path: str,
-    environ: dict[str, str],
-    target: str | None,
-) -> dict[str, object]:
+def claude_code_entries(transcript_path: str) -> list[tuple[str, str]]:
     try:
         with open(transcript_path, encoding="utf-8") as transcript:
             text = transcript.read()
@@ -1082,7 +1104,7 @@ def claude_code_record(
             f"cannot read Claude Code transcript: {transcript_path}"
         ) from error
     lines = text.split("\n")
-    efforts: dict[str, str] = {}
+    entries: list[tuple[str, str]] = []
     for index, line in enumerate(lines):
         if not line.strip():
             continue
@@ -1109,11 +1131,20 @@ def claude_code_record(
             raise ProvenanceError(
                 f"Claude Code assistant entry on line {index + 1} has no supported effort"
             )
-        efforts[model] = effort
-    if not efforts:
+        entries.append((model, effort))
+    if not entries:
         raise ProvenanceError(
             f"Claude Code transcript has no assistant entries: {transcript_path}"
         )
+    return entries
+
+
+def claude_code_record(
+    transcript_path: str,
+    environ: dict[str, str],
+    target: str | None,
+) -> dict[str, object]:
+    efforts = dict(claude_code_entries(transcript_path))
     environment = claude_code_environment(environ)
     records = [
         normalize([model], environment, target, effort)
@@ -1129,6 +1160,38 @@ def claude_code_record(
     if target is not None:
         result["target"] = target
     return validate_structured_record(result)
+
+
+def model_shorthand(model: dict[str, object]) -> str:
+    modifiers = model["modifiers"]
+    assert isinstance(modifiers, list)
+    if model["line"] is None:
+        return FALLBACK_PREFIX
+    effort = model["effort"]
+    values = [
+        model["line"],
+        model["version"],
+        *modifiers,
+        EFFORT_SHORTHAND[str(effort)] if effort else None,
+    ]
+    return f"[{' '.join(str(value) for value in values if value)}]"
+
+
+def record_prefix(record: dict[str, object]) -> str:
+    if record.get("models_withheld") is True:
+        return FALLBACK_PREFIX
+    models = record["models"]
+    assert isinstance(models, list)
+    if len(models) != 1:
+        raise ProvenanceError(
+            f"record names {len(models)} models; prefix needs the one writing now"
+        )
+    return model_shorthand(models[0])
+
+
+def claude_code_prefix(transcript_path: str) -> str:
+    model, effort = claude_code_entries(transcript_path)[-1]
+    return model_shorthand(model_record(model, effort))
 
 
 def add_style_arguments(command_parser: argparse.ArgumentParser) -> None:
@@ -1190,6 +1253,15 @@ def parser() -> argparse.ArgumentParser:
     claude_code_parser.add_argument("--transcript")
     claude_code_parser.add_argument("--target")
     claude_code_parser.add_argument("--withhold-model", action="store_true")
+    prefix_parser = subparsers.add_parser("prefix")
+    prefix_source = prefix_parser.add_mutually_exclusive_group(required=True)
+    prefix_source.add_argument("--record")
+    prefix_source.add_argument("--claude-code", action="store_true")
+    prefix_source.add_argument("--cursor", action="store_true")
+    prefix_source.add_argument("--model")
+    prefix_parser.add_argument("--effort")
+    prefix_parser.add_argument("--transcript")
+    prefix_parser.add_argument("--conversation")
     return command_parser
 
 
@@ -1247,6 +1319,37 @@ def main() -> int:
                 environ,
                 args.target,
             )
+        elif args.command == "prefix" and not args.claude_code:
+            if args.transcript is not None:
+                raise ProvenanceError("--transcript needs --claude-code")
+            if args.conversation is not None and not args.cursor:
+                raise ProvenanceError("--conversation needs --cursor")
+            if args.cursor:
+                if args.effort is not None:
+                    raise ProvenanceError("--effort needs --model")
+                prefix = cursor_prefix(args.conversation, dict(os.environ))
+            elif args.model is not None:
+                prefix = model_shorthand(model_record(args.model, args.effort))
+            elif args.effort is not None:
+                raise ProvenanceError("--effort needs --model")
+            else:
+                prefix = record_prefix(load_structured_record(args.record))
+            text_result = f"{prefix}\n"
+            result = None
+        elif args.command == "prefix":
+            if args.effort is not None:
+                raise ProvenanceError("--effort needs --model")
+            if args.conversation is not None:
+                raise ProvenanceError("--conversation needs --cursor")
+            environ = dict(os.environ)
+            if claude_code_environment(environ) == "cloud":
+                prefix = FALLBACK_PREFIX
+            else:
+                prefix = claude_code_prefix(
+                    claude_code_transcript(args.transcript, environ)
+                )
+            text_result = f"{prefix}\n"
+            result = None
     except ProvenanceError as error:
         print(f"agent-provenance: {error}", file=sys.stderr)
         return 1

@@ -195,6 +195,10 @@ Select the bottom unmerged PR only. Fetch its exact current base and head, make 
 heads agree, and run `deep-review-orchestrate` through its clean current-head stop or a named
 escalation. Tests and an old approval do not review a newer head.
 
+Before round 1, read the owner issue's latest `Review tier:` comment from the steward or Jackson,
+then set the tier by `deep-review-orchestrate`'s **Review tiers**. A copy or light clean stop is a
+clean stop for section 7. The implementation worker's own view of its tier is not an input.
+
 After a clean review, go to section 7. Do not review a child while its reviewed parent remains
 unmerged: subscribe and wait for that PR to merge before selecting the next PR in the stack.
 
@@ -383,9 +387,8 @@ worker needs a subagent tool of its own. Choose the path from the tools this ses
   subagent for each review, never a resumed one. Cloud agents reject `resume: "self"` (#58). Run it
   in the foreground, since a backgrounded worker ends the monitor's turn mid-loop.
 - **A subagent tool whose subagents cannot dispatch** (Claude Code subagents cannot): run
-  `deep-review-orchestrate` in this session with every addressing pass delegated, as its step 3
-  allows, so each review round and each addressing pass runs in a fresh subagent and this session
-  holds only their indexes, plus round 1's two full reviews, which it folds. Apply the
+  `deep-review-orchestrate` in this session. Each review round runs in a fresh subagent and this
+  session addresses the findings itself. Apply the
   context-limited rule below before every claim.
 - **No subagent tool:** `deep-review-orchestrate` stops before round 1 without one, so claim
   nothing and report it. Run the role from a schedule that starts a fresh agent per tick, such as a

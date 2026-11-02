@@ -82,11 +82,18 @@ operation by the capability and throttle rules under Backend operations rather t
 This is only for GitHub queue traffic; local agents keep their existing authentication, and the
 secret does not apply to Linear, git transport, branch pushes, or pull-request tools.
 
-For a GitHub profile, retain the validated attribution for every comment write and replay:
+For a GitHub profile, resolve the attribution once with `claim-task`'s sibling `task-queue` and
+retain it for every comment write and replay. It is the writing model's shorthand, such as
+`[Opus 5.5 Medium]`, or the profile's `writes.comment_prefix` when the model can't be named:
 
 ```bash
-comment_prefix="$(jq -er '.writes.comment_prefix' "$profile")"
+comment_prefix="$(<claim-skill-dir>/task-queue comment-prefix --profile "$profile")"
 ```
+
+`task-queue`'s own claim and handoff writes resolve the same value. A Claude Code subagent puts
+`TASK_QUEUE_COMMENT_PREFIX=<the prefix its brief names>` on this command and on every
+`task-queue` command, since detection would read its parent's transcript and an export does not
+outlive one shell call.
 
 For a Linear profile, inspect `writes.mutation_capability` before planning a write. A supported
 profile explicitly acknowledges `cooperative-immutable-event-writers` and that hard-delete
@@ -402,6 +409,12 @@ Everything from `In progress` through `Ready to merge` holds its touched files. 
   `Touches`.
 - A merged change closes its owner item and releases its locks.
 - `Ready to merge` has an implementation change and a final review of the exact current head.
+  Its marker's `Tier:` line fits the diff under `deep-review-orchestrate`'s **Review tiers**.
+
+The steward may set a review's tier by posting `Review tier: <copy|light|full> (<reason>)` on the
+owner issue, before the claim or during it. Raise a tier that doesn't fit; lower one only on
+Jackson's word. When you raise the tier of a `Ready to merge` item, return it to `Needs review`
+through a fresh generation, since its review no longer covers the head at the tier it needs.
 
 Reconcile merged changes before refill. For one owner with several PRs, keep the owner open and
 derive `Touches` from remaining unmerged work; close it only after the final PR merges. For an
@@ -450,8 +463,8 @@ standing fact about the repository. A failed job matches only when both hold on 
 
 A job that ran any step, or failed for any other reason, is ordinary CI and gets the usual
 failing-set comparison. Once jobs run real steps again, the exception stops applying by itself;
-there is nothing to switch off. Outside a profile's CI exception, `deep-review-orchestrate` step 4's
-looser zero-step read applies instead.
+there is nothing to switch off. Outside a profile's CI exception, `deep-review-orchestrate`'s
+CI rule applies instead.
 
 **What replaces CI for a matching job.** Don't re-run it, root-cause it, or hold a handoff, a
 clean stop, or a merge on it. Run the suites that cover the change locally instead, and record
