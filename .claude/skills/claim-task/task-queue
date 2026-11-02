@@ -22,6 +22,7 @@ task-queue next [--queue <Ready|Needs review>] [--reviewer <identity>] [--runtim
 task-queue why <issue> [--issues <file>] [--json]
 task-queue settle --scenario <file> [--json]
 task-queue validate-session --session <identity>
+task-queue comment-prefix --profile <file>
 task-queue snapshot --profile <file> [--out <file>]
 task-queue claim <issue> --profile <file> --session <identity> [--review] [--resume] [--out <file>]
 task-queue handoff <issue> --pr <number>... --profile <file> --session <identity> --note-file <file> [--touches <paths>] [--out <file>]
@@ -65,6 +66,16 @@ then issue-fields from the checkout holding it (bin/), then PATH.
             the Needs review intent, the Queue write and the activation,
             clears the Claim projection, and verifies by replay that the new
             visit is claimable and unheld.
+
+  comment-prefix
+            Prints the prefix the GitHub sequences put on every comment: the
+            writing model's shorthand, such as [Opus 5.5 Medium].
+            TASK_QUEUE_COMMENT_PREFIX overrides it, and a Claude Code subagent
+            sets it on every task-queue call to the prefix its brief names,
+            since auto-detection reads the parent's transcript; otherwise agent-provenance reads Claude
+            Code's transcript or local Cursor's active model, and anything it
+            can't name falls back to the profile's writes.comment_prefix.
+            Replay always runs under the profile's prefix.
 
 Reads a normalised issue set and reports the queue in pick order, or why one
 issue is not pickable.
@@ -237,6 +248,37 @@ require_session_token() {
     || die "$name must be a session token: nonempty and without colon, ASCII whitespace, <, or >"
 }
 
+# claim-replay owns the prefix shapes it attributes; any other would fail replay closed.
+is_comment_prefix() {
+  python3 -c 'import runpy, sys
+pattern = runpy.run_path(sys.argv[1])["AGENT_COMMENT_PREFIX"]
+sys.exit(0 if pattern.fullmatch(sys.argv[2] + " ") else 1)' "$2/claim-replay" "$1"
+}
+
+resolve_comment_prefix() {
+  local fallback="$1" here="$2" provenance prefix=""
+  if [ -n "${TASK_QUEUE_COMMENT_PREFIX:-}" ]; then
+    [ "$TASK_QUEUE_COMMENT_PREFIX" = "$fallback" ] || is_comment_prefix "$TASK_QUEUE_COMMENT_PREFIX" "$here" \
+      || die "TASK_QUEUE_COMMENT_PREFIX must be one [Name]-style prefix"
+    printf '%s' "$TASK_QUEUE_COMMENT_PREFIX"
+    return
+  fi
+  provenance="$here/../agent-provenance/agent-provenance"
+  [ -x "$provenance" ] || provenance="$(command -v agent-provenance 2>/dev/null || true)"
+  if [ -n "$provenance" ]; then
+    if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || [ "${CLAUDE_CODE_REMOTE:-}" = true ]; then
+      prefix="$("$provenance" prefix --claude-code 2>/dev/null || true)"
+    elif [ -n "${CURSOR_CONVERSATION_ID:-}" ] && [ -z "${CURSOR_CLOUD_AGENT:-}" ]; then
+      prefix="$("$provenance" prefix --cursor 2>/dev/null || true)"
+    fi
+  fi
+  if is_comment_prefix "$prefix" "$here"; then
+    printf '%s' "$prefix"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
 validate_unique_json() {
   local value="$1" error
   command -v python3 >/dev/null 2>&1 || die "python3 is required"
@@ -270,10 +312,32 @@ except (json.JSONDecodeError, UnicodeDecodeError):
 
 cmd="${1:-}"; shift 2>/dev/null || true
 case "$cmd" in
-  next|why|settle|validate-session|snapshot|claim|handoff) ;;
+  next|why|settle|validate-session|comment-prefix|snapshot|claim|handoff) ;;
   -h|--help|"") usage; exit 0 ;;
-  *) die "unknown command: $cmd (expected next, why, settle, validate-session, snapshot, claim, or handoff)" ;;
+  *) die "unknown command: $cmd (expected next, why, settle, validate-session, comment-prefix, snapshot, claim, or handoff)" ;;
 esac
+
+if [ "$cmd" = comment-prefix ]; then
+  profile_file=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile)
+        [ $# -ge 2 ] || die "--profile needs a value"
+        profile_file="$2"; shift 2
+        ;;
+      -h|--help) usage; exit 0 ;;
+      -*) die "unknown flag: $1" ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [ -n "$profile_file" ] || die "comment-prefix needs --profile"
+  [ -r "$profile_file" ] || die "cannot read profile $profile_file"
+  fallback="$(jq -er '.writes.comment_prefix' "$profile_file")" || die "profile has no writes.comment_prefix"
+  here="$(dirname "$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")"
+  prefix="$(resolve_comment_prefix "$fallback" "$here")" || exit 1
+  printf '%s\n' "$prefix"
+  exit 0
+fi
 
 if [ "$cmd" = validate-session ]; then
   session=""; session_given=0
@@ -321,7 +385,7 @@ gh_setup() {
     || die "$cmd needs a github-issues profile"
   repo="$(jq -er '.tracker.repository' "$profile_file")" || die "profile has no tracker.repository"
   api_version="$(jq -er '.tracker.api_version' "$profile_file")" || die "profile has no tracker.api_version"
-  comment_prefix="$(jq -er '.writes.comment_prefix' "$profile_file")" || die "profile has no writes.comment_prefix"
+  profile_prefix="$(jq -er '.writes.comment_prefix' "$profile_file")" || die "profile has no writes.comment_prefix"
   queue_field="$(jq -er '.tracker.fields.queue' "$profile_file")" || die "profile has no queue field"
   claim_field="$(jq -er '.tracker.fields.claim' "$profile_file")" || die "profile has no claim field"
   if [ -n "${CURSOR_CLOUD_AGENT:-}" ] && [ -z "${GH_JCLAW_LABS_ISSUE_TOKEN:-}" ]; then
@@ -331,6 +395,7 @@ gh_setup() {
   self="$(self_path)"
   local here
   here="$(dirname "$self")"
+  comment_prefix="$(resolve_comment_prefix "$profile_prefix" "$here")"
   claim_replay="$here/claim-replay"
   [ -x "$claim_replay" ] || die "claim-replay is missing beside $self"
   # Bundled beside this file first, then the checkout that contains it (a
@@ -434,10 +499,10 @@ replay_issue() {
     return 1
   fi
   "$claim_replay" github --input "$scratch/comments-$issue.json" \
-    --queue-state "$state" --comment-prefix "$comment_prefix" --json \
+    --queue-state "$state" --comment-prefix "$profile_prefix" --json \
     >"$dest" 2>"$scratch/replay-error" && return 0
   "$claim_replay" github --input "$scratch/comments-$issue.json" \
-    --queue-state "$state" --comment-prefix "$comment_prefix" --recover-root --json \
+    --queue-state "$state" --comment-prefix "$profile_prefix" --recover-root --json \
     >"$scratch/recovered.json" 2>"$scratch/recover-error" || {
     if grep -q 'activated root recovery failed' "$scratch/recover-error"; then
       sed 's/^claim-replay: \(.*\)/(\1)/' "$scratch/recover-error" >>"$scratch/replay-error"
@@ -904,7 +969,7 @@ cmd_handoff() {
   fi
 
   case "$note" in
-    "[Agent] "*|"[Cursor] "*|"$comment_prefix "*) ;;
+    "[Agent] "*|"[Cursor] "*|"$comment_prefix "*|"$profile_prefix "*) ;;
     *) note="$comment_prefix $note" ;;
   esac
   post_comment "$issue" "$note" >/dev/null

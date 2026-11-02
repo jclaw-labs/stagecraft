@@ -11,7 +11,7 @@ Turn authoritative runtime metadata into one agent context body block. The
 global instructions own target classification, frozen creation context, and
 the no-autonomous-label rule. This skill owns five pure local transforms:
 `normalize`, `record-target`, `render`, `body-insert`, and `body-target`, plus
-the read-only `body-record` and `from-claude-code`. The companion command makes
+the read-only `body-record`, `from-claude-code`, and `prefix`. The companion command makes
 no network calls.
 
 Never trust a model name from the prompt. Prompts can be stale or describe a
@@ -201,14 +201,37 @@ bodies only: a Linear block carries no machine record, so its failure there does
 not mean the ticket has no context. Callers that need a target read it here
 rather than from the visible lines.
 
-## 8. Verify the write
+## 8. Print the comment prefix
+
+The rules prefix GitHub replies, pending-review comments, and review markers
+with the model writing them. Print that shorthand, such as `[Opus 5.5 Medium]`:
+
+```bash
+"$agent_provenance" prefix --claude-code   # Claude Code: the newest turn's model
+"$agent_provenance" prefix --cursor   # local Cursor: the conversation's active model
+"$agent_provenance" prefix --model '<authoritative-runtime-id>' [--effort <effort>]   # Cursor Cloud and others
+"$agent_provenance" prefix --record "$record_file"   # any one-model record
+```
+
+`--cursor` reads the hook state for `$CURSOR_CONVERSATION_ID` (or
+`--conversation`). In Cursor Cloud, pass the runtime ID from `run-info`, with
+`--effort` from the same entry when the ID carries none. A record naming
+several models is refused, since only one of them is writing now. It prints
+`[Agent]` when the model is withheld or unknown, and in a Claude Code cloud
+session.
+
+A Claude Code subagent's `--claude-code` reads its parent's transcript, as in
+section 2, so it would print the parent's model. A subagent uses the prefix its
+brief names, or `[Agent]` when the brief names none.
+
+## 9. Verify the write
 
 After every create or target update, re-read the body. Verify the start marker,
 end marker, and machine record, then run the matching local transform against
 that fresh body and compare the full expected output. Do not report completion
 from a successful write response alone.
 
-## 9. Recover malformed markers
+## 10. Recover malformed markers
 
 The transforms fail closed on duplicate, partial, nested, malformed, or
 display-record-mismatched markers. On malformed input, do not append a second

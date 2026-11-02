@@ -48,12 +48,19 @@ sessions), it skips the definition check and checks the data type of every value
 instead; reads and writes use only `repos/{owner}/{repo}/...` REST paths. A failure means the queue is unavailable;
 stop rather than improvising a parallel scheme out of labels or body prose.
 
-After validating the GitHub profile, read its attribution once and use that exact value for
-every protocol comment and replay:
+After validating the GitHub profile, resolve its attribution once and use that exact value for
+every protocol comment and replay. It is the writing model's shorthand, such as
+`[Opus 5.5 Medium]`, falling back to the profile's `writes.comment_prefix` when the model can't be
+named (see `task-queue comment-prefix` in its usage):
 
 ```bash
-comment_prefix="$(jq -er '.writes.comment_prefix' "$profile")"
+comment_prefix="$(<claim-task-skill-dir>/task-queue comment-prefix --profile "$profile")"
 ```
+
+`task-queue`'s own claim and handoff writes resolve the same value. A Claude Code subagent puts
+`TASK_QUEUE_COMMENT_PREFIX=<the prefix its brief names>` on this command and on every
+`task-queue` command, since detection would read its parent's transcript and an export does not
+outlive one shell call.
 
 ## Session identity
 
@@ -281,10 +288,11 @@ Never activate before the Queue write succeeds.
 
 The GitHub attribution prefix is part of the supported write shape. Nothing else may precede
 or follow the marker; marker-only comments remain readable as legacy history. Write only the
-profile's `comment_prefix`. `claim-replay` reads protocol comments that start with either known
-agent prefix, `[Agent]` or the retired `[Cursor]`, as attributed history whichever one the
-profile names, so generations opened before the profile moved to `[Agent]` keep replaying and a
-session that read `[Cursor]` before the change still replays `[Agent]` comments.
+resolved `comment_prefix`. `claim-replay` reads protocol comments that start with any agent
+prefix as attributed history whichever one the profile names: a model shorthand (a name, a
+version, then optional words), `[Agent]`, or the retired `[Cursor]`. Sessions on different
+models therefore replay each other's events, and a foreign prefix such as `[Imposter]` still
+fails closed.
 
 GitHub replay is executable, not prose. Fetch all issue comments with numeric `databaseId`,
 `createdAt`, `updatedAt`, and `body`, add the current Claim field as `claim_projection` in a
