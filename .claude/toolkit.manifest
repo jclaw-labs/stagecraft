@@ -2,7 +2,7 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	ea830b6dc0a56686f2f32c28133ee80589635fee
+commit	610d7fccbfd1057162cde382ff6224bbc76e47ff
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
@@ -21,7 +21,6 @@ file	aa08fe3b2fcf2a0ac5c1e18b4682b17a69b3e847	.claude/skills/deep-review-orchest
 file	da77bb1b7ad3e6bfce5a600fd4b6c40f073f0d32	.claude/skills/deep-review-orchestrate/review-loop-state
 file	831775ae82582addfbfd44ab3903fb8adacbf2ea	.claude/skills/deep-review/SKILL.md
 file	495557546591f6c1bba4280185fbf51be2150082	.claude/skills/design-exploration/SKILL.md
-file	deea68ba8a0f40bb591d2e2dff092146b98743dd	.claude/skills/oncall-monitor/SKILL.md
 file	5bc2ea0b6403bbf5e2bb7b1bb3d0107c19828d69	.claude/skills/pr-body-rules/SKILL.md
 file	fd0c3563ed08311d3c6b37bb8a4d720a28066dbe	.claude/skills/resolve-conflicts/SKILL.md
 file	dcd862fd234375a05ce8fc8c70ce0ffea3428e6f	.claude/skills/review-end-decision/SKILL.md
