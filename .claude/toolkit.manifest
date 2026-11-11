@@ -2,7 +2,7 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	610d7fccbfd1057162cde382ff6224bbc76e47ff
+commit	2bdbf542db176d676e717e82a2d3597f04d80106
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
@@ -17,17 +17,17 @@ file	fb1f774500ef12f0dcf4c5daa2cc7295c91e55a1	.claude/skills/codex-queue/codex-t
 file	00b56a61d36664530b9eef009a2b7f45e94b1a0d	.claude/skills/create-pr/SKILL.md
 file	99c35736e4330f65c1c1644abd99ad0ab60b4516	.claude/skills/create-pr/lib/restack-common.sh
 file	9da2e84336303315ea7399e8e8854ecd33d9497e	.claude/skills/create-pr/pr-stack-section
-file	aa08fe3b2fcf2a0ac5c1e18b4682b17a69b3e847	.claude/skills/deep-review-orchestrate/SKILL.md
+file	542607b90f16a89dd2871b23d2b5f419909f13fb	.claude/skills/deep-review-orchestrate/SKILL.md
 file	da77bb1b7ad3e6bfce5a600fd4b6c40f073f0d32	.claude/skills/deep-review-orchestrate/review-loop-state
 file	831775ae82582addfbfd44ab3903fb8adacbf2ea	.claude/skills/deep-review/SKILL.md
 file	495557546591f6c1bba4280185fbf51be2150082	.claude/skills/design-exploration/SKILL.md
 file	5bc2ea0b6403bbf5e2bb7b1bb3d0107c19828d69	.claude/skills/pr-body-rules/SKILL.md
 file	fd0c3563ed08311d3c6b37bb8a4d720a28066dbe	.claude/skills/resolve-conflicts/SKILL.md
 file	dcd862fd234375a05ce8fc8c70ce0ffea3428e6f	.claude/skills/review-end-decision/SKILL.md
-file	c7fab27f589263fc70da3a0629ad1a1f0b544533	.claude/skills/review-task-queue/SKILL.md
+file	3dc55b2f8d4099868da77b84e5cafd7f46753467	.claude/skills/review-task-queue/SKILL.md
 file	7d896d72487d1a408f1120384e28d9e790878a61	.claude/skills/rfc-review/SKILL.md
 file	af6e4d3f02daaa9696d9683135ffbec79b811744	.claude/skills/stacked-pr-rules/SKILL.md
-file	ccf6e5d08ecb93c821c4e87a3c4854651d7c9243	.claude/skills/steward-task-queue/SKILL.md
+file	bedcb39a50c765426ad3372eb2f7cd1e8603aaa3	.claude/skills/steward-task-queue/SKILL.md
 file	dc791b32b4f908a1b6829b189aca190bf8612ac9	.claude/skills/steward-task-queue/linear-adapter
 file	36bef9542e4ae61b30fbedc962df40dce694369d	.claude/skills/steward-task-queue/profile.schema.json
 file	35a8f0ad262df07db001e4a1775e8d28e5ed4a7d	.claude/skills/steward-task-queue/profiles/example-linear.json
