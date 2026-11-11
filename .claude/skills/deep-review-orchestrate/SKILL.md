@@ -21,8 +21,8 @@ another human reviewer.
 - Read this skill's siblings `deep-review` and `address-deep-review`. When the PR
   edits guidance, follow installed copies outside the branch under review and
   evaluate the branch's copies only as changes.
-- Run the relevant local checks before dispatching, using the repo's documented
-  test commands. Give reviewers the actual commands and measured suite times.
+- Except for a glance review, run the relevant local checks before dispatching,
+  using the repo's documented test commands. Give reviewers the actual commands and measured suite times.
 - Read previous review and response comments. Get the next round with
   `bash <this-skill-dir>/review-loop-state <PR> <owner/repo>` (requires `gh` and
   `jq`). It lists rounds and comment URLs, not verdicts. Resume an interrupted
@@ -36,7 +36,8 @@ another human reviewer.
   `git diff --shortstat <base>...<head>` shows fewer than 50 lines added plus
   removed, otherwise three. Record the cap with the round records and keep it on
   resume, even if later fixes grow the diff.
-- Set the review tier once, before round 1, as **Review tiers** below describes.
+- Set the review tier once, before round 1, by the assessment **Review tiers**
+  below describes.
 
 ## Review tiers
 
@@ -45,39 +46,81 @@ as it stands before round 1. Someone running this skill by hand gets `full` unle
 they name a tier. Every tier still posts a review marker, because a merge must stay
 a reviewed merge; the tiers change how much review that marker stands for.
 
-- **copy**: every changed line is user-visible text, a code comment, or Markdown
-  documentation, and at most 40 lines are added plus removed. No identifier,
-  condition, number, format placeholder, or test changes. Rewording "No live
-  finds" to "No finds" is copy.
-- **light**: at most 80 lines added plus removed outside test files, in at most
-  four files. No new or upgraded dependency, no removed or weakened test
-  assertion, and nothing in the repo's full-review areas. Those are always
-  persisted models or storage, migrations, model prompts or model choice, auth,
-  credentials, entitlements or permissions, CI, and build or project config, plus
-  any `## Full-review paths` the repo's `REVIEW.md` lists.
-- **full**: everything else, and every PR whose tier you can't place.
+### Assess
 
-Choose the higher tier when unsure. Required checks must be green on the head, or
-fail only where the base's latest build fails, before a copy or light review
-starts; otherwise use `full`. A later `Review tier:` comment on the owner issue
-from the steward or Jackson overrides your pick, and Jackson's word wins over the
-steward's.
+Dispatch a fresh assessment subagent at the main model, never a cheaper one,
+because rating a PR too low costs far more than rating it too high. Give it the
+PR's diff and `git diff --stat <base>...<head>`, the owner issue, and the repo's
+`REVIEW.md`. It runs nothing and returns only the three ratings below, each
+`low`, `medium` or `high` with a one-line reason, and the tier they give. Keep
+the diff out of this session's context. The implementer's own view of its PR is
+not an input, and a detailed issue or spec lowers none of the ratings.
 
-Copy and light run one round. Add to the reviewer brief: `Tier: <copy|light>.
+1. **Risk: what happens if this is wrong?**
+   - `low`: easy to undo and noticed right away, because tests cover it or it is
+     visible on screen. Layout, wording, a local refactor.
+   - `medium`: user-facing behavior changes, but nothing is lost and the next
+     build fixes it.
+   - `high`: anything persisted or hard to undo, or anything that can fail
+     silently. Always high: persisted models or storage, migrations, model
+     prompts or model choice, auth, credentials, entitlements or permissions,
+     analytics or any data that leaves the device, CI, build or project config,
+     a new or upgraded dependency, a removed or weakened test assertion, and any
+     `## Full-review paths` the repo's `REVIEW.md` lists.
+2. **Commitment: how much does this lock in, whoever decided it?**
+   - `low`: a local change a later PR can swap out freely.
+   - `medium`: a new view, setting, or behavior users will notice.
+   - `high`: a new pattern, abstraction, dependency, data shape, API, or product
+     behavior that other work will build on.
+3. **Complexity: how hard is it to get right?**
+   - `low`: straight-line code with obvious cases.
+   - `medium`: a few interacting branches or edge cases in one place, or a
+     change spread across enough files that a reviewer can't hold it all at once.
+   - `high`: state machines, concurrency or async ordering, caching and
+     invalidation, parsing, date and time math, many edge cases, or logic that
+     spans several modules.
+
+### Pick the tier
+
+The tier follows the highest of the three ratings:
+
+- **glance**: all three `low`. Wording, comments, docs, a renamed constant.
+- **light**: nothing above `medium`.
+- **full**: any `high`, or any rating the assessor can't place.
+
+Choose the higher tier when unsure. Required checks must be
+green on the head, or fail only where the base's latest build fails, before a
+glance or light review starts; otherwise use `full`. A later `Review tier:`
+comment on the owner issue from the steward or Jackson overrides the assessment,
+and Jackson's word wins over the steward's.
+
+### Run the tier
+
+Glance and light run one round. Add to the reviewer brief: `Tier: <glance|light>.
 Report only must and should findings, and consider findings you can show in under
-a minute.` For copy, also add: `Confirm every change is wording only and follows
-the repo's copy rules. Run no suite and no mutation probes.` For light, cap the
-reviewer at 15 minutes and three mutation probes. The marker's first line after
-the header reads `Tier: <tier> (<one-line reason>)`.
+a minute.`
+
+- **glance**: dispatch the reviewer on Sonnet at low effort, and skip this
+  skill's local checks; the required checks stand in for them. Also add: `Read
+  the diff and the required checks' results only. Don't check out, build, run
+  suites or mutation probes. If the diff doesn't fit the assessment's low
+  ratings, say so as a must finding.` Cap the reviewer at 10 minutes.
+- **light**: the main model. Cap the reviewer at 15 minutes and three mutation
+  probes.
+- **full**: the loop below, unchanged.
+
+The marker's first line after the header reads `Tier: <tier> (risk <rating>:
+<reason>; commitment <rating>: <reason>; complexity <rating>: <reason>)`, or
+names the `Review tier:` comment that set it.
 
 When the round has no `must` and no `should` `defect` finding, file the rest and
 stop clean on that head; that is the whole review. Otherwise the review becomes
 `full`: address the round as step 4 says, record `Tier: full (raised from <tier>:
 <finding>)` in the response, count it as round 1, and continue under the full
-loop's cap. A copy review that finds a non-wording change raises the same way.
-A tier only goes up within one review. If the head moves for any reason other
-than this loop's own fix, set the tier again from the whole diff, never lower
-than before.
+loop's cap. A glance review that finds the diff doesn't fit its low ratings
+raises the same way. A tier only goes up within one review. If the head moves for
+any reason other than this loop's own fix, assess again from the whole diff with
+a fresh assessment subagent, and never set a lower tier than before.
 
 ## Each round
 

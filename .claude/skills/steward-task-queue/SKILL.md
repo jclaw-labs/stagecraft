@@ -411,7 +411,7 @@ Everything from `In progress` through `Ready to merge` holds its touched files. 
 - `Ready to merge` has an implementation change and a final review of the exact current head.
   Its marker's `Tier:` line fits the diff under `deep-review-orchestrate`'s **Review tiers**.
 
-The steward may set a review's tier by posting `Review tier: <copy|light|full> (<reason>)` on the
+The steward may set a review's tier by posting `Review tier: <glance|light|full> (<reason>)` on the
 owner issue, before the claim or during it. Raise a tier that doesn't fit; lower one only on
 Jackson's word. When you raise the tier of a `Ready to merge` item, return it to `Needs review`
 through a fresh generation, since its review no longer covers the head at the tier it needs.

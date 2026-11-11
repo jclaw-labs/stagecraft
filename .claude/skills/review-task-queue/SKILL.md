@@ -196,7 +196,7 @@ heads agree, and run `deep-review-orchestrate` through its clean current-head st
 escalation. Tests and an old approval do not review a newer head.
 
 Before round 1, read the owner issue's latest `Review tier:` comment from the steward or Jackson,
-then set the tier by `deep-review-orchestrate`'s **Review tiers**. A copy or light clean stop is a
+then set the tier by `deep-review-orchestrate`'s **Review tiers**. A glance or light clean stop is a
 clean stop for section 7. The implementation worker's own view of its tier is not an input.
 
 After a clean review, go to section 7. Do not review a child while its reviewed parent remains
