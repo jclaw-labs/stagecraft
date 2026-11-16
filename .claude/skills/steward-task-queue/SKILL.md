@@ -14,7 +14,6 @@ schedules the next tick only after the current one completes.
 - Profile contract: [profile.schema.json](profile.schema.json)
 - Owner-wide GitHub Issues profile, used by every `jclaw-labs` repository including local-config: [profiles/owners/jclaw-labs.json](profiles/owners/jclaw-labs.json)
 - Linear profile: [profiles/example-linear.json](profiles/example-linear.json)
-- Substack Linear profile: [profiles/substackinc--substack.json](profiles/substackinc--substack.json)
 
 ## Ordered workflow
 

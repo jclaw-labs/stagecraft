@@ -2,7 +2,7 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	2bdbf542db176d676e717e82a2d3597f04d80106
+commit	bc1137e703e787e37f5d446461d6e73f9da55efb
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
@@ -27,12 +27,11 @@ file	dcd862fd234375a05ce8fc8c70ce0ffea3428e6f	.claude/skills/review-end-decision
 file	3dc55b2f8d4099868da77b84e5cafd7f46753467	.claude/skills/review-task-queue/SKILL.md
 file	7d896d72487d1a408f1120384e28d9e790878a61	.claude/skills/rfc-review/SKILL.md
 file	af6e4d3f02daaa9696d9683135ffbec79b811744	.claude/skills/stacked-pr-rules/SKILL.md
-file	bedcb39a50c765426ad3372eb2f7cd1e8603aaa3	.claude/skills/steward-task-queue/SKILL.md
+file	bea8b141da7c5bf95c1d28487652bd6fd097527f	.claude/skills/steward-task-queue/SKILL.md
 file	dc791b32b4f908a1b6829b189aca190bf8612ac9	.claude/skills/steward-task-queue/linear-adapter
 file	36bef9542e4ae61b30fbedc962df40dce694369d	.claude/skills/steward-task-queue/profile.schema.json
 file	35a8f0ad262df07db001e4a1775e8d28e5ed4a7d	.claude/skills/steward-task-queue/profiles/example-linear.json
 file	5f34fb2d4afa4bdaffb8f5d7e06a83232291e3ae	.claude/skills/steward-task-queue/profiles/owners/jclaw-labs.json
-file	d8df0973a6a733c43588ceb2f41e81673a757dc7	.claude/skills/steward-task-queue/profiles/substackinc--substack.json
 file	470d5771a54fa1866c4a49e30e71da060fa911b4	.claude/skills/steward-task-queue/resolve-profile
 file	3001cb60e5bb18f1a806ce4abc7c8993343a9019	.claude/skills/steward-task-queue/validate-profile
 file	535ad6260b194e5c860f8bc55b837e97a89793ad	.claude/skills/steward-task-queue/validate-profile-schema
