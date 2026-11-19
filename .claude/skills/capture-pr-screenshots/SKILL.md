@@ -113,9 +113,11 @@ GitHub plays video only from the `user-attachments` URLs that `gh --attach` mint
 
 ### Quality check before attaching
 
-When the screenshot files are deliverables the user will want to inspect or reuse, save the batch in its own `/tmp` folder. On macOS, reveal that folder in Finder with `open <folder>` after capture. Keep the folder available for the user and name its path in your final reply.
+When the screenshot files are deliverables the user will want to inspect or reuse, save the batch in its own `/tmp` folder. Don't reveal it in Finder. Keep the folder available for the user and name its path in your final reply.
 
-Open each file in a preview app (or `open <file>` on macOS). If you can't find the changed element in the screenshot within 3 seconds, the screenshot isn't useful — re-capture.
+When you captured from a local dev server, leave it running after capture and give the user a link to the dev page that shows the change, with the sign-in it needs, so they can tinker. Stop it only when the user asks.
+
+Look at each file yourself (read the image). If you can't find the changed element in the screenshot within 3 seconds, the screenshot isn't useful — re-capture.
 
 Common miss: the element is technically rendered but too small to see, or hidden by another layer, or the capture ran before the page finished loading. Fix these before attaching.
 

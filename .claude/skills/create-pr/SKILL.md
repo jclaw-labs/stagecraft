@@ -421,13 +421,13 @@ After the draft PR exists, offer to wire up screenshots. Skip the question (and 
 
 First, offer to **take the screenshots yourself**. Ask via the structured multiple-choice UI (the `AskQuestion` tool / native question card) whenever the harness provides one; options should be clickable and self-describing — never bare numeric codes like `done 2` that the user has to decode:
 
-- **Take them for me** — you capture the screenshots (dev server + browser, simulator, etc.). On a local machine, save them to their own folder under `/tmp`, reveal that folder in Finder, and attach the files with `gh --attach`. In this path, **you choose the format** (pick whatever fits the images best — plain inline, two-column, or captioned) and skip the format question and the format-specific input in 11.4; go straight from parsing (11.2) and order confirmation (11.3) to rendering (11.5).
+- **Take them for me** — you capture the screenshots (dev server + browser, simulator, etc.). On a local machine, save them to their own folder under `/tmp` and attach the files with `gh --attach`. In this path, **you choose the format** (pick whatever fits the images best — plain inline, two-column, or captioned) and skip the format question and the format-specific input in 11.4; go straight from parsing (11.2) and order confirmation (11.3) to rendering (11.5).
 - **I'll upload my own** — the user captures and uploads their own screenshots; continue with the upload instructions and format question below.
 - **Skip** — leave the Screenshots section blank.
 
-If the user chose "take them for me" on a local machine, run `gh --version` before capturing. `gh --attach` needs `gh` 2.99.0 or newer. If the installed version is older, update it with the package manager that installed it and check the version again. If it cannot be updated, stop and ask whether to use the browser upload fallback instead of attempting an unsupported flag. When the user accepts, capture the screenshots, reveal their folder in Finder, follow the browser fallback below, and do not enter the attachment path.
+If the user chose "take them for me" on a local machine, run `gh --version` before capturing. `gh --attach` needs `gh` 2.99.0 or newer. If the installed version is older, update it with the package manager that installed it and check the version again. If it cannot be updated, stop and ask whether to use the browser upload fallback instead of attempting an unsupported flag. When the user accepts, capture the screenshots, name their folder's path, follow the browser fallback below, and do not enter the attachment path.
 
-Once the version preflight passes, capture the screenshots and reveal their folder in Finder. Do not send the user to the PR body editor on this path; keep browser editing paused until attachment verification finishes.
+Once the version preflight passes, capture the screenshots. Don't reveal their folder in Finder. Do not send the user to the PR body editor on this path; keep browser editing paused until attachment verification finishes.
 
 `gh pr edit --attach` is a whole-body write: the CLI reads the current body, uploads the files, then writes its captured body plus attachment markdown. The body-clobber guard cannot see that hidden read/write pair. Before attaching:
 
@@ -585,6 +585,11 @@ stacking order), a one-line note naming the other stack PRs whose bodies you
 touched — the outline refresh in step 10 and any `/merge-stack` reminder you
 backfilled in step 6 — and a one-line note if a screenshot upload failed (so
 they know to attach manually).
+
+If you captured the screenshots from a local dev server, also give a link to the
+dev page that shows the change, signed in as the user the screenshots used (say
+which), and leave that server running so the user can tinker. Don't stop it
+unless the user asks.
 
 ## Editing an existing PR body
 
