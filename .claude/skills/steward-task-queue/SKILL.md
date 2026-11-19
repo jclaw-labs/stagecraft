@@ -485,7 +485,8 @@ no-change ticks concise, but always include all three supply counts and integrit
 
 Re-arm only after the tick, writes, and report complete. Prefer a product-native recurring
 monitor. Otherwise use an inspectable persistent terminal sleeper. Use the profile's
-`cadence_minutes.steward`; never schedule a successor before the current tick finishes.
+`cadence_minutes.steward`; never schedule a successor before the current tick finishes. In a
+Claude project, run the daily review under **Tidying project threads** before re-arming.
 
 **A context-limited steward starts no tick.** A tick needs room for a full audit, its repairs and
 writes, and the report. When the steward lacks that room, or shows a signal under **Replacing a
@@ -536,6 +537,62 @@ The fresh session validates its own session token and starts from its role's sec
 first tick or fresh live inputs. Nothing in the handoff replaces a live read. Once the fresh session
 is running, with its token validated and its monitor armed, the old session ends its subscriptions
 and monitors and stops. Two sessions in one role overlap only for that moment.
+
+## Tidying project threads
+
+This section applies only when the steward runs as a thread in a Claude project. It keeps the
+project's open threads down to the ones that still need something, so Jackson's thread list stays
+truthful.
+
+A thread session can resolve only its own thread. Only the coordinator can resolve another thread
+or stop another thread's Remote Control session. So every thread resolves itself when its work is
+done, and the steward finds the ones that didn't and sends the coordinator a list.
+
+**When.** Once a day: after a tick's report and before re-arming, when the last thread review was
+more than 24 hours ago. Put the time of each review in that tick's report so the next tick can tell.
+A context-limited steward skips it along with the tick.
+
+**What to read.** List the open threads with `list_threads` and read each one with `read_thread`.
+Check each thread's PRs with `list_prs` and its issues in the tracker. Live state decides, not what a
+thread last said about itself.
+
+**Keep open:**
+
+- a standing role thread that is still running: the steward, a worker, a reviewer, or a Codex queue
+  thread;
+- a thread with an open PR or an open issue it owns;
+- a thread waiting on Jackson: a question, a decision, a review, a merge, or a reminder;
+- a thread that has not yet sent its final report.
+
+**Resolve** a thread when every PR it opened is merged or closed, every issue it owns is closed or
+has moved into the queue as an issue of its own, nothing in it waits on Jackson, and its final report
+is sent.
+
+**Stop Remote Control** for a standing role thread that has been replaced or spun down and whose
+session is still connected on Jackson's Mac.
+
+A thread you can't place stays open and goes in the list as unknown, with what you couldn't check.
+
+**Stranded work.** A thread can hold work the queue doesn't know about: a fix it promised, a
+follow-up it named, or a task it started and never finished, with no open PR and no queue issue.
+This is most likely on a thread that is `failed` or `stopped`, or idle for more than a day with its
+work unfinished. Search open issues and PRs for it first. If nothing covers it, file it as a queue
+issue in `Triage`, with what the thread found, what is left, and a link to the thread, so the next
+tick value-tests it like any other item. A match gets a comment linking the thread instead. Then list
+the thread to resolve, naming the issue. When the thread is still alive and only waiting on Jackson,
+leave the work with it.
+
+**Stuck waiting.** A thread whose question, decision, or review has waited on Jackson for more than two
+days goes in the list as stale, with the question quoted and how long it has waited. It stays open.
+List it again only after another two days without an answer.
+
+**Send one list to the coordinator.** When any thread should be resolved or stopped, or is stale,
+send one message to the coordinator (`message_coordinator`, or `send_message` to `@parent` from a
+Remote Control thread). Give each thread's title and link, the action, and the evidence, such as
+"PR #812 merged 2026-11-18, issue #790 closed" or "filed issue #820 for its unfinished retry fix".
+Send nothing when the list is empty, and don't list again a thread the coordinator kept open unless
+its state has changed since. The coordinator rechecks each entry before acting and brings stale
+waits back to Jackson. The steward sends the list only to the coordinator, never to Jackson.
 
 ## Backend operations
 
