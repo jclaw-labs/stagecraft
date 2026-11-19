@@ -2,19 +2,19 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	bc1137e703e787e37f5d446461d6e73f9da55efb
+commit	9d383c2cf64fc6601ea8f4a8dc7ddf6e7bceb1a6
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
 file	4b3ba0e8dac4c4b2188f4391e54a0dd9f81faff4	.claude/skills/agent-provenance/agent-provenance
-file	567f009a5f5a574d9f11835b54f3691a0f350347	.claude/skills/capture-pr-screenshots/SKILL.md
+file	53c8cd424219084d428902cccc6ba85e5ed845b9	.claude/skills/capture-pr-screenshots/SKILL.md
 file	972f5fb41e353ad1db75b6edfaff86ffa386fa7c	.claude/skills/claim-task/SKILL.md
 file	f2c79fd62eee1e3b6dcba9f1c491f79c4b815c01	.claude/skills/claim-task/claim-replay
 file	874ba97c3c3967e5bf0a32671c8bab78b43e652b	.claude/skills/claim-task/issue-fields
 file	1836f3e0672e9d7b665efa6fb2aa759a2f375f46	.claude/skills/claim-task/task-queue
 file	92348f4b6c2a47b6d499c9a94058e891ba8da01a	.claude/skills/codex-queue/SKILL.md
 file	fb1f774500ef12f0dcf4c5daa2cc7295c91e55a1	.claude/skills/codex-queue/codex-tick.sh
-file	00b56a61d36664530b9eef009a2b7f45e94b1a0d	.claude/skills/create-pr/SKILL.md
+file	9c381502dfa9df452f0e9136f368e47f4b7116eb	.claude/skills/create-pr/SKILL.md
 file	99c35736e4330f65c1c1644abd99ad0ab60b4516	.claude/skills/create-pr/lib/restack-common.sh
 file	9da2e84336303315ea7399e8e8854ecd33d9497e	.claude/skills/create-pr/pr-stack-section
 file	542607b90f16a89dd2871b23d2b5f419909f13fb	.claude/skills/deep-review-orchestrate/SKILL.md
