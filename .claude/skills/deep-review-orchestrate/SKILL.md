@@ -105,8 +105,9 @@ a minute.`
   the diff and the required checks' results only. Don't check out, build, run
   suites or mutation probes. If the diff doesn't fit the assessment's low
   ratings, say so as a must finding.` Cap the reviewer at 10 minutes.
-- **light**: the main model. Cap the reviewer at 15 minutes and three mutation
-  probes.
+- **light**: dispatch the reviewer on Sonnet at medium effort. Use the main model
+  instead when the diff changes UI code or a path the repo's `REVIEW.md` lists under
+  `## Main-model paths`. Cap the reviewer at 15 minutes and three mutation probes.
 - **full**: the loop below, unchanged.
 
 The marker's first line after the header reads `Tier: <tier> (risk <rating>:
