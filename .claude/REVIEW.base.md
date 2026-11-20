@@ -42,6 +42,9 @@ Commits that answer earlier comments are the least-exercised code in the PR.
 - Layered patches on an earlier attempt instead of a coherent rewrite.
 - Comments that narrate the change or are written for the reviewer.
 
+**Fallbacks look like what they are**
+A value shown when real data is missing (a cut-down title, a default place or category, a placeholder name) needs a check of what it renders: a test of the rendered output or a screenshot of that state. Store a missing value as missing, not as the default it displays as, so later work can still fill it and a check can tell the two apart.
+
 **Names match what the code does**
 Flag a `get*` that mutates its input or has side effects, an `is*` / `has*` that isn't boolean, a name that describes the implementation instead of the intent, and anything exported only so a test can reach it.
 
@@ -60,5 +63,13 @@ A test must exercise the delivered path (the route, or the component mounted thr
 **Descriptions explain motivation and evidence**
 A description explains why the change is made, not a recap of the diff. A change to what users see needs screenshots. Past about 400 hand-written changed lines, not counting generated files and lockfiles, name the seam it should be split along.
 
+**Screenshots are checked evidence**
+A UI change with no screenshots of the changed element, and no stated reason such as no visual delta, is a must finding. So is a screenshot set the repo's `REVIEW.md` calls for that is incomplete. List each screenshot in the review as viewed, with any finding.
+
 **Clean up what the change leaves dead; keep unrelated edits out**
 Ask for removal of anything the PR makes dead, and flag unrelated edits, stray files, and documentation churn the change doesn't need.
+
+## Keeping the repo's REVIEW.md useful
+
+**Turn each bug into a rule or a check**
+A bug-fix PR adds its lesson to the repo's `REVIEW.md` as a general rule, or says in its body why none fits. Prefer a check that fails on the bug over a rule. Fold a lesson into an existing rule when one covers it, and cite the issue or PR once. Keep the file under about 200 lines; past that, the steward merges or cuts rules, starting with ones a check now enforces.

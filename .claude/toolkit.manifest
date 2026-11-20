@@ -2,8 +2,8 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	861d3a1bc2858447aaf59dcd9a1dd7a2d732dab5
-file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
+commit	6c3dbb5b496092a2caf1daf64fb79bcea131bae7
+file	1a74b3bb42a88c583fef5573834c2a4c239ff34b	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
 file	4b3ba0e8dac4c4b2188f4391e54a0dd9f81faff4	.claude/skills/agent-provenance/agent-provenance
