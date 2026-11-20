@@ -2,7 +2,7 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	dc7f4b88586665c0fde17d7542c1c2496f93974e
+commit	42308330b9387608d9bb9100b629b0920a2ee95e
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
@@ -12,14 +12,14 @@ file	972f5fb41e353ad1db75b6edfaff86ffa386fa7c	.claude/skills/claim-task/SKILL.md
 file	f2c79fd62eee1e3b6dcba9f1c491f79c4b815c01	.claude/skills/claim-task/claim-replay
 file	874ba97c3c3967e5bf0a32671c8bab78b43e652b	.claude/skills/claim-task/issue-fields
 file	1836f3e0672e9d7b665efa6fb2aa759a2f375f46	.claude/skills/claim-task/task-queue
-file	92348f4b6c2a47b6d499c9a94058e891ba8da01a	.claude/skills/codex-queue/SKILL.md
+file	a886dc60d03316e2b48e2241f3e6c80d0eed9e66	.claude/skills/codex-queue/SKILL.md
 file	fb1f774500ef12f0dcf4c5daa2cc7295c91e55a1	.claude/skills/codex-queue/codex-tick.sh
 file	9c381502dfa9df452f0e9136f368e47f4b7116eb	.claude/skills/create-pr/SKILL.md
 file	99c35736e4330f65c1c1644abd99ad0ab60b4516	.claude/skills/create-pr/lib/restack-common.sh
 file	9da2e84336303315ea7399e8e8854ecd33d9497e	.claude/skills/create-pr/pr-stack-section
 file	542607b90f16a89dd2871b23d2b5f419909f13fb	.claude/skills/deep-review-orchestrate/SKILL.md
 file	da77bb1b7ad3e6bfce5a600fd4b6c40f073f0d32	.claude/skills/deep-review-orchestrate/review-loop-state
-file	831775ae82582addfbfd44ab3903fb8adacbf2ea	.claude/skills/deep-review/SKILL.md
+file	fc2442cf95b62cbbe9f6c8bb13239735287642d9	.claude/skills/deep-review/SKILL.md
 file	495557546591f6c1bba4280185fbf51be2150082	.claude/skills/design-exploration/SKILL.md
 file	5bc2ea0b6403bbf5e2bb7b1bb3d0107c19828d69	.claude/skills/pr-body-rules/SKILL.md
 file	fd0c3563ed08311d3c6b37bb8a4d720a28066dbe	.claude/skills/resolve-conflicts/SKILL.md
@@ -41,4 +41,4 @@ file	f26791b00d3f1800e5649d4baad875bd23e402bc	.claude/skills/with-codex/codex-ru
 file	2a5b98f0fb4befc838acac37737627860604d2f4	.claude/skills/work-task-queue/SKILL.md
 file	0ce9e61c1fdd01b81f3f858a46f35ce6cd62dfb1	.claude/skills/writing-style/SKILL.md
 file	20e192f01bce8c47d457eb702f9252114dc124cb	.claude/verify-toolkit
-file	0192e8140f7ebb4110ccc1c6ca190f282c77c122	AGENTS.md
+file	9e90eee07f112ae47e8629ba4a6f6fa2cb298ccb	AGENTS.md

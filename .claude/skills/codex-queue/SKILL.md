@@ -82,6 +82,13 @@ Do `with-codex`'s setup first, including the Python shim, then:
   `codex-tick <role> resume <codex-session-uuid> <queue-session-token> <file>`.
   Do this when a run stopped on something you or Jackson can fix (a sandbox path, a missing tool,
   a decision), instead of letting the claim go stale. A run can't be interrupted mid-way.
+- **Handoff hold when the sandbox can't run the app.** In a repo whose builds, checks or
+  simulator the Codex sandbox can't run (nugget-app's Swift), the worker's one-off instructions
+  tell it to push the draft PR, keep its claim and exit before `Needs review`. The thread then
+  runs the checks the PR lists and, when the change needs screenshots, takes them. A Sonnet low
+  subagent opens each one beside the base's and writes its one-line note; the thread fixes
+  anything it flags. Only then resume the run with "hand off to Needs review". A change with no
+  visual delta says `No screenshots — <reason>` and isn't held for screenshots.
 - **Pause** by not scheduling the next run; say so in the thread. **Stop** by stopping the pending
   timers with TaskStop.
 - **Stale role lock:** `codex-tick` removes its `~/.codex-queue-<role>/run.lock` on normal exit.
