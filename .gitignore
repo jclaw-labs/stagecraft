@@ -12,6 +12,8 @@ dist/
 # local-config's bin/sync-project is committed.
 .claude/*
 !.claude/skills/
+!.claude/settings.json
+!.claude/hooks/
 !.claude/toolkit.manifest
 !.claude/verify-toolkit
 !.claude/REVIEW.base.md
