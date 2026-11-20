@@ -2,7 +2,7 @@
 # Every path below is a vendored copy. Edit the source in local-config,
 # not here; the next sync overwrites whatever it finds.
 source	https://github.com/jclaw-labs/local-config
-commit	42308330b9387608d9bb9100b629b0920a2ee95e
+commit	861d3a1bc2858447aaf59dcd9a1dd7a2d732dab5
 file	769cff538a2baf300e9799c422d7ce7c2baf5dfd	.claude/REVIEW.base.md
 file	7d70a5f97f41aa3a4524d231dac32418738bb073	.claude/skills/address-deep-review/SKILL.md
 file	df93ed1be6c9f88b0b339b861cb10abd21ec20d6	.claude/skills/agent-provenance/SKILL.md
@@ -17,7 +17,7 @@ file	fb1f774500ef12f0dcf4c5daa2cc7295c91e55a1	.claude/skills/codex-queue/codex-t
 file	9c381502dfa9df452f0e9136f368e47f4b7116eb	.claude/skills/create-pr/SKILL.md
 file	99c35736e4330f65c1c1644abd99ad0ab60b4516	.claude/skills/create-pr/lib/restack-common.sh
 file	9da2e84336303315ea7399e8e8854ecd33d9497e	.claude/skills/create-pr/pr-stack-section
-file	542607b90f16a89dd2871b23d2b5f419909f13fb	.claude/skills/deep-review-orchestrate/SKILL.md
+file	83ea362ed12c03dc211dd1932e680f5586be1ce4	.claude/skills/deep-review-orchestrate/SKILL.md
 file	da77bb1b7ad3e6bfce5a600fd4b6c40f073f0d32	.claude/skills/deep-review-orchestrate/review-loop-state
 file	fc2442cf95b62cbbe9f6c8bb13239735287642d9	.claude/skills/deep-review/SKILL.md
 file	495557546591f6c1bba4280185fbf51be2150082	.claude/skills/design-exploration/SKILL.md
