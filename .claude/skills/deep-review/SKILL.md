@@ -49,6 +49,8 @@ for an index to a marker that posted, return the index instead.
 - **Must** / **Should** / **Consider**: graded as the root `REVIEW.md` defines, numbered across sections and
   most impactful first. Each has the file, the concern, why it matters, a concrete alternative, its kind,
   and how you established it.
+- **Screenshots viewed**: for a UI change, each screenshot in the PR body, opened, with what it shows and
+  any finding. A missing screenshot or an unopened one is a must-address finding.
 - **Couldn't verify**: what you couldn't run, and why.
 - One line on whether the PR warrants another review round.
 
